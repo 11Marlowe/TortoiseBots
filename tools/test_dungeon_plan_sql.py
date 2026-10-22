@@ -271,21 +271,30 @@ class DungeonPlanSql(unittest.TestCase):
                 values = [v.strip() for v in re.findall(r"\s*('(?:[^']|'')*'|[^,]+)", row)]
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
-    def test_stormwind_stockade_is_the_draft_as_exported(self):
-        # 20261022210100 (turtle-agent abd37a3, 2026-10-22): the first export of the Stormwind Stockade draft, no row hand-set, with the
-        # boss rows of map 34. 5 legs, 98 steps (15 + 9 + 11 + 4 + 1 pulls), bosses in leg order, no door or event step and empty unit lists.
+    def test_stormwind_stockade_is_the_plan_with_the_pack_fixes(self):
+        # 20261022210100 (turtle-agent 1bb93ed, 2026-10-22): the Stormwind Stockade draft with the pack fixes of PREP-STOCKADE-2026-10-22.md, no row
+        # hand-set, with the boss rows of map 34. 5 legs, 95 steps (14 + 8 + 9 + 3 + 0 pulls), bosses in leg order, no door or event step. The plan row
+        # has the unit lists; the packs that stand with a boss are that boss row's entries, not pulls; Bruegal 1720 is in a pull, not skipped.
         name, text = newest_plan_text("stormwind_stockade")
         self.assertEqual(name, "20261022210100_world.sql")
-        self.assertIn("('stormwind_stockade', 34, '', '', '', 'turtle-agent abd37a3 dungeons/stormwind_stockade.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('stormwind_stockade', 34, '1711,1715,1706', '1711', '1717', 'turtle-agent 1bb93ed dungeons/stormwind_stockade.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "stormwind_stockade")), 5)
         rows = [r for r in self.step_rows(text) if r["plan"] == "stormwind_stockade"]
-        self.assertEqual(len(rows), 98)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [15, 9, 11, 4, 1])
+        self.assertEqual(len(rows), 95)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [14, 8, 9, 3, 0])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["1696", "1663", "1666", "1717", "1716"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
-        # The last step of every leg is its boss, and the rows of the other plans in the file: none.
+        # The last step of every leg is its boss; the boss rows' entries are the packs that stand with them (Hamhock's guards are a creature_group
+        # and come with him: his row names none, since the 30 yd of an entries list would hold the Insurgent of Bazil's pair).
         for leg in range(5):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["1706,1707", "1706,1708", "1715,1708", "", "1715,1711"])
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertEqual([r["entries"] for r in pulls if "1720" in r["entries"].split(",")], ["1708,1706,1720"])
+        # No pull of leg 4 (the boss row is the fight), and the Inmates in front of Dextren are the last pull of leg 1 with a radius that stops short of him.
+        self.assertEqual(leg_steps(rows, 4)[0]["kind"], "move")
+        last = [r for r in leg_steps(rows, 1) if r["kind"] == "pull"][-1]
+        self.assertEqual((last["entries"], float(last["radius"])), ("1708", 7.0))
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwind_stockade"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
