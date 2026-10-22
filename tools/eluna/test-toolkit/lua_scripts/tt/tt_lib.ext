@@ -1,0 +1,478 @@
+--[==[
+TortoiseBots Eluna test toolkit: shared library (TEST SERVERS ONLY, never shipped).
+
+Loaded first in every Lua state (".ext" files load before ".lua" files), then
+returned again by require("tt_lib") from the other toolkit files.
+
+Written against the pinned Eluna 1b06f28 (cmangos-spell-update) with the
+ELUNA_VMANGOS backend (src/modules/Eluna/methods/VMangos/*.h). Every Eluna call
+used here exists in those tables; see tools/eluna/test-toolkit/README.md.
+
+Rules kept by every toolkit file:
+  * never store a game object (Unit, Player, Map ...) across calls: Eluna
+    invalidates them when the hook returns. Store guids, look them up again.
+  * every hook and timer body runs inside pcall (TT.guard).
+  * bounded work: radius caps, list caps, timers no faster than 1000 ms.
+]==]
+
+local TT = rawget(_G, "TT")
+if TT and TT.__loaded then
+    return TT
+end
+TT = TT or {}
+TT.__loaded = true
+TT.VERSION = 1
+
+-- ---------------------------------------------------------------------------
+-- Configuration (edit here on the test box; `.reload eluna` re-reads it)
+-- ---------------------------------------------------------------------------
+TT.CFG = {
+    min_gm_rank      = 3,     -- Player:GetGMRank() (account security); 3 = SEC_ADMINISTRATOR
+    max_radius       = 100,   -- clearto/quiet/q radius cap (yd)
+    max_point_dist   = 150,   -- a point must be this close (2D) to the caller
+    max_search       = 200,   -- GetCreaturesInRange/GetGameObjectsInRange cap (yd, 3D)
+    max_list         = 40,    -- max units/objects in one reply
+    max_clear        = 60,    -- max creatures removed by one clearto
+    max_line         = 3500,  -- reply length cap (chars); lists are cut and "trunc":true set
+    place_anchor_max = 40,    -- place/floor at x y z: caller must be within this (2D)
+    place_anchor_dz  = 10,    -- ... and within this height of z
+    place_floor_tol  = 3,     -- floor found vs the requested z
+    place_max_drop   = 8,     -- caller z minus the floor under it (here mode)
+    place_spread     = 3,     -- default ring radius for the members
+    place_verify_ms  = 4000,  -- second (verify) reply after a place
+    quiet_wait_max_s = 60,    -- quiet second read cap
+    quiet_roam_r     = 80,    -- roamer check radius (owner's quiet rule)
+    quiet_roam_moved = 2.0,   -- moved more than this between reads = roamer
+
+    telemetry        = true,  -- TTEV lines from tt_telemetry.lua
+    poll_ms          = 1000,  -- creature poll period (never below 1000)
+    poll_radius      = 45,    -- creatures this close to a player are polled
+    poll_max_anchors = 5,     -- players searched from per poll
+    poll_max_units   = 40,    -- creatures handled per poll
+    poll_cache_max   = 400,
+    ev_per_sec       = 50,    -- TTEV rate cap per Lua state
+    log_player_casts = true,  -- PLAYER_EVENT_ON_SPELL_CAST lines (bots included)
+    file_sink        = nil,   -- e.g. "tt_events.jsonl": also append TTEV lines there
+    prototypes       = true,  -- tt_proto.lua watchers
+}
+
+if TT.CFG.poll_ms < 1000 then TT.CFG.poll_ms = 1000 end
+
+-- Eluna constants we rely on (src/modules/Eluna/hooks/Hooks.h)
+TT.EV = {
+    PLAYER_ON_SPELL_CAST       = 5,
+    PLAYER_ON_KILL_CREATURE    = 7,
+    PLAYER_ON_KILLED_BY_CREATURE = 8,
+    PLAYER_ON_ENTER_COMBAT     = 33,
+    PLAYER_ON_LEAVE_COMBAT     = 34,
+    PLAYER_ON_COMMAND          = 42,
+    MAP_ON_PLAYER_ENTER        = 21,
+    MAP_ON_PLAYER_LEAVE        = 22,
+}
+-- core src/game/Objects/Object.h:776 CurrentSpellTypes
+TT.SPELL_GENERIC = 1
+TT.SPELL_CHANNELED = 3
+
+-- ---------------------------------------------------------------------------
+-- Small helpers
+-- ---------------------------------------------------------------------------
+local floor = math.floor
+local sqrt = math.sqrt
+local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
+TT.atan2 = atan2
+
+function TT.round(v, digits)
+    if type(v) ~= "number" or v ~= v or v == math.huge or v == -math.huge then
+        return nil
+    end
+    local m = 10 ^ (digits or 2)
+    return floor(v * m + 0.5) / m
+end
+
+function TT.dist2(ax, ay, bx, by)
+    local dx, dy = ax - bx, ay - by
+    return sqrt(dx * dx + dy * dy)
+end
+
+function TT.dist3(ax, ay, az, bx, by, bz)
+    local dx, dy, dz = ax - bx, ay - by, az - bz
+    return sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+-- Map:GetHeight pushes INVALID_HEIGHT_VALUE (-200000) when nothing is found on
+-- an indoor map (MapMethods.h GetHeight only filters -100000).
+function TT.validZ(z)
+    if type(z) ~= "number" or z ~= z then return nil end
+    if z <= -100000 or z >= 100000 then return nil end
+    return z
+end
+
+-- ---------------------------------------------------------------------------
+-- JSON encoder (compact, deterministic key order for readability)
+-- ---------------------------------------------------------------------------
+local escapes = {
+    ['"'] = '\\"', ['\\'] = '\\\\', ['\b'] = '\\b', ['\f'] = '\\f',
+    ['\n'] = '\\n', ['\r'] = '\\r', ['\t'] = '\\t',
+}
+local function escapeStr(s)
+    return (s:gsub('[%c"\\]', function(c)
+        return escapes[c] or string.format("\\u%04x", c:byte())
+    end))
+end
+
+local function isArray(t)
+    local n = 0
+    for k in pairs(t) do
+        if type(k) ~= "number" or k < 1 or floor(k) ~= k then return false end
+        n = n + 1
+    end
+    for i = 1, n do
+        if t[i] == nil then return false end
+    end
+    return true, n
+end
+
+local encode
+local function encodeNumber(v)
+    if v ~= v or v == math.huge or v == -math.huge then return "null" end
+    if floor(v) == v and v > -1e15 and v < 1e15 then
+        return string.format("%d", v)
+    end
+    local s = string.format("%.2f", v)
+    s = s:gsub("0+$", ""):gsub("%.$", "")
+    return s
+end
+
+encode = function(v, depth)
+    depth = depth or 0
+    if depth > 12 then return "null" end
+    local t = type(v)
+    if v == nil or v == TT.NULL then return "null" end
+    if t == "boolean" then return v and "true" or "false" end
+    if t == "number" then return encodeNumber(v) end
+    if t == "string" then return '"' .. escapeStr(v) .. '"' end
+    if t == "table" then
+        local arr, n = isArray(v)
+        local parts = {}
+        if arr and (n > 0 or v.__array) then
+            for i = 1, n do parts[i] = encode(v[i], depth + 1) end
+            return "[" .. table.concat(parts, ",") .. "]"
+        end
+        if arr and n == 0 and not v.__object then
+            return "[]"
+        end
+        local keys = {}
+        for k in pairs(v) do
+            if k ~= "__array" and k ~= "__object" then keys[#keys + 1] = tostring(k) end
+        end
+        table.sort(keys)
+        for i = 1, #keys do
+            local k = keys[i]
+            local val = v[k]
+            if val == nil then val = v[tonumber(k)] end
+            parts[#parts + 1] = '"' .. escapeStr(k) .. '":' .. encode(val, depth + 1)
+        end
+        return "{" .. table.concat(parts, ",") .. "}"
+    end
+    return '"' .. escapeStr(tostring(v)) .. '"'
+end
+TT.NULL = setmetatable({}, { __tostring = function() return "null" end })
+TT.json = function(v) return encode(v, 0) end
+function TT.obj(t) t = t or {}; t.__object = true; return t end
+
+-- ---------------------------------------------------------------------------
+-- GUIDs
+-- ---------------------------------------------------------------------------
+-- core src/game/ObjectGuid.h:70-74 HighGuid; ObjectGuid.h:129 layout
+-- (counter | entry << 24 | high << 48). For static spawns the counter is the
+-- creature/gameobject DB guid (r19 trace: 0xF130008EA7279E95 = entry 36519,
+-- counter 2596501 = creature_linking guid).
+local HIGH = { Creature = 0xF130, Pet = 0xF140, Gameobject = 0xF110 }
+TT.HIGH = HIGH
+
+-- ObjectGuid has only __tostring (= ObjectGuid::GetString, ObjectGuid.cpp:56):
+-- "Creature (Entry: 36519 Guid: 2596501)", "Player Name (Guid: 12)".
+function TT.guidHex(guid)
+    if guid == nil then return nil end
+    local ok, s = pcall(tostring, guid)
+    if not ok or type(s) ~= "string" then return nil end
+    local kind = s:match("^(%a+)")
+    local counter = tonumber(s:match("Guid: (%d+)"))
+    if not kind or not counter or counter == 0 then return nil end
+    if kind == "Player" then
+        return string.format("0x%016X", counter)
+    end
+    local high = HIGH[kind]
+    local entry = tonumber(s:match("Entry: (%d+)") or s:match("Petnumber: (%d+)") or "0")
+    if not high or counter > 0xFFFFFF or entry > 0xFFFFFF then return nil end
+    return string.format("0x%04X%06X%06X", high, entry, counter)
+end
+
+function TT.objHex(obj)
+    if obj == nil then return nil end
+    local ok, g = pcall(function() return obj:GetGUID() end)
+    if not ok then return nil end
+    return TT.guidHex(g)
+end
+
+-- "0xF130008EA7279E95" -> kind, entry, counter
+function TT.parseHex(s)
+    if type(s) ~= "string" then return nil end
+    local h = s:match("^0[xX](%x+)$")
+    if not h or #h > 16 then return nil end
+    h = string.rep("0", 16 - #h) .. h:upper()
+    local high = tonumber(h:sub(1, 4), 16)
+    local entry = tonumber(h:sub(5, 10), 16)
+    local counter = tonumber(h:sub(11, 16), 16)
+    if high == 0 then
+        return "Player", 0, tonumber(h:sub(9, 16), 16)
+    end
+    for k, v in pairs(HIGH) do
+        if v == high then return k, entry, counter end
+    end
+    return nil
+end
+
+-- Find a creature/gameobject/player of `map` by hex guid; checks the entry so
+-- a stale or wrong guid never answers with another unit.
+function TT.findByHex(map, hex)
+    local kind, entry, counter = TT.parseHex(hex)
+    if not kind then return nil, "bad_guid" end
+    local g
+    if kind == "Creature" then
+        g = GetUnitGUID(counter, entry)
+    elseif kind == "Gameobject" then
+        g = GetObjectGUID(counter, entry)
+    elseif kind == "Player" then
+        g = GetPlayerGUID(counter)
+    else
+        return nil, "kind_not_supported"
+    end
+    local o = map:GetWorldObject(g)
+    if not o then return nil, "not_found" end
+    if kind ~= "Player" and o:GetEntry() ~= entry then return nil, "entry_mismatch" end
+    return o
+end
+
+-- ---------------------------------------------------------------------------
+-- Output
+-- ---------------------------------------------------------------------------
+local function writeStdout(line)
+    -- mangosd stdout is what `docker logs` shows; flush, a pipe is block-buffered
+    if io and io.write then
+        io.write(line, "\n")
+        if io.stdout then io.stdout:flush() end
+    else
+        print(line)
+    end
+end
+TT.writeStdout = writeStdout
+
+local sinkFile
+local function writeSink(line)
+    if not TT.CFG.file_sink or not io or not io.open then return end
+    if not sinkFile then
+        sinkFile = io.open(TT.CFG.file_sink, "a")
+        if not sinkFile then TT.CFG.file_sink = nil; return end
+    end
+    sinkFile:write(line, "\n")
+    sinkFile:flush()
+end
+
+-- Rate limiter, per Lua state (globals are per state)
+local bucket = { t = 0, n = 0, dropped = 0 }
+local function nowMs()
+    local ok, v = pcall(GetCurrTime)
+    if ok and type(v) == "number" then return v end
+    return floor(os.clock() * 1000)
+end
+TT.nowMs = nowMs
+
+function TT.ev(kind, fields)
+    if not TT.CFG.telemetry then return end
+    local now = nowMs()
+    if now - bucket.t >= 1000 then
+        if bucket.dropped > 0 then
+            local d = bucket.dropped
+            bucket.dropped = 0
+            local l = "TTEV " .. TT.json(TT.obj({ ev = "dropped", n = d, ts = os.time() }))
+            writeStdout(l); writeSink(l)
+        end
+        bucket.t = now
+        bucket.n = 0
+    end
+    bucket.n = bucket.n + 1
+    if bucket.n > TT.CFG.ev_per_sec then
+        bucket.dropped = bucket.dropped + 1
+        return
+    end
+    fields = fields or {}
+    fields.ev = kind
+    fields.ts = os.time()
+    fields.ms = now
+    local line = "TTEV " .. TT.json(TT.obj(fields))
+    writeStdout(line)
+    writeSink(line)
+end
+
+function TT.log(msg)
+    writeStdout("TTLOG " .. tostring(msg))
+end
+
+-- Run fn under pcall; log (not raise) any error so a hook never breaks the core
+function TT.guard(name, fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok then
+        TT.log(name .. " error: " .. tostring(err))
+        return nil, err
+    end
+    return err
+end
+
+-- ---------------------------------------------------------------------------
+-- Unit snapshots
+-- ---------------------------------------------------------------------------
+function TT.pos(o)
+    local x, y, z = o:GetX(), o:GetY(), o:GetZ()
+    return { TT.round(x), TT.round(y), TT.round(z) }
+end
+
+local function spellInfo(unit, slot)
+    local sp = unit:GetCurrentSpell(slot)
+    if not sp then return nil end
+    local id = sp:GetEntry()
+    local tgt = sp:GetTarget()
+    local th
+    if tgt and tgt.GetGUID then th = TT.objHex(tgt) end
+    return id, th
+end
+TT.spellInfo = spellInfo
+
+-- auraIds: optional list of spell ids to look up with Unit:GetAura (the pinned
+-- Eluna has no aura iteration). For each aura found: caster guid and whether
+-- that caster is channelling that spell at this unit right now.
+function TT.unitSnap(u, ox, oy, oz, auraIds, map)
+    local hp, maxhp = u:GetHealth(), u:GetMaxHealth()
+    local s = {
+        g = TT.objHex(u),
+        e = u:GetEntry(),
+        n = u:GetName(),
+        p = TT.pos(u),
+        hp = TT.round(u:GetHealthPct(), 1),
+        hpv = { hp, maxhp },
+        cb = u:IsInCombat() and true or false,
+        dead = u:IsDead() and true or false,
+    }
+    if ox then
+        s.d = TT.round(TT.dist2(ox, oy, u:GetX(), u:GetY()), 1)
+        s.dz = TT.round(u:GetZ() - oz, 1)
+    end
+    local v = u:GetVictim()
+    if v then s.v = TT.objHex(v) end
+    local gid, gt = spellInfo(u, TT.SPELL_GENERIC)
+    if gid then s.cs = { gid, gt or TT.NULL } end
+    local cid, ct = spellInfo(u, TT.SPELL_CHANNELED)
+    if cid then s.ch = { cid, ct or TT.NULL } end
+    local c = u:ToCreature()
+    if c then
+        s.db = c:GetDBTableGUIDLow()
+        s.rk = c:GetRank()
+        s.ev = c:IsInEvadeMode() and true or false
+        local hx, hy, hz = c:GetHomePosition()
+        if hx then s.home = { TT.round(hx), TT.round(hy), TT.round(hz) } end
+    end
+    if auraIds and #auraIds > 0 then
+        local list = {}
+        local myHex = s.g
+        for i = 1, #auraIds do
+            local a = u:GetAura(auraIds[i])
+            if a then
+                local cg = a:GetCasterGUID()
+                local chex = TT.guidHex(cg)
+                local channels = false
+                if map and cg then
+                    local caster = map:GetWorldObject(cg)
+                    if caster and caster.ToUnit and caster:ToUnit() then
+                        local cid2, ct2 = spellInfo(caster:ToUnit(), TT.SPELL_CHANNELED)
+                        channels = (cid2 == auraIds[i] and ct2 == myHex) and true or false
+                    end
+                end
+                list[#list + 1] = {
+                    s = auraIds[i], c = chex or TT.NULL, chan = channels,
+                    dur = a:GetDuration(), st = a:GetStackAmount(),
+                }
+            end
+        end
+        s.au = list
+    end
+    return s
+end
+
+-- Creatures around a point, searched from `center` (an object in the same map):
+-- GetCreaturesInRange is object-centred and 3D, so search wide and filter 2D.
+-- hostile: 0 any, 1 hostile to center, 2 friendly (WorldObjectMethods.h:260)
+-- dead: 0 both, 1 alive, 2 dead
+function TT.creaturesAt(center, x, y, z, r, hostile, dead, entry)
+    local cx, cy, cz = center:GetX(), center:GetY(), center:GetZ()
+    local reach = TT.dist3(cx, cy, cz, x, y, z) + r + 30
+    if reach > TT.CFG.max_search then reach = TT.CFG.max_search end
+    local found = center:GetCreaturesInRange(reach, entry or 0, hostile or 0, dead or 1) or {}
+    local out = {}
+    for i = 1, #found do
+        local c = found[i]
+        local d = TT.dist2(x, y, c:GetX(), c:GetY())
+        if d <= r then out[#out + 1] = { c = c, d = d } end
+    end
+    table.sort(out, function(a, b) return a.d < b.d end)
+    return out
+end
+
+function TT.gameObjectsAt(center, x, y, z, r, entry)
+    local cx, cy, cz = center:GetX(), center:GetY(), center:GetZ()
+    local reach = TT.dist3(cx, cy, cz, x, y, z) + r + 30
+    if reach > TT.CFG.max_search then reach = TT.CFG.max_search end
+    local found = center:GetGameObjectsInRange(reach, entry or 0, 0) or {}
+    local out = {}
+    for i = 1, #found do
+        local go = found[i]
+        local d = TT.dist2(x, y, go:GetX(), go:GetY())
+        if d <= r then out[#out + 1] = { o = go, d = d } end
+    end
+    table.sort(out, function(a, b) return a.d < b.d end)
+    return out
+end
+
+-- Floor under/near a point, z-aware, through the caller:
+-- WorldObject:GetRelativePoint -> GetClosePoint -> GetNearPoint ->
+-- UpdateGroundPositionZ (core Object.cpp:1845) = Map::GetHeight(x, y, z_caller):
+-- searches from the CALLER's z + 2 downwards. Map:GetHeight(x, y) in Eluna has
+-- no z and searches from MAX_HEIGHT, which is the roof (or nothing indoors).
+-- Returns fx, fy, fz or nil when no floor was found (z comes back unchanged).
+function TT.floorNear(anchor, x, y)
+    local ax, ay, az, ao = anchor:GetX(), anchor:GetY(), anchor:GetZ(), anchor:GetO()
+    local d = TT.dist2(ax, ay, x, y)
+    local rel = 0
+    if d > 0.01 then rel = atan2(y - ay, x - ax) - ao end
+    local fx, fy, fz = anchor:GetRelativePoint(d, rel)
+    if not fz or math.abs(fz - az) < 0.001 then
+        return nil
+    end
+    return fx, fy, fz
+end
+
+function TT.topZ(map, x, y)
+    local ok, z = pcall(function() return map:GetHeight(x, y) end)
+    if not ok then return nil end
+    return TT.validZ(z)
+end
+
+-- Online group members of a player (World state only: Group:GetMembers is
+-- METHOD_REG_WORLD, GroupMethods.h).
+function TT.groupMembers(player)
+    local g = player:GetGroup()
+    if not g then return {} end
+    return g:GetMembers() or {}
+end
+
+_G.TT = TT
+return TT
