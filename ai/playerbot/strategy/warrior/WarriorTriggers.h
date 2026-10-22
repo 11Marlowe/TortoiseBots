@@ -1,6 +1,7 @@
 #pragma once
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "playerbot/BattleShoutPolicy.h"
+#include "playerbot/WarriorRageGatePolicy.h"
 
 namespace ai
 {
@@ -9,8 +10,35 @@ namespace ai
     BUFF_TRIGGER_A(BerserkerStanceTrigger, "berserker stance");
     BUFF_TRIGGER_A(ShieldBlockTrigger, "shield block");
     DEBUFF_TRIGGER(RendDebuffTrigger, "rend");
-    DEBUFF_TRIGGER(DisarmDebuffTrigger, "disarm");
     DEBUFF_TRIGGER_A(SunderArmorDebuffTrigger, "sunder armor");
+    // Disarm only when it can bite (issue 1157): the spell needs 20 rage and
+    // a target that actually carries a weapon. Without the gates the row was
+    // armed every combat tick and failed isPossible — 99.6 % IMPOSSIBLE at a
+    // median of 6 rage in the spell audit.
+    class DisarmDebuffTrigger : public DebuffTrigger
+    {
+    public:
+        DisarmDebuffTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "disarm") {}
+
+        bool IsActive() override
+        {
+            if (!DebuffTrigger::IsActive())
+                return false;
+
+            if (AI_VALUE2(uint8, "rage", "self target") < WARRIOR_DISARM_RAGE_COST)
+                return false;
+
+            Unit* target = GetTarget();
+            if (!target)
+                return false;
+
+            if (Player* playerTarget = target->ToPlayer())
+                return playerTarget->GetWeaponForAttack(BASE_ATTACK, true, true) != nullptr;
+
+            Creature* creatureTarget = target->ToCreature();
+            return creatureTarget && creatureTarget->HasWeapon();
+        }
+    };
     DEBUFF_TRIGGER(DemoralizingShoutDebuffTrigger, "demoralizing shout");
     DEBUFF_TRIGGER(MortalStrikeDebuffTrigger, "mortal strike");
     DEBUFF_ENEMY_TRIGGER(RendDebuffOnAttackerTrigger, "rend");
@@ -61,6 +89,11 @@ namespace ai
         bool IsActive() override
         {
             static const std::vector<uint32> battleShoutIds = {6673, 5242, 6192, 11549, 11550, 11551, 25289};
+
+            // 10-rage gate (issue 1157): the row was armed every tick at any
+            // rage and failed isPossible (79 % IMPOSSIBLE, median rage 1).
+            if (!ShouldBattleShout(AI_VALUE2(uint8, "rage", "self target")))
+                return false;
 
             for (uint32 id : battleShoutIds)
             {

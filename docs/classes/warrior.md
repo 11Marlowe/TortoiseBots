@@ -63,7 +63,8 @@ Warriors serve as primary dungeon tanks or powerful melee DPS, managing dynamic 
   - *Fury:* Uses *Pummel* (in Berserker Stance).
   - *Arms:* Uses *Pummel* first, falling back to *Shield Bash* without stance dancing.
   - Interrupts only fire on active cast bars or channels; delayed instants never trigger interrupts.
-- **Shouts:** Maintains *Battle Shout* on party members (skipping if an equal or stronger *Blessing of Might* is active). Protection maintains *Demoralizing Shout*. *Intimidating Shout* is restricted to open-world emergencies and never used in dungeons.
+- **Shouts:** Maintains *Battle Shout* on party members (skipping if an equal or stronger *Blessing of Might* is active, or below 10 rage). Protection maintains *Demoralizing Shout*. *Intimidating Shout* is restricted to open-world emergencies and never used in dungeons.
+- **Rage gates:** *Disarm* is only cast on a target that carries a weapon and only with the 20 rage it costs; *Bloodrage* is held while its cooldown runs or the bot is too hurt to pay the health cost. Rows that cannot be cast are never tried, so low-rage ticks go to *Sunder Armor* and *Revenge* instead.
 - **Hold Ground Opt-In:** When [PoolMeleeHoldGround](../server/settings/performance.md#aiplayerbotpoolmeleeholdground) is enabled, pool warriors fight through low-health emergencies using *Shield Wall* and *Last Stand* rather than fleeing.
 
 ---
