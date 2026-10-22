@@ -8,6 +8,8 @@
 #include "../../../runtime/HunterViperPolicy.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/ThreatValues.h"
+#include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "playerbot/HunterAoePolicy.h"
 
 using namespace ai;
 
@@ -78,6 +80,74 @@ bool HuntersMarkTrigger::IsActive()
         return false;
 
     return DebuffTrigger::IsActive();
+}
+
+// The generic CC gate (HasCcTargetTrigger::CcTargetPending) holds dungeon
+// crowd control to an assigned raid mark, so the trap never fired in a
+// markless dungeon run. The trap goes on the chooser's own pick instead -
+// the same target tournament every other crowd control follows: never over
+// an existing CC, never a mob the group is already fighting, never dotted,
+// never the kill target. While our own trap holds a mob the value goes
+// empty, so no second trap is laid on top.
+bool FreezingTrapTrigger::IsActive()
+{
+    // The action feigns before dropping the trap, so the feign readiness is
+    // a prerequisite, not an optimization.
+    if (!sServerFacade.IsSpellReady(bot, 5384))
+        return false;
+
+    uint32 const trapId = AI_VALUE2(uint32, "spell id", getName());
+    if (!trapId || !sServerFacade.IsSpellReady(bot, trapId))
+        return false;
+
+    return AI_VALUE2(Unit*, "cc target", getName()) && !AI_VALUE2(Unit*, "current cc target", getName());
+}
+
+// The splash is measured around the current target: an attacker inside the
+// 15 yd splash radius (1.12 DBC) gets hit when the shot lands. Members must
+// be fighting - an idle add selected by nobody never counts - and CC'd
+// members never count; a breakable CC inside the splash vetoes the whole
+// shot. Skull-marked mobs opted out of CC protection (same as the AoE
+// interlock): their CC is treated as stale.
+bool HunterMultiShotTrigger::IsActive()
+{
+    if (!SpellCanBeCastedTrigger::IsActive())
+        return false;
+
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target)
+        return false;
+
+    uint8_t splashTargets = 0;
+    bool breakableCcInSplash = false;
+    for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (!unit || !sServerFacade.IsAlive(unit) || !unit->IsInCombat())
+            continue;
+
+        if (sServerFacade.getDistance2d(unit, target) > kHunterMultiShotSplashYd)
+            continue;
+
+        if (PossibleAttackTargetsValue::HasIgnoreCCRti(unit, bot))
+        {
+            ++splashTargets;
+            continue;
+        }
+
+        if (PossibleAttackTargetsValue::HoldsBreakableCc(ai, unit, bot))
+        {
+            breakableCcInSplash = true;
+            continue;
+        }
+
+        if (PossibleAttackTargetsValue::HasUnBreakableCC(unit, bot))
+            continue;
+
+        ++splashTargets;
+    }
+
+    return ShouldHunterMultiShot(splashTargets, breakableCcInSplash);
 }
 
 bool AspectOfTheViperLowManaTrigger::IsActive()

@@ -28,7 +28,7 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 - Maintains maximum ranged distance from hostiles, opening with *Hunter's Mark* and *Auto Shot*. With a living tank in the group the mark goes only on the mob the tank is fighting.
 - Fires *Aimed Shot* (MM) or *Arcane Shot* on cooldown.
 - Uses *Steady Shot* as a filler timed cast fitting directly into the Auto Shot swing window.
-- Uses *Multi-Shot* when multiple targets are present without risking crowd control breaks.
+- Uses *Multi-Shot* only when the splash around the target catches a second fighting enemy, and never into a crowd-controlled mob standing beside it.
 - Channels *Volley* against grouped mobs, cancelling the channel if fewer than 2 mobs remain in the area.
 - Multi-Shot and Volley respect [party threat back-off](overview.md#party-threat-back-off) when holding ≥50% of the tank's threat.
 - Keeps *Serpent Sting* ticking on high-health targets (skipping targets near death).
@@ -81,7 +81,7 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 
 - **Enrage Dispel:** Dispels enrage with *Tranquilizing Shot* via the dispel-enrage trigger.
 - **Crowd Control:**
-  - Deploys *Freezing Trap* on assigned crowd control marks.
+  - Deploys *Freezing Trap* on assigned crowd control marks; without a mark (a dungeon run with none set), it traps a loose extra attacker on its own — a mob nobody in the group is fighting yet, not dotted and not already held by another crowd control — and lays the trap where the mob will walk into it.
   - Casts *Scare Beast* on hostile beasts, withholding area attacks until the target is controlled.
 - **Combat Traps:**
   - Lays *Immolation Trap*, *Frost Trap*, or *Explosive Trap* via *Feign Death*, avoiding melee suicide walks.
