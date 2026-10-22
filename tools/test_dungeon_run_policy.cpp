@@ -7018,6 +7018,38 @@ static void TestDetourPointReachable()
     CHECK(DetourPointReachable(false, false, 0.0f, 20.0f, kArriveYd + 0.1f));
 }
 
+// Uldaman r13-19z30 slot 5/slot 1 (T3): the tank fell into the 6 x 6 yd pit at
+// x 39.7-46.1, y 370.7-376.8, z -38.9 (no navmesh exit). The detour of step 96
+// (50.8 379.3) took the pit's own ring point 42.1 374.3 as 'the nearest reachable
+// point': the lead's path to it is complete (same polygon group), but the point's own
+// path toward 50.8 379.3 is partial and ends 1.1 yd from it, in the pit.
+static void TestDetourCandidateLeadsOn()
+{
+    float const fromPoint = 10.0f; // 42.1 374.3 is 10.0 yd from 50.8 379.3
+    // The pit point: lead at 45.3 374.4 (3.2 yd away), the candidate's probe partial,
+    // ending 1.1 yd from it and 1.1 + 3.2 yd from the lead.
+    CHECK(DetourPointReachable(false, false, 0.0f, 20.0f, 3.2f));
+    CHECK(!DetourCandidateLeadsOn(false, true, 1.1f, 4.3f, fromPoint));
+    // Same pit point, lead at 42.5 376.3 (2.0 yd): refused as before by the arrive rule.
+    CHECK(!DetourPointReachable(false, false, 0.0f, 20.0f, 2.0f));
+    // A pit point whose probe ends in the pit at more than 10 yd from the lead and from itself would lead on
+    // (the same rule as a ring spot's): the lead's own end distance stays the second gate.
+    CHECK(!DetourCandidateLeadsOn(false, true, kGoodPathMinYd + 1, 3.0f, fromPoint)); // ends near the lead
+    CHECK(!DetourCandidateLeadsOn(false, true, 3.0f, kGoodPathMinYd + 1, fromPoint)); // ends near the candidate
+    // A main-mesh candidate outside the pit: its probe is complete -> accepted.
+    CHECK(DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, fromPoint));
+    // ... or partial but leading on well past both.
+    CHECK(DetourCandidateLeadsOn(false, true, kGoodPathMinYd + 1, kGoodPathMinYd + 1, fromPoint));
+    // No path at all from the candidate: refused.
+    CHECK(!DetourCandidateLeadsOn(true, false, 0.0f, 12.0f, fromPoint));
+    // The plan's own point (or one within kArriveYd of it) has nothing to lead on to: not asked.
+    CHECK(DetourCandidateLeadsOn(true, false, 0.0f, 0.0f, 0.0f));
+    CHECK(DetourCandidateLeadsOn(false, true, 0.0f, 0.0f, kArriveYd));
+    CHECK(!DetourCandidateLeadsOn(false, true, 0.0f, 0.0f, kArriveYd + 0.1f));
+    // The lead itself within kArriveYd of the candidate: still refused before the probe is read.
+    CHECK(!DetourPointReachable(false, false, 0.0f, 0.0f, kArriveYd));
+}
+
 // One reading is no island (a ledge, a closed door): the forward move goes out
 // as before; a direct step's point never escapes; out of sight the approach hop decides.
 static void TestForwardMoveIslandNeedsSecondSign()
@@ -10587,6 +10619,7 @@ int main()
     TestForwardMoveIslandNeedsSecondSign();
     TestForwardMoveNoPathLedgeEscapes();
     TestDetourPointReachable();
+    TestDetourCandidateLeadsOn();
     TestForwardEscapeNoSpotFallsBack();
     TestForwardEscapeAfterAFallFallsBack();
     TestForwardEscapeNeedsAFreshGoodSpot();
