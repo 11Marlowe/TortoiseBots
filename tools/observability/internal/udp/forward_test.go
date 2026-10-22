@@ -299,3 +299,21 @@ func TestValidateForwardsLoopShapes(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateForwardsCapsTheTargetCount(t *testing.T) {
+	var targets []string
+	for i := 0; i < maxForwardTargets; i++ {
+		targets = append(targets, "192.0.2."+strconv.Itoa(i+1)+":9195")
+	}
+	if err := validateForwards("127.0.0.1:9195", targets); err != nil {
+		t.Fatalf("%d targets were refused: %v", maxForwardTargets, err)
+	}
+	targets = append(targets, "192.0.2.99:9195")
+	err := validateForwards("127.0.0.1:9195", targets)
+	if err == nil {
+		t.Fatalf("%d targets were accepted", len(targets))
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(maxForwardTargets)) {
+		t.Fatalf("the error does not name the limit: %v", err)
+	}
+}

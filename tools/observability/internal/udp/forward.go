@@ -11,6 +11,11 @@ import (
 // cannot hold up the read loop.
 const forwardWriteTimeout = 50 * time.Millisecond
 
+// maxForwardTargets bounds the fan-out. Forwarding runs on the read loop, so
+// with every target blocking, one datagram waits at most
+// maxForwardTargets * forwardWriteTimeout (200 ms).
+const maxForwardTargets = 4
+
 // forwardLogInterval is the least time between two error lines for one target.
 const forwardLogInterval = 30 * time.Second
 
@@ -88,6 +93,9 @@ func validateForwards(listen string, targets []string) error {
 	listenAddr, err := net.ResolveUDPAddr("udp", listen)
 	if err != nil {
 		return fmt.Errorf("listen address %s: %w", listen, err)
+	}
+	if len(targets) > maxForwardTargets {
+		return fmt.Errorf("%d forward targets given: at most %d are allowed, since each one can hold up the read loop for %v", len(targets), maxForwardTargets, forwardWriteTimeout)
 	}
 	wildcard := len(listenAddr.IP) == 0 || listenAddr.IP.IsUnspecified()
 	var local []net.IP
