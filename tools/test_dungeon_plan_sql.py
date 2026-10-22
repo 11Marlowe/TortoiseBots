@@ -537,6 +537,18 @@ class DungeonPlanSql(unittest.TestCase):
                 self.assertNotEqual(r["entries"], "4860", name + ": the Steward is pulled in the galgann leg again")
                 self.assertGreater(dist(r, -43.03, 263.93), 1, name + ": the Sculptor pull is in the galgann leg again")
 
+    def test_uldaman_scorpid_pull_is_approached_from_the_ramp_top(self):
+        # r10 regression (PLAN-ULDAMAN-R10-REGRESSION.txt, F2): the approach of the ten scorpids (pull group 3) is the ramp top where r9 pulled
+        # cleanly; from -17.5 292.5 the healer and the mage stood 27-30 yd behind the tank when the scorpids engaged at step 79.
+        name, text, rows = newest_uldaman_rows()
+        legs = leg_rows(text, "uldaman")
+        galgann = leg_steps(rows, next(k for k, (leg_name, _c) in legs.items() if leg_name == "galgann"))
+        pulls = [i for i, r in enumerate(galgann) if r["kind"] == "pull" and r["entries"] == "7405"]
+        self.assertEqual(len(pulls), 1, name + ": the scorpid pull is missing or doubled")
+        approach = galgann[pulls[0] - 1]
+        self.assertEqual((approach["kind"], approach["comment"], approach["x"], approach["y"], approach["z"]),
+                         ("move", "pull group 3 approach", "-20", "321", "-40"), name + ": the scorpid approach is not the ramp top")
+
     def test_uldaman_grimlok_corridor_is_pulled_one_group_at_a_time(self):
         # PLAN-ULDAMAN-GRIMLOK #2: Brawler 30105 (40.6 359.9) joined pull group 0 in 8 of 8 runs, so group 0 lists it (radius 16 at
         # 35.77 370.57: 11.7 yd to it, the Brawler at 55.4 379 stays out). The first groups of the keepers_door leg are pulled next
