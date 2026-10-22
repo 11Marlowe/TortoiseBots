@@ -79,6 +79,16 @@ plain, and fill in the template:
 - **How to use it:** the command or config key, and its default.
 - **Testing:** what you built and checked, and what you did not.
 
+Write it so the owner understands the pull request without opening the diff:
+
+- Start with one or two plain sentences: what was wrong or missing, and what a
+  player or server operator notices now. Example: "Hunters with a dismissed pet
+  asked the database every few seconds; now they ask once a minute."
+- No file names, function names, line numbers or code identifiers outside the
+  "How to use it" commands and config keys. Code-level detail belongs in the
+  commit messages and in review comments.
+- Keep it short: a description longer than one screen is too long.
+
 If a full build or runtime test is not available, say so clearly rather than
 leaving the reviewer to guess. A description that does not say what changes
 will be sent back.
