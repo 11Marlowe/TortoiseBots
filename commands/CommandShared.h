@@ -3,6 +3,7 @@
 #include "BotCommandContext.h"
 
 #include "../ai/playerbot/BotState.h"
+#include "../ai/playerbot/PullOpeningPolicy.h"
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
 
 #include <cstdint>
@@ -80,6 +81,8 @@ bool RunCcOrder(ChatHandler* handler, BotCommandContext const& context, Player* 
     std::string const& intent, std::string const& reportIntent);
 bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context, Player* requester,
     std::string const& intent, std::string const& option, std::string const& reportIntent);
+// The parsed pull option ("[seconds] [ranged]") as ack detail text.
+std::string PullOptionText(ai::PullOrderOption const& parsed);
 // The `.bot action raid ...` intents (status/tankface/douse/custom), shared
 // with the commander's raid orders.
 bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& context, Player* requester,
