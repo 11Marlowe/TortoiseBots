@@ -260,12 +260,12 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["644", "642", "61963", "1763", "646", "647", "639"])
 
     def test_scarlet_library_is_the_plan_with_the_pack_fixes(self):
-        # 20261022210200 (turtle-agent prep/scarlet_library, library census 2026-10-22): the draft with the unit lists
+        # 20261022210600 (turtle-agent prep/scarlet_library, library census 2026-10-22): the draft with the unit lists
         # (fleers 4287 4288 4291 4296 4299, cc 4299 4296, cc_always 4299, kill_first 4291), Loksey's three hounds and
         # Wystan's two camp Monks folded into their boss steps (boss.first), the two patrols on their pulls and the two
         # Doan-hall packs at radius 9. Every pin below fails when its rows are cut.
         name, text = newest_plan_text("scarlet_library")
-        self.assertEqual(name, "20261022210200_world.sql")
+        self.assertEqual(name, "20261022210600_world.sql")
         self.assertIn("('scarlet_library', 189, '4299,4296', '4299', '4291', 'turtle-agent c670d6e dungeons/scarlet_library.json',", text)
         rows = [r for r in self.step_rows(text) if r["plan"] == "scarlet_library"]
         self.assertEqual(len(rows), 88)
