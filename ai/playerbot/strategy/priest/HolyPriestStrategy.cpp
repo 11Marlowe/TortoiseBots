@@ -45,16 +45,24 @@ void HolyPriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
                              new NextAction("heal on party", ACTION_MEDIUM_HEAL),
                              new NextAction("lesser heal on party", ACTION_MEDIUM_HEAL - 1), NULL)));
 
-    // Pull 1 (Deadmines, 2026-10-13): the tank fell through the medium band
-    // with only the renew row (60) armed there — the first heal came 8 s
-    // late, after fear ward (23) and the wand (5). The shield/fast-heal
-    // opening rides the medium row too, mirroring the low row's top
-    // (shield, then inner focus at MEDIUM+3, then the fast heal), so a
-    // dropping tank gets shield + flash heal first; renew stays last.
+    // Heavy incoming damage with enough healer mana: flash heal lands
+    // before the bar runs out of the medium band. Untrained flash heal
+    // falls through to the efficient row below.
+    triggers.push_back(new TriggerNode(
+        "party member medium health fast damage",
+        NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
+                             new NextAction("flash heal on party", ACTION_MEDIUM_HEAL + 2), NULL)));
+
+    // The medium band splits by the pace of the damage: heavy incoming
+    // damage takes the fast row above (shield, then inner focus at MEDIUM+3,
+    // then the fast heal), slow or stable damage keeps the efficient row
+    // here - greater heal/heal/lesser heal by deficit, renew last. A healer
+    // low on mana stays on the efficient row too; flash heal is then kept
+    // for a member predicted to reach the critical line before the slow
+    // cast lands.
     triggers.push_back(new TriggerNode(
         "party member medium health",
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
-                             new NextAction("flash heal on party", ACTION_MEDIUM_HEAL + 2),
                              new NextAction("greater heal on party", ACTION_MEDIUM_HEAL),
                              new NextAction("heal on party", ACTION_MEDIUM_HEAL - 1),
                              new NextAction("lesser heal on party", ACTION_MEDIUM_HEAL - 2),

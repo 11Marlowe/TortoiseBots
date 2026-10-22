@@ -2,6 +2,7 @@
 
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "playerbot/strategy/triggers/HealthTriggers.h"
+#include "playerbot/HealPacePolicy.h"
 
 namespace ai
 {
@@ -56,6 +57,41 @@ namespace ai
     public:
         LowHealthLoosePackTrigger(PlayerbotAI* ai) : LowHealthTrigger(ai, "low health loose pack") {}
         bool IsActive() override { return LowHealthTrigger::IsActive() && PriestPackLoose(ai); }
+    };
+
+    // Medium band split by the pace of the damage (HealPacePolicy.h): the
+    // "incoming damage" value - the same signal the preheal gate reads -
+    // predicts where the health bar sits when a 3 s Heal/Greater Heal would
+    // land. With enough healer mana, damage heavy enough to push the bar out
+    // of the band takes Flash Heal; slow or stable damage (or a healer low on
+    // mana) keeps the efficient row, leaving Flash Heal for a target
+    // predicted to reach the critical line even then. The loose-pack rows
+    // below outrank the efficient row, so a pack off the tank still takes
+    // Flash Heal first.
+    class PartyMemberMediumHealthFastDamageTrigger : public PartyMemberLowHealthTrigger
+    {
+    public:
+        PartyMemberMediumHealthFastDamageTrigger(PlayerbotAI* ai) :
+            PartyMemberLowHealthTrigger(ai, "party member medium health fast damage", sPlayerbotAIConfig.mediumHealth, sPlayerbotAIConfig.lowHealth) {}
+        bool IsActive() override
+        {
+            if (!PartyMemberLowHealthTrigger::IsActive())
+                return false;
+            Unit* target = GetTarget();
+            if (!target || !target->GetMaxHealth())
+                return false;
+            uint32 const incDmg = AI_VALUE2(uint32, "incoming damage", GetTargetName());
+            // Heal/Greater Heal 3 s, Flash Heal 1.5 s - fixed base casts.
+            HealPaceState const state{
+                GetValue(),
+                float(incDmg) / float(target->GetMaxHealth()) * 100.0f,
+                3.0f, 1.5f,
+                float(AI_VALUE2(uint8, "mana", "self target")),
+                float(sPlayerbotAIConfig.mediumMana),
+                float(sPlayerbotAIConfig.lowHealth),
+                float(sPlayerbotAIConfig.criticalHealth)};
+            return PickMediumBandHeal(state) == HealPaceChoice::Flash;
+        }
     };
 
     // The capstone's cooldown runs all but a sliver of the fight while the

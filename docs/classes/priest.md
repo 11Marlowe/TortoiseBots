@@ -28,7 +28,7 @@ Priests provide comprehensive healing coverage through layered spell ladders, da
 Priests select healing spells based on defined health bands (bands follow [Combat settings](../server/settings/combat.md)):
 - **Critical (<20%):** *Power Word: Shield* + *Flash Heal* (missing *Flash Heal* rows fall through to *Greater Heal* / *Heal* / *Renew*).
 - **Low (20%–50%):** *Power Word: Shield* + *Greater Heal* (+ *Heal* / *Lesser Heal* fallbacks at low level), plus fast *Flash Heal* ahead when loose mobs attack non-tanks.
-- **Medium (50%–70%):** *Power Word: Shield* + *Flash Heal* + *Greater Heal* + *Heal* + *Renew*.
+- **Medium (50%–70%):** *Power Word: Shield* + *Greater Heal* / *Heal* / *Lesser Heal* by deficit, *Renew* for light wounds. Heavy incoming damage (the bar would leave the band before a slow cast lands) switches the pick to fast *Flash Heal* while the healer's mana is comfortable; a low-mana healer keeps the efficient heals unless the member is about to fall into the critical band.
 - **Almost-Full (70%–90%):** *Renew* (Discipline shields first).
 - **Multiple Injured:** *Prayer of Healing* when 2 or more members in 30 yards are medium-hurt.
 
