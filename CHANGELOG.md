@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.8.0 (2026-10-22)
+
+### Classes & Combat
+- Tanks now taunt any mob attacking the healer or another party member, and walk to it if needed. [#1211](https://github.com/Sagiroth/TortoiseBots/pull/1211)
+- Bots with an interrupt kick any nearby caster, not only the one they are already fighting. [#1211](https://github.com/Sagiroth/TortoiseBots/pull/1211)
+- Hunter and mage pets behave better in fights, and hunters use Disengage and Hunter's Mark again. [#1211](https://github.com/Sagiroth/TortoiseBots/pull/1211)
+- After pulling a group back, the tank keeps fighting the rest of the pack instead of standing still. [#1169](https://github.com/Sagiroth/TortoiseBots/pull/1169) [#1199](https://github.com/Sagiroth/TortoiseBots/pull/1199)
+- Party bots stand still while idle instead of shuffling around camp. [#1169](https://github.com/Sagiroth/TortoiseBots/pull/1169) [#1199](https://github.com/Sagiroth/TortoiseBots/pull/1199)
+- Priest healers use cheaper heals when health is dropping slowly, saving mana for long fights. [#1213](https://github.com/Sagiroth/TortoiseBots/pull/1213)
+
+### Items & Loot
+- Bots no longer receive duplicate copies of real items, including 139 that were impossible to get twice. [#1199](https://github.com/Sagiroth/TortoiseBots/pull/1199)
+- Bots never get transmogrification clones, whether from gear, loot, quest rewards or hired companions. [#1200](https://github.com/Sagiroth/TortoiseBots/pull/1200) [#1211](https://github.com/Sagiroth/TortoiseBots/pull/1211)
+
+### Commands
+- `.bot strategy` now accepts role selectors such as `@tank`, `@dps`, `@heal`, `@melee` and `@ranged`. [#1185](https://github.com/Sagiroth/TortoiseBots/pull/1185)
+- Two-word strategies like `+aoe fear` are recognised instead of being read as a bot name. [#1185](https://github.com/Sagiroth/TortoiseBots/pull/1185)
+
+### Dashboard
+- The bot dashboard is safer to use, with fixes to a few risky actions. [#1199](https://github.com/Sagiroth/TortoiseBots/pull/1199)
+
+### Behind the scenes
+- Code checks run faster when changes are submitted. [#1199](https://github.com/Sagiroth/TortoiseBots/pull/1199)
+- The README now sends new players to the Getting Started guide first. [#1155](https://github.com/Sagiroth/TortoiseBots/pull/1155)
+- Tidier code comments and small cleanups with no effect on play. [#1211](https://github.com/Sagiroth/TortoiseBots/pull/1211)
+
+---
+
 ## v1.7.0 (2026-10-21)
 
 ### Classes & Combat
