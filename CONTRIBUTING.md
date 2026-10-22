@@ -65,6 +65,10 @@ feature branch, see above), never `main`.
   directory, use a timestamped filename, and comment non-obvious statements.
 - If behavior is adapted from another project, name the source repository and
   commit in the pull request description.
+- Comment the code only where it cannot explain itself: a non-obvious reason,
+  not a description of what the next line does. Leave issue and pull request
+  numbers, "fixes ...", "ported from ..." and other history out of the code;
+  they belong in the commit message and the pull request description.
 
 ## Pull requests
 
