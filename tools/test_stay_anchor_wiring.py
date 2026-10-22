@@ -13,7 +13,8 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PARTY = (ROOT / "commands/Party.cpp").read_text()
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDER = (ROOT / "commands/Commander.cpp").read_text()
+ACTION = (ROOT / "commands/Action.cpp").read_text()
 STAY = (ROOT / "ai/playerbot/strategy/actions/StayActions.cpp").read_text()
 
 
@@ -30,12 +31,12 @@ class StayAnchorWiringTest(unittest.TestCase):
         self.assertIn('posMap["random"].Reset();', fn)
 
     def test_commander_move_uses_helper(self):
-        fn = body(COMMANDS, "static bool CommanderMove(", "\n}\n")
+        fn = body(COMMANDER, "static bool CommanderMove(", "\n}\n")
         self.assertIn("SetStayAnchor(leadAi, point.x, point.y, point.z, lead->GetMapId());", fn)
         self.assertNotIn('posMap["stay"]', fn)
 
     def test_direct_move_walks_straight_and_anchors_the_lead(self):
-        fn = body(COMMANDS, "static bool CommanderMoveDirect(ChatHandler* handler, CommanderOrder const& order,\n    RemoteCommander::MovePoint const& point, std::string const& intent)\n{",
+        fn = body(COMMANDER, "static bool CommanderMoveDirect(ChatHandler* handler, CommanderOrder const& order,\n    RemoteCommander::MovePoint const& point, std::string const& intent)\n{",
                   "\n}\n")
         self.assertIn("SetStayAnchor(ai, point.x, point.y, ground, lead->GetMapId());", fn)
         self.assertIn("MovePoint(0, point.x, point.y, ground, MOVE_RUN_MODE);", fn)
@@ -51,7 +52,7 @@ class StayAnchorWiringTest(unittest.TestCase):
         self.assertNotIn('posMap["stay"]', fn)
 
     def test_come_hold_comestay_use_helper(self):
-        branch = body(COMMANDS, 'else if (intent == "come" || intent == "hold" || intent == "comestay")',
+        branch = body(ACTION, 'else if (intent == "come" || intent == "hold" || intent == "comestay")',
                       'else if (intent == "ready")')
         self.assertIn("SetStayAnchor(ai, requester->GetPositionX()", branch)
         self.assertNotIn('posMap["stay"]', branch)
