@@ -3,7 +3,7 @@
 #include "playerbot/playerbot.h"
 #include "PartyMemberToHeal.h"
 #include "HealerCoverage.h"
-#include "playerbot/HealPetPolicy.h"
+#include "playerbot/HealTargetPolicy.h"
 #include "playerbot/HealReachPolicy.h"
 #include "playerbot/HealerManaPolicy.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -160,6 +160,7 @@ Unit* PartyMemberToHeal::Calculate()
         if (target &&
             target->getObjectGuid() != bot->getObjectGuid() &&
             sServerFacade.IsFriendlyTo(bot, target) &&
+            HealableTarget(sServerFacade.IsAlive(target)) &&
             target->GetHealthPercent() < 100 &&
             Check(target))
         {
@@ -170,7 +171,8 @@ Unit* PartyMemberToHeal::Calculate()
     if (GuidPosition rpgTarget = AI_VALUE(GuidPosition, "rpg target"))
     {
         Unit* target = rpgTarget.GetCreature(bot->GetInstanceId());
-        if (target && sServerFacade.IsFriendlyTo(bot, target) && target->GetHealthPercent() < 100)
+        if (target && sServerFacade.IsFriendlyTo(bot, target) &&
+            HealableTarget(sServerFacade.IsAlive(target)) && target->GetHealthPercent() < 100)
         {
             needHeals.push_back(target);
         }
