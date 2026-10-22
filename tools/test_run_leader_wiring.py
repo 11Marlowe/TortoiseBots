@@ -147,6 +147,18 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn('ReadCachedGuidList(PlayerbotAIStorage::Instance().GetAI(bot), "attackers", guids);', kill)
         for scan in ("GetCreatureListWithEntryInGrid", "Cell::Visit", "VisitAllObjects", "HostileCreaturesAround"):
             self.assertNotIn(scan, kill)
+        # The casters of auras on an engaged attacker (Hailar's Ritualists, r19-19z37) are read off
+        # that attacker's own aura holders, inside the engaged block, and flagged for the policy.
+        self.assertIn("fact.auraOnEngaged = auraOnEngaged;", kill)
+        self.assertIn("known.auraOnEngaged = true;", kill)
+        engaged = kill.split("if (EngagedWithParty(unit, party))\n", 1)
+        self.assertEqual(len(engaged), 2)
+        block = engaged[1].split("\n            }\n", 1)[0]
+        self.assertIn("unit->GetSpellAuraHolderMap()", block)
+        self.assertIn("ObjectGuid const caster = holder->GetCasterGuid();", block)
+        self.assertIn("add(lead->GetMap()->GetUnit(caster), true);", block)
+        self.assertNotIn("GetSpellAuraHolderMap", engaged[0])
+        self.assertEqual(kill.count(", true);"), 1)  # only the aura caster is flagged
         self.assertIn("fact.engaged = EngagedWithParty(unit, party);", kill)
         # A ward is read off its engaged owner at once (totems and guardians), not when a cached list takes it in.
         self.assertIn("CONTROLLED_TOTEMS | CONTROLLED_GUARDIANS", kill)
