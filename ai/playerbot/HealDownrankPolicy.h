@@ -62,6 +62,7 @@ namespace ai
         std::uint8_t targetHealth;    // 0-100, target's CURRENT percent (pre-incoming)
         std::uint8_t lowHealth;       // kept for callers; emergency reads criticalHealth only
         std::uint8_t criticalHealth;  // spike line: top rank regardless
+        std::uint8_t incomingDamage;  // one swing per attacker in reach, as % of max health; 0 = unknown
     };
 
     // Implicit-target ids the downrank gate accepts, mirroring the core's
@@ -93,15 +94,21 @@ namespace ai
     constexpr std::uint32_t kHealDownrankCoverFlatFloor = 100;
 
     // True when the target is an emergency: at or below the criticalHealth
-    // spike line the caller must cast the top rank, never downrank. The old
-    // rule also treated everything at/below lowHealth (50 %) as an
+    // spike line the caller must cast the top rank, never downrank. The
+    // same holds for a target the next swing would push into the critical
+    // band (incomingDamage percent of max health): a heal picked to beat
+    // that damage must not be cheapened to a rank the damage outgrows.
+    // The old rule also treated everything at/below lowHealth (50 %) as an
     // emergency, so the "party member medium health" row (50-70 %) always
     // paid top rank — live raid 2026-10-14: Healing Wave top rank 56x from
     // the party rows. Medium wounds now fit a rank to the wound like every
     // other band; only the spike line keeps the big heal unconditionally.
     inline bool HealNeedsTopRank(HealDownrankState const& state)
     {
-        return state.targetHealth <= state.criticalHealth;
+        if (state.targetHealth <= state.criticalHealth)
+            return true;
+        std::uint8_t const incoming = std::min(state.incomingDamage, state.targetHealth);
+        return state.targetHealth - incoming <= state.criticalHealth;
     }
 
     inline std::uint32_t HealDownrankNeed(HealDownrankState const& state)

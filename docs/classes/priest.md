@@ -27,12 +27,12 @@ Priests provide comprehensive healing coverage through layered spell ladders, da
 ### The Priest Healing Ladder
 Priests select healing spells based on defined health bands (bands follow [Combat settings](../server/settings/combat.md)):
 - **Critical (<20%):** *Power Word: Shield* + *Flash Heal* (missing *Flash Heal* rows fall through to *Greater Heal* / *Heal* / *Renew*).
-- **Low (20%–50%):** *Power Word: Shield* + *Greater Heal* (+ *Heal* / *Lesser Heal* fallbacks at low level), plus fast *Flash Heal* ahead when loose mobs attack non-tanks.
+- **Low (20%–50%):** *Power Word: Shield* + *Greater Heal* (+ *Heal* / *Lesser Heal* fallbacks at low level). The same heavy-damage and low-mana pace rule as the medium band applies here, so the pick never downgrades from fast *Flash Heal* to a slow cast as the bar crosses the band line; loose mobs on non-tanks keep *Flash Heal* ahead.
 - **Medium (50%–70%):** *Power Word: Shield* + *Greater Heal* / *Heal* / *Lesser Heal* by deficit, *Renew* for light wounds. Heavy incoming damage (the bar would leave the band before a slow cast lands) switches the pick to fast *Flash Heal* while the healer's mana is comfortable; a low-mana healer keeps the efficient heals unless the member is about to fall into the critical band.
 - **Almost-Full (70%–90%):** *Renew* (Discipline shields first).
 - **Multiple Injured:** *Prayer of Healing* when 2 or more members in 30 yards are medium-hurt.
 
-Direct heals are downranked to match target wounds per [shared downranking rules](overview.md#spell-downranking), using the lowest rank covering missing health. Full ranks are enforced whenever the target falls at or below 20% health. *Desperate Prayer* serves as a self-only emergency heal.
+Direct heals are downranked to match target wounds per [shared downranking rules](overview.md#spell-downranking), using the lowest rank covering missing health. Full ranks are enforced whenever the target falls at or below 20% health — or when heavy incoming damage would push the target below it before the cast lands. *Desperate Prayer* serves as a self-only emergency heal.
 
 ### Power Word: Shield & Weakened Soul Refusal
 The bot verifies that the target does not have the *Weakened Soul* debuff before casting *Power Word: Shield*. If present, the shield is skipped in favor of direct heals.

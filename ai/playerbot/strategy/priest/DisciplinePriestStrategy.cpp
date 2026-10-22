@@ -38,11 +38,12 @@ void DisciplinePriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
                              new NextAction("greater heal on party", ACTION_MEDIUM_HEAL + 1), NULL)));
 
-    // Heavy incoming damage with enough healer mana: flash heal lands
-    // before the bar runs out of the medium band (same split as holy).
-    // Untrained flash heal falls through to the efficient row below.
+    // Fast damage with enough healer mana: flash heal lands before the bar
+    // runs into the critical band. Both band rows sit below, so the pick
+    // cannot downgrade to a slow cast as the bar crosses the band line.
+    // Untrained flash heal falls through to those rows.
     triggers.push_back(new TriggerNode(
-        "party member medium health fast damage",
+        "party member fast damage",
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
                              new NextAction("flash heal on party", ACTION_MEDIUM_HEAL + 2), NULL)));
 

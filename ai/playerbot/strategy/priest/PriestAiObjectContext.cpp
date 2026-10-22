@@ -189,7 +189,7 @@ namespace ai
                 creators["inner focus for heal"] = [](PlayerbotAI* ai) { return new InnerFocusForHealTrigger(ai); };
                 creators["party member low health loose pack"] = [](PlayerbotAI* ai) { return new PartyMemberLowHealthLoosePackTrigger(ai); };
                 creators["party member medium health loose pack"] = [](PlayerbotAI* ai) { return new PartyMemberMediumHealthLoosePackTrigger(ai); };
-                creators["party member medium health fast damage"] = [](PlayerbotAI* ai) { return new PartyMemberMediumHealthFastDamageTrigger(ai); };
+                creators["party member fast damage"] = [](PlayerbotAI* ai) { return new PartyMemberFastDamageTrigger(ai); };
                 creators["low health loose pack"] = [](PlayerbotAI* ai) { return new LowHealthLoosePackTrigger(ai); };
                 creators["ascendance"] = [](PlayerbotAI* ai) { return new AscendanceTrigger(ai); };
                 // Fade rows arm only while the spell is trained and off
