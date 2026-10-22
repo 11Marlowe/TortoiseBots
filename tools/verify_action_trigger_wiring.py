@@ -47,24 +47,34 @@ KNOWN = {
 # to miss: the vector-style Generic* trees plus the unregistered NEW
 # Bear/Cat/Resto/Dps stacks (see PROGRESS.md). Misses there are tech debt, not
 # live bugs; the audit value is in misses from legacy list-engine files.
-# NOTE: TotemsShamanStrategy.cpp is vector-style (dead); the live per-spec
-# *TotemsStrategy blocks inside Enhancement/Elemental/ShamanStrategy.cpp use
-# registered "X totem" names and are unaffected.
+# NOTE: TotemsShamanStrategy.{h,cpp} and GenericShamanStrategy.{h,cpp} were
+# deleted with issue #1179: unregistered donor vector-style trees whose
+# global-namespace ShamanAoe/Cure/Boost classes duplicated the live ai::
+# classes in ShamanStrategy.h (untouched). The live per-spec *TotemsStrategy
+# blocks inside Enhancement/Elemental/ShamanStrategy.cpp use registered
+# "X totem" names.
 DEAD_FILES = (
     'GenericDruidStrategy.cpp', 'GenericDruidNonCombatStrategy.cpp',
     'GenericHunterStrategy.cpp', 'GenericHunterNonCombatStrategy.cpp',
     'GenericMageStrategy.cpp', 'GenericMageNonCombatStrategy.cpp',
     'GenericPaladinStrategy.cpp', 'GenericPaladinNonCombatStrategy.cpp',
-    'GenericPriestStrategy.cpp', 'GenericShamanStrategy.cpp',
+    'GenericPriestStrategy.cpp',
     'GenericRogueNonCombatStrategy.cpp', 'GenericWarriorStrategy.cpp',
-    'GenericWarriorNonCombatStrategy.cpp', 'GenericWarlockStrategy.cpp',
-    'GenericWarlockNonCombatStrategy.cpp', 'LevelingDruidStrategy.cpp',
+    'GenericWarriorNonCombatStrategy.cpp', 'GenericWarlockNonCombatStrategy.cpp', 'GenericWarlockStrategy.cpp',
+    'LevelingDruidStrategy.cpp',
     'DpsRogueStrategy.cpp', 'TankPaladinStrategy.cpp', 'DpsPaladinStrategy.cpp',
     'OffhealRetPaladinStrategy.cpp', 'BattlegroundStrategy.cpp',
-    'TravelStrategy.cpp', 'RpgStrategy.cpp', 'MeleeCombatStrategy.cpp',
-    'SayStrategy.cpp', 'TotemsShamanStrategy.cpp',
+    'RpgStrategy.cpp', 'MeleeCombatStrategy.cpp',
+    'SayStrategy.cpp',
     'TankWarriorStrategy.cpp', 'PriestNonCombatStrategy.cpp',
 )
+
+# Dead-tree baseline (issue #1179): queued names in dead files with no
+# creator, audited entry by entry. Remaining refs are WIRE-CANDIDATEs kept on
+# purpose (see the issue report): hunter "disengage" (#1162), druid
+# "moonfire"/"insect swarm on attacker", paladin "sense undead", hunter
+# "track humanoids", druid "aquatic form". Fail when the count grows.
+DEAD_TREE_BASELINE = 10
 
 def is_dead(ref):
     base = ref.rsplit('/', 1)[-1]
@@ -191,6 +201,10 @@ def main():
         for (kind, name), files in sorted(skipped.items()):
             print(f'skip {kind} "{name}" ({len(files)} refs)')
     if live or (strict and skipped):
+        return 1
+    if len(dead) > DEAD_TREE_BASELINE:
+        print(f'FAIL: dead-tree={len(dead)} exceeds baseline {DEAD_TREE_BASELINE} '
+              f'(issue #1179); audit new refs before adding them to a dead file.')
         return 1
     return 0
 

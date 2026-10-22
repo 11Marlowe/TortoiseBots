@@ -88,8 +88,8 @@ void GenericMageStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("low health", { NextAction("mana shield", 85.0f) }));
     triggers.push_back(new TriggerNode("fire ward", { NextAction("fire ward", 90.0f) }));
     triggers.push_back(new TriggerNode("frost ward", { NextAction("frost ward", 90.0f) }));
-    triggers.push_back(new TriggerNode("enemy is close and no firestarter strategy", { NextAction("frost nova", 50.0f) }));
-    triggers.push_back(new TriggerNode("enemy too close for spell and no firestarter strategy", { NextAction("blink back", 35.0f) }));
+    triggers.push_back(new TriggerNode("enemy is close", {NextAction("frost nova", 50.0f)}));
+    triggers.push_back(new TriggerNode("enemy too close for spell", {NextAction("blink back", 35.0f)}));
 
     // Mana Threshold Triggers
     Player* bot = botAI->GetBot();
@@ -147,34 +147,4 @@ void MageCcStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 void MageAoeStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode("blizzard channel check", { NextAction("cancel channel", 26.0f) }));
-
-    Player* bot = botAI->GetBot();
-    int tab = AiFactory::GetPlayerSpecTab(bot);
-
-    if (tab == MAGE_TAB_ARCANE)
-    {
-        triggers.push_back(new TriggerNode("flamestrike active and medium aoe", { NextAction("blizzard", 24.0f) }));
-        triggers.push_back(new TriggerNode("medium aoe", {
-                                                     NextAction("flamestrike", 23.0f),
-                                                     NextAction("blizzard", 22.0f) }));
-    }
-    else if (tab == MAGE_TAB_FIRE)
-    {
-        triggers.push_back(
-            new TriggerNode("medium aoe", {
-                                      NextAction("blast wave", 38.0f),
-                                      NextAction("flamestrike", 23.0f),
-                                      NextAction("blizzard", 22.0f) }));
-
-        triggers.push_back(new TriggerNode("flamestrike active and medium aoe", { NextAction("blizzard", 24.0f) }));
-        triggers.push_back(new TriggerNode("firestarter", { NextAction("flamestrike", 40.0f) }));
-    }
-    else if (tab == MAGE_TAB_FROST)
-    {
-        triggers.push_back(new TriggerNode("flamestrike active and medium aoe", { NextAction("blizzard", 24.0f) }));
-        triggers.push_back(new TriggerNode("medium aoe", {
-                                                     NextAction("flamestrike", 23.0f),
-                                                     NextAction("blizzard", 22.0f) }));
-        triggers.push_back(new TriggerNode("light aoe", { NextAction("cone of cold", 21.0f) }));
-    }
 }

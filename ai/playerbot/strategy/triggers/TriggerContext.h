@@ -6,7 +6,6 @@
 #include "GenericTriggers.h"
 #include "PvpTriggers.h"
 #include "RpgTriggers.h"
-#include "TravelTriggers.h"
 #include "RtiTriggers.h"
 #include "CureTriggers.h"
 #include "GuildTriggers.h"
