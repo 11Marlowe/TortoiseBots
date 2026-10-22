@@ -21,6 +21,7 @@ The native module has its own independent logging system. This allows administra
 | :--- | :---: | :--- |
 | [`TortoiseBots.LogLevel`](#tortoisebotsloglevel) | `2` (Detail) | Sets module logging verbosity independently of the core server log level. |
 | [`AiPlayerbot.AllowedLogFiles`](#aiplayerbotallowedlogfiles) | `bot_events.csv,deaths.csv` | Comma-separated list of structured diagnostic CSV files enabled for writing. |
+| [`AiPlayerbot.RaidBossDiagnostics`](#aiplayerbotraidbossdiagnostics) | `0` | Opt-in raid boss threat snapshots and spell-hit observations in `bot_events.csv`. |
 | [`AiPlayerbot.LogRetentionDays`](#aiplayerbotlogretentiondays) | `3` | Days to keep compressed historical CSV logs before automatic deletion. |
 | [`AiPlayerbot.EnableActionLog`](#aiplayerbotenableactionlog) | `0` | Writes dedicated per-bot execution logs under `logs/bots/`. |
 | [`AiPlayerbot.ActionLogScope`](#aiplayerbotactionlogscope) | `commanded` | Filters which bots generate action log files (`commanded`, `all`, `none`). |
@@ -247,3 +248,14 @@ Enabled logs opened in write mode (including `bot_events.csv` and startup travel
 - No CSV headers or column structures are altered.
 - If packing or rotation fails (for example, due to filesystem permissions), an error is logged, the existing file is preserved, and writes to that log are skipped for 5 minutes before the next retry.
 - Disabled logs are left untouched.
+
+## AiPlayerbot.RaidBossDiagnostics
+
+Default: `0` (disabled). Set to `1` and include `bot_events.csv` in
+`AiPlayerbot.AllowedLogFiles` to record engaged raid bosses. `BossThreat` rows
+sample the current victim and top five numeric threat entries at most once per
+two seconds per boss/instance. `BossSpellHit` rows record supported victim-session
+spell-damage packets, including Hateful Strike. `hp_sample` is sampled at packet
+send and `hp_est` is clamped subtraction of reported damage; neither guarantees
+exact post-hit health. Disable the option after collecting a diagnostic capture.
+See [column definitions and coverage](../../developers/host-api.md#csv-columns-unchanged-nine-column-layout).
