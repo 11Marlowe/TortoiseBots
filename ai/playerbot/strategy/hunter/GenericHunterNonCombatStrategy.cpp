@@ -22,7 +22,7 @@ void GenericHunterNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& tri
     triggers.push_back(new TriggerNode("often", { NextAction("apply stone", 1.0f),
                                                   NextAction("apply oil", 1.0f) }));
     triggers.push_back(new TriggerNode("no track", { NextAction("track humanoids", ACTION_NORMAL) }));
-    triggers.push_back(new TriggerNode("no ammo", { NextAction("equip upgrades packet action", ACTION_HIGH + 1) }));
+    triggers.push_back(new TriggerNode("no ammo", { NextAction("equip upgrades", ACTION_HIGH + 1) }));
 }
 
 void HunterPetStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
