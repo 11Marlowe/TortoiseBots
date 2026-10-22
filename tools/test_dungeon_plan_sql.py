@@ -284,29 +284,32 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(len([r for r in self.step_rows(text) if r["plan"] == "uldaman"]), 139)
 
     def test_frostmane_hollow_plan_is_whole(self):
-        # 20261022210030 (turtle-agent abd37a3, 2026-10-22): the first rows of the draft plan, exported with --allow-draft --gm-cross-direct
-        # --approach-hops. The plan file has no event, door or gossip step, so its 4 legs are only moves, pulls and one boss each. Every pin
+        # 20261022210030 (turtle-agent b8d3f62, 2026-10-22): the first rows of the draft plan, exported with --allow-draft --gm-cross-direct
+        # --approach-hops, with the census fixes (the units the core links to a boss are the boss row's entries). The plan file has no event, door or gossip step, so its 4 legs are only moves, pulls and one boss each. Every pin
         # below fails when a leg, a pack or a boss row is cut.
         name, text = newest_plan_text("frostmane_hollow")
         self.assertEqual(name, "20261022210030_world.sql")
-        self.assertIn("('frostmane_hollow', 822, '', '', '', 'turtle-agent abd37a3 dungeons/frostmane_hollow.json', "
+        self.assertIn("('frostmane_hollow', 822, '63137,63139', '', '63136,63132,36519,82', 'turtle-agent b8d3f62 dungeons/frostmane_hollow.json', "
                       "'plan v1, draft (not mapped, not live-checked)');", text)
         legs = re.findall(r"^\('frostmane_hollow', (\d+), '((?:[^']|'')+)', ''\)[,;]$", text, re.M)
         self.assertEqual([(int(n), leg.replace("''", "'")) for n, leg in legs],
                          [(0, "battlemaster_ubukaz"), (1, "kan'za_the_seer"), (2, "tan'sha_the_sleek"), (3, "hailar_the_frigid")])
         rows = [r for r in self.step_rows(text) if r["plan"] == "frostmane_hollow"]
-        self.assertEqual(len(rows), 432)
-        self.assertEqual({k: len([r for r in rows if r["kind"] == k]) for k in {r["kind"] for r in rows}}, {"move": 337, "pull": 91, "boss": 4})
-        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(4)}, {0: 53, 1: 207, 2: 49, 3: 123})
-        self.assertEqual({leg: len([r for r in rows if r["leg"] == str(leg) and r["kind"] == "pull"]) for leg in range(4)}, {0: 16, 1: 51, 2: 16, 3: 8})
+        self.assertEqual(len(rows), 413)
+        self.assertEqual({k: len([r for r in rows if r["kind"] == k]) for k in {r["kind"] for r in rows}}, {"move": 326, "pull": 83, "boss": 4})
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(4)}, {0: 53, 1: 205, 2: 45, 3: 110})
+        self.assertEqual({leg: len([r for r in rows if r["leg"] == str(leg) and r["kind"] == "pull"]) for leg in range(4)}, {0: 16, 1: 49, 2: 15, 3: 3})
         # One boss per leg, last in the leg, in the plan's order Ubukaz, Kan'za, Tan'sha, Hailar; Hailar's five Ritualists 36519 (each
-        # linked to him in the core, channelling Frostmane Ritual on him) are five single pulls of leg 3 before the boss row.
+        # linked to him in the core, channelling Frostmane Ritual on him) are no pull any more: the boss row lists 36519, as it lists Kan'za's two
+        # Snowcallers 63137 and Handler Oboka 63132 (both linked to their boss); the lone linked units are not pulls.
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["63131", "63129", "63133", "63130"])
         for leg in range(4):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
             self.assertEqual(leg_steps(rows, leg)[0]["kind"], "move", leg)
             self.assertEqual(len([r for r in leg_steps(rows, leg) if r["comment"] == "to"]), 1, leg)
-        self.assertEqual([r["entries"] for r in leg_steps(rows, 3) if r["kind"] == "pull"].count("36519"), 5)
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "63137", "63132", "36519"])
+        self.assertEqual([r["entries"] for r in leg_steps(rows, 3) if r["kind"] == "pull"].count("36519"), 0)
+        self.assertNotIn("63132", [r["entries"] for r in leg_steps(rows, 2) if r["kind"] == "pull"])
         for r in rows:
             self.assertEqual((r["item"], r["param"], r["timeout_s"]), ("0", "0", "0"), r)
 
