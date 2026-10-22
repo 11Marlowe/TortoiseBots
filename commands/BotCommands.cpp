@@ -10296,6 +10296,33 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 entries.push_back(step->entry);
             float const range = std::min(toPoint + step->radius, 2.0f * kSeeYd);
             float bossCorpseFromSpot = 0.0f;
+            // A pull step's patrollers (DungeonRun::WaitForPatroller): living units of its entries on a waypoint
+            // patrol, outside the radius and within kPatrolSeeYd beyond it, none a later step owns (the hop units'
+            // rule); the grid search of a pull step reaches that far.
+            bool const pullStep = step->kind == ai::PlanStepKind::Pull;
+            auto addPatroller = [&](Creature* creature, float fromPoint)
+            {
+                if (!pullStep || fromPoint <= step->radius || fromPoint > step->radius + kPatrolSeeYd ||
+                    creature->GetDefaultMovementType() != WAYPOINT_MOTION_TYPE)
+                    return;
+                if (ai::OwnedByLaterStep(*slot.run.plan, slot.run.step, creature->GetEntry(),
+                        creature->GetPositionX(), creature->GetPositionY(), creature->GetPositionZ(), f.team))
+                    return;
+                for (UnitFact const& have : f.patrollers)
+                    if (have.guid == creature->GetObjectGuid().GetRawValue())
+                        return; // an entry listed twice
+                UnitFact unit;
+                unit.guid = creature->GetObjectGuid().GetRawValue();
+                unit.entry = creature->GetEntry();
+                unit.distLead = lead->GetDistance(creature);
+                unit.distSpot = fromPoint;
+                unit.x = creature->GetPositionX();
+                unit.y = creature->GetPositionY();
+                unit.z = creature->GetPositionZ();
+                unit.hostile = !sServerFacade.IsFriendlyTo(creature, lead);
+                unit.evading = creature->IsInEvadeMode();
+                f.patrollers.push_back(unit);
+            };
             for (uint32 entry : entries)
             {
                 // The boss's own entry is looked for farther: his corpse may lie
@@ -10303,7 +10330,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 bool const bossEntry = step->kind == ai::PlanStepKind::Boss && entry == step->entry;
                 std::list<Creature*> found;
                 lead->GetCreatureListWithEntryInGrid(found, entry,
-                    bossEntry ? std::min(toPoint + step->radius + kSeeYd, 2.0f * kSeeYd) : range);
+                    bossEntry ? std::min(toPoint + step->radius + kSeeYd, 2.0f * kSeeYd)
+                              : pullStep ? std::min(toPoint + step->radius + kPatrolSeeYd, 2.0f * kSeeYd) : range);
                 for (Creature* creature : found)
                 {
                     float const fromPoint = DistanceTo(creature, step->x, step->y, step->z);
@@ -10327,7 +10355,10 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                         continue;
                     }
                     if (fromPoint > step->radius)
+                    {
+                        addPatroller(creature, fromPoint);
                         continue;
+                    }
                     bool known = false;
                     for (UnitFact const& have : f.units)
                         known = known || have.guid == creature->GetObjectGuid().GetRawValue();

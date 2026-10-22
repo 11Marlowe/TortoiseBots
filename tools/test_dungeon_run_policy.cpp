@@ -9180,8 +9180,434 @@ static void TestHopPullWithoutAShotSendsNoOrder()
     }
 }
 
+// --- Uldaman r10-19z29 step 66: the Stone Steward 4860 (guid 0x6b51) walks its lane north, away from the
+// step's 10 yd radius at (-39.6, 272.8), while the party stands at the south end. The step said "pack cleared"
+// in 0 s in r8, r9 and r10; the Steward then came into the Keeper's fight at step 68.
+
+static UnitFact Patroller(std::uint64_t guid, std::uint32_t entry, float distLead, float distSpot)
+{
+    UnitFact u = Unit(guid, entry, distLead);
+    u.distSpot = distSpot;
+    u.x = -42.0f; // on its lane, south of the step's radius
+    u.y = 250.0f;
+    u.z = -48.3f;
+    return u;
+}
+
+static DungeonPlan StewardPlan(std::uint32_t timeoutS = 60)
+{
+    DungeonPlan plan;
+    PlanStep pull = PullStep(-39.6f, {4860});
+    pull.y = 272.8f;
+    pull.radius = 10.0f;
+    pull.timeoutS = timeoutS;
+    plan.steps = {pull, Step(PlanStepKind::Move, 100, 0, 0)};
+    return plan;
+}
+
+static void TestPatrollerOutsideTheRadiusIsWaitedForThenPulled()
+{
+    DungeonPlan plan = StewardPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.patrollers = {Patroller(0x6b51, 4860, 34.0f, 22.0f)};
+    // On the north half of its lane: no "pack cleared", the step waits for it.
+    for (int i = 0; i < 10; ++i)
+    {
+        CHECK(Tick(r, f).empty());
+        CHECK(r.step == 0 && r.state == State::Running);
+        CHECK(r.note == "waiting for the patroller 4860 0x0000000000006b51 (outside the 10.0 yd radius; up to 60 s)");
+    }
+    // Close and in sight, still outside the radius: no pull out there, the step waits on.
+    f.patrollers[0].distLead = 12.0f;
+    f.patrollers[0].losLead = true;
+    CHECK(Tick(r, f).empty());
+    CHECK(Has(r.note, "waiting for the patroller 4860"));
+    // It walks into the radius: one of the step's units now, pulled by the usual pick.
+    f.patrollers.clear();
+    f.units = {Unit(0x6b51, 4860, 28.0f)};
+    CHECK(Tick(r, f) == "pullback 27473");
+    CHECK(r.step == 0 && r.phase == Phase::AwaitPull);
+    // Killed: nothing of the step is left (the glue lists no corpse), the step is cleared.
+    f.units.clear();
+    r.phase = Phase::Begin;
+    Tick(r, f);
+    CHECK(r.step == 1 && r.note == "pack cleared");
+}
+
+// The wait cap: kPatrolWaitMs (60 s), or the row's timeout_s when that is shorter.
+static void WaitOut(std::uint32_t timeoutS, std::uint32_t expectS)
+{
+    DungeonPlan plan = StewardPlan(timeoutS);
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.patrollers = {Patroller(0x6b51, 4860, 34.0f, 22.0f)};
+    for (std::uint32_t i = 0; i < expectS; ++i)
+    {
+        Tick(r, f);
+        CHECK(r.step == 0);
+    }
+    Tick(r, f);
+    CHECK(r.step == 1 && r.state == State::Running);
+    CHECK(r.note == "pack cleared; the patroller 4860 0x0000000000006b51 did not come within " +
+        std::to_string(expectS) + " s");
+}
+
+static void TestPatrollerWaitIsBounded()
+{
+    WaitOut(60, 60);  // NormalizePlanStep's default
+    WaitOut(600, 60); // a 600 s row never waits 600 s
+    WaitOut(20, 20);  // a shorter row caps it
+    WaitOut(0, 60);   // no timeout at all
+    // The loader's path: a row with no timeout_s is normalized to 60 s.
+    DungeonPlan plan;
+    PlanStep pull = PullStep(-39.6f, {4860});
+    CHECK(pull.timeoutS == ai::kPlanDefaultTimeoutS);
+    plan.steps = {pull, Step(PlanStepKind::Move, 100, 0, 0)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.patrollers = {Patroller(0x6b51, 4860, 34.0f, 22.0f)};
+    CHECK(Tick(r, f).empty() && Has(r.note, "up to 60 s"));
+}
+
+// A patroller given up on (its wait ran out, or its pulls drew no fight) is not waited for by a later step that
+// lists the same entry; a regroup (a resume, a wipe recovery) judges it afresh.
+static void TestPatrollerGiveUpIsRunWide()
+{
+    DungeonPlan plan = StewardPlan(5);
+    PlanStep again = plan.steps[0];
+    again.x = -20.0f;
+    plan.steps = {plan.steps[0], again, Step(PlanStepKind::Move, 100, 0, 0)};
+    // The wait ran out at step 1.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.patrollers = {Patroller(0x6b51, 4860, 34.0f, 22.0f)};
+        for (int i = 0; i < 6; ++i)
+            Tick(r, f);
+        CHECK(r.step == 1 && Has(r.note, "did not come within 5 s"));
+        CHECK(r.patrolGaveUp.count(0x6b51));
+        Tick(r, f); // step 2 lists 4860 too: no second wait for the same guid
+        CHECK(r.step == 2 && r.note == "pack cleared");
+        // A regroup clears it: the patroller is waited for again.
+        Run q = Start(&plan, 1);
+        q.patrolGaveUp.insert(0x6b51);
+        BeginRegroup(q);
+        CHECK(q.patrolGaveUp.empty());
+    }
+    // Pulled when it walked into the radius, but two pulls drew no fight: passed for the step and given up run-wide.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.patrollers = {Patroller(0x6b51, 4860, 34.0f, 22.0f)};
+        CHECK(Tick(r, f).empty());
+        f.patrollers.clear();
+        f.units = {Unit(0x6b51, 4860, 28.0f)};
+        std::string order;
+        int pulls = 0;
+        for (int i = 0; i < 80 && !r.patrolGaveUp.count(0x6b51); ++i)
+            if (Tick(r, f) == "pullback 27473")
+                ++pulls;
+        CHECK(pulls == 2 && r.patrolGaveUp.count(0x6b51));
+        // It walked out again: no step waits for it any more (this one, nor the next that lists 4860 too).
+        f.units.clear();
+        f.patrollers = {Patroller(0x6b51, 4860, 34.0f, 22.0f)};
+        for (int i = 0; i < 3 && r.step < 2; ++i)
+        {
+            Tick(r, f);
+            CHECK(!Has(r.note, "waiting for the patroller"));
+        }
+        CHECK(r.step == 2 && r.note == "pack cleared");
+    }
+}
+
+static void TestNoPatrollerWaitWithoutALivingHostilePatroller()
+{
+    DungeonPlan plan = StewardPlan();
+    // Not seen at all (dead, out of sight): "pack cleared" at once, as before.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        Tick(r, f);
+        CHECK(r.step == 1 && r.note == "pack cleared");
+    }
+    // Friendly to the party: no wait.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.patrollers = {Patroller(0x6b51, 4860, 34.0f, 22.0f)};
+        f.patrollers[0].hostile = false;
+        Tick(r, f);
+        CHECK(r.step == 1 && r.note == "pack cleared");
+    }
+    // Given up on this run (out of reach): no wait.
+    {
+        Run r = Start(&plan);
+        r.unreachable.insert(0x6b51);
+        Facts f = Party(0);
+        f.patrollers = {Patroller(0x6b51, 4860, 34.0f, 22.0f)};
+        Tick(r, f);
+        CHECK(r.step == 1 && r.note == "pack cleared");
+    }
+    // The party in a fight: the step logic does not wait for it (called directly; Tick runs the fight gate).
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.anyInCombat = true;
+        f.patrollers = {Patroller(0x6b51, 4860, 34.0f, 22.0f)};
+        std::string order;
+        FightStep(r, f, plan.steps[0], {}, kTickMs, order);
+        CHECK(r.step == 1 && r.note == "pack cleared");
+    }
+    // A boss step is not a pull step: its own search rule stands.
+    {
+        DungeonPlan boss;
+        PlanStep b = Step(PlanStepKind::Boss, 40, 0, 0);
+        b.entry = 4860;
+        boss.steps = {b, Step(PlanStepKind::Move, 100, 0, 0)};
+        Run r = Start(&boss);
+        Facts f = Party(0);
+        f.patrollers = {Patroller(0x6b51, 4860, 34.0f, 22.0f)};
+        Tick(r, f);
+        CHECK(Has(r.note, "not at his spot: waiting for him"));
+    }
+}
+
+// A later pull step lists the same entry, and this patroller stands in that step's radius (within kPatrolSeeYd of
+// this step's radius): it is that step's unit; this step neither waits for it nor pulls it.
+static void TestPatrollerOwnedByALaterStepIsLeftToIt()
+{
+    DungeonPlan plan = StewardPlan();
+    PlanStep later = plan.steps[0];
+    later.x = -42.0f;
+    later.y = 250.0f;
+    later.z = -48.3f;
+    later.radius = 8.0f;
+    plan.steps = {plan.steps[0], Step(PlanStepKind::Move, -45, 245, -48), later};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    UnitFact u = Patroller(0x6b52, 4860, 20.0f, 23.0f); // at (-42, 250): in the later step's radius
+    u.losLead = true;
+    f.patrollers = {u};
+    CHECK(Tick(r, f).empty());
+    CHECK(r.step == 1 && r.note == "pack cleared");
+    CHECK(!r.patrolGaveUp.count(0x6b52));
+}
+
+// --- Uldaman r10-19z29 step 79: pull 7405 x10 (9 joiners expected) from a firing stand 10 yd from the pack,
+// up a ramp. The healer (Vist) and the mage (Dizzy) were 27-30 yd behind when the lead reached the stand.
+
+static Facts ScorpidParty(float leadX)
+{
+    Facts f = StandParty();
+    f.joinerCeiling = 6;
+    f.leadX = leadX;
+    f.members = {Mem("Tanky", 0.0f), Mem("Vist", 4.0f), Mem("Dizzy", 5.0f)};
+    for (MemberFact& m : f.members)
+        m.x = leadX - m.yd; // behind the lead on the x axis
+    f.maxMemberYd = 5.0f;
+    return f;
+}
+
+static void SetBehind(Facts& f, const std::string& name, float yd)
+{
+    for (MemberFact& m : f.members)
+        if (m.name == name)
+        {
+            m.yd = yd;
+            m.x = f.leadX - yd;
+        }
+    f.maxMemberYd = 0.0f;
+    for (const MemberFact& m : f.members)
+        f.maxMemberYd = std::max(f.maxMemberYd, m.yd);
+}
+
+// Starts the r10 pull: the joiner rest (rested: no wait), then the stand read and the walk to (24.4, 0, 0).
+// Returns with the walk's move sent; the unit is held from here, so the glue sends no count for it any more.
+static void StartScorpidWalk(Run& r, Facts& f, std::uint32_t joiners)
+{
+    UnitFact u = Joiners(0x6b55, 7405, 34.3f, joiners);
+    u.joinersRead = true;
+    f.units = {u};
+    CHECK(Tick(r, f).empty()); // over the ceiling: the joiner rest's pick (the party is rested)
+    f.units[0].joinersRead = false; // held: ReadPullJoiners skips it from now on
+    f.units[0].joiners = 0;
+    std::string order;
+    for (int i = 0; i < 4 && r.shotStandFor == 0; ++i)
+        order = Tick(r, f);
+    CHECK(r.shotStandFor == 0x6b55);
+    GiveStand(f, r, 24.4f, 10.2f);
+    CHECK(Tick(r, f) == "move 24.4 0.0 0.0");
+    ClearStand(f);
+    CHECK(r.phase == Phase::Walk && r.shotStandWalk);
+}
+
+static void TestBigPackStandWalkWaitsForTheParty()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7405}), Step(PlanStepKind::Move, 100, 0, 0)};
+    Run r = Start(&plan);
+    Facts f = ScorpidParty(0.0f);
+    StartScorpidWalk(r, f, 9);
+    CHECK(r.bigWalk && r.bigJoiners == 9);
+    // Up the ramp: the lead at 12, the healer 28 yd behind (40 yd from the stand). The lead holds where it
+    // stands (a gather on its own spot), with the reason on the note.
+    f.leadX = 12.0f;
+    f.leadMoving = true;
+    f.units[0].distLead = 22.3f;
+    SetBehind(f, "Vist", 28.0f);
+    CHECK(Tick(r, f) == "move 12.0 0.0 0.0");
+    CHECK(IsGatherOrder(r, "move 12.0 0.0 0.0"));
+    CHECK(r.note == "big pack (9 joiners expected, 8 or more): the firing stand walk waits for the party (Vist 28.0 yd behind)");
+    // Held while the healer comes up the ramp; the stand walk stays the pull stand's.
+    f.leadMoving = false;
+    SetBehind(f, "Vist", 24.0f);
+    for (int i = 0; i < 5; ++i)
+    {
+        CHECK(Tick(r, f).empty());
+        CHECK(Has(r.note, "waits for the party") && r.shotStandWalk && r.phase == Phase::Walk);
+    }
+    // A second unit of the pack (another 9-joiner read: its joiner rest's pick) on the next tick does not
+    // let the walk run on unwatched: the r10 leak.
+    UnitFact other = Joiners(0x6b54, 7405, 21.0f, 9);
+    other.joinersRead = true;
+    f.units.push_back(other);
+    CHECK(Tick(r, f).empty());
+    CHECK(Has(r.note, "waits for the party") && r.shotStandWalk);
+    f.units.pop_back();
+    // The healer is within kGatherYd of the lead: the walk goes on to the same stand (no new stand read).
+    SetBehind(f, "Vist", 8.0f);
+    CHECK(Tick(r, f) == "move 24.4 0.0 0.0");
+    CHECK(r.note == "big pack (9 joiners expected, 8 or more): the party gathered, on to the firing stand");
+    CHECK(r.shotStandTries[0x6b55] == 1);
+    // At the stand with the party together: the pull goes out from there, and the gate is over.
+    f.leadX = 24.4f;
+    SetBehind(f, "Vist", 6.0f);
+    f.units[0].distLead = 10.2f;
+    f.units[0].losLead = true;
+    std::string order;
+    for (int i = 0; i < 5 && order.compare(0, 9, "pullback ") != 0; ++i)
+        order = Tick(r, f);
+    CHECK(order == "pullback 27477");
+    CHECK(Has(r.note, "shot from firing stand 1"));
+    CHECK(!r.bigWalk);
+}
+
+// The r10 tick itself: the healer falls back on the very tick another unit's joiner rest takes the pick (before
+// PullUnit's own gather could see it). Without the gate no order goes out and the lead walks on to the stand.
+static void TestBigPackGateHoldsOnAJoinerRestTick()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7405}), Step(PlanStepKind::Move, 100, 0, 0)};
+    Run r = Start(&plan);
+    Facts f = ScorpidParty(0.0f);
+    StartScorpidWalk(r, f, 9);
+    f.leadX = 12.0f;
+    f.leadMoving = true;
+    f.units[0].distLead = 22.3f;
+    UnitFact other = Joiners(0x6b54, 7405, 21.0f, 9);
+    other.joinersRead = true;
+    f.units.push_back(other);
+    SetBehind(f, "Vist", 28.0f);
+    CHECK(Tick(r, f) == "move 12.0 0.0 0.0");
+    CHECK(r.bigHold && r.shotStandWalk);
+}
+
+// A bot near the stand already (ahead of the lead) is no reason to hold.
+static void TestBigPackGateCountsTheStandPoint()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7405}), Step(PlanStepKind::Move, 100, 0, 0)};
+    Run r = Start(&plan);
+    Facts f = ScorpidParty(0.0f);
+    StartScorpidWalk(r, f, 9);
+    f.leadX = 2.0f;
+    for (MemberFact& m : f.members)
+        if (m.name == "Dizzy")
+        {
+            m.yd = 21.0f;
+            m.x = 23.0f; // 1.4 yd from the stand
+        }
+    f.maxMemberYd = 21.0f;
+    Tick(r, f);
+    CHECK(!r.bigHold && !Has(r.note, "big pack"));
+}
+
+static void TestBigPackGateGivesUpAtTheGatherCeiling()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7405}), Step(PlanStepKind::Move, 100, 0, 0)};
+    Run r = Start(&plan);
+    Facts f = ScorpidParty(0.0f);
+    StartScorpidWalk(r, f, 9);
+    f.leadX = 12.0f;
+    SetBehind(f, "Vist", 28.0f);
+    CHECK(Tick(r, f) == "move 12.0 0.0 0.0");
+    std::string order;
+    std::uint32_t held = 0;
+    for (; held < kGatherCapMs + 5 * kTickMs; held += kTickMs)
+    {
+        order = Tick(r, f);
+        if (!order.empty())
+            break;
+    }
+    CHECK(held + kTickMs == kGatherCapMs); // the ceiling, not forever
+    CHECK(order == "move 24.4 0.0 0.0");
+    CHECK(r.note == "big pack (9 joiners expected, 8 or more): the party did not gather within 30 s (Vist 28.0 yd "
+                    "behind): proceeding anyway");
+    // Spent for this walk: the gate does not hold again on the way.
+    Tick(r, f);
+    CHECK(!r.bigHold && !Has(r.note, "waits for the party"));
+}
+
+// kBigPackJoiners is a boundary: exactly 8 joiners expected gates the walk, 7 does not.
+static void TestBigPackBoundaryIsEight()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7405}), Step(PlanStepKind::Move, 100, 0, 0)};
+    for (std::uint32_t joiners : {8u, 7u})
+    {
+        Run r = Start(&plan);
+        Facts f = ScorpidParty(0.0f);
+        StartScorpidWalk(r, f, joiners);
+        CHECK(r.bigWalk == (joiners == 8));
+        f.leadX = 12.0f;
+        f.units[0].distLead = 22.3f;
+        SetBehind(f, "Vist", 28.0f);
+        Tick(r, f);
+        CHECK(r.bigHold == (joiners == 8));
+        CHECK(Has(r.note, "big pack (8 joiners expected, 8 or more)") == (joiners == 8));
+    }
+}
+
+static void TestSmallPackStandWalkIsNotGated()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7405}), Step(PlanStepKind::Move, 100, 0, 0)};
+    Run r = Start(&plan);
+    Facts f = ScorpidParty(0.0f);
+    StartScorpidWalk(r, f, 7); // one under kBigPackJoiners
+    CHECK(!r.bigWalk);
+    f.leadX = 12.0f;
+    SetBehind(f, "Vist", 28.0f);
+    Tick(r, f);
+    CHECK(!r.bigHold && !Has(r.note, "big pack"));
+    CHECK(r.note == "gathering before a pull"); // the old gate, as before
+}
+
 int main()
 {
+    TestPatrollerOutsideTheRadiusIsWaitedForThenPulled();
+    TestPatrollerWaitIsBounded();
+    TestPatrollerGiveUpIsRunWide();
+    TestPatrollerOwnedByALaterStepIsLeftToIt();
+    TestNoPatrollerWaitWithoutALivingHostilePatroller();
+    TestBigPackStandWalkWaitsForTheParty();
+    TestBigPackGateHoldsOnAJoinerRestTick();
+    TestBigPackGateCountsTheStandPoint();
+    TestBigPackGateGivesUpAtTheGatherCeiling();
+    TestSmallPackStandWalkIsNotGated();
+    TestBigPackBoundaryIsEight();
     TestHopUnitThatNeverCameIsNotPulledAgain();
     TestStepUnitsNeverEnterTheRunWideSet();
     TestHopNeverCameWindowAndLateAttacker();
