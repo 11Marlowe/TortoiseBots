@@ -3,8 +3,10 @@
 // Dungeon plans for the opt-in run leader (docs/play/dungeon-run-leader.md).
 //
 // The rows live in the world tables `ai_dungeon_plan`, `ai_dungeon_leg` and
-// `ai_dungeon_step` and are read ONCE at startup into DungeonPlanTable (loader:
-// ai/playerbot/DungeonPlanMgr.cpp). Lookups never touch the database. The data
+// `ai_dungeon_step` and are read at startup into DungeonPlanTable (loader:
+// ai/playerbot/DungeonPlanMgr.cpp), and again into a NEW table by a GM's
+// `.bot run reloadplans` (DungeonPlanReloadPolicy.h decides whether it replaces
+// the old one; a sealed table is never changed). Lookups never touch the database. The data
 // comes from turtle-agent's plan v1 files through its exporter: one source for
 // the agent's own driver and for the run leader.
 //
@@ -517,6 +519,19 @@ namespace ai
                 out.push_back(&entry.second);
             std::sort(out.begin(), out.end(), [](const DungeonPlan* a, const DungeonPlan* b) { return a->name < b->name; });
             return out;
+        }
+
+        // Whether `plan` points into this table (a run's plan pointer after a
+        // `.bot run reloadplans`: the reload keeps a replaced table alive while
+        // a run still holds one of its plans, DungeonPlanReloadPolicy.h).
+        bool Owns(const DungeonPlan* plan) const
+        {
+            if (!plan)
+                return false;
+            for (const auto& entry : plans_)
+                if (&entry.second == plan)
+                    return true;
+            return false;
         }
 
         // The names of the plans on one map, sorted. Empty before the seal.
