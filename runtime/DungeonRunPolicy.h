@@ -118,6 +118,10 @@ constexpr std::uint32_t kDirectSummonCap = 3;
 constexpr std::uint32_t kDirectPauseSummons = 2;
 constexpr std::uint32_t kDirectPauseMs = 60000;
 constexpr std::uint32_t kDirectRetryMs = 10000;
+// A glue that reads the direct-step test (Facts::directJoinSupported) did not read it on the tick a direct order
+// would go out (the step or the walk back's point changed within the tick before): the order waits a tick for the
+// read, at most this many ticks in a row (a guard; then the ground rule alone, as for a glue without the test).
+constexpr std::uint32_t kDirectJoinHolds = 10;
 constexpr std::uint32_t kWalkRetryMs = 12000;     // no progress for this long: send the move again
 constexpr std::uint32_t kShortStallMs = 3000;     // a plain walk within kStalledArriveYd that gains nothing this long arrived
 constexpr std::uint32_t kWalkTries = 3;           // ... at most this often, then pause
@@ -418,6 +422,9 @@ struct Facts
     // is the current one or the walk back's). The gate before a direct step then asks that test, not only the
     // ground distance (kGatherYd), so a bot on another floor within it never passes the gate and fails the step.
     bool directJoinRead = false;
+    // The glue reads that test at all (the module's glue: always; the policy tests that do not set it, and any
+    // legacy caller, keep the ground rule alone when it is not read).
+    bool directJoinSupported = false;
     std::vector<std::string> deadNames; // the dead bots (ghosts too), the lead bot too
     // The lead bot has a navmesh path back to the run's anchor (Run::anchor*).
     // Read lazily: only on a tick after the policy asked for it
@@ -751,6 +758,8 @@ struct Run
     std::unordered_map<std::string, std::uint64_t> deadSeenMs; // the run clock a bot was last seen dead (NoteDeadSeen), the whole run
     bool directRefusedOn = false;     // this step's direct step was refused too-far (or its gather hit the ceiling) ...
     std::uint64_t directRefusedMs = 0; // ... first at this run clock (DirectPauseDue)
+    std::size_t directRefusedIdx = 0;  // ... at this plan point (DirectTroublePoint)
+    std::uint32_t directJoinHolds = 0; // ticks a direct order was held for facts without the glue's test (kDirectJoinHolds)
     std::string directWaitFor;        // a refused direct step's straggler the run waits for (no summon allowed yet)
     std::uint32_t directWaitMs = 0;   // ... this long so far (kDirectRetryMs, then the step goes out again)
     std::unordered_map<std::string, float> memberYd; // each bot's distance to the lead at the gather's last sample
@@ -1258,6 +1267,8 @@ inline void ResetStep(Run& r)
     r.stepSummons.clear();
     r.directRefusedOn = false;
     r.directRefusedMs = 0;
+    r.directRefusedIdx = 0;
+    r.directJoinHolds = 0;
     r.directWaitFor.clear();
     r.directWaitMs = 0;
     r.memberYd.clear();
@@ -1415,34 +1426,69 @@ inline bool DirectSummonAllowed(const Run& r, const std::string& name)
     return r.runMs - it->second.lastMs > kDirectResummonMs;
 }
 
-// The step's first too-far refusal (or its direct gather's first ceiling) starts the clock DirectPauseDue reads.
+// The step's walk points: what a walk back after a regroup replays.
+inline bool IsMovePoint(const PlanStep& s)
+{
+    return s.kind == PlanStepKind::Move || s.kind == PlanStepKind::MoveDirect;
+}
+
+// The walk back's next point as WalkBack reaches it on its next tick: it passes the steps that are not walk
+// points (a pull, a rest) in the same tick, so the facts must be read for the point after them. -1: none
+// (the walk back is over, or none is on).
+inline std::size_t NextWalkBackIdx(const Run& r)
+{
+    if (!r.walkBack || !r.plan)
+        return static_cast<std::size_t>(-1);
+    std::size_t i = r.walkBackIdx;
+    while (i < r.step && i < r.plan->steps.size() && !IsMovePoint(r.plan->steps[i]))
+        ++i;
+    return i < r.step && i < r.plan->steps.size() ? i : static_cast<std::size_t>(-1);
+}
+
+// The point a direct step's trouble belongs to: the walk back's point, else the step's own.
+inline std::size_t DirectTroublePoint(const Run& r)
+{
+    std::size_t const back = NextWalkBackIdx(r);
+    return back != static_cast<std::size_t>(-1) ? back : r.step;
+}
+
+// The first too-far refusal (or direct gather ceiling) at a point starts the clock DirectPauseDue reads; a walk
+// back that went on to another point starts it over there.
 inline void NoteDirectTrouble(Run& r)
 {
-    if (r.directRefusedOn)
+    std::size_t const point = DirectTroublePoint(r);
+    if (r.directRefusedOn && r.directRefusedIdx == point)
         return;
     r.directRefusedOn = true;
     r.directRefusedMs = r.runMs;
+    r.directRefusedIdx = point;
 }
 
 // A direct step's straggler pauses the run only after kDirectPauseSummons summons of it this step and
-// kDirectPauseMs since the step's first refusal; until then the run waits for it and keeps guarding.
+// kDirectPauseMs since the first refusal at this point, or after 2 x kDirectPauseMs whatever the summons (a
+// straggler held in a fight is never summoned: the time bound); until then the run waits and keeps guarding.
 inline bool DirectPauseDue(const Run& r, const std::string& name)
 {
+    if (!r.directRefusedOn)
+        return false;
     auto it = r.stepSummons.find(name);
     std::uint32_t const summons = it == r.stepSummons.end() ? 0 : it->second.count;
-    return summons >= kDirectPauseSummons && r.directRefusedOn && r.runMs - r.directRefusedMs >= kDirectPauseMs;
+    std::uint64_t const since = r.runMs - r.directRefusedMs;
+    return (summons >= kDirectPauseSummons && since >= kDirectPauseMs) || since >= 2ull * kDirectPauseMs;
 }
 
-// The point of the direct step the gate before it guards, when there is one: the walk back's next point when it
-// is a direct one, else the current step when it is a direct step. While this holds the glue reads
-// MemberFact::withLead (one navmesh path per bot within reach) with that point for the bot's own line.
+// The point of the direct step the gate before it guards, when there is one: the walk back's next point (as
+// WalkBack reaches it: NextWalkBackIdx) when it is a direct one, else the current step when it is a direct step.
+// Not while a walk is under way (the gate is not asked then). While this holds the glue reads
+// MemberFact::withLead (one navmesh path per follower within kGatherYd) with that point for the bot's own line.
 inline bool DirectJoinWanted(const Run& r, float& x, float& y, float& z)
 {
-    if (r.state != State::Running || !r.plan)
+    if (r.state != State::Running || !r.plan || r.phase == Phase::Walk)
         return false;
     const PlanStep* s = nullptr;
-    if (r.walkBack && r.walkBackIdx < r.step && r.walkBackIdx < r.plan->steps.size())
-        s = &r.plan->steps[r.walkBackIdx];
+    std::size_t const back = NextWalkBackIdx(r);
+    if (back != static_cast<std::size_t>(-1))
+        s = &r.plan->steps[back];
     else
         s = Current(r);
     if (!s || s->kind != PlanStepKind::MoveDirect)
@@ -1477,6 +1523,21 @@ inline const MemberFact* NotWithLead(const Facts& f)
 inline bool DirectGathered(const Facts& f)
 {
     return f.maxMemberYd <= kGatherYd && !NotWithLead(f);
+}
+
+// The gate passed, but on facts without the glue's test although the glue reads it: the direct order waits for
+// the next tick's read (no order, the note as it is), kDirectJoinHolds ticks at most. True: hold now.
+inline bool HoldForDirectJoin(Run& r, const Facts& f)
+{
+    if (f.directJoinRead || !f.directJoinSupported)
+    {
+        r.directJoinHolds = 0;
+        return false;
+    }
+    if (r.directJoinHolds >= kDirectJoinHolds)
+        return false;
+    ++r.directJoinHolds;
+    return true;
 }
 
 // A gather's ceiling: the farthest straggler, a bot more than kSummonYd from
@@ -1764,11 +1825,6 @@ inline bool SummonRevived(Run& r, const Facts& f, std::string& order)
     return true;
 }
 
-// The step's walk points: what a walk back after a regroup replays.
-inline bool IsMovePoint(const PlanStep& s)
-{
-    return s.kind == PlanStepKind::Move || s.kind == PlanStepKind::MoveDirect;
-}
 
 // Where the lead bot stands against the run's anchor: on it (or no anchor),
 // off it (more than kStragglerDzYd above or below: a fight chased it up a
@@ -4251,6 +4307,8 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         }
         return true;
     }
+    if (direct && r.phase != Phase::Walk && HoldForDirectJoin(r, f))
+        return true;
     if (!direct && r.phase != Phase::Walk && ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) > kArriveYd &&
         IslandConfirmed(r, f, p.x, p.y, p.z))
     {
@@ -4700,6 +4758,8 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         }
         return;
     }
+    if (s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && HoldForDirectJoin(r, f))
+        return;
     if (r.detour)
     {
         r.note = "walking around: the plan's point is off the walkable way";

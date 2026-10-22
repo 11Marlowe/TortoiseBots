@@ -636,6 +636,135 @@ static void TestRefusedDirectStepNeedsTwoSummonsBeforeThePause()
     // The glue's test finds her with the lead bot: the step goes out at once, not after kDirectRetryMs.
     with.directJoinRead = true;
     CHECK(Tick(r, with) == kLedgeStep);
+    // The time bound: 2 x kDirectPauseMs since the first refusal pauses whatever the summons, with the old text.
+    r.runMs = r.directRefusedMs + 2 * kDirectPauseMs - kTickMs;
+    r.stepSummons["Jinkla"].lastMs = r.runMs - 1000;
+    OrderRefused(r, kLedgeStep, kLedgeRefusal);
+    CHECK(r.state == State::Running && r.stepSummons["Jinkla"].count == 1);
+    r.directWaitFor.clear();
+    r.runMs = r.directRefusedMs + 2 * kDirectPauseMs;
+    r.stepSummons["Jinkla"].lastMs = r.runMs - 1000;
+    OrderRefused(r, kLedgeStep, kLedgeRefusal);
+    CHECK(r.state == State::Paused && r.note.find("cmd " + kLedgeStep + " refused: " + kLedgeRefusal) == 0);
+}
+
+// The cold review of d158546e: a straggler held in a fight is never summoned (`cmd summon` refuses it), so the
+// count rule alone never paused the direct gather: past 2 x kDirectPauseMs it pauses, and not before.
+static void TestCombatLockedDirectStragglerPausesOnTime()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::MoveDirect, 5)};
+    Run r = Start(&plan);
+    MarkSummoned(r, "Jinkla");
+    Facts f = LedgeScene(19.5f, false);
+    f.members[2].inCombat = true;
+    f.members[2].attackers = 1;
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    std::uint64_t pausedAt = 0;
+    for (int i = 0; i < 400 && r.state == State::Running; ++i)
+    {
+        CHECK(Tick(r, f).find("summon") == std::string::npos);
+        if (r.state == State::Paused)
+            pausedAt = r.runMs;
+    }
+    CHECK(r.state == State::Paused && r.stepSummons["Jinkla"].count == 1);
+    CHECK(r.directRefusedOn && pausedAt - r.directRefusedMs >= 2ull * kDirectPauseMs);
+    CHECK(pausedAt - r.directRefusedMs < 2ull * kDirectPauseMs + kGatherCapMs + kTickMs);
+    CHECK(r.note.find("the party did not gather within") == 0);
+}
+
+// The module's glue as the policy sees it: the test is read on the ticks DirectJoinWanted asked for (with the run
+// as the last tick left it); then Jinkla on the ledge is not with the lead bot.
+static std::string GlueTick(Run& r, Facts f)
+{
+    f.directJoinSupported = true;
+    f.directJoinRead = DirectJoinWanted(r);
+    for (MemberFact& m : f.members)
+        if (m.name == "Jinkla")
+            m.withLead = !f.directJoinRead;
+    return Tick(r, f);
+}
+
+// The cold review of d158546e (MED): a walk back passes a pull in the tick it reaches it, so the facts read for
+// the pull's index were not the direct step's, and the gate fell back to the ground rule on that tick. The read
+// follows WalkBack's own skip (NextWalkBackIdx); a ledge bot never lets the walk back's direct order out.
+static void TestWalkBackReadsTheDirectStepPastAPull()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0), PullStep(50, {1}), Step(PlanStepKind::MoveDirect, 5),
+        Step(PlanStepKind::Move, 100)};
+    Run r = Start(&plan, 3);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 0;
+    Facts f = LedgeScene(19.5f, false);
+    bool sawPull = false;
+    for (int i = 0; i < 60; ++i)
+    {
+        if (r.walkBack && r.walkBackIdx == 1)
+        {
+            sawPull = true;
+            CHECK(DirectJoinWanted(r)); // the point the next tick reaches is the direct step
+        }
+        std::string const order = GlueTick(r, f);
+        CHECK(order.find(" direct") == std::string::npos);
+        CHECK(r.state == State::Running);
+    }
+    CHECK(sawPull && r.walkBack && r.walkBackIdx == 2 && r.phase == Phase::Gather);
+    // Down from the ledge (with the lead bot): the direct order goes out.
+    f = LedgeScene(1.0f, true);
+    f.directJoinSupported = true;
+    f.directJoinRead = true;
+    CHECK(Tick(r, f) == "move 5.0 0.0 0.0 direct");
+}
+
+// The belt: a glue that reads the test did not read it on the tick the gate passed: no order that tick (the note
+// as it was), then the read tick sends it; a bounded hold (kDirectJoinHolds), never forever.
+static void TestDirectOrderWaitsForTheRead()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::MoveDirect, 5)};
+    Run r = Start(&plan);
+    Facts f = LedgeScene(1.0f, true);
+    f.directJoinSupported = true;
+    f.directJoinRead = false;
+    CHECK(Tick(r, f).empty() && r.directJoinHolds == 1);
+    f.directJoinRead = true;
+    CHECK(Tick(r, f) == "move 5.0 0.0 0.0 direct" && r.directJoinHolds == 0);
+    Run g = Start(&plan);
+    f.directJoinRead = false;
+    std::uint32_t held = 0;
+    std::string order;
+    while (order.empty() && held <= kDirectJoinHolds)
+    {
+        order = Tick(g, f);
+        held += order.empty() ? 1 : 0;
+    }
+    CHECK(order == "move 5.0 0.0 0.0 direct" && held == kDirectJoinHolds);
+    // No read while a walk is under way (the gate is not asked then): the glue saves the paths.
+    g.phase = Phase::Walk;
+    CHECK(!DirectJoinWanted(g));
+    g.phase = Phase::Begin;
+    CHECK(DirectJoinWanted(g));
+}
+
+// The cold review of d158546e (LOW): the refusal clock belongs to the point; a walk back gone on to another direct
+// point starts it over, so a pause due at the first point does not fire at the next one.
+static void TestDirectRefusalClockStartsOverAtTheNextPoint()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::MoveDirect, 5), Step(PlanStepKind::MoveDirect, 10), Step(PlanStepKind::Move, 100)};
+    Run r = Start(&plan, 2);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 0;
+    r.walkBackDirect = true;
+    r.stepSummons["Jinkla"].count = kDirectSummonCap;
+    OrderRefused(r, kLedgeStep, kLedgeRefusal);
+    CHECK(r.state == State::Running && r.directRefusedIdx == 0);
+    NextWalkBackPoint(r);
+    r.directWaitFor.clear();
+    r.runMs += kDirectPauseMs + 10000;
+    OrderRefused(r, "move 10.0 0.0 0.0 direct", kLedgeRefusal);
+    CHECK(r.state == State::Running && r.directRefusedIdx == 1 && r.directRefusedMs == r.runMs);
 }
 
 // A bot that died and came back since its last summon is a new case: summoned again at once (the cap still holds).
@@ -9826,6 +9955,10 @@ int main()
     TestRefusedDirectStepSummonsAgainAndPausesLate();
     TestRefusedDirectStepNeedsTwoSummonsBeforeThePause();
     TestDirectSummonAfterADeathIsANewCase();
+    TestCombatLockedDirectStragglerPausesOnTime();
+    TestWalkBackReadsTheDirectStepPastAPull();
+    TestDirectOrderWaitsForTheRead();
+    TestDirectRefusalClockStartsOverAtTheNextPoint();
     TestSkipWhileRunning();
     TestUnreachableMoveDetours();
     TestPullGatherAndFight();

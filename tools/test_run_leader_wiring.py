@@ -276,6 +276,10 @@ class RunLeaderWiringTest(unittest.TestCase):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("DirectJoinWanted(slot.run, joinX, joinY, joinZ);", facts)
         self.assertIn("f.directJoinRead = joinWanted;", facts)
+        self.assertIn("f.directJoinSupported = true;", facts)
+        # Cost: no path for a follower past kGatherYd (its distance fails the gate already); none during a walk
+        # (DirectJoinWanted is false in Phase::Walk: test_dungeon_run_policy TestDirectOrderWaitsForTheRead).
+        self.assertIn("if (joinWanted && bot != lead && yd <= kGatherYd && bot->IsInWorld()", facts)
         self.assertIn("member.withLead = DirectFollowerJoin(bot, joinMap, f.leadX, f.leadY, f.leadZ, joinX, joinY, "
                       "joinGround,", facts)
         self.assertLess(facts.index("member.withLead = DirectFollowerJoin("), facts.index("f.members.push_back(member);"))
@@ -284,6 +288,8 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && !DirectGathered(f)", move)
         self.assertIn('yd from the lead bot)", true);', move)
         walk_back = body(policy, "inline bool WalkBack(", "\n}\n")
+        self.assertIn("if (direct && r.phase != Phase::Walk && HoldForDirectJoin(r, f))", walk_back)
+        self.assertIn("if (s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && HoldForDirectJoin(r, f))", move)
         self.assertIn("direct && r.phase != Phase::Walk && !DirectGathered(f)", walk_back)
         self.assertIn('yd from the lead bot)", true);', walk_back)
         # 4. A door whose lock needs no key and no skill opens on a plain use.

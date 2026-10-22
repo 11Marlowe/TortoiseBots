@@ -10175,7 +10175,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.team = lead->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde;
     // A direct step is the current one (or the walk back's next point): each follower is asked the step's own
     // too-far test (DirectFollowerJoin, as CommanderMoveDirect asks it) for the gate before the step
-    // (DungeonRun::DirectGathered). One navmesh path per follower, only on those ticks.
+    // (DungeonRun::DirectGathered). One navmesh path per follower within kGatherYd (one farther fails the gate on
+    // its distance alone), only on those ticks and never while a walk is under way (DirectJoinWanted).
     float joinX = 0.0f, joinY = 0.0f, joinZ = 0.0f;
     Map* const joinMap = lead->GetMap();
     bool const joinWanted = joinMap && lead->IsAlive() && lead->IsInWorld() &&
@@ -10187,6 +10188,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         if (RemoteCommander::CheckDirectGround(ground, joinZ) == RemoteCommander::DirectVerdict::Ok)
             joinGround = ground;
     }
+    f.directJoinSupported = true; // a direct order waits a tick for the read (DungeonRun::HoldForDirectJoin)
     f.directJoinRead = joinWanted;
     for (Player* bot : bots)
     {
@@ -10224,8 +10226,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             if (attacker && attacker->IsAlive() && !sServerFacade.IsFriendlyTo(attacker, lead))
                 ++member.attackers;
         // The bots CommanderMoveDirect leaves out of its test stay "with" (it does not refuse for them).
-        if (joinWanted && bot != lead && bot->IsInWorld() && bot->GetMap() == joinMap && !bot->IsTaxiFlying() &&
-            !bot->IsBeingTeleported() && memberAi)
+        if (joinWanted && bot != lead && yd <= kGatherYd && bot->IsInWorld() && bot->GetMap() == joinMap &&
+            !bot->IsTaxiFlying() && !bot->IsBeingTeleported() && memberAi)
         {
             float horizontal = 0.0f;
             Movement::PointsArray route;
