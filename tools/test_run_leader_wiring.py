@@ -409,6 +409,22 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("horizontal > refusedYd", direct)
 
 
+    def test_pull_step_patrollers_reach_the_policy(self):
+        # DungeonRun::WaitForPatroller (Uldaman r10 step 66): a pull step's entries on a waypoint patrol outside the
+        # radius, corpses too, within kPatrolSeeYd beyond it; the grid search of a pull step reaches that far.
+        read = body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot,", "\n}\n")
+        self.assertIn("bool const pullStep = step->kind == ai::PlanStepKind::Pull;", read)
+        self.assertIn("creature->GetDefaultMovementType() != WAYPOINT_MOTION_TYPE", read)
+        self.assertIn("fromPoint <= step->radius || fromPoint > step->radius + kPatrolSeeYd", read)
+        self.assertIn("pullStep ? std::min(toPoint + step->radius + kPatrolSeeYd, 2.0f * kSeeYd) : range", read)
+        self.assertIn("addPatroller(creature, fromPoint, true);", read)
+        self.assertIn("addPatroller(creature, fromPoint, false);", read)
+        self.assertIn("unit.dead = dead;", read)
+        self.assertIn("unit.distSpot = fromPoint;", read)
+        self.assertIn("f.patrollers.push_back(unit);", read)
+        # The wait itself is the policy's: a living patroller out of the radius is never pulled by the glue.
+        self.assertNotIn("pullback", read[read.index("auto addPatroller"):read.index("f.patrollers.push_back(unit);")])
+
     def test_aggro_estimate_is_a_read_side_fact_behind_its_key(self):
         # AiPlayerbot.DungeonRunAggroEstimate (default 0): the glue reads the estimate, the policy decides.
         read = body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot,", "\n}\n")

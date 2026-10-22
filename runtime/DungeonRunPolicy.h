@@ -193,6 +193,17 @@ constexpr std::uint32_t kUseOnProofMs = 30000;    // use_on: after the ACK, the 
 constexpr float kUseOnSummonYd = 150.0f;          // use_on: how far around the lead bot the glue looks for the summoned boss
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
+// A pull step's patroller (WaitForPatroller; Uldaman r10-19z29 step 66): the
+// Stone Steward 4860 walks a lane whose north end only is in the step's 10 yd
+// radius, so the step said "pack cleared" in 0 s in r8, r9 and r10, and where
+// the patrol was decided whether it came alone or into the Keeper's fight.
+constexpr std::uint32_t kPatrolWaitMs = 60000;    // ... waited for this long when the step has no timeout_s of its own
+constexpr float kPatrolSeeYd = 30.0f;             // the glue reads patrollers of the step's entries this far outside its radius
+constexpr float kPatrolReachYd = 24.0f;           // one in sight of the lead bot this close is pulled where it walks
+// A big pack's firing stand walk (BigPackWalkGate; Uldaman r10-19z29 step 79):
+// the lead walked to the stand of a 9-joiner scorpid pack with the healer and
+// the mage 27-30 yd behind on the ramp, and the pack woke on a dps first.
+constexpr std::uint32_t kBigPackJoiners = 8;      // a pull with this many joiners expected or more is a big pack
 // Scripted events (ritual, hold; docs/play/dungeon-run-leader.md "Events").
 constexpr float kHoldReturnYd = 8.0f;             // out of a fight, a lead bot farther than this from the hold spot walks back
 constexpr std::uint32_t kHoldIdlePullMs = 10000;  // an awake event unit that has not come for this long is pulled
@@ -347,6 +358,9 @@ struct UnitFact
     // Pull step and hop units, when Facts::pullStand is set: the lead bot sees
     // it now (Unit::IsWithinLOSInMap).
     bool losLead = false;
+    // Facts::patrollers only: the unit is a corpse (never waited for), and
+    // its distance from the step's point is in distSpot.
+    bool dead = false;
 };
 
 // The mage's Polymorph (all ranks and forms): the aura the run waits for after
@@ -440,6 +454,11 @@ struct Facts
     // a known spot of the main mesh the lead bot cannot reach (GoodSpotProbeWanted).
     bool goodSpotCut = false;
     std::vector<UnitFact> units;        // pull/boss: living units of the step's entries within its radius
+    // pull (not boss): units of the step's entries that walk a waypoint patrol
+    // (the core's default movement type), outside its radius and within
+    // kPatrolSeeYd beyond it; corpses too (UnitFact::dead). distSpot: from the
+    // step's point; losLead read for a living one within kPatrolReachYd.
+    std::vector<UnitFact> patrollers;
     std::vector<UnitFact> hopUnits;     // move: living hostile units within kHopPullYd of the point, not owned by a later step
     // boss: a dead unit (corpse) of the boss's entry within the step's radius
     // plus kSeeYd of its point (a pullback drags him toward the party), or
@@ -620,6 +639,21 @@ struct Run
     std::uint32_t fruitlessPulls = 0;
     std::uint32_t bossWaitMs = 0;   // a boss step: time at the spot with the boss neither alive nor dead in sight
     bool bossSeenAlive = false;     // a boss step: the boss was among the step's living units
+    std::uint32_t patrolWaitMs = 0; // a pull step: time spent waiting for a patroller outside the radius (WaitForPatroller)
+    // A big pack's stand walk (BigPackWalkGate): the walk's unit, stand and
+    // joiner count; the hold for the party, its time, and whether its ceiling
+    // was spent (the walk then goes on without the gate).
+    bool bigWalk = false;
+    std::uint64_t bigWalkGuid = 0;
+    float bigWalkX = 0.0f, bigWalkY = 0.0f, bigWalkZ = 0.0f;
+    std::uint32_t bigJoiners = 0;
+    bool bigHold = false;
+    std::uint32_t bigHoldMs = 0;
+    bool bigHoldSpent = false;
+    std::string bigHoldNote;
+    // The last joiner count the glue read per unit this step: a unit held for
+    // its rest is not judged again (joinersRead false), the count stands.
+    std::unordered_map<std::uint64_t, std::uint32_t> joinerSeen;
     std::uint32_t walkBackPulls = 0; // pulls on the way of the walk back (not counted in `pulls`)
     // Run-wide (kept across steps).
     std::unordered_set<std::uint64_t> unreachable;   // units given up on: never pulled again this run
@@ -983,6 +1017,18 @@ inline void ResetShotStand(Run& r)
     r.shotHow.clear();
 }
 
+// The big pack's stand walk gate is over (the pull went out, a fight, the step).
+inline void EndBigWalk(Run& r)
+{
+    r.bigWalk = false;
+    r.bigWalkGuid = 0;
+    r.bigJoiners = 0;
+    r.bigHold = false;
+    r.bigHoldMs = 0;
+    r.bigHoldSpent = false;
+    r.bigHoldNote.clear();
+}
+
 // A tick the pull stand's gate did not run on ends its hold (the stand tries
 // already spent stay counted): no stand request is left for the glue to
 // answer, and the next pull checks the way back and counts as usual.
@@ -1162,6 +1208,9 @@ inline void ResetStep(Run& r)
     r.fruitlessPulls = 0;
     r.bossWaitMs = 0;
     r.bossSeenAlive = false;
+    r.patrolWaitMs = 0;
+    EndBigWalk(r);
+    r.joinerSeen.clear();
     r.walkBackPulls = 0;
     r.gatherOrder.clear();
     r.gatherRefusals = 0;
@@ -3167,6 +3216,17 @@ inline ShotStand ShotStandOnPath(const std::vector<ai::ApproachPoint>& path, con
     return stand;
 }
 
+// The joiners the aggro estimate expects for a pull of `u`: this tick's read,
+// else the last one this step (a unit held for its joiner rest is not judged
+// again by the glue). 0 with the estimate off.
+inline std::uint32_t ExpectedJoiners(const Run& r, const UnitFact& u)
+{
+    if (u.joinersRead)
+        return u.joiners;
+    auto const it = r.joinerSeen.find(u.guid);
+    return it == r.joinerSeen.end() ? 0 : it->second;
+}
+
 // The pull stand (AiPlayerbot.DungeonRunPullStand; PLAN-PULLBACK-RANGE F1):
 // `pullback` goes out only when the tank's shot can go out from where it
 // stands. In the WC runs of 19z17 the tank, ordered from a spot it could not
@@ -3283,6 +3343,19 @@ inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t
         r.shotStandZ = f.shotStandZ;
         r.shotStillMs = 0;
         r.shotWalkMs = 0;
+        // A big pack (kBigPackJoiners): the walk is watched every tick by
+        // BigPackWalkGate, so the lead bot never walks into reach first.
+        EndBigWalk(r);
+        std::uint32_t const joiners = ExpectedJoiners(r, u);
+        if (joiners >= kBigPackJoiners)
+        {
+            r.bigWalk = true;
+            r.bigWalkGuid = u.guid;
+            r.bigWalkX = f.shotStandX;
+            r.bigWalkY = f.shotStandY;
+            r.bigWalkZ = f.shotStandZ;
+            r.bigJoiners = joiners;
+        }
         WalkTo(r, f, f.shotStandX, f.shotStandY, f.shotStandZ, false, dt, order);
         return hold("to firing stand " + std::to_string(tries) + " for " + what + " (" + Num(f.shotStandYd) +
             " yd from it; was " + Num(u.distLead) + " yd, los " + (u.losLead ? "yes" : "no") + ")");
@@ -3414,6 +3487,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     r.pullGuid = u.guid;
     r.pullHop = hop;
     r.reachStopped = false;
+    EndBigWalk(r);
     EnterPhase(r, Phase::AwaitPull);
     r.note = "pulling " + std::to_string(u.entry);
     order = "pullback " + std::to_string(u.guid);
@@ -4041,6 +4115,137 @@ inline bool FinishHopInSight(Run& r, const Facts& f, std::uint32_t dt, std::stri
     return false;
 }
 
+// The big pack's firing stand walk (Run::bigWalk, set by HoldForShot when a
+// pull with kBigPackJoiners or more joiners expected walks to a stand). Uldaman
+// r10-19z29 step 79: the stand walk was driven only on the ticks the pull stand
+// ran; on the ticks between (another unit's joiner rest, a way-back read) the
+// lead bot walked on unwatched to a stand 10 yd from the scorpids while the
+// healer and the mage were 27-30 yd behind on the ramp, and the gather came
+// after it stood there. This gate runs on every out-of-combat tick of the walk:
+// a living bot more than kGatherYd from both the lead bot and the stand stops
+// the lead bot where it stands (a gather on its own spot) until every bot is
+// that close, at most kGatherCapMs; then the walk goes on with "proceeding
+// anyway". It keeps the pull stand's walk state while it holds. True: this
+// tick is the gate's (`order` may hold the gather or the walk's move).
+inline bool BigPackWalkGate(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
+{
+    if (!r.bigWalk)
+        return false;
+    bool const walking = r.phase == Phase::Walk && r.walkX == r.bigWalkX && r.walkY == r.bigWalkY && r.walkZ == r.bigWalkZ;
+    if (!walking)
+    {
+        EndBigWalk(r); // the walk ended (arrived, given up, a gather took over): the usual gates from here
+        return false;
+    }
+    std::string const what = "big pack (" + std::to_string(r.bigJoiners) + " joiners expected, " +
+        std::to_string(kBigPackJoiners) + " or more)";
+    // The pull stand's walk is the gate's while it holds and as it resumes: a
+    // tick the stand rule did not run on would drop it (EndShotHold).
+    auto keepStandWalk = [&]
+    {
+        r.shotGateRan = true;
+        r.shotStandWalk = true;
+        r.shotStandGuid = r.bigWalkGuid;
+        r.shotStandX = r.bigWalkX;
+        r.shotStandY = r.bigWalkY;
+        r.shotStandZ = r.bigWalkZ;
+        r.shotStandPrep = true;
+        r.shotHoldGuid = r.bigWalkGuid;
+    };
+    auto walkOn = [&](const std::string& note)
+    {
+        r.bigHold = false;
+        r.bigHoldMs = 0;
+        keepStandWalk();
+        float const dist = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.bigWalkX, r.bigWalkY, r.bigWalkZ);
+        r.walkStillMs = 0;
+        r.walkBestYd = dist;
+        order = MoveOrder(r.bigWalkX, r.bigWalkY, r.bigWalkZ, false);
+        r.note = note;
+        return true;
+    };
+    const MemberFact* behind = nullptr;
+    if (!r.bigHoldSpent)
+        for (const MemberFact& m : f.members)
+            if (!m.name.empty() && m.yd > kGatherYd &&
+                ai::PlanDistance(m.x, m.y, m.z, r.bigWalkX, r.bigWalkY, r.bigWalkZ) > kGatherYd &&
+                (!behind || m.yd > behind->yd))
+                behind = &m;
+    if (!behind)
+    {
+        if (r.bigHold)
+            return walkOn(what + ": the party gathered, on to the firing stand");
+        return false; // together: the pull stand drives the walk as usual
+    }
+    if (!r.bigHold)
+    {
+        // The lead bot holds where it stands; the others form up on it.
+        r.bigHold = true;
+        r.bigHoldMs = 0;
+        r.bigHoldNote = what + ": the firing stand walk waits for the party (" + behind->name + " " +
+            Num(behind->yd) + " yd behind)";
+        order = MoveOrder(f.leadX, f.leadY, f.leadZ, false);
+        r.gatherOrder = order;
+        SampleMembers(r, f);
+        keepStandWalk();
+        r.note = r.bigHoldNote;
+        return true;
+    }
+    r.bigHoldMs += dt;
+    if (r.bigHoldMs >= kGatherCapMs)
+    {
+        r.bigHoldSpent = true;
+        return walkOn(what + ": the party did not gather within " + std::to_string(kGatherCapMs / 1000) + " s (" +
+            behind->name + " " + Num(behind->yd) + " yd behind): proceeding anyway");
+    }
+    keepStandWalk();
+    r.note = r.bigHoldNote;
+    return true;
+}
+
+// A pull step whose units are all gone may still have one of its entries
+// walking a patrol outside the radius (Facts::patrollers). Uldaman r10-19z29
+// step 66: the Stone Steward's lane reaches the 10 yd radius only at its north
+// end; the step said "pack cleared" in 0 s, and the Steward came into the
+// Keeper's fight two steps later. A living, hostile patroller is waited for,
+// like a boss away from his spot (kBossSearchMs), up to the step's timeout_s
+// (kPatrolWaitMs without one): it is pulled once it enters the radius (then it
+// is one of the step's units) or once it stands in sight within kPatrolReachYd
+// of the lead bot. Never in a fight, never for a corpse, a friendly unit or one
+// the run gave up on; none seen: the step is cleared as before. True: the
+// step waits or pulls; false: it is cleared (`timedOut` says the wait ran out).
+inline bool WaitForPatroller(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& order,
+    std::string& timedOut)
+{
+    if (s.kind != PlanStepKind::Pull || f.anyInCombat)
+        return false;
+    const UnitFact* p = nullptr;
+    for (const UnitFact& u : f.patrollers)
+        if (!u.dead && u.hostile && !r.passed.count(u.guid) && !r.unreachable.count(u.guid) &&
+            (!p || u.distLead < p->distLead))
+            p = &u;
+    if (!p)
+        return false;
+    std::uint32_t const capMs = s.timeoutS ? s.timeoutS * 1000u : kPatrolWaitMs;
+    std::string const what = std::to_string(p->entry) + " " + GuidArg(p->guid);
+    if (r.patrolWaitMs >= capMs)
+    {
+        timedOut = "; the patroller " + what + " did not come within " + std::to_string(capMs / 1000) + " s";
+        return false;
+    }
+    if (!p->evading && p->losLead && p->distLead <= kPatrolReachYd)
+    {
+        PullUnit(r, f, *p, order, nullptr, false, dt);
+        if (r.phase == Phase::AwaitPull)
+            r.note = "the patroller " + what + " is in reach: " + r.note;
+        return true;
+    }
+    r.patrolWaitMs += dt;
+    r.note = "waiting for the patroller " + what + " (outside the " + Num(s.radius) + " yd radius; up to " +
+        std::to_string(capMs / 1000) + " s)";
+    return true;
+}
+
 // pull and boss steps: approach until seen, then pull in order until nothing
 // hostile of the step is left. `order` lists the entries in kill order (empty:
 // any entry, nearest first).
@@ -4080,6 +4285,11 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         return;
     }
     if (FinishHopInSight(r, f, dt, order, s.kind == PlanStepKind::Boss ? "boss" : "pack"))
+        return;
+    for (const UnitFact& u : f.units)
+        if (u.joinersRead)
+            r.joinerSeen[u.guid] = u.joiners;
+    if (BigPackWalkGate(r, f, dt, order))
         return;
     if (s.kind == PlanStepKind::Boss)
         for (const UnitFact& u : f.units)
@@ -4190,7 +4400,12 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
     else if (friendlyLeft)
         NextStep(r, what + " is friendly to this party: left alone");
     else if (s.kind != PlanStepKind::Boss)
-        NextStep(r, "pack cleared");
+    {
+        std::string timedOut;
+        if (WaitForPatroller(r, f, s, dt, order, timedOut))
+            return;
+        NextStep(r, "pack cleared" + timedOut);
+    }
     else if (f.bossDeadNearSpot || (r.bossSeenAlive && f.bossDeadNearLead))
     {
         // Remember where he fell: a later `loot` step for this entry goes to the
@@ -6505,6 +6720,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         {
             r.fighting = true;
             r.joinerRest = false; // a fight is on: the aggro estimate's rest wait is moot
+            EndBigWalk(r);        // ... and so is the big pack's stand walk gate
             r.fightMs = 0;
             DropHopWaiver(r);
         }
