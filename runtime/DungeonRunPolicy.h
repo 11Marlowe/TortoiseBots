@@ -4762,6 +4762,15 @@ inline bool BigPackWalkGate(Run& r, const Facts& f, std::uint32_t dt, std::strin
 // unreachable, Run::patrolGaveUp: the wait ran out, or its pulls drew no
 // fight); none seen: the step is cleared as before. True: the step waits;
 // false: it is cleared (`timedOut` says the wait ran out).
+// Whether a patroller (Facts::patrollers) is one the step waits for: hostile,
+// not passed, reachable, not given up on, not a later step's.
+inline bool PatrollerToWaitFor(const Run& r, const Facts& f, const UnitFact& u)
+{
+    if (!u.hostile || r.passed.count(u.guid) || r.unreachable.count(u.guid) || r.patrolGaveUp.count(u.guid))
+        return false;
+    return !(r.plan && ai::OwnedByLaterStep(*r.plan, r.step, u.entry, u.x, u.y, u.z, f.team));
+}
+
 inline bool WaitForPatroller(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& timedOut)
 {
     if (s.kind != PlanStepKind::Pull || f.anyInCombat)
@@ -4769,9 +4778,7 @@ inline bool WaitForPatroller(Run& r, const Facts& f, const PlanStep& s, std::uin
     const UnitFact* p = nullptr;
     for (const UnitFact& u : f.patrollers)
     {
-        if (!u.hostile || r.passed.count(u.guid) || r.unreachable.count(u.guid) || r.patrolGaveUp.count(u.guid))
-            continue;
-        if (r.plan && ai::OwnedByLaterStep(*r.plan, r.step, u.entry, u.x, u.y, u.z, f.team))
+        if (!PatrollerToWaitFor(r, f, u))
             continue;
         r.patrolSeen.insert(u.guid);
         if (!p || u.distLead < p->distLead)
@@ -4791,6 +4798,45 @@ inline bool WaitForPatroller(Run& r, const Facts& f, const PlanStep& s, std::uin
     r.note = "waiting for the patroller " + what + " (outside the " + Num(s.radius) + " yd radius; up to " +
         std::to_string(capMs / 1000) + " s)";
     return true;
+}
+
+// How a pull or boss step stands once nothing of it is left to pull, by the
+// step's own rules (FightStep ends on it; GuardWalkBackWanted asks it too, so
+// the walk back after a fight is left out only when the step is really over).
+// NotYet: the step goes on: its point is not in sight (Facts::seen false: an
+// empty unit list there is no clear pack), a unit is still open, an ambush is
+// not walked through yet, a patroller is still to come (WaitForPatroller may
+// give it up later), or a boss's death was not witnessed (he may be away).
+enum class FightEnd : std::uint8_t { NotYet, OutOfReach, Friendly, Cleared, BossDown };
+
+inline std::size_t UnitsOutOfReach(const Run& r, const Facts& f)
+{
+    std::size_t n = 0;
+    for (const UnitFact& u : f.units)
+        if (u.hostile && r.unreachable.count(u.guid))
+            ++n;
+    return n;
+}
+
+inline FightEnd FightStepEnd(const Run& r, const Facts& f, const PlanStep& s)
+{
+    if (!f.seen || OpenUnits(r, f.units) > 0)
+        return FightEnd::NotYet;
+    if ((s.flags & ai::kPlanFlagAmbush) && !r.walkedThrough)
+        return FightEnd::NotYet;
+    if (UnitsOutOfReach(r, f))
+        return FightEnd::OutOfReach;
+    for (const UnitFact& u : f.units)
+        if (!u.hostile)
+            return FightEnd::Friendly;
+    if (s.kind != PlanStepKind::Boss)
+    {
+        for (const UnitFact& u : f.patrollers)
+            if (PatrollerToWaitFor(r, f, u))
+                return FightEnd::NotYet;
+        return FightEnd::Cleared;
+    }
+    return f.bossDeadNearSpot || (r.bossSeenAlive && f.bossDeadNearLead) ? FightEnd::BossDown : FightEnd::NotYet;
 }
 
 // pull and boss steps: approach until seen, then pull in order until nothing
@@ -4930,30 +4976,24 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         if (!r.walkedThrough)
             return;
     }
-    std::size_t outOfReach = 0;
-    bool friendlyLeft = false;
-    for (const UnitFact& u : f.units)
-    {
-        if (u.hostile && r.unreachable.count(u.guid))
-            ++outOfReach;
-        friendlyLeft = friendlyLeft || !u.hostile;
-    }
+    FightEnd const end = FightStepEnd(r, f, s);
     std::string const what = s.kind == PlanStepKind::Boss ? "boss" : "pack";
-    if (outOfReach)
+    if (end == FightEnd::OutOfReach)
     {
         r.notCleared.insert(r.step);
-        NextStep(r, what + " skipped, not cleared: " + std::to_string(outOfReach) + " units out of reach");
+        NextStep(r, what + " skipped, not cleared: " + std::to_string(UnitsOutOfReach(r, f)) + " units out of reach");
     }
-    else if (friendlyLeft)
+    else if (end == FightEnd::Friendly)
         NextStep(r, what + " is friendly to this party: left alone");
     else if (s.kind != PlanStepKind::Boss)
     {
+        // Cleared, or a patroller to wait for (NotYet): WaitForPatroller decides.
         std::string timedOut;
         if (WaitForPatroller(r, f, s, dt, timedOut))
             return;
         NextStep(r, "pack cleared" + timedOut);
     }
-    else if (f.bossDeadNearSpot || (r.bossSeenAlive && f.bossDeadNearLead))
+    else if (end == FightEnd::BossDown)
     {
         // Remember where he fell: a later `loot` step for this entry goes to the
         // corpse by its guid (TaskStep), not to the plan's spawn point.
@@ -6656,11 +6696,14 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
 // then forward again for the next pack or boss; the owner: "why do they run
 // back from the bosses?". With AiPlayerbot.DungeonRunWalkBackAfterWonFight at 0
 // (the default):
-//   - a pull or boss step with none of its units left to pull: no walk back;
-//     the step says "pack cleared" or "boss down" and the next one starts from
+//   - a pull or boss step its own end rule calls over (FightStepEnd: pack
+//     cleared, boss down by a witnessed death, the rest out of reach or
+//     friendly): no walk back; the step ends and the next one starts from
 //     where the tank stands (its own approach, firing stand or gather places
 //     the party; the anchor check still gathers back on a lost floor);
-//   - a pull or boss step with units left: kept, the same stand pulls again;
+//   - a pull or boss step that goes on (FightStepEnd NotYet: units left, the
+//     point out of sight, an ambush, a patroller to come, a boss whose death
+//     was not seen): kept, the same stand pulls again;
 //   - a move step: no walk back, its walk goes on forward to its point;
 //   - any other step (it acts where the party stood: a wait_clear, a rest, an
 //     object or item step): kept.
@@ -6673,7 +6716,7 @@ inline bool GuardWalkBackWanted(const Run& r, const Facts& f, const PlanStep& s)
     {
         case PlanStepKind::Pull:
         case PlanStepKind::Boss:
-            return OpenUnits(r, f.units) > 0;
+            return FightStepEnd(r, f, s) == FightEnd::NotYet;
         case PlanStepKind::Move:
         case PlanStepKind::MoveDirect:
             return false;

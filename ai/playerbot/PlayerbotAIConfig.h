@@ -92,6 +92,13 @@ public:
 
 public:
     bool Initialize();
+    // The run leader's keys (AiPlayerbot.DungeonSelfClear and AiPlayerbot.DungeonRun*), read from the loaded
+    // aiplayerbot.conf: by Initialize, and again by ReloadDungeonRunKeys after a `.reload config`.
+    void LoadDungeonRunKeys();
+    // Reads aiplayerbot.conf again and only the run leader's keys from it (the rest of the settings keep their
+    // start values). World thread only (BotHostAdapter::OnUpdate). False when the AI is disabled or the file
+    // could not be read; the keys are then left as they were.
+    bool ReloadDungeonRunKeys();
     bool IsInRandomAccountList(uint32 id);
     bool IsFreeAltBot(uint32 guid);
     bool IsFreeAltBot(Player* player) {return IsFreeAltBot(player->GetGUIDLow());}

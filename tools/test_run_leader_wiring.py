@@ -13,6 +13,7 @@ gather, not a player's order). During a walk back the step facts (hop pulls)
 are read for the replayed move point.
 """
 import pathlib
+import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -629,17 +630,15 @@ class RunLeaderWiringTest(unittest.TestCase):
 
 
     def test_walk_back_after_won_fight_key_is_read_with_the_config(self):
-        # AiPlayerbot.DungeonRunWalkBackAfterWonFight (default 0): read in PlayerbotAIConfig::Initialize next to
-        # AiPlayerbot.DungeonSelfClear (the one config load the module has), and handed to the policy on every tick
-        # by ReadRunFacts, so no copy of it lives in a run.
+        # AiPlayerbot.DungeonRunWalkBackAfterWonFight (default 0): one of the run leader's keys, read by
+        # LoadDungeonRunKeys (Initialize and a `.reload config`) and handed to the policy on every tick by
+        # ReadRunFacts, so no copy of it lives in a run.
         config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
         header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
         template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
-        init = body(config, "bool PlayerbotAIConfig::Initialize()\n{", "\n}\n")
-        read = 'dungeonRunWalkBackAfterWonFight = config.GetBoolDefault("AiPlayerbot.DungeonRunWalkBackAfterWonFight", false);'
-        self.assertIn(read, init)
-        self.assertIn('dungeonSelfClear = config.GetBoolDefault("AiPlayerbot.DungeonSelfClear", false);', init)
+        keys = body(config, "void PlayerbotAIConfig::LoadDungeonRunKeys()\n{", "\n}\n")
+        self.assertIn('dungeonRunWalkBackAfterWonFight = config.GetBoolDefault("AiPlayerbot.DungeonRunWalkBackAfterWonFight", false);', keys)
         self.assertIn("bool dungeonRunWalkBackAfterWonFight;", header)
         self.assertIn("AiPlayerbot.DungeonRunWalkBackAfterWonFight = 0", template)
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
@@ -647,8 +646,48 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("f.walkBackAfterWonFight = sPlayerbotAIConfig.dungeonRunWalkBackAfterWonFight;", facts)
         self.assertIn("bool walkBackAfterWonFight = false;", policy)
         self.assertIn("else if (!GuardWalkBackWanted(r, f, *s))", policy)
+        # The suppression follows the pull and boss steps' own end rule (Codex review of 7537eab8): one predicate.
+        wanted = body(policy, "inline bool GuardWalkBackWanted(", "\n}\n")
+        self.assertIn("return FightStepEnd(r, f, s) == FightEnd::NotYet;", wanted)
+        self.assertNotIn("OpenUnits", wanted)
+        fight = body(policy, "inline void FightStep(", "\n}\n")
+        self.assertIn("FightEnd const end = FightStepEnd(r, f, s);", fight)
+        self.assertNotIn("bossDeadNearSpot ||", fight)
         for doc in ("docs/server/settings/dungeons-raids.md", "docs/play/dungeon-run-leader.md"):
             self.assertIn("AiPlayerbot.DungeonRunWalkBackAfterWonFight", (ROOT / doc).read_text())
+
+    def test_run_leader_keys_follow_a_config_reload(self):
+        # `.reload config` (ChatHandler::HandleReloadConfigCommand -> World::LoadConfigSettings(true) ->
+        # WORLDHOOK_ON_AFTER_CONFIG_LOAD) reaches BotHostAdapter::OnAfterConfigLoad; it only marks the run leader's
+        # keys due, and the next world tick (OnUpdate) reads them again, through the same function Initialize uses.
+        config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
+        header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
+        host = (ROOT / "host/BotHostAdapter.cpp").read_text()
+        keys = body(config, "void PlayerbotAIConfig::LoadDungeonRunKeys()\n{", "\n}\n")
+        init = body(config, "bool PlayerbotAIConfig::Initialize()\n{", "\n}\n")
+        reload = body(config, "bool PlayerbotAIConfig::ReloadDungeonRunKeys()\n{", "\n}\n")
+        names = re.findall(r'"(AiPlayerbot\.Dungeon(?:SelfClear|Run\w+))"', config)
+        self.assertGreaterEqual(len(names), 8)
+        for name in names:
+            # Every run leader key is read in LoadDungeonRunKeys and nowhere else (no second parse).
+            self.assertIn('"' + name + '"', keys)
+            self.assertEqual(config.count('"' + name + '"'), 1, name)
+            self.assertNotIn('"' + name + '"', init)
+        self.assertIn("LoadDungeonRunKeys();", init)
+        self.assertLess(init.index('enabled = config.GetBoolDefault("AiPlayerbot.Enabled", false);'),
+                        init.index("LoadDungeonRunKeys();"))
+        self.assertIn("if (!enabled)\n        return false;", reload)
+        self.assertIn("if (!config.Reload())", reload)
+        self.assertLess(reload.index("if (!config.Reload())"), reload.index("LoadDungeonRunKeys();"))
+        self.assertIn("void LoadDungeonRunKeys();", header)
+        self.assertIn("bool ReloadDungeonRunKeys();", header)
+        on_load = body(host, "void BotHostAdapter::OnAfterConfigLoad(bool reload)\n{", "\n}\n")
+        self.assertIn("if (reload)\n        s_dungeonRunKeysDue.store(true);", on_load)
+        self.assertNotIn("ReloadDungeonRunKeys", on_load)  # world thread only
+        on_update = body(host, "void BotHostAdapter::OnUpdate(uint32 diff)\n{", "\n}\n")
+        self.assertIn("if (s_dungeonRunKeysDue.exchange(false))\n        sPlayerbotAIConfig.ReloadDungeonRunKeys();", on_update)
+        self.assertIn("WORLDHOOK_ON_AFTER_CONFIG_LOAD", host)
+        self.assertEqual(host.count("ReloadDungeonRunKeys"), 1)
 
 
 if __name__ == "__main__":

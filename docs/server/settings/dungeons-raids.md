@@ -90,7 +90,7 @@ Allowlist of creature entries the `.bot cmd gossip` order may talk to (issue #10
 
 ### `AiPlayerbot.DungeonRunAggroCeiling`
 The number of joiners (creatures besides the one pulled) above which the run leader rests the party before a pull.
-**Default:** `6` · **Values:** `1` and up · **Restart:** needed
+**Default:** `6` · **Values:** `1` and up · **Restart:** not needed (`.reload config` applies it on the next world tick)
 
 <details>
 <summary>How it works in detail</summary>
@@ -101,7 +101,7 @@ Only read while [`AiPlayerbot.DungeonRunAggroEstimate`](#aiplayerbotdungeonrunag
 
 ### `AiPlayerbot.DungeonRunAggroEstimate`
 Lets the run leader (`.bot run`) estimate how many creatures a pull would bring and rest the party first when that is many.
-**Default:** `0` · **Values:** `0` off (the run leader pulls exactly as before), `1` on · **Restart:** needed
+**Default:** `0` · **Values:** `0` off (the run leader pulls exactly as before), `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
 
 <details>
 <summary>How it works in detail</summary>
@@ -112,7 +112,7 @@ Lets the run leader (`.bot run`) estimate how many creatures a pull would bring 
 
 ### `AiPlayerbot.DungeonRunLootFfa`
 Lets the run leader's loot step get an item the group's loot rules gave to another member, by switching the group to free-for-all for that one loot.
-**Default:** `0` · **Values:** `0` the loot step tries the other bots in turn, `1` free-for-all for the carrier's loot · **Restart:** not needed (a config reload applies it)
+**Default:** `0` · **Values:** `0` the loot step tries the other bots in turn, `1` free-for-all for the carrier's loot · **Restart:** not needed (`.reload config` applies it on the next world tick)
 
 <details>
 <summary>How it works in detail</summary>
@@ -123,7 +123,7 @@ Lets the run leader's loot step get an item the group's loot rules gave to anoth
 
 ### `AiPlayerbot.DungeonRunMaxMinutes`
 How long a run leader run (`.bot run`) may last before it ends by itself.
-**Default:** `180` · **Values:** minutes; `0` = no limit · **Restart:** needed
+**Default:** `180` · **Values:** minutes; `0` = no limit · **Restart:** not needed (`.reload config` applies it on the next world tick)
 
 <details>
 <summary>How it works in detail</summary>
@@ -134,7 +134,7 @@ How long a run leader run (`.bot run`) may last before it ends by itself.
 
 ### `AiPlayerbot.DungeonRunPullStand`
 Makes the run leader put the tank where its ranged weapon can fire before it orders `pullback`.
-**Default:** `0` · **Values:** `0` off (the run leader pulls exactly as before), `1` on · **Restart:** needed
+**Default:** `0` · **Values:** `0` off (the run leader pulls exactly as before), `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
 
 <details>
 <summary>How it works in detail</summary>
@@ -145,7 +145,7 @@ Makes the run leader put the tank where its ranged weapon can fire before it ord
 
 ### `AiPlayerbot.DungeonRunRezHold`
 Makes the run leader's regroup wait for a living priest, paladin or shaman to resurrect the fallen where they lie, instead of a fixed 15 s.
-**Default:** `0` · **Values:** `0` the old fixed wait, `1` the rez hold · **Restart:** needed
+**Default:** `0` · **Values:** `0` the old fixed wait, `1` the rez hold · **Restart:** not needed (`.reload config` applies it on the next world tick)
 
 <details>
 <summary>How it works in detail</summary>
@@ -156,23 +156,23 @@ Makes the run leader's regroup wait for a living priest, paladin or shaman to re
 
 ### `AiPlayerbot.DungeonRunWalkBackAfterWonFight`
 Whether the run leader walks the tank and the party back to the guard's stand point after a fight it has won.
-**Default:** `0` · **Values:** `0` no walk back once the step's pack is cleared, `1` the walk back after every guarded fight (the old way) · **Restart:** needed
+**Default:** `0` · **Values:** `0` no walk back once the step's pack is cleared, `1` the walk back after every guarded fight (the old way) · **Restart:** not needed (`.reload config` applies it on the next world tick)
 
 <details>
 <summary>How it works in detail</summary>
 
-**Walk back after a won fight:** only read while `AiPlayerbot.DungeonSelfClear = 1`. When the tank leaves its stand during a fight to take a mob off the party (or engages one on its arrival), the run notes that stand. Up to 2026-10-22 it walked the tank, and the party with it, back to the stand after every such fight (status note `back to the stand point after picking up the party's attackers`), then on to the next pack or boss: in the Frostmane Hollow run r20-19z39 of 2026-10-22 the party ran 2-3 s back from each pack and boss and then forward again. With `0`, once the fight is over the walk back is left out when the step is a pull or a boss with none of its units left to pull (the step says `pack cleared` or `boss down` and the next one starts from where the tank stands; its own approach, firing stand or gather places the party, and a tank left on another floor or without a path still gathers back at the last stand) and on a move step (its walk goes on forward). It is kept when a pull or boss step has units left (they are pulled from the same stand) and on every other step (a wait, a rest, an object or item step: those act where the party stood). Nothing changes during a fight (the walk back is only ordered out of combat) or in a scripted event (a hold returns to its own spot). With `1` the walk back goes out after every guarded fight, as before. The module reads it at server start: `.reload config` does not re-read `aiplayerbot.conf`. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
+**Walk back after a won fight:** only read while `AiPlayerbot.DungeonSelfClear = 1`. When the tank leaves its stand during a fight to take a mob off the party (or engages one on its arrival), the run notes that stand. Up to 2026-10-22 it walked the tank, and the party with it, back to the stand after every such fight (status note `back to the stand point after picking up the party's attackers`), then on to the next pack or boss: in the Frostmane Hollow run r20-19z39 of 2026-10-22 the party ran 2-3 s back from each pack and boss and then forward again. With `0`, once the fight is over the walk back is left out when the step is a pull or a boss with none of its units left to pull (the step says `pack cleared` or `boss down` and the next one starts from where the tank stands; its own approach, firing stand or gather places the party, and a tank left on another floor or without a path still gathers back at the last stand) and on a move step (its walk goes on forward). It is kept when a pull or boss step has units left (they are pulled from the same stand) and on every other step (a wait, a rest, an object or item step: those act where the party stood). Nothing changes during a fight (the walk back is only ordered out of combat) or in a scripted event (a hold returns to its own spot). With `1` the walk back goes out after every guarded fight, as before. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
 
 </details>
 
 ### `AiPlayerbot.DungeonSelfClear`
 Allows the opt-in run leader: a bound remote commander's party clears a stored dungeon plan by itself.
-**Default:** `0` · **Values:** `0` off (every `.bot run` refused), `1` on (needs `AiPlayerbot.RemoteCommander = 1`) · **Restart:** needed
+**Default:** `0` · **Values:** `0` off (every `.bot run` refused), `1` on (needs `AiPlayerbot.RemoteCommander = 1`) · **Restart:** not needed (`.reload config` applies it on the next world tick)
 
 <details>
 <summary>How it works in detail</summary>
 
-**Dungeon self-clear (run leader):** with `1` (and `AiPlayerbot.RemoteCommander = 1`) a bound remote commander may start `.bot run start [plan]`: its party walks a dungeon plan from the world tables `ai_dungeon_plan`/`ai_dungeon_leg`/`ai_dungeon_step` and pulls, fights, rests, loots and opens doors by itself, using the commander's own `.bot cmd` orders. With 3 or more dead it regroups by itself once the fight is over (the safety rules are in the run leader page); it pauses on any player order and at every wait's ceiling. Bots then clear without a player giving each order, so it is off by default; with `0` every `.bot run` is refused. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
+**Dungeon self-clear (run leader):** a `.reload config` reads this key and the `AiPlayerbot.DungeonRun*` keys again from `aiplayerbot.conf` on the next world tick (only those: every other bot setting, `AiPlayerbot.RemoteCommander` included, still needs a restart; until 2026-10-22 none of them was read again before a restart). Set to `0` by a reload, every run ends with a last status line. With `1` (and `AiPlayerbot.RemoteCommander = 1`) a bound remote commander may start `.bot run start [plan]`: its party walks a dungeon plan from the world tables `ai_dungeon_plan`/`ai_dungeon_leg`/`ai_dungeon_step` and pulls, fights, rests, loots and opens doors by itself, using the commander's own `.bot cmd` orders. With 3 or more dead it regroups by itself once the fight is over (the safety rules are in the run leader page); it pauses on any player order and at every wait's ceiling. Bots then clear without a player giving each order, so it is off by default; with `0` every `.bot run` is refused. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
 
 </details>
 

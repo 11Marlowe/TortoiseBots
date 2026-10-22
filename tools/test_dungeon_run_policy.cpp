@@ -6338,9 +6338,9 @@ static void TestTankGuardReturnsToItsOwnSpot()
 // point after picking up the party's attackers", 3080-3082 s), said "pack
 // cleared" and walked forward again for the next 63134. The owner: "why do they
 // run back from the bosses?". `walkBack` is AiPlayerbot.DungeonRunWalkBackAfterWonFight.
-static Run FrostmaneWonFight(DungeonPlan& plan, bool walkBack, Facts& f)
+static Run FrostmaneWonFight(DungeonPlan& plan, bool walkBack, Facts& f, const PlanStep* fightStep = nullptr)
 {
-    plan.steps = {Step(PlanStepKind::Move, 0), PullStep(40, {63134}), PullStep(70, {63134})};
+    plan.steps = {Step(PlanStepKind::Move, 0), fightStep ? *fightStep : PullStep(40, {63134}), PullStep(70, {63134})};
     Run r = Start(&plan);
     f = Party(0);
     f.walkBackAfterWonFight = walkBack;
@@ -6495,6 +6495,53 @@ static void TestWalkBackKeptWhereItMatters()
         g.anyInCombat = false;
         g.partyAttackers.clear();
         CHECK(Tick(r2, g) == "move 20.0 0.0 0.0");
+    }
+}
+
+// Codex adversarial review of 7537eab8: an empty unit list is no won fight by
+// itself. A boss whose death was not witnessed (away on a patrol, or his
+// corpse outside the query) and a pack whose point is out of sight keep the
+// walk back: the step goes on from the stand. The suppression follows the
+// step's own end rule (FightStepEnd), as FightStep does.
+static void TestWalkBackKeptWhenTheStepIsNotOver()
+{
+    {
+        // A boss step: units gone, his death not seen.
+        PlanStep boss = Step(PlanStepKind::Boss, 40);
+        boss.entry = 63134;
+        ai::NormalizePlanStep(boss);
+        DungeonPlan plan;
+        Facts f;
+        Run r = FrostmaneWonFight(plan, false, f, &boss);
+        CHECK(!f.bossDeadNearSpot && !f.bossDeadNearLead);
+        CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+        CHECK(r.guardReturn && r.step == 1);
+        CHECK(r.note == "back to the stand point after picking up the party's attackers");
+        // Seen dead near his spot: boss down, no walk back.
+        DungeonPlan plan2;
+        Facts g;
+        Run r2 = FrostmaneWonFight(plan2, false, g, &boss);
+        g.bossDeadNearSpot = true;
+        CHECK(Tick(r2, g).compare(0, 5, "move ") != 0);
+        CHECK(!r2.guardReturn && r2.step == 2 && r2.note.find("boss down") != std::string::npos);
+    }
+    {
+        // A pull whose point is out of sight: an empty list there is not a cleared pack.
+        DungeonPlan plan;
+        Facts f;
+        Run r = FrostmaneWonFight(plan, false, f);
+        f.seen = false;
+        CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+        CHECK(r.guardReturn && r.step == 1);
+    }
+    {
+        // A patroller of the pack still to come: the step waits from the stand.
+        DungeonPlan plan;
+        Facts f;
+        Run r = FrostmaneWonFight(plan, false, f);
+        f.patrollers = {Unit(35, 63134, 50)};
+        CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+        CHECK(r.guardReturn && r.step == 1);
     }
 }
 
@@ -11917,6 +11964,7 @@ int main()
     TestNoWalkBackAfterAWonFight();
     TestWalkBackAfterAWonFightOnTheOldKey();
     TestWalkBackKeptWhereItMatters();
+    TestWalkBackKeptWhenTheStepIsNotOver();
     TestTankGuardPull100Replay();
     TestTankGuardOneMaulerAndTheCapAfterARefill();
     TestTankGuardLimits();

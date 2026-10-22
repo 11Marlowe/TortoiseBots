@@ -20,12 +20,15 @@ class DisabledWorldUpdateTest(unittest.TestCase):
         end = source.index("void BotHostAdapter::OnShutdown()", start)
         hook = source[start:end]
         fixture = r'''
+#include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <vector>
 using uint32 = uint32_t;
-struct { bool enabled = false; } sPlayerbotAIConfig;
+// A `.reload config` (OnAfterConfigLoad) marks the run leader's keys due; the tick reads them again.
+struct { bool enabled = false; unsigned reloads = 0; bool ReloadDungeonRunKeys() { ++reloads; return enabled; } } sPlayerbotAIConfig;
 namespace TortoiseBots {
+std::atomic<bool> s_dungeonRunKeysDue{false};
 std::vector<unsigned> calls;
 template<unsigned Id> struct Service {
     static Service& Instance() { static Service service; return service; }
@@ -79,6 +82,12 @@ int main() {
     adapter.OnUpdate(50);
     assert((calls == std::vector<unsigned>{1,10,11,2,12,3,4,5,6,7,8,9,13,10,13}));
     assert(adapter.m_ticks == 1);
+    // A config reload: the run leader's keys are read again once, on the next tick, enabled or not.
+    assert(sPlayerbotAIConfig.reloads == 0);
+    s_dungeonRunKeysDue.store(true);
+    adapter.OnUpdate(50);
+    adapter.OnUpdate(50);
+    assert(sPlayerbotAIConfig.reloads == 1 && !s_dungeonRunKeysDue.load());
 }
 '''
         with tempfile.TemporaryDirectory(prefix="disabled-world-update-") as folder:
