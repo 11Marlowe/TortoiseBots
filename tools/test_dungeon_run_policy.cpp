@@ -910,6 +910,226 @@ static void TestLeadHoldsStayWhileResting()
     CHECK(!LeadStayDueWhileResting(r, true, false, false, false));
 }
 
+static UnitFact Hitter(std::uint64_t guid, std::uint32_t entry, float dist, bool healer);
+
+// A run brought to its rest phase after a first fight (the healer dry), the
+// tank back on "stay" at its stand: the state of r15 Uldaman step 40 at
+// 1151 s ("resting").
+static Run RestingRun(DungeonPlan& plan, Facts& f)
+{
+    plan.steps = {PullStep(40, {4851})};
+    Run r = Start(&plan);
+    f = Party(0);
+    f.leadIsTank = true;
+    f.units = {Unit(11, 4851, 38)};
+    f.maxMemberYd = 5;
+    CHECK(Tick(r, f) == "pullback 11");
+    f.anyInCombat = true;
+    Tick(r, f);
+    f.anyInCombat = false;
+    f.units.clear();
+    f.minHealerManaPct = 20;
+    CHECK(Tick(r, f) == "rest");
+    CHECK(r.phase == Phase::Rest && !r.fighting && !r.guardReturn);
+    f.leadStaying = true;
+    return r;
+}
+
+// THREAT F1 (r15 Uldaman step 40, 1159-1192 s; r15 Deadmines step 83,
+// 1607-1687 s): a fight that started while the run rested was a fight. The
+// run's phase stayed Rest through it, and the rest's "the lead holds stay"
+// (RFC r3-19z20) put the tank back on stay on the tick after each guard
+// pick-up. T1: fighting in the rest: no stay due. T2: resting, no fight: stay
+// due, as before. T3: the fight over, the guard's walk back pending: no stay.
+static void TestRestFightLeavesTheLeadOffStay()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = RestingRun(plan, f);
+    // T2: a lead genuinely idle in the rest (off stay, no fight) is held.
+    CHECK(LeadStayDueWhileResting(r, true, false, false, false));
+    // T1: a fight in the rest; the lead is on nobody's threat list (not in
+    // combat itself) and off stay after a pick-up: not put back on stay.
+    f.anyInCombat = true;
+    Tick(r, f);
+    CHECK(r.phase == Phase::Rest && r.fighting);
+    CHECK(!LeadStayDueWhileResting(r, true, false, false, false));
+    // T3: the fight flag gone but the guard's return still pending (belt and
+    // braces: the fight's end leaves the rest): no stay due either.
+    Run back = r;
+    back.fighting = false;
+    back.guardReturn = true;
+    CHECK(back.phase == Phase::Rest);
+    CHECK(!LeadStayDueWhileResting(back, true, false, false, false));
+    back.guardReturn = false;
+    CHECK(LeadStayDueWhileResting(back, true, false, false, false)); // only those two flags differ
+    // The other conditions are unchanged.
+    CHECK(!LeadStayDueWhileResting(back, true, false, true, false));
+    CHECK(!LeadStayDueWhileResting(back, true, false, false, true));
+    CHECK(!LeadStayDueWhileResting(back, true, true, false, false));
+    CHECK(!LeadStayDueWhileResting(back, false, false, false, false));
+}
+
+// T1 through the tick: a rest fight whose tank leaves stay without a guard
+// pick-up, so no guard return is pending: a kill_first focus (CommanderFocus
+// takes every bot off "stay", RelaxTacticalMovement). Only Run::fighting
+// keeps the rest's stay off the tank then.
+static UnitFact Engaged(UnitFact u);
+static void TestRestFightFocusLeavesTheLeadOffStay()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = RestingRun(plan, f);
+    plan.killFirst = {7247};
+    f.anyInCombat = true;
+    f.killFirst = {Engaged(Unit(77, 7247, 10))};
+    CHECK(Tick(r, f) == "focus 77");
+    CHECK(r.phase == Phase::Rest && r.fighting && !r.guardReturn);
+    f.leadStaying = false; // the focus ended the tank's stay
+    for (int i = 0; i < 5; ++i)
+    {
+        CHECK(Tick(r, f).empty());
+        CHECK(!LeadStayDueWhileResting(r, true, false, f.leadStaying, false));
+    }
+}
+
+// T4: a run back is allowed in the rest phase too (no event ahead), and not
+// in a rest during an event's lead-in.
+static void TestRunBackAllowedInRest()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = RestingRun(plan, f);
+    CHECK(r.phase == Phase::Rest && !r.regroup && !r.walkBack);
+    CHECK(RunBackAllowed(r));
+    // Out of the rest, no regroup/gather/walk back: not allowed, as before.
+    Run begin = r;
+    EnterPhase(begin, Phase::Begin);
+    CHECK(!RunBackAllowed(begin));
+    // A rest on the moves that lead into a hold (the Keepers, Archaedas): never.
+    DungeonPlan holdPlan;
+    holdPlan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Hold, 40)};
+    Run h = Start(&holdPlan);
+    EnterPhase(h, Phase::Rest);
+    CHECK(EventHoldAhead(h) != nullptr);
+    CHECK(!RunBackAllowed(h));
+}
+
+static bool Listed(const Run& r, const std::string& name)
+{
+    return std::find(r.runBack.begin(), r.runBack.end(), name) != r.runBack.end();
+}
+
+// T5: the run back's listing in a rest: the sentinel hunter (21.3 yd from the
+// tank, 10 scorpids on it, r15 Uldaman 1165 s) and the Deadmines rogue (59 yd,
+// one Craftsman 1731, r15 Deadmines 1625 s, beyond the guard's 40 yd) run on
+// to the party; a member inside kGatherYd is not listed. (Why the rogue was
+// 59 yd out at all, the "formation station" drift during the rest, is not
+// this fix: its own ticket.)
+static void TestRunBackListsRestFightMembers()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = RestingRun(plan, f);
+    f.anyInCombat = true;
+    f.members = {Mem("Tanky", 0), Mem("Aeladra", 21.3f), Mem("Nightsong", 59.0f), Mem("Elandra", 15.0f)};
+    f.members[1].attackers = 10;
+    f.members[1].inCombat = true;
+    f.members[2].attackers = 1;
+    f.members[2].inCombat = true;
+    f.members[3].attackers = 2;
+    f.members[3].inCombat = true;
+    f.maxMemberYd = 59.0f;
+    CHECK(Tick(r, f).empty()); // no pick-up: nothing hits a member within kGuardYd
+    CHECK(r.phase == Phase::Rest);
+    CHECK(Listed(r, "Aeladra") && Listed(r, "Nightsong") && !Listed(r, "Elandra"));
+    CHECK(r.note.find("regroup: Aeladra running back with 10 attackers") != std::string::npos);
+    CHECK(r.note.find("Nightsong running back with 1 attacker") != std::string::npos);
+    // The lead in a fight of its own: nobody new is called in (unchanged).
+    Run busy = RestingRun(plan, f);
+    f.anyInCombat = true;
+    f.leadInCombat = true;
+    f.members = {Mem("Tanky", 0), Mem("Aeladra", 21.3f)};
+    f.members[1].attackers = 10;
+    Tick(busy, f);
+    CHECK(busy.runBack.empty());
+}
+
+// T6: a replay of r15 Uldaman step 40, the sentinel (1151-1175 s). The run
+// rests (1151), the tank Warrunner on stay at its stand, on no threat list.
+// 1159: Venomlash 7022 engages the hunter Aeladra 21.3 yd out; 1165: the
+// scorpids 7078 are on her too. The guard's pick-up goes out after
+// kGuardWaitMs (live: 1163.5, "picks up 7078 off the party (22.7 yd)"); the
+// order ends the tank's stay. Live, the next tick's rest hold put it back on
+// stay (1163.5, 1167.5, 1171.6: 3 of 3) and the tank never walked; the hunter
+// died at 1188.7, the warlock Potpourri at 1191.8. Here the glue's stay check
+// (after Tick, before the order, BotCommands.cpp) is asked each tick as the
+// glue asks it: the stay stays off for the whole fight, and the hunter and
+// the warlock run back.
+static void TestSentinelRestFightReplay()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = RestingRun(plan, f);
+    f.carrier = "Warrunner";
+    f.members = {Mem("Warrunner", 0), Mem("Aeladra", 21.3f), Mem("Potpourri", 30.0f)};
+    f.maxMemberYd = 30.0f;
+    // 1151-1158: resting, the lead holds (the RFC r3 rule is untouched).
+    for (int i = 0; i < 3; ++i)
+        CHECK(Tick(r, f).empty() && r.phase == Phase::Rest);
+    CHECK(!LeadStayDueWhileResting(r, true, false, f.leadStaying, false)); // on stay already
+    CHECK(LeadStayDueWhileResting(r, true, false, false, false));          // off stay: held
+    // 1159: Venomlash on the hunter; the tank is on no threat list.
+    f.anyInCombat = true;
+    f.leadInCombat = false;
+    f.members[1].attackers = 1;
+    f.members[1].inCombat = true;
+    f.partyAttackers = {Hitter(7022, 7022, 22.7f, false)};
+    int undone = 0;
+    int pickups = 0;
+    bool hunterRan = false;
+    bool warlockRan = false;
+    for (std::uint32_t ms = 0; ms <= 16000; ms += kTickMs)
+    {
+        if (ms >= 6000)
+        {
+            // 1165: the scorpids are on her too.
+            f.members[1].attackers = 10;
+            f.partyAttackers = {Hitter(7078, 7078, 22.7f, false), Hitter(7022, 7022, 14.4f, false)};
+        }
+        if (ms >= 11000)
+        {
+            // 1170: the warlock, eating 30 yd out, is hit.
+            f.members[2].attackers = 1;
+            f.members[2].inCombat = true;
+        }
+        std::string const order = Tick(r, f);
+        CHECK(r.phase == Phase::Rest); // the phase stays Rest through the fight
+        hunterRan = hunterRan || Listed(r, "Aeladra");
+        warlockRan = warlockRan || Listed(r, "Potpourri");
+        // The glue: the stay check runs after Tick, before the order goes out.
+        if (LeadStayDueWhileResting(r, true, f.leadInCombat, f.leadStaying, false))
+        {
+            f.leadStaying = true; // FormUpOnLead(..., stay) + StopMoving
+            ++undone;
+        }
+        if (order.compare(0, 7, "attack ") == 0)
+        {
+            CHECK(order.find(" Warrunner") != std::string::npos);
+            CHECK(r.fighting); // set on the same tick as the guard's first order
+            ++pickups;
+            f.leadStaying = false; // RelaxTacticalMovement: the attack ends the stay
+        }
+    }
+    CHECK(pickups >= 2);
+    CHECK(undone == 0);
+    CHECK(!f.leadStaying);
+    CHECK(r.guardReturn);
+    // The hunter and the warlock ran on to the party (standing still here,
+    // each is let go after kWalkRetryMs without gaining ground, as before).
+    CHECK(hunterRan && warlockRan);
+}
+
 static void TestUnseenPackIsApproachedNotCleared()
 {
     DungeonPlan plan;
@@ -11151,6 +11371,11 @@ int main()
     TestUnreachableMoveDetours();
     TestPullGatherAndFight();
     TestLeadHoldsStayWhileResting();
+    TestRestFightLeavesTheLeadOffStay();
+    TestRestFightFocusLeavesTheLeadOffStay();
+    TestRunBackAllowedInRest();
+    TestRunBackListsRestFightMembers();
+    TestSentinelRestFightReplay();
     TestUnseenPackIsApproachedNotCleared();
     TestFarPackHopIsNotUndoneByTheGatherBack();
     TestApproachHopCapCountsHopsWithoutProgress();
