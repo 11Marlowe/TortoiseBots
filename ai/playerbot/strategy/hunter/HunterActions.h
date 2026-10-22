@@ -31,9 +31,6 @@ namespace ai
     // MovementAction::MoveAway. While the step runs it holds without
     // re-dispatching; a step that left the hunter inside is retried farther
     // (a few times per mob, HunterSwitchPolicy.h).
-    // The target it steps away from: the dead-zone row steps from the current
-    // target, the multi-attacker kite row (#1167) from the nearest attacker
-    // targeting the bot.
     class HunterStepOutAction : public MovementAction
     {
     public:
@@ -277,9 +274,7 @@ public:
         }
     };
 
-    // Multi-attacker kite (#1167): clip the nearest mob that is on the hunter,
-    // not whatever the current target happens to be. The aura gate of
-    // CastWingClipAction runs against the same resolved target.
+    // Clips the nearest mob that is on the hunter, not the current target.
     class CastWingClipOnAttackerAction : public CastWingClipAction
     {
     public:
@@ -287,11 +282,9 @@ public:
         std::string GetTargetName() override { return "closest attacker targeting me"; }
     };
 
-    // Donor mod-playerbots answers a mob too close for auto shot with
-    // disengage before the flee (GenericHunterStrategy.cpp:83-84). Dev port
-    // dropped the spell; wired again for #1162. Gated on spell readiness so
-    // an untrained (below level 20) or cooling-down hunter does not churn an
-    // impossible cast every tick - the engine falls through to the flee.
+    // The readiness gate keeps an untrained or cooling-down hunter from
+    // churning an impossible cast every tick; the engine falls through to
+    // the flee.
     class CastDisengageAction : public CastSpellAction
     {
     public:

@@ -71,9 +71,8 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     // cases the switch leaves alone (target immobilized or too slow to close, or
     // no melee weapon), keeping the hunter from standing inside the dead zone.
     // Mob on the hunter only; a pet- or tank-held mob gets the row below.
-    // Disengage before the flee (donor mod-playerbots GenericHunterStrategy
-    // fires disengage 35 then flee 34 here); the action's own readiness gate
-    // hands low-level hunters straight to the flee.
+    // Disengage drops the mob's attention when it is ready; the flee is the
+    // fallback the readiness gate hands low-level hunters straight to.
     triggers.push_back(new TriggerNode(
         "enemy too close for auto shot",
         NextAction::array(0, new NextAction("disengage", static_cast<float>(ACTION_MOVE) - 1.0f),
@@ -128,11 +127,11 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "steady shot",
         NextAction::array(0, new NextAction("steady shot", ACTION_NORMAL - 1), NULL)));
 
-    // Multi-attacker kite (#1167): with 2 or more mobs on the hunter, Wing
-    // Clip the nearest and step out of melee range instead of standing in the
-    // pack. The row owns the fight while active (HunterKitePolicy.h): the
-    // melee switch and the raptor/mongoose chain stand down under it, and
-    // once the hunter is past the engage edge the plain ranged kit resumes.
+    // With 2 or more mobs on the hunter, Wing Clip the nearest and step out
+    // of melee range instead of standing in the pack (HunterKitePolicy.h).
+    // Above the switch and melee-chain rows: while the trigger holds, the
+    // kite owns the fight; once the hunter is past the engage edge the plain
+    // ranged kit resumes.
     triggers.push_back(new TriggerNode(
         "hunter multiple attackers",
         NextAction::array(0, new NextAction("wing clip on attacker", static_cast<float>(ACTION_MOVE) + 1.0f),

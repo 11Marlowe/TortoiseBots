@@ -45,10 +45,10 @@ bool AspectOfTheHawkTrigger::IsActive()
     return BuffTrigger::IsActive();
 }
 
-// #1167: with a living tank in the group, mark only the mob the tank is
-// fighting (HunterKitePolicy.h) - not whichever mob is chewing on the hunter.
-// "The tank's mob" is either what the tank is attacking or what is already
-// attacking the tank; a solo hunter or a tank down marks freely.
+// With a living tank in the group, mark only the mob the tank is fighting -
+// not whichever mob is chewing on the hunter. "The tank's mob" is either what
+// the tank is attacking or what is already attacking the tank; a solo hunter
+// or a tank down marks freely.
 bool HuntersMarkTrigger::IsActive()
 {
     Unit* target = AI_VALUE(Unit*, "current target");
