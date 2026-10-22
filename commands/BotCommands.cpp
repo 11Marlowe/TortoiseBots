@@ -6230,6 +6230,55 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
 // line through it. Nothing moves unless the lead bot passes and every follower has a way to its spot
 // (too-far). Afterwards the lead bot holds at the point and the others follow it, as after a plain
 // `cmd move`.
+// One follower's way onto a direct step's line: its complete navmesh path of at most kDirectMaxGatherPath yd to the
+// lead bot's spot (route: that path), a straight walk to the spot when it stands near it on its floor in its sight,
+// its own straight line to the point, or none (the step is refused too-far). CommanderMoveDirect sends the step by it,
+// and the run leader's gate before a direct step reads the same answer (DungeonRun::MemberFact::withLead, in
+// ReadRunFacts), so the gate cannot pass a bot that the step then refuses (r12-19z29 Uldaman leg 5: a bot on the ledge
+// above the ramp, inside the 20 yd gather distance, refused too-far, and the run paused). groundZ: the floor under
+// the point.
+static RemoteCommander::DirectJoin DirectFollowerJoin(Player* bot, Map* map, float leadX, float leadY, float leadZ,
+    float pointX, float pointY, float groundZ, float& horizontal, Movement::PointsArray& route)
+{
+    float const h = RemoteCommander::kDirectLosHeight;
+    Vector3 const leadSpot(leadX, leadY, leadZ);
+    float const bx = bot->GetPositionX();
+    float const by = bot->GetPositionY();
+    float const bz = bot->GetPositionZ();
+    horizontal = std::sqrt((bx - leadX) * (bx - leadX) + (by - leadY) * (by - leadY));
+    bool const valid = MaNGOS::IsValidMapCoord(bx, by, bz);
+    bool const nearLead = horizontal <= RemoteCommander::kDirectNearLead &&
+        std::fabs(bz - leadZ) <= RemoteCommander::kDirectNearLeadVertical;
+    bool const seesLead = valid && nearLead && map->isInLineOfSight(bx, by, bz + h, leadX, leadY, leadZ + h);
+    bool pathComplete = false;
+    float pathLength = -1.0f;
+    route.clear();
+    if (valid)
+    {
+        PathFinder path(bot);
+        path.calculate(leadX, leadY, leadZ, false);
+        Vector3 const end = path.getActualEndPosition();
+        uint32 const type = static_cast<uint32>(path.getPathType());
+        pathComplete = (type & PATHFIND_NORMAL) &&
+            !(type & (PATHFIND_INCOMPLETE | PATHFIND_NOPATH | PATHFIND_SHORTCUT)) &&
+            (end - leadSpot).length() <= 2.0f && path.getPath().size() >= 2;
+        pathLength = path.Length();
+        if (pathComplete)
+            route = path.getPath();
+    }
+    // The last resort: its own straight line to the point (on the lead bot's floor, the point in reach and sight).
+    bool ownLine = false;
+    if (valid && !pathComplete && !(seesLead && nearLead))
+    {
+        float const toPoint = std::sqrt((bx - pointX) * (bx - pointX) + (by - pointY) * (by - pointY));
+        // The sight line only when the rest fits (one query, only for such a follower).
+        ownLine = RemoteCommander::OwnDirectLineFits(toPoint, bz - leadZ, true) &&
+            RemoteCommander::OwnDirectLineFits(toPoint, bz - leadZ,
+                map->isInLineOfSight(bx, by, bz + h, pointX, pointY, groundZ + h));
+    }
+    return RemoteCommander::ChooseDirectJoin(horizontal, bz - leadZ, seesLead, pathComplete, pathLength, ownLine);
+}
+
 static bool CommanderMoveDirect(ChatHandler* handler, CommanderOrder const& order,
     RemoteCommander::MovePoint const& point, std::string const& intent)
 {
@@ -6321,39 +6370,10 @@ static bool CommanderMoveDirect(ChatHandler* handler, CommanderOrder const& orde
         float const bx = bot->GetPositionX();
         float const by = bot->GetPositionY();
         float const bz = bot->GetPositionZ();
-        float const horizontal = std::sqrt((bx - leadX) * (bx - leadX) + (by - leadY) * (by - leadY));
-        bool const valid = MaNGOS::IsValidMapCoord(bx, by, bz);
-        bool const nearLead = horizontal <= RemoteCommander::kDirectNearLead &&
-            std::fabs(bz - leadZ) <= RemoteCommander::kDirectNearLeadVertical;
-        bool const seesLead = valid && nearLead && map->isInLineOfSight(bx, by, bz + h, leadX, leadY, leadZ + h);
-        bool pathComplete = false;
-        float pathLength = -1.0f;
+        float horizontal = 0.0f;
         Movement::PointsArray route;
-        if (valid)
-        {
-            PathFinder path(bot);
-            path.calculate(leadX, leadY, leadZ, false);
-            Vector3 const end = path.getActualEndPosition();
-            uint32 const type = static_cast<uint32>(path.getPathType());
-            pathComplete = (type & PATHFIND_NORMAL) &&
-                !(type & (PATHFIND_INCOMPLETE | PATHFIND_NOPATH | PATHFIND_SHORTCUT)) &&
-                (end - leadSpot).length() <= 2.0f && path.getPath().size() >= 2;
-            pathLength = path.Length();
-            if (pathComplete)
-                route = path.getPath();
-        }
-        // The last resort: its own straight line to the point (on the lead bot's floor, the point in reach and sight).
-        bool ownLine = false;
-        if (valid && !pathComplete && !(seesLead && nearLead))
-        {
-            float const toPoint = std::sqrt((bx - point.x) * (bx - point.x) + (by - point.y) * (by - point.y));
-            // The sight line only when the rest fits (one query, only for such a follower).
-            ownLine = RemoteCommander::OwnDirectLineFits(toPoint, bz - leadZ, true) &&
-                RemoteCommander::OwnDirectLineFits(toPoint, bz - leadZ,
-                    map->isInLineOfSight(bx, by, bz + h, point.x, point.y, ground + h));
-        }
         RemoteCommander::DirectJoin const join =
-            RemoteCommander::ChooseDirectJoin(horizontal, bz - leadZ, seesLead, pathComplete, pathLength, ownLine);
+            DirectFollowerJoin(bot, map, leadX, leadY, leadZ, point.x, point.y, ground, horizontal, route);
         if (join == RemoteCommander::DirectJoin::None)
         {
             refused = true;
@@ -10153,6 +10173,23 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.leadMoving = lead->IsMoving(); // an exact waypoint's stand-still proof (DungeonRunPolicy.h ExactWalkTo)
     f.carrier = lead->GetName();
     f.team = lead->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde;
+    // A direct step is the current one (or the walk back's next point): each follower is asked the step's own
+    // too-far test (DirectFollowerJoin, as CommanderMoveDirect asks it) for the gate before the step
+    // (DungeonRun::DirectGathered). One navmesh path per follower within kGatherYd (one farther fails the gate on
+    // its distance alone), only on those ticks and never while a walk is under way (DirectJoinWanted).
+    float joinX = 0.0f, joinY = 0.0f, joinZ = 0.0f;
+    Map* const joinMap = lead->GetMap();
+    bool const joinWanted = joinMap && lead->IsAlive() && lead->IsInWorld() &&
+        DirectJoinWanted(slot.run, joinX, joinY, joinZ);
+    float joinGround = joinZ;
+    if (joinWanted && MaNGOS::IsValidMapCoord(joinX, joinY, joinZ))
+    {
+        float const ground = joinMap->GetHeight(joinX, joinY, joinZ, true, RemoteCommander::kDirectGroundTolerance + 2.0f);
+        if (RemoteCommander::CheckDirectGround(ground, joinZ) == RemoteCommander::DirectVerdict::Ok)
+            joinGround = ground;
+    }
+    f.directJoinSupported = true; // a direct order waits a tick for the read (DungeonRun::HoldForDirectJoin)
+    f.directJoinRead = joinWanted;
     for (Player* bot : bots)
     {
         ++f.total;
@@ -10188,6 +10225,15 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         for (Unit* attacker : bot->GetAttackers())
             if (attacker && attacker->IsAlive() && !sServerFacade.IsFriendlyTo(attacker, lead))
                 ++member.attackers;
+        // The bots CommanderMoveDirect leaves out of its test stay "with" (it does not refuse for them).
+        if (joinWanted && bot != lead && yd <= kGatherYd && bot->IsInWorld() && bot->GetMap() == joinMap &&
+            !bot->IsTaxiFlying() && !bot->IsBeingTeleported() && memberAi)
+        {
+            float horizontal = 0.0f;
+            Movement::PointsArray route;
+            member.withLead = DirectFollowerJoin(bot, joinMap, f.leadX, f.leadY, f.leadZ, joinX, joinY, joinGround,
+                horizontal, route) != RemoteCommander::DirectJoin::None;
+        }
         f.members.push_back(member);
         if (HasMealAura(bot))
             ++f.eating;

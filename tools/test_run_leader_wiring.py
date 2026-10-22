@@ -262,9 +262,36 @@ class RunLeaderWiringTest(unittest.TestCase):
         # 2. A follower off the lead bot's line walks its own; the refusal still names the bot for the summon.
         direct = body(COMMANDS, "static bool CommanderMoveDirect(ChatHandler* handler, CommanderOrder const& order,\n"
                       "    RemoteCommander::MovePoint const& point, std::string const& intent)\n{", "\n}\n")
-        self.assertIn("pathComplete, pathLength, ownLine);", direct)
+        join = body(COMMANDS, "static RemoteCommander::DirectJoin DirectFollowerJoin(", "\n}\n")
+        self.assertIn("pathComplete, pathLength, ownLine);", join)
+        self.assertIn("DirectFollowerJoin(bot, map, leadX, leadY, leadZ, point.x, point.y, ground, horizontal, route);",
+                      direct)
         self.assertIn("join == RemoteCommander::DirectJoin::Own", direct)
         self.assertIn('" is not with " + lead->GetName()', direct)
+
+    def test_direct_gate_asks_the_steps_own_test(self):
+        # r12-19z29 Uldaman leg 5: the gate before a direct step passed on the 20 yd ground distance while the step
+        # refused the bot too-far. The facts read the step's own test (DirectFollowerJoin) per follower while a
+        # direct step is under the gate, and the policy's gate asks it.
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("DirectJoinWanted(slot.run, joinX, joinY, joinZ);", facts)
+        self.assertIn("f.directJoinRead = joinWanted;", facts)
+        self.assertIn("f.directJoinSupported = true;", facts)
+        # Cost: no path for a follower past kGatherYd (its distance fails the gate already); none during a walk
+        # (DirectJoinWanted is false in Phase::Walk: test_dungeon_run_policy TestDirectOrderWaitsForTheRead).
+        self.assertIn("if (joinWanted && bot != lead && yd <= kGatherYd && bot->IsInWorld()", facts)
+        self.assertIn("member.withLead = DirectFollowerJoin(bot, joinMap, f.leadX, f.leadY, f.leadZ, joinX, joinY, "
+                      "joinGround,", facts)
+        self.assertLess(facts.index("member.withLead = DirectFollowerJoin("), facts.index("f.members.push_back(member);"))
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        move = body(policy, "inline void MoveStep(", "\n}\n")
+        self.assertIn("s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && !DirectGathered(f)", move)
+        self.assertIn('yd from the lead bot)", true);', move)
+        walk_back = body(policy, "inline bool WalkBack(", "\n}\n")
+        self.assertIn("if (direct && r.phase != Phase::Walk && HoldForDirectJoin(r, f))", walk_back)
+        self.assertIn("if (s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && HoldForDirectJoin(r, f))", move)
+        self.assertIn("direct && r.phase != Phase::Walk && !DirectGathered(f)", walk_back)
+        self.assertIn('yd from the lead bot)", true);', walk_back)
         # 4. A door whose lock needs no key and no skill opens on a plain use.
         use = (ROOT / "ai/playerbot/strategy/actions/UseItemAction.cpp").read_text()
         self.assertIn("TortoiseBots::DoorLock::OpensOnPlainUse(lockTypes, lockIndex)", use)
