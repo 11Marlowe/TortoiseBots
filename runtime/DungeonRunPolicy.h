@@ -252,10 +252,12 @@ constexpr std::uint32_t kGuardOrdersPerFight = 3; // pick-up orders one fight ma
 // Deadmines r12-19z29 steps 90, 118 and 125: the three pick-ups went in the
 // first seconds, then Remote-Controlled Golem summons, the Overseer, the
 // Harvester and Gilnid joined and beat the healer 25-60 s while the tank sent
-// nothing (13 of the run's 14 deaths). Bounded so that it cannot spam: one
-// unit gets at most kGuardOrdersPerUnit orders a fight (pick-ups and engages
-// together; a unit at the cap is passed over for the next one), and a fight at
-// most kGuardOrdersFightCap in all. kGuardRepeatMs spaces every one of them.
+// nothing (13 of the run's 14 deaths). Bounded so that it cannot spam: once a
+// refill happened, one unit gets at most kGuardOrdersPerUnit orders a fight
+// (pick-ups and engages together, those before the refill counted; a unit at
+// the cap is passed over for the next one; before any refill one unit may take
+// the whole budget), and a fight at most kGuardOrdersFightCap in all.
+// kGuardRepeatMs spaces every one of them.
 constexpr std::uint32_t kGuardOrdersPerUnit = 2;
 constexpr std::uint32_t kGuardOrdersFightCap = 12;
 // The kill_first focus (PickKillFirst) sends every bot, the tank too, at its
@@ -978,6 +980,7 @@ struct Run
     std::unordered_map<std::uint64_t, std::uint32_t> guardUnitOrders;
     std::uint32_t fightOrders = 0;
     bool guardRefilled = false; // a refill since the last order: that order's note says so
+    std::uint32_t guardRefills = 0; // refills this fight: the per-unit cap applies only once there was one
     // Members running back to the party with attackers on them (RunBack): the
     // glue keeps each one a passive follower of the lead bot (it does not stop
     // to fight) while its name is here. Per bot: how long it has run, and its
@@ -1351,6 +1354,7 @@ inline void ResetStep(Run& r)
     r.guardSeen.clear();
     r.guardUnitOrders.clear();
     r.guardRefilled = false;
+    r.guardRefills = 0;
     r.fightOrders = 0;
     r.guardReturn = false;
     r.stopReachDue = false;
@@ -2811,11 +2815,11 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         return;
     }
     if (order == "rest" || order == "revive party" || order.compare(0, 7, "summon ") == 0 ||
-        order.compare(0, 3, "cc ") == 0 || order.compare(0, 6, "focus ") == 0 || order.compare(0, 7, "attack ") == 0)
+        order.compare(0, 3, "cc ") == 0 || order.compare(0, 7, "attack ") == 0)
     {
         // The rest gate, the regroup and the gather have their own ceilings;
-        // crowd control, a focus and the tank's pick-up (GuardTarget) are
-        // help, the fight goes on without them.
+        // crowd control and the tank's pick-up (GuardTarget) are help, the
+        // fight goes on without them (a refused focus: above).
         r.note = order + " refused: " + answer;
         return;
     }
@@ -6053,9 +6057,15 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
 // Inside a scripted event only in its hold (InHoldArea), and only mobs within
 // the hold's radius of its spot (HoldGuardTarget): the moves and the start
 // step leading into a hold, and anything outside its radius, stay untouched.
-// A unit that had kGuardOrdersPerUnit orders this fight (outside a hold): passed over.
+// A unit that had kGuardOrdersPerUnit orders this fight (outside a hold), once
+// the fight's budget was refilled: passed over. Before any refill the budget
+// of kGuardOrdersPerFight governs alone, and one unit may take all of it (pull
+// 100: one Mauler on the healer got 3 pick-ups; the cold review of 2026-10-22).
+// The orders a unit had before the refill count.
 inline bool GuardUnitCapped(const Run& r, std::uint64_t guid)
 {
+    if (r.guardRefills == 0)
+        return false;
     auto const it = r.guardUnitOrders.find(guid);
     return it != r.guardUnitOrders.end() && it->second >= kGuardOrdersPerUnit;
 }
@@ -6252,6 +6262,7 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
             r.guardOrders = 0;
             r.engageOrders = 0;
             r.guardRefilled = true;
+            ++r.guardRefills;
         }
         // Engage on arrival: the first order of the fight (of either kind)
         // without a wait, every other one (another mob, or after a pick-up) no
@@ -7183,6 +7194,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.guardSeen.clear();
         r.guardUnitOrders.clear();
         r.guardRefilled = false;
+        r.guardRefills = 0;
         r.fightOrders = 0;
         r.reachStopped = false;
         // A fight may have moved the lead bot: an exact point's tighten starts
