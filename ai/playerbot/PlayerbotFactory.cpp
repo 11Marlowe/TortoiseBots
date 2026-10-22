@@ -2122,13 +2122,17 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
                 // Rejection forensics: pool>0 but nothing equipped — say whether
                 // the filter chain emptied the list or the core equip check
-                // refused every candidate (and why).
+                // refused every candidate (and why). Player runs log to the
+                // visible channel: an operator debugging `.autogear` has no
+                // detail-log build to fall back on.
                 if (!found)
                 {
                     if (passingIds.empty())
                     {
                         sLog.outDetail("Bot #%d <%s>: slot %u: pool %zu, 0 passed filters (spec %u, weaponType %u)",
                             bot->GetGUIDLow(), bot->GetName(), slot, ids.size(), specId, weaponType);
+                        if (playerUpgrade)
+                            sLog.outString("PlayerAutogear debug: slot %u pool %zu, 0 passed filters (spec %u)", slot, ids.size(), specId);
                     }
                     else
                     {
@@ -2136,6 +2140,9 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         uint32 err = RandomBotFacade::CanEquipUnseenItem(bot, slot, probeDest, passingIds[0]);
                         sLog.outDetail("Bot #%d <%s>: slot %u: %zu passed filters, all equip attempts failed; first CanEquip err=%u, id=%u",
                             bot->GetGUIDLow(), bot->GetName(), slot, passingIds.size(), err, passingIds[0]);
+                        if (playerUpgrade)
+                            sLog.outString("PlayerAutogear debug: slot %u %zu passed filters, equip failed; first err=%u id=%u",
+                                slot, passingIds.size(), err, passingIds[0]);
                     }
                 }
             }
