@@ -16,7 +16,7 @@ BossTacticTable& ai::GetBossTactics()
 
 // One pass over `ai_boss_tactic` into `table` (empty, not sealed), then the seal; returns the rows skipped. The startup
 // load and `.bot run reloadplans` both read through here.
-std::uint32_t ai::ReadBossTacticRows(BossTacticTable& table)
+std::uint32_t ai::ReadBossTacticRows(BossTacticTable& table, std::uint64_t* rowsRead)
 {
     uint32 skipped = 0;
     auto result = WorldDatabase.Query(
@@ -26,6 +26,8 @@ std::uint32_t ai::ReadBossTacticRows(BossTacticTable& table)
         do
         {
             Field* fields = result->Fetch();
+            if (rowsRead)
+                ++*rowsRead;
             BossTacticRow row;
             row.map = fields[0].GetUInt32();
             row.bossEntry = fields[1].GetUInt32();

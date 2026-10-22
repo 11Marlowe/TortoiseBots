@@ -6,7 +6,9 @@
 //
 // The loader (DungeonPlanMgr.cpp ReadDungeonPlanRows, BossTacticsMgr.cpp ReadBossTacticRows) reads the rows into NEW
 // sealed tables, the same code and the same row checks as at startup. CommitPlanReload then decides:
-//   - any refused row (a plan, step or boss row skipped, a plan's unit lists that do not parse, a tactic row skipped), a
+//   - a failed query or a table that changed while it was read (JudgeTableReads: the core's Query answers null for an
+//     error and for no rows alike, so each table's row count and checksum are read before and after the load);
+//   - any refused row (a plan, leg, step or boss row skipped, a plan's unit lists that do not parse, a tactic row skipped), a
 //     plan of the old set that is gone or has no steps any more: the old tables stay, nothing changes, the reason is
 //     returned (at startup such rows are skipped with an error line; a reload is stricter, since the old set works);
 //   - else both new tables replace the old ones at once.
@@ -75,10 +77,14 @@ namespace ai
         static constexpr std::size_t kNamedRefusals = 3;
 
         std::uint32_t skippedPlans = 0;
+        std::uint32_t skippedLegs = 0;       // unknown plan, or a second row of a leg number
         std::uint32_t skippedSteps = 0;
         std::uint32_t skippedBosses = 0;
         std::uint32_t badUnits = 0;          // plans whose cc_priority / cc_always / kill_first did not parse
         std::vector<std::string> refusals;   // the first kNamedRefusals refused rows, in words
+        // Rows each query handed the loader (accepted or not): a reload compares them with the table's row count
+        // (TableRead), since the core's Query answers null both for an error and for no rows.
+        std::uint64_t planRows = 0, legRows = 0, stepRows = 0, bossRows = 0;
 
         void Note(const std::string& what)
         {
@@ -86,8 +92,49 @@ namespace ai
                 refusals.push_back(what);
         }
 
-        std::uint32_t Refused() const { return skippedPlans + skippedSteps + skippedBosses + badUnits; }
+        std::uint32_t Refused() const { return skippedPlans + skippedLegs + skippedSteps + skippedBosses + badUnits; }
     };
+
+    // A cheap revision of one table: its row count and a sum of a checksum of every row's loaded columns, read by a query
+    // that always answers one row (COUNT(*)), so a null answer is a failed query, never an empty table.
+    struct TableFingerprint
+    {
+        bool ok = false;           // the query answered
+        std::uint64_t rows = 0;
+        std::uint64_t sum = 0;
+
+        bool operator==(const TableFingerprint& o) const { return ok == o.ok && rows == o.rows && sum == o.sum; }
+        bool operator!=(const TableFingerprint& o) const { return !(*this == o); }
+    };
+
+    // One table of a reload: its revision before the data query and after the last one, and the rows the data query
+    // handed the loader.
+    struct TableRead
+    {
+        std::string table;
+        TableFingerprint before;
+        TableFingerprint after;
+        std::uint64_t rowsRead = 0;
+    };
+
+    // Why the reads cannot be trusted, or "" when every table was read whole and none changed meanwhile. The core's
+    // world database has a pool of connections and no read transaction, so the five queries cannot share one snapshot:
+    // instead each table's revision is read before and after the whole load, and any difference refuses the reload.
+    inline std::string JudgeTableReads(const std::vector<TableRead>& reads)
+    {
+        for (const TableRead& r : reads)
+        {
+            if (!r.before.ok || !r.after.ok)
+                return "the read of " + r.table + " failed (a query error: see the server log)";
+            if (r.before != r.after)
+                return r.table + " changed during the reload (" + std::to_string(r.before.rows) + " -> " +
+                    std::to_string(r.after.rows) + " rows): send the reload again once the migration is in";
+            if (r.rowsRead != r.before.rows)
+                return "the read of " + r.table + " failed: " + std::to_string(r.rowsRead) + " of its " +
+                    std::to_string(r.before.rows) + " rows came back";
+        }
+        return std::string();
+    }
 
     // The boot log's line, without its ">> " prefix:
     // "Loaded 11 dungeon plans, 3340 steps, 70 dungeon bosses (0 plans, 0 steps and 0 boss rows skipped)".
@@ -132,7 +179,8 @@ namespace ai
             return "the new plan set was not sealed";
         if (counts.Refused() || skippedTactics)
         {
-            std::string why = std::to_string(counts.skippedPlans) + " plan, " + std::to_string(counts.skippedSteps) +
+            std::string why = std::to_string(counts.skippedPlans) + " plan, " + std::to_string(counts.skippedLegs) +
+                " leg, " + std::to_string(counts.skippedSteps) +
                 " step, " + std::to_string(counts.skippedBosses) + " boss and " + std::to_string(skippedTactics) +
                 " boss tactic rows refused, " + std::to_string(counts.badUnits) + " plans with bad unit lists";
             for (const std::string& r : counts.refusals)
@@ -178,10 +226,11 @@ namespace ai
         std::size_t keptOld = 0;            // replaced plan tables kept alive for runs in progress
     };
 
-    // Replaces both tables when JudgePlanReload allows it, else changes nothing. `inUse`: every run's plan pointer.
+    // Replaces both tables when JudgeTableReads and JudgePlanReload allow it, else changes nothing. `reads`: the five
+    // tables' revisions and rows read. `inUse`: every run's plan pointer.
     inline PlanReloadOutcome CommitPlanReload(ReloadableTable<DungeonPlanTable>& plans, std::shared_ptr<DungeonPlanTable> next,
         const PlanLoadCounts& counts, ReloadableTable<BossTacticTable>& tactics, std::shared_ptr<BossTacticTable> nextTactics,
-        std::uint32_t skippedTactics, const std::vector<const DungeonPlan*>& inUse)
+        std::uint32_t skippedTactics, const std::vector<TableRead>& reads, const std::vector<const DungeonPlan*>& inUse)
     {
         PlanReloadOutcome out;
         if (!next || !nextTactics)
@@ -189,7 +238,14 @@ namespace ai
             out.reason = "no new table";
             return out;
         }
-        out.reason = JudgePlanReload(plans.Current(), *next, counts, skippedTactics);
+        if (!plans.Current().Sealed())
+        {
+            out.reason = "the dungeon plans were not loaded at startup (the AI is off): nothing to reload";
+            return out;
+        }
+        out.reason = JudgeTableReads(reads);
+        if (out.reason.empty())
+            out.reason = JudgePlanReload(plans.Current(), *next, counts, skippedTactics);
         if (out.reason.empty() && !nextTactics->Sealed())
             out.reason = "the new boss tactic table was not sealed";
         if (!out.reason.empty())

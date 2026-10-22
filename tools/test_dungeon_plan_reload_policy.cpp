@@ -119,7 +119,7 @@ static void TestGoodReloadSwaps()
     CHECK(next->AddBoss(36, 639));
     next->Seal();
 
-    PlanReloadOutcome const out = CommitPlanReload(server.plans, next, counts, server.tactics, Tactics(3), 0, {});
+    PlanReloadOutcome const out = CommitPlanReload(server.plans, next, counts, server.tactics, Tactics(3), 0, {}, {});
     CHECK(out.swapped);
     CHECK(out.reason.empty());
     CHECK(&server.plans.Current() == next.get());
@@ -143,7 +143,7 @@ static void TestGoodReloadSwaps()
 static void TestUnchangedReloadListsNothing()
 {
     Server server;
-    PlanReloadOutcome const out = CommitPlanReload(server.plans, OldSet(), PlanLoadCounts(), server.tactics, Tactics(2), 0, {});
+    PlanReloadOutcome const out = CommitPlanReload(server.plans, OldSet(), PlanLoadCounts(), server.tactics, Tactics(2), 0, {}, {});
     CHECK(out.swapped);
     CHECK(out.changes.empty());
 }
@@ -165,7 +165,7 @@ static void TestBadRowKeepsTheOldSet()
     next->Seal();
     CHECK(counts.skippedSteps == 1);
 
-    PlanReloadOutcome const out = CommitPlanReload(server.plans, next, counts, server.tactics, Tactics(5), 0, {});
+    PlanReloadOutcome const out = CommitPlanReload(server.plans, next, counts, server.tactics, Tactics(5), 0, {}, {});
     CHECK(!out.swapped);
     CHECK(out.reason.find("1 step") != std::string::npos);
     CHECK(out.reason.find("bfd leg 1 seq 2 (MissingEntry)") != std::string::npos);
@@ -193,7 +193,7 @@ static void TestOtherRefusalsKeepTheOldSet()
         else
             skippedTactics = 1;
         PlanReloadOutcome const out = CommitPlanReload(server.plans, OldSet(), counts, server.tactics, Tactics(2),
-            skippedTactics, {});
+            skippedTactics, {}, {});
         CHECK(!out.swapped);
         CHECK(!out.reason.empty());
         CHECK(&server.plans.Current() == before);
@@ -209,7 +209,7 @@ static void TestMissingPlanKeepsTheOldSet()
     CHECK(next->AddPlan("bfd", 48));
     StepRow(*next, counts, "bfd", Move(1, 1, 10));
     next->Seal();
-    PlanReloadOutcome out = CommitPlanReload(server.plans, next, counts, server.tactics, Tactics(2), 0, {});
+    PlanReloadOutcome out = CommitPlanReload(server.plans, next, counts, server.tactics, Tactics(2), 0, {}, {});
     CHECK(!out.swapped);
     CHECK(out.reason == "plan 'rfk' is gone from ai_dungeon_plan");
     CHECK(&server.plans.Current() == before);
@@ -220,17 +220,17 @@ static void TestMissingPlanKeepsTheOldSet()
     CHECK(empty->AddPlan("rfk", 47));
     StepRow(*empty, counts, "bfd", Move(1, 1, 10));
     empty->Seal();
-    out = CommitPlanReload(server.plans, empty, counts, server.tactics, Tactics(2), 0, {});
+    out = CommitPlanReload(server.plans, empty, counts, server.tactics, Tactics(2), 0, {}, {});
     CHECK(!out.swapped);
     CHECK(out.reason == "plan 'rfk' has no steps any more");
     CHECK(&server.plans.Current() == before);
 
     // An unsealed new table (a loader that never sealed) and plans never loaded at startup.
     auto unsealed = std::make_shared<DungeonPlanTable>();
-    CHECK(!CommitPlanReload(server.plans, unsealed, PlanLoadCounts(), server.tactics, Tactics(2), 0, {}).swapped);
+    CHECK(!CommitPlanReload(server.plans, unsealed, PlanLoadCounts(), server.tactics, Tactics(2), 0, {}, {}).swapped);
     ReloadableTable<DungeonPlanTable> never;
     ReloadableTable<BossTacticTable> neverTactics;
-    PlanReloadOutcome const off = CommitPlanReload(never, OldSet(), PlanLoadCounts(), neverTactics, Tactics(2), 0, {});
+    PlanReloadOutcome const off = CommitPlanReload(never, OldSet(), PlanLoadCounts(), neverTactics, Tactics(2), 0, {}, {});
     CHECK(!off.swapped);
     CHECK(off.reason.find("not loaded at startup") != std::string::npos);
 }
@@ -250,7 +250,7 @@ static void TestRunningRunKeepsItsPlan()
     StepRow(*next, counts, "bfd", Move(1, 1, 99));
     StepRow(*next, counts, "rfk", Move(1, 1, 5));
     next->Seal();
-    PlanReloadOutcome out = CommitPlanReload(server.plans, next, counts, server.tactics, Tactics(2), 0, {running});
+    PlanReloadOutcome out = CommitPlanReload(server.plans, next, counts, server.tactics, Tactics(2), 0, {}, {running});
     CHECK(out.swapped);
     // The old table is kept: the run's pointer still reads the plan it started with.
     CHECK(out.keptOld == 1 && server.plans.RetiredCount() == 1);
@@ -261,10 +261,140 @@ static void TestRunningRunKeepsItsPlan()
     CHECK(!server.plans.Current().Owns(running));
 
     // A second reload while the same run still goes keeps it; once no run holds it, the next reload frees it.
-    out = CommitPlanReload(server.plans, OldSet(), PlanLoadCounts(), server.tactics, Tactics(2), 0, {running});
+    out = CommitPlanReload(server.plans, OldSet(), PlanLoadCounts(), server.tactics, Tactics(2), 0, {}, {running});
     CHECK(out.swapped && out.keptOld == 1);
-    out = CommitPlanReload(server.plans, OldSet(), PlanLoadCounts(), server.tactics, Tactics(2), 0, {});
+    out = CommitPlanReload(server.plans, OldSet(), PlanLoadCounts(), server.tactics, Tactics(2), 0, {}, {});
     CHECK(out.swapped && out.keptOld == 0 && server.plans.RetiredCount() == 0);
+}
+
+// Loader stand-in: one leg row through AddLeg, counted and named as ReadDungeonPlanRows does.
+static void LegRow(DungeonPlanTable& table, PlanLoadCounts& counts, const std::string& plan, std::uint8_t leg)
+{
+    if (!table.AddLeg(plan, leg, "leg"))
+    {
+        ++counts.skippedLegs;
+        counts.Note("ai_dungeon_leg '" + plan + "' leg " + std::to_string(leg) + ": an unknown plan or a second row of the leg");
+    }
+}
+
+static void TestBadLegKeepsBothOldTables()
+{
+    for (int which = 0; which < 2; ++which)
+    {
+        Server server;
+        const DungeonPlanTable* before = &server.plans.Current();
+        const BossTacticTable* tacticsBefore = &server.tactics.Current();
+        auto next = std::make_shared<DungeonPlanTable>();
+        PlanLoadCounts counts;
+        CHECK(next->AddPlan("bfd", 48));
+        CHECK(next->AddPlan("rfk", 47));
+        LegRow(*next, counts, "bfd", 1);
+        if (which == 0)
+            LegRow(*next, counts, "bfd", 1);      // a second row of leg 1
+        else
+            LegRow(*next, counts, "nosuch", 1);   // a leg of a plan that has no row
+        CHECK(counts.skippedLegs == 1);
+        StepRow(*next, counts, "bfd", Move(1, 1, 10));
+        StepRow(*next, counts, "rfk", Move(1, 1, 5));
+        next->Seal();
+        PlanReloadOutcome const out = CommitPlanReload(server.plans, next, counts, server.tactics, Tactics(4), 0, {}, {});
+        CHECK(!out.swapped);
+        CHECK(out.reason.find("1 leg") != std::string::npos);
+        CHECK(out.reason.find(which == 0 ? "'bfd' leg 1" : "'nosuch' leg 1") != std::string::npos);
+        CHECK(&server.plans.Current() == before);
+        CHECK(&server.tactics.Current() == tacticsBefore);
+        CHECK(server.tactics.Current().Size() == 2);
+        CHECK(server.plans.RetiredCount() == 0 && server.tactics.RetiredCount() == 0);
+    }
+}
+
+static TableFingerprint Fp(std::uint64_t rows, std::uint64_t sum)
+{
+    TableFingerprint fp;
+    fp.ok = true;
+    fp.rows = rows;
+    fp.sum = sum;
+    return fp;
+}
+
+// The five tables read whole and unchanged.
+static std::vector<TableRead> GoodReads()
+{
+    std::vector<TableRead> reads;
+    const char* names[] = {"ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_boss", "ai_boss_tactic"};
+    std::uint64_t rows = 2;
+    for (const char* name : names)
+    {
+        TableRead r;
+        r.table = name;
+        r.before = r.after = Fp(rows, 1000 + rows);
+        r.rowsRead = rows;
+        reads.push_back(r);
+        ++rows;
+    }
+    return reads;
+}
+
+static void TestFailedOrChangingReadsKeepTheOldSet()
+{
+    {
+        Server server;
+        CHECK(JudgeTableReads(GoodReads()).empty());
+        CHECK(CommitPlanReload(server.plans, OldSet(), PlanLoadCounts(), server.tactics, Tactics(2), 0, GoodReads(), {}).swapped);
+    }
+    // An empty table read whole is fine: the count query answered 0 and the data query handed nothing.
+    {
+        std::vector<TableRead> reads = GoodReads();
+        reads[3].before = reads[3].after = Fp(0, 0);
+        reads[3].rowsRead = 0;
+        CHECK(JudgeTableReads(reads).empty());
+    }
+    for (std::size_t t = 0; t < 5; ++t)
+        for (int how = 0; how < 5; ++how)
+        {
+            std::vector<TableRead> reads = GoodReads();
+            TableRead& r = reads[t];
+            std::string expect;
+            if (how == 0)
+            {
+                r.before.ok = false;            // the revision query failed before the load
+                expect = "the read of " + r.table + " failed (a query error";
+            }
+            else if (how == 1)
+            {
+                r.after.ok = false;             // ... or after it
+                expect = "the read of " + r.table + " failed (a query error";
+            }
+            else if (how == 2)
+            {
+                r.rowsRead = 0;                 // the data query failed (null: read as no rows)
+                expect = "the read of " + r.table + " failed: 0 of its";
+            }
+            else if (how == 3)
+            {
+                r.after.rows += 1;              // a row added mid-load
+                expect = r.table + " changed during the reload";
+            }
+            else
+            {
+                r.after.sum += 7;               // a row edited mid-load, same count
+                expect = r.table + " changed during the reload";
+            }
+            Server server;
+            const DungeonPlanTable* before = &server.plans.Current();
+            const BossTacticTable* tacticsBefore = &server.tactics.Current();
+            PlanReloadOutcome const out = CommitPlanReload(server.plans, OldSet(), PlanLoadCounts(), server.tactics, Tactics(3),
+                0, reads, {});
+            CHECK(!out.swapped);
+            if (out.reason.find(expect) == std::string::npos)
+            {
+                std::cerr << "table " << t << " how " << how << ": " << out.reason << "\n";
+                CHECK(false);
+            }
+            CHECK(&server.plans.Current() == before);
+            CHECK(&server.tactics.Current() == tacticsBefore);
+            CHECK(server.plans.RetiredCount() == 0 && server.tactics.RetiredCount() == 0);
+        }
 }
 
 static void TestOwns()
@@ -286,6 +416,8 @@ int main()
     TestMissingPlanKeepsTheOldSet();
     TestRunningRunKeepsItsPlan();
     TestOwns();
+    TestBadLegKeepsBothOldTables();
+    TestFailedOrChangingReadsKeepTheOldSet();
     std::cout << "dungeon plan reload policy: all tests passed\n";
     return 0;
 }

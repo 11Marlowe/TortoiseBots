@@ -16,6 +16,7 @@ namespace ai
     // the table. A second call does nothing.
     void LoadBossTactics();
 
-    // One pass over `ai_boss_tactic` into an empty table, then its seal: the rows skipped.
-    std::uint32_t ReadBossTacticRows(BossTacticTable& table);
+    // One pass over `ai_boss_tactic` into an empty table, then its seal: the rows skipped. `rowsRead` (a reload) gets
+    // the rows the query handed it, accepted or not.
+    std::uint32_t ReadBossTacticRows(BossTacticTable& table, std::uint64_t* rowsRead = nullptr);
 }
