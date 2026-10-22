@@ -391,7 +391,7 @@ private:
 
     inline bool HunterShouldKite(PlayerbotAI* ai, uint8_t attackerCount)
     {
-        Unit* nearest = AI_VALUE(Unit*, "closest attacker targeting me");
+        Unit* nearest = ai->GetAiObjectContext()->GetValue<Unit*>("closest attacker targeting me")->Get();
         float const nearestYd = nearest ? ai->GetBot()->GetCombatDistance(nearest) : 9999.0f;
         return ShouldHunterKite(attackerCount, HunterKiteReady(ai), nearestYd);
     }
