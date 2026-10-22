@@ -132,6 +132,35 @@ inline ParsedUrl parseUrl(const std::string& url) {
     return parsed;
 }
 
+void PlayerbotAIConfig::LoadDungeonRunKeys()
+{
+    dungeonSelfClear = config.GetBoolDefault("AiPlayerbot.DungeonSelfClear", false);
+    dungeonRunMaxMinutes = static_cast<uint32>(std::max(0, config.GetIntDefault("AiPlayerbot.DungeonRunMaxMinutes", 180)));
+    dungeonRunAggroEstimate = config.GetBoolDefault("AiPlayerbot.DungeonRunAggroEstimate", false);
+    dungeonRunAggroCeiling = static_cast<uint32>(std::max(1, config.GetIntDefault("AiPlayerbot.DungeonRunAggroCeiling", 6)));
+    dungeonRunRezHold = config.GetBoolDefault("AiPlayerbot.DungeonRunRezHold", false);
+    dungeonRunPullStand = config.GetBoolDefault("AiPlayerbot.DungeonRunPullStand", false);
+    dungeonRunWalkBackAfterWonFight = config.GetBoolDefault("AiPlayerbot.DungeonRunWalkBackAfterWonFight", false);
+    dungeonRunLootFfa = config.GetBoolDefault("AiPlayerbot.DungeonRunLootFfa", false);
+}
+
+bool PlayerbotAIConfig::ReloadDungeonRunKeys()
+{
+    if (!enabled)
+        return false;
+    if (!config.Reload())
+    {
+        sLog.outError("TortoiseBots: config reload: %s could not be read again; the run leader keys keep their values.",
+            config.GetFilename().c_str());
+        return false;
+    }
+    LoadDungeonRunKeys();
+    sLog.outString("TortoiseBots: config reload: run leader keys read again from %s (DungeonSelfClear %d, "
+        "DungeonRunWalkBackAfterWonFight %d).", config.GetFilename().c_str(), dungeonSelfClear ? 1 : 0,
+        dungeonRunWalkBackAfterWonFight ? 1 : 0);
+    return true;
+}
+
 bool PlayerbotAIConfig::Initialize()
 {
     sLog.outString("Initializing AI Playerbot by ike3, based on the original Playerbot by blueboy");
@@ -983,13 +1012,7 @@ bool PlayerbotAIConfig::Initialize()
     paladinJudgementUpkeep = config.GetBoolDefault("AiPlayerbot.PaladinJudgementUpkeep", true);
     onyxiaWhelpsAndEggs = config.GetBoolDefault("AiPlayerbot.OnyxiaWhelpsAndEggs", true);
     dungeonTactics = config.GetBoolDefault("AiPlayerbot.DungeonTactics", false);
-    dungeonSelfClear = config.GetBoolDefault("AiPlayerbot.DungeonSelfClear", false);
-    dungeonRunMaxMinutes = static_cast<uint32>(std::max(0, config.GetIntDefault("AiPlayerbot.DungeonRunMaxMinutes", 180)));
-    dungeonRunAggroEstimate = config.GetBoolDefault("AiPlayerbot.DungeonRunAggroEstimate", false);
-    dungeonRunAggroCeiling = static_cast<uint32>(std::max(1, config.GetIntDefault("AiPlayerbot.DungeonRunAggroCeiling", 6)));
-    dungeonRunRezHold = config.GetBoolDefault("AiPlayerbot.DungeonRunRezHold", false);
-    dungeonRunPullStand = config.GetBoolDefault("AiPlayerbot.DungeonRunPullStand", false);
-    dungeonRunLootFfa = config.GetBoolDefault("AiPlayerbot.DungeonRunLootFfa", false);
+    LoadDungeonRunKeys();
     avoidCreatureAuras = config.GetBoolDefault("AiPlayerbot.AvoidCreatureAuras", true);
     allowRepairedTaxiPaths = config.GetBoolDefault("AiPlayerbot.AllowRepairedTaxiPaths", false);
     turnInRpg = config.GetBoolDefault("AiPlayerbot.TurnInRpg", false);

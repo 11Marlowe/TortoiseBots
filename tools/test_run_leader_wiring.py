@@ -13,6 +13,7 @@ gather, not a player's order). During a walk back the step facts (hop pulls)
 are read for the replayed move point.
 """
 import pathlib
+import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -487,7 +488,8 @@ class RunLeaderWiringTest(unittest.TestCase):
         release = body(COMMANDS, "uint32 ReleaseBinding(", "RemoteCommander::Binding removed =")
         self.assertIn("RestoreRunLootMethod(standing->leadGuid, run->second.run);", release)
         off = body(COMMANDS, "// Switched off by a config reload", "s_dungeonRunMs = 0;")
-        self.assertIn("RestoreRunLootMethod(standing->leadGuid, entry.second.run);", off)
+        # The key switched off lets each run go through ReleaseRunHold too (its first line restores, above).
+        self.assertIn("ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);", off)
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
         self.assertIn("LootFfaWanted(r, f, s)", policy)
         self.assertIn('order = "lootmethod ffa";', policy)
@@ -688,6 +690,74 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("GossipNpcDeadNote(", refused)
         gossip_step = body(policy, "inline void GossipStep(", "\n}\n")
         self.assertIn("GossipNpcDeadNote(what, f.taskText)", gossip_step)
+
+
+    def test_walk_back_after_won_fight_key_is_read_with_the_config(self):
+        # AiPlayerbot.DungeonRunWalkBackAfterWonFight (default 0): one of the run leader's keys, read by
+        # LoadDungeonRunKeys (Initialize and a `.reload config`) and handed to the policy on every tick by
+        # ReadRunFacts, so no copy of it lives in a run.
+        config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
+        header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
+        template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        keys = body(config, "void PlayerbotAIConfig::LoadDungeonRunKeys()\n{", "\n}\n")
+        self.assertIn('dungeonRunWalkBackAfterWonFight = config.GetBoolDefault("AiPlayerbot.DungeonRunWalkBackAfterWonFight", false);', keys)
+        self.assertIn("bool dungeonRunWalkBackAfterWonFight;", header)
+        self.assertIn("AiPlayerbot.DungeonRunWalkBackAfterWonFight = 0", template)
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("f = Facts();", facts)
+        self.assertIn("f.walkBackAfterWonFight = sPlayerbotAIConfig.dungeonRunWalkBackAfterWonFight;", facts)
+        self.assertIn("bool walkBackAfterWonFight = false;", policy)
+        self.assertIn("else if (!GuardWalkBackWanted(r, f, FactStep(r) ? *FactStep(r) : *s))", policy)
+        # The suppression follows the pull and boss steps' own end rule (Codex review of 7537eab8): one predicate.
+        wanted = body(policy, "inline bool GuardWalkBackWanted(", "\n}\n")
+        self.assertIn("return FightStepEnd(r, f, s) == FightEnd::NotYet;", wanted)
+        self.assertNotIn("OpenUnits", wanted)
+        fight = body(policy, "inline void FightStep(", "\n}\n")
+        self.assertIn("FightEnd const end = FightStepEnd(r, f, s);", fight)
+        self.assertNotIn("bossDeadNearSpot ||", fight)
+        for doc in ("docs/server/settings/dungeons-raids.md", "docs/play/dungeon-run-leader.md"):
+            self.assertIn("AiPlayerbot.DungeonRunWalkBackAfterWonFight", (ROOT / doc).read_text())
+
+    def test_run_leader_keys_follow_a_config_reload(self):
+        # `.reload config` (ChatHandler::HandleReloadConfigCommand -> World::LoadConfigSettings(true) ->
+        # WORLDHOOK_ON_AFTER_CONFIG_LOAD) reaches BotHostAdapter::OnAfterConfigLoad; it only marks the run leader's
+        # keys due, and the next world tick (OnUpdate) reads them again, through the same function Initialize uses.
+        config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
+        header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
+        host = (ROOT / "host/BotHostAdapter.cpp").read_text()
+        keys = body(config, "void PlayerbotAIConfig::LoadDungeonRunKeys()\n{", "\n}\n")
+        init = body(config, "bool PlayerbotAIConfig::Initialize()\n{", "\n}\n")
+        reload = body(config, "bool PlayerbotAIConfig::ReloadDungeonRunKeys()\n{", "\n}\n")
+        names = re.findall(r'"(AiPlayerbot\.Dungeon(?:SelfClear|Run\w+))"', config)
+        self.assertGreaterEqual(len(names), 8)
+        for name in names:
+            # Every run leader key is read in LoadDungeonRunKeys and nowhere else (no second parse).
+            self.assertIn('"' + name + '"', keys)
+            self.assertEqual(config.count('"' + name + '"'), 1, name)
+            self.assertNotIn('"' + name + '"', init)
+        self.assertIn("LoadDungeonRunKeys();", init)
+        self.assertLess(init.index('enabled = config.GetBoolDefault("AiPlayerbot.Enabled", false);'),
+                        init.index("LoadDungeonRunKeys();"))
+        self.assertIn("if (!enabled)\n        return false;", reload)
+        self.assertIn("if (!config.Reload())", reload)
+        self.assertLess(reload.index("if (!config.Reload())"), reload.index("LoadDungeonRunKeys();"))
+        self.assertIn("void LoadDungeonRunKeys();", header)
+        self.assertIn("bool ReloadDungeonRunKeys();", header)
+        on_load = body(host, "void BotHostAdapter::OnAfterConfigLoad(bool reload)\n{", "\n}\n")
+        self.assertIn("if (reload)\n        s_dungeonRunKeysDue.store(true);", on_load)
+        self.assertNotIn("ReloadDungeonRunKeys", on_load)  # world thread only
+        on_update = body(host, "void BotHostAdapter::OnUpdate(uint32 diff)\n{", "\n}\n")
+        self.assertIn("if (s_dungeonRunKeysDue.exchange(false))\n        sPlayerbotAIConfig.ReloadDungeonRunKeys();", on_update)
+        self.assertIn("WORLDHOOK_ON_AFTER_CONFIG_LOAD", host)
+        self.assertEqual(host.count("ReloadDungeonRunKeys"), 1)
+        # Switched off by a reload, every run ends as `.bot run stop` ends one: its held bots are let go
+        # (ReleaseRunHold, which also restores a loot detour's method), not left on stay at hold stands.
+        off = body(COMMANDS, "    // Switched off by a config reload: every run ends, with a last status line.",
+                   "DungeonRuns().clear();")
+        self.assertIn("ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);", off)
+        self.assertLess(off.index("SendRunLine(FindCharacter(entry.first), entry.second, false);"),
+                        off.index("ReleaseRunHold("))
 
 
 if __name__ == "__main__":

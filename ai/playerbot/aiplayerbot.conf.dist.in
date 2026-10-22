@@ -797,9 +797,21 @@ AiPlayerbot.DungeonTactics = 0
 # Needs AiPlayerbot.RemoteCommander = 1 and a binding (.bot commander bind).
 # Bots then clear without a player giving each order, so it is off by default
 # (docs/play/dungeon-run-leader.md).
+# `.reload config` reads this key and the AiPlayerbot.DungeonRun* keys below again
+# (only those; every other setting here needs a restart).
 # 0 - `.bot run` is refused (Default)
 # 1 - a bound commander may start a run
 AiPlayerbot.DungeonSelfClear = 0
+
+# The run leader's walk back after a guarded fight. When the tank left its stand
+# to take mobs off the party, the run used to walk the tank and the party back to
+# that stand after every fight, then forward again to the next pack or boss.
+# 0 - once the step's pack is cleared (or on a move step) the run goes on from
+#     where the tank stands; a pack with units left is still pulled from the
+#     stand, so the tank goes back to it first (Default)
+# 1 - walk back to the stand after every guarded fight, as before 2026-10-22
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunWalkBackAfterWonFight = 0
 
 # The run leader's time limit, in minutes from `.bot run start` (a pause counts).
 # At the limit the run ends and its status line says "time limit reached (3h)".

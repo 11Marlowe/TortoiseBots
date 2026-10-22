@@ -92,6 +92,13 @@ public:
 
 public:
     bool Initialize();
+    // The run leader's keys (AiPlayerbot.DungeonSelfClear and AiPlayerbot.DungeonRun*), read from the loaded
+    // aiplayerbot.conf: by Initialize, and again by ReloadDungeonRunKeys after a `.reload config`.
+    void LoadDungeonRunKeys();
+    // Reads aiplayerbot.conf again and only the run leader's keys from it (the rest of the settings keep their
+    // start values). World thread only (BotHostAdapter::OnUpdate). False when the AI is disabled or the file
+    // could not be read; the keys are then left as they were.
+    bool ReloadDungeonRunKeys();
     bool IsInRandomAccountList(uint32 id);
     bool IsFreeAltBot(uint32 guid);
     bool IsFreeAltBot(Player* player) {return IsFreeAltBot(player->GetGUIDLow());}
@@ -555,6 +562,9 @@ public:
     // The run leader orders `pullback` only when the tank can shoot from where it stands, else it walks the
     // party to a firing stand first (DungeonRunPolicy.h HoldForShot; default off).
     bool dungeonRunPullStand;
+    // 1: the run leader walks the tank back to the guard's stand point after every guarded fight, as before
+    // 2026-10-22; 0 (default): not once the step's pack is cleared (DungeonRunPolicy.h GuardWalkBackWanted).
+    bool dungeonRunWalkBackAfterWonFight;
     // A run leader loot step whose item is another member's under the group's loot rules sets free-for-all for the
     // carrier's loot and puts the method back (DungeonRunPolicy.h LootFfaStep; default off).
     bool dungeonRunLootFfa;

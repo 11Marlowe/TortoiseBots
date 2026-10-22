@@ -713,6 +713,12 @@ struct Facts
     // AiPlayerbot.DungeonRunPullStand (HoldForShot): the key is on. Off (the
     // default) nothing below is read and the pull goes out as before, byte for byte.
     bool pullStand = false;
+    // AiPlayerbot.DungeonRunWalkBackAfterWonFight (GuardWalkBackWanted): on (1),
+    // the old walk back to the guard's stand point after every guarded fight. Off
+    // (0, the default) the run goes on from where the tank stands once the step's
+    // pack is cleared (Frostmane Hollow r20-19z39: the party ran back from each
+    // boss and pack, 2-3 s a pull, and walked forward again).
+    bool walkBackAfterWonFight = false;
     // The lead bot's ranged weapon shot range (its PullStrategy::GetRange(),
     // pull action "shoot" only); 0 for a spell pull, a body pull ("reach pull":
     // no ranged weapon, skill, spell or ammo) or when it could not be read. At or
@@ -5239,6 +5245,15 @@ inline bool BigPackWalkGate(Run& r, const Facts& f, std::uint32_t dt, std::strin
 // unreachable, Run::patrolGaveUp: the wait ran out, or its pulls drew no
 // fight); none seen: the step is cleared as before. True: the step waits;
 // false: it is cleared (`timedOut` says the wait ran out).
+// Whether a patroller (Facts::patrollers) is one the step waits for: hostile,
+// not passed, reachable, not given up on, not a later step's.
+inline bool PatrollerToWaitFor(const Run& r, const Facts& f, const UnitFact& u)
+{
+    if (!u.hostile || r.passed.count(u.guid) || r.unreachable.count(u.guid) || r.patrolGaveUp.count(u.guid))
+        return false;
+    return !(r.plan && ai::OwnedByLaterStep(*r.plan, r.step, u.entry, u.x, u.y, u.z, f.team));
+}
+
 inline bool WaitForPatroller(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& timedOut)
 {
     if (s.kind != PlanStepKind::Pull || f.anyInCombat)
@@ -5246,9 +5261,7 @@ inline bool WaitForPatroller(Run& r, const Facts& f, const PlanStep& s, std::uin
     const UnitFact* p = nullptr;
     for (const UnitFact& u : f.patrollers)
     {
-        if (!u.hostile || r.passed.count(u.guid) || r.unreachable.count(u.guid) || r.patrolGaveUp.count(u.guid))
-            continue;
-        if (r.plan && ai::OwnedByLaterStep(*r.plan, r.step, u.entry, u.x, u.y, u.z, f.team))
+        if (!PatrollerToWaitFor(r, f, u))
             continue;
         r.patrolSeen.insert(u.guid);
         if (!p || u.distLead < p->distLead)
@@ -5268,6 +5281,45 @@ inline bool WaitForPatroller(Run& r, const Facts& f, const PlanStep& s, std::uin
     r.note = "waiting for the patroller " + what + " (outside the " + Num(s.radius) + " yd radius; up to " +
         std::to_string(capMs / 1000) + " s)";
     return true;
+}
+
+// How a pull or boss step stands once nothing of it is left to pull, by the
+// step's own rules (FightStep ends on it; GuardWalkBackWanted asks it too, so
+// the walk back after a fight is left out only when the step is really over).
+// NotYet: the step goes on: its point is not in sight (Facts::seen false: an
+// empty unit list there is no clear pack), a unit is still open, an ambush is
+// not walked through yet, a patroller is still to come (WaitForPatroller may
+// give it up later), or a boss's death was not witnessed (he may be away).
+enum class FightEnd : std::uint8_t { NotYet, OutOfReach, Friendly, Cleared, BossDown };
+
+inline std::size_t UnitsOutOfReach(const Run& r, const Facts& f)
+{
+    std::size_t n = 0;
+    for (const UnitFact& u : f.units)
+        if (u.hostile && r.unreachable.count(u.guid))
+            ++n;
+    return n;
+}
+
+inline FightEnd FightStepEnd(const Run& r, const Facts& f, const PlanStep& s)
+{
+    if (!f.seen || OpenUnits(r, f.units) > 0)
+        return FightEnd::NotYet;
+    if ((s.flags & ai::kPlanFlagAmbush) && !r.walkedThrough)
+        return FightEnd::NotYet;
+    if (UnitsOutOfReach(r, f))
+        return FightEnd::OutOfReach;
+    for (const UnitFact& u : f.units)
+        if (!u.hostile)
+            return FightEnd::Friendly;
+    if (s.kind != PlanStepKind::Boss)
+    {
+        for (const UnitFact& u : f.patrollers)
+            if (PatrollerToWaitFor(r, f, u))
+                return FightEnd::NotYet;
+        return FightEnd::Cleared;
+    }
+    return f.bossDeadNearSpot || (r.bossSeenAlive && f.bossDeadNearLead) ? FightEnd::BossDown : FightEnd::NotYet;
 }
 
 // pull and boss steps: approach until seen, then pull in order until nothing
@@ -5410,30 +5462,24 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         if (!r.walkedThrough)
             return;
     }
-    std::size_t outOfReach = 0;
-    bool friendlyLeft = false;
-    for (const UnitFact& u : f.units)
-    {
-        if (u.hostile && r.unreachable.count(u.guid))
-            ++outOfReach;
-        friendlyLeft = friendlyLeft || !u.hostile;
-    }
+    FightEnd const end = FightStepEnd(r, f, s);
     std::string const what = s.kind == PlanStepKind::Boss ? "boss" : "pack";
-    if (outOfReach)
+    if (end == FightEnd::OutOfReach)
     {
         r.notCleared.insert(r.step);
-        NextStep(r, what + " skipped, not cleared: " + std::to_string(outOfReach) + " units out of reach");
+        NextStep(r, what + " skipped, not cleared: " + std::to_string(UnitsOutOfReach(r, f)) + " units out of reach");
     }
-    else if (friendlyLeft)
+    else if (end == FightEnd::Friendly)
         NextStep(r, what + " is friendly to this party: left alone");
     else if (s.kind != PlanStepKind::Boss)
     {
+        // Cleared, or a patroller to wait for (NotYet): WaitForPatroller decides.
         std::string timedOut;
         if (WaitForPatroller(r, f, s, dt, timedOut))
             return;
         NextStep(r, "pack cleared" + timedOut);
     }
-    else if (f.bossDeadNearSpot || (r.bossSeenAlive && f.bossDeadNearLead))
+    else if (end == FightEnd::BossDown)
     {
         // Remember where he fell: a later `loot` step for this entry goes to the
         // corpse by its guid (TaskStep), not to the plan's spawn point.
@@ -7129,6 +7175,45 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
     return true;
 }
 
+// Whether the guard's walk back (Run::guardReturn) is still wanted once a fight
+// is over (asked only out of combat, outside an event, a task and a wait).
+// Frostmane Hollow r20-19z39 (2026-10-22, steps 277/278, 3077-3082 s): after
+// every guarded pull the tank and the party walked 2-3 s back to the stand,
+// then forward again for the next pack or boss; the owner: "why do they run
+// back from the bosses?". With AiPlayerbot.DungeonRunWalkBackAfterWonFight at 0
+// (the default):
+//   - a pull or boss step its own end rule calls over (FightStepEnd: pack
+//     cleared, boss down by a witnessed death, the rest out of reach or
+//     friendly): no walk back; the step ends and the next one starts from
+//     where the tank stands (its own approach, firing stand or gather places
+//     the party; the anchor check still gathers back on a lost floor);
+//   - a pull or boss step that goes on (FightStepEnd NotYet: units left, the
+//     point out of sight, an ambush, a patroller to come, a boss whose death
+//     was not seen): kept, the same stand pulls again;
+//   - a move step: no walk back, its walk goes on forward to its point;
+//   - any other step (it acts where the party stood: a wait_clear, a rest, an
+//     object or item step): kept.
+// During a wipe's walk back (Run::walkBack) the step judged is the one whose
+// point is replayed (FactStep: a move point, so the replay goes on forward),
+// not the step the run returns to; the facts are read for that step too.
+// The key at 1 keeps the walk back after every fight, as before.
+inline bool GuardWalkBackWanted(const Run& r, const Facts& f, const PlanStep& s)
+{
+    if (f.walkBackAfterWonFight)
+        return true;
+    switch (s.kind)
+    {
+        case PlanStepKind::Pull:
+        case PlanStepKind::Boss:
+            return FightStepEnd(r, f, s) == FightEnd::NotYet;
+        case PlanStepKind::Move:
+        case PlanStepKind::MoveDirect:
+            return false;
+        default:
+            return true;
+    }
+}
+
 // The tank's reach for a pull stops as soon as a mob has aggro. Uldaman run 4
 // (2026-10-17, sentinel pull 2): the tank kept walking toward the west Relic
 // Hunters to reach its pull target, 15.7 yd from the Sentinel, after the camp
@@ -8044,6 +8129,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     {
         if (InEvent(r) || r.phase == Phase::AwaitTask || r.phase == Phase::Wait)
             r.guardReturn = false;
+        else if (!GuardWalkBackWanted(r, f, FactStep(r) ? *FactStep(r) : *s))
+            r.guardReturn = false; // the fight is won: the step goes on from where the tank stands
         else if (r.phase != Phase::Walk &&
             ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.guardX, r.guardY, r.guardZ) > kGuardReturnMaxYd)
         {

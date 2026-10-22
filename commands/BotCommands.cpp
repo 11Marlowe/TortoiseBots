@@ -10431,6 +10431,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.joinerCeiling = sPlayerbotAIConfig.dungeonRunAggroEstimate ? sPlayerbotAIConfig.dungeonRunAggroCeiling : 0;
     // The pull stand (DungeonRun::HoldForShot): off, no sight ray, range or stand is read.
     f.pullStand = sPlayerbotAIConfig.dungeonRunPullStand;
+    // The guard's walk back after a won fight (DungeonRun::GuardWalkBackWanted): read every tick, so a config
+    // reload switches it mid-run.
+    f.walkBackAfterWonFight = sPlayerbotAIConfig.dungeonRunWalkBackAfterWonFight;
     // A loot step's free-for-all detour (DungeonRun::LootFfaStep, AiPlayerbot.DungeonRunLootFfa): off, and no detour
     // left the method on ffa, no group is read. The method is read while a detour is live even when the key was
     // switched off meanwhile (a config reload): -1 means only "no group".
@@ -11530,14 +11533,16 @@ static void UpdateDungeonRuns(uint32 diff)
     {
         for (auto& entry : DungeonRuns())
         {
-            if (RemoteCommander::Binding const* standing = CommanderBindings().FindByCommander(entry.first))
-            {
-                RestoreRunLootMethod(standing->leadGuid, entry.second.run);
-                ClearRunCcIcons(standing->leadGuid, standing->groupId, entry.second);
-            }
             entry.second.run.state = TortoiseBots::DungeonRun::State::Done;
             entry.second.run.note = "stopped: the run leader was switched off (AiPlayerbot.DungeonSelfClear)";
             SendRunLine(FindCharacter(entry.first), entry.second, false);
+            // As `.bot run stop` and the time limit: the bots held on stay (hold stands, places) follow the
+            // lead bot again, and a loot step's free-for-all detour ends (ReleaseRunHold restores the method).
+            if (RemoteCommander::Binding const* standing = CommanderBindings().FindByCommander(entry.first))
+            {
+                ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);
+                ClearRunCcIcons(standing->leadGuid, standing->groupId, entry.second); // the run's cc marks go too
+            }
         }
         DungeonRuns().clear();
         s_dungeonRunMs = 0;
