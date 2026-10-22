@@ -1,12 +1,14 @@
 """Wiring pins for the dashboard's boss list (owner request 2026-10-21: every boss
 on the dashboard map, alive or dead, all the time).
 
-The pure rules live in runtime/CommanderTelemetry.h (BossState, MergeBosses and
-the `bosses` fields of BuildPayload, unit-tested in
-tools/test_commander_telemetry.cpp). These pins prove the live code calls them:
-the commands layer fills the list for every standing binding from a spawn cache
-built once, the state is read on the lead's own map (its instance), and the
-emitter copies the list into the datagram.
+The pure rules live in runtime/CommanderTelemetry.h (BossSpawnState,
+StrongerBossState, GroupBossSpawns, BossKillLatch and the `bosses` fields of
+BuildPayload, unit-tested in tools/test_commander_telemetry.cpp). These pins
+prove the live code calls them: the spawn cache is built once at server start,
+right after the plans are sealed and never inside a commander snapshot (Codex
+review 2026-10-22), the commands layer fills the list for every standing binding
+from it, the state is read on the lead's own map (its instance) and held by the
+killed latch of that instance, and the emitter copies the list into the datagram.
 """
 import pathlib
 import re
@@ -15,6 +17,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CMD = (ROOT / "commands/BotCommands.cpp").read_text()
 EMIT = (ROOT / "runtime/ObservabilityEmitter.cpp").read_text()
+HOST = (ROOT / "host/BotHostAdapter.cpp").read_text()
 
 
 def body(text, start, end="\n}\n"):
@@ -36,11 +39,19 @@ class BossListWiring(unittest.TestCase):
         # the state of each spawn: the creature on THIS map (instance), else the instance's respawn time
         self.assertIn("map->GetCreature(", fn)
         self.assertIn("map->GetPersistentState()", fn)
-        self.assertIn("persistent->GetCreatureRespawnTime(spawn.dbGuid)", fn)
-        # the decision is the tested pure helper, handed the creature's own state and the respawn time against now
+        self.assertIn("persistent->GetCreatureRespawnTime(dbGuid)", fn)
+        # the decision is the tested pure helper, handed the creature's own state and the respawn time against now, per spawn row of
+        # the entry, the strongest read kept
         self.assertIn("CommanderTelemetry::BossSpawnState(creature != nullptr, creature && creature->IsAlive(), respawnAt, static_cast<int64_t>(now))", fn)
+        self.assertIn("state = CommanderTelemetry::StrongerBossState(state, ", fn)
+        self.assertRegex(fn, r"for \(uint32 dbGuid : boss\.dbGuids\)")
         self.assertNotIn("CommanderTelemetry::BossState(", fn)
-        self.assertIn("ref.bosses = CommanderTelemetry::MergeBosses(", fn)
+        self.assertNotIn("MergeBosses", fn)
+        # the killed latch of the lead's instance decides what is reported; instances no binding stands on are forgotten
+        self.assertIn("uint32 const instanceId = map->GetInstanceId();", fn)
+        self.assertIn("kills.Expire(static_cast<int64_t>(now));", fn)
+        self.assertIn("ref.bosses.back().state = kills.Apply(instanceId, boss.info.entry, state, static_cast<int64_t>(now));", fn)
+        self.assertLess(fn.index("kills.Expire("), fn.index("kills.Apply("))
 
     def test_no_grid_or_world_scan_per_report(self):
         fn = body(CMD, "static void FillCommanderBosses(")
@@ -48,18 +59,39 @@ class BossListWiring(unittest.TestCase):
             self.assertNotIn(scan, fn)
 
     def test_the_spawn_cache_is_built_once_after_the_plans_are_sealed(self):
-        fn = body(CMD, "static std::vector<DashBossSpawn> const* DashBossSpawnsOn(")
-        self.assertIn("if (!plans.Sealed())", fn)
-        self.assertIn("sObjectMgr.DoCreatureData(", fn)
+        fn = body(CMD, "void BuildBossSpawnCache()")
+        self.assertRegex(fn, r"if \(cache\.built \|\| !plans\.Sealed\(\)\)\s*return;")
         self.assertEqual(fn.count("sObjectMgr.DoCreatureData("), 1)
-        self.assertRegex(fn, r"static bool built = false;")
-        self.assertIn("built = true;", fn)
+        self.assertIn("cache.built = true;", fn)
         # the same boss rule as the mob rank letter (RankKind): a plan boss / ai_dungeon_boss row, world-boss rank, instance bind
         self.assertIn("plans.IsBossEntry(", fn)
         self.assertIn("CREATURE_ELITE_WORLDBOSS", fn)
         self.assertIn("CREATURE_FLAG_EXTRA_INSTANCE_BIND", fn)
         # plan boss steps mark the run's bosses, and a boss step with no spawn row still gets a place
         self.assertIn("ai::PlanStepKind::Boss", fn)
+        # pre-merged by (map, entry) once, so a report never searches its output per spawn
+        self.assertIn("CommanderTelemetry::GroupBossSpawns(", fn)
+        # measured once, and every map whose roster the payload cap leaves out is named
+        self.assertIn("std::chrono::steady_clock::now()", fn)
+        self.assertIn('"TortoiseBots: boss spawn cache built in %u ms for %u maps"', fn)
+        self.assertIn("> CommanderTelemetry::kMaxBossesPerBinding", fn)
+        self.assertIn("sLog.outString(", fn)
+
+    def test_the_cache_is_built_at_startup_never_in_a_snapshot(self):
+        start = body(HOST, "void BotHostAdapter::OnStartup()")
+        self.assertIn("BotCommands::BuildBossSpawnCache();", start)
+        # after the plans are sealed (sPlayerbotAIConfig.Initialize loads and seals them)
+        self.assertLess(start.index("sPlayerbotAIConfig.Initialize();"), start.index("BotCommands::BuildBossSpawnCache();"))
+        self.assertIn("void BuildBossSpawnCache();", (ROOT / "commands/BotCommands.h").read_text())
+        # the snapshot path only reads the cache: no build, no scan
+        for name in ("static std::vector<CommanderTelemetry::BossEntrySpawns> const* DashBossSpawnsOn(",
+                     "static void FillCommanderBosses(", "static void FillCommanderMapData(", "void CollectCommanderTelemetry("):
+            fn = body(CMD, name)
+            self.assertNotIn("BuildBossSpawnCache", fn, name)
+            self.assertNotIn("DoCreatureData", fn, name)
+        self.assertEqual(CMD.count("BuildBossSpawnCache()"), 1, "only its definition: nothing in the commands layer calls it")
+        fn = body(CMD, "static std::vector<CommanderTelemetry::BossEntrySpawns> const* DashBossSpawnsOn(")
+        self.assertRegex(fn, r"if \(!cache\.built\)\s*return nullptr;")
 
     def test_the_emitter_copies_the_list(self):
         self.assertIn("info.bossesReported = ref.bossesReported;", EMIT)

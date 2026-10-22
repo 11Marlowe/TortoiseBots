@@ -212,8 +212,11 @@ lists, resolved on the lead's map, at most 16 per binding and 24 per datagram) a
 (the current section's steps, at most 20 per run and 32 per datagram, windowed around the current step). Since the owner's
 request of 2026-10-21 a binding whose lead stood on a dungeon or raid map also carried `bosses_map` and `bosses[]`: every known
 boss of that map at its spawn point with its state in the lead's instance (`a` alive, `d` killed, `u` not known) and `p` for the
-plan's bosses, at most 32 per binding and 48 per datagram (a longer list was left out whole, never cut short); the spawn points came from one pass over the core's creature spawn
-data made once, and each report then read one creature guid and one respawn time per boss. None of it runs per bot tick, scans
+plan's bosses, at most 32 per binding and 48 per datagram (a longer list was left out whole, never cut short; the list tried first moved on
+with each snapshot, so no binding was left out every time); the spawn points came from one pass over the core's creature spawn data made once at
+server start, right after the plans were sealed and never inside a commander snapshot (its duration logged), and each report then read one
+creature guid and one respawn time per spawn row; a boss once read killed in an instance stayed killed there until it was seen alive, the
+instance id changed or no binding had stood on that instance for 10 minutes. None of it runs per bot tick, scans
 the grid or touches the database; the datagram stays under 60 000 bytes in the worst case, the boss lists being left out of the
 bindings that would pass that budget (`tools/test_commander_telemetry.cpp`). An older module simply omits the fields.
 
