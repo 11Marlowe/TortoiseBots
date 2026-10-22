@@ -267,6 +267,17 @@ class DungeonPlanSql(unittest.TestCase):
                 values = [v.strip() for v in re.findall(r"\s*('(?:[^']|'')*'|[^,]+)", row)]
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
+    def test_zulfarrak_and_uldaman_final_counts(self):
+        # Each plan's newest INSERT follows the DELETE of its old steps and legs, so its rows are the plan after all migrations.
+        name, text = newest_plan_text("zulfarrak")
+        self.assertEqual(name, "20261022210000_world.sql")
+        self.assertEqual(len(leg_rows(text, "zulfarrak")), 17)
+        self.assertEqual(len([r for r in self.step_rows(text) if r["plan"] == "zulfarrak"]), 232)
+        name, text = newest_plan_text("uldaman")
+        self.assertEqual(name, "20261022170000_world.sql")
+        self.assertEqual(len(leg_rows(text, "uldaman")), 14)
+        self.assertEqual(len([r for r in self.step_rows(text) if r["plan"] == "uldaman"]), 139)
+
     def test_exact_flag_only_on_a_move_before_its_direct_step(self):
         # flags 64 (kPlanFlagExact, DungeonPlanPolicy.h): the loader refuses it on any kind but move, and it marks the launch
         # point of the move_direct right after it in the same leg (the run leader sends that hop only after the exact proof).
