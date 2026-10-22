@@ -222,6 +222,7 @@ namespace ai
                 creators["enemy too close for auto shot"] = [](PlayerbotAI* ai) { return new EnemyTooCloseForAutoShotTrigger(ai); };
                 creators["hunter enemy is close"] = [](PlayerbotAI* ai) { return new HunterEnemyIsCloseTrigger(ai); };
                 creators["hunter dead zone step out"] = [](PlayerbotAI* ai) { return new HunterDeadZoneStepOutTrigger(ai); };
+                creators["hunter swarmed"] = [](PlayerbotAI* ai) { return new HunterSwarmedTrigger(ai); };
                 creators["feign death"] = [](PlayerbotAI* ai) { return new FeignDeathTrigger(ai); };
                 creators["scatter shot on snare target"] = [](PlayerbotAI* ai) { return new ScatterShotSnareTrigger(ai); };
                 creators["multi-shot"] = [](PlayerbotAI* ai) { return new MultishotCanCastTrigger(ai); };

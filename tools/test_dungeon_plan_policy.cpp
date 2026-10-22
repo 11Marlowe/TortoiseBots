@@ -110,6 +110,27 @@ static void TestNormalize()
     exactPull.flags = kPlanFlagExact;
     CHECK(NormalizePlanStep(exactPull) == PlanStepRefusal::BadParam);
 
+    // The gone-is-done flag (256) belongs to a loot or an open row only: on any other kind it is a row the exporter got wrong.
+    PlanStep graveLoot = Step(0, 11, PlanStepKind::Loot, 1858.7f, 1053.8f, 8.9f);
+    graveLoot.entry = 128403;
+    graveLoot.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(graveLoot) == PlanStepRefusal::None && (graveLoot.flags & kPlanFlagGoneIsDone));
+    PlanStep graveOpen = Step(0, 12, PlanStepKind::Open, 1858.7f, 1053.8f, 8.9f);
+    graveOpen.entry = 128403;
+    graveOpen.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(graveOpen) == PlanStepRefusal::None);
+    PlanStep goneMove = Step(0, 14, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    goneMove.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(goneMove) == PlanStepRefusal::BadParam);
+    PlanStep gonePull = Step(0, 15, PlanStepKind::Pull);
+    gonePull.entries = {7286};
+    gonePull.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(gonePull) == PlanStepRefusal::BadParam);
+    PlanStep goneBoss = Step(0, 16, PlanStepKind::Boss);
+    goneBoss.entry = 7271;
+    goneBoss.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(goneBoss) == PlanStepRefusal::BadParam);
+
     // gossip: the NPC's entry and the option the way `.bot cmd gossip` counts it (1 at the top, at most 15). A set flag
     // is refused (team flags come later), not ignored; the exact flag is refused as on any step that is not a move.
     PlanStep talk = Step(0, 13, PlanStepKind::Gossip, 1877.5f, 1199.6f, 8.9f);
@@ -121,8 +142,39 @@ static void TestNormalize()
     talk.param = 1;
     talk.flags = kPlanFlagAlliance;
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    // The one flag a gossip reads is kPlanFlagDeadNpcIsDone (512): alone it loads, with another flag it is refused.
+    talk.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::None && (talk.flags & kPlanFlagDeadNpcIsDone));
+    talk.flags = kPlanFlagDeadNpcIsDone | kPlanFlagAlliance;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    talk.flags = kPlanFlagDeadNpcIsDone | kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    talk.flags = 128; // reserved
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
     talk.flags = 0;
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::None && talk.timeoutS == kPlanDefaultTimeoutS);
+    // The flag belongs to a gossip row only: on any other kind it is a row the exporter got wrong, refused, not ignored.
+    CHECK(kPlanFlagDeadNpcIsDone == 512);
+    PlanStep deadMove = Step(0, 20, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    deadMove.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(deadMove) == PlanStepRefusal::BadParam);
+    PlanStep deadPull = Step(0, 21, PlanStepKind::Pull);
+    deadPull.entries = {7286};
+    deadPull.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(deadPull) == PlanStepRefusal::BadParam);
+    PlanStep deadLoot = Step(0, 22, PlanStepKind::Loot);
+    deadLoot.entry = 128403;
+    deadLoot.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(deadLoot) == PlanStepRefusal::BadParam);
+    PlanStep deadHold = Step(0, 23, PlanStepKind::Hold);
+    deadHold.entries = {7604};
+    deadHold.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(deadHold) == PlanStepRefusal::BadParam);
+    PlanStep deadUse = Step(0, 24, PlanStepKind::UseOn, 1650.9f, 1171.9f, 10.9f);
+    deadUse.entry = 141832;
+    deadUse.item = 9240;
+    deadUse.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(deadUse) == PlanStepRefusal::BadParam);
     talk.param = 15;
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::None);
     talk.timeoutS = 601;
@@ -135,6 +187,37 @@ static void TestNormalize()
     row.param = 1;
     CHECK(talks.AddStep("zulfarrak", row) == PlanStepRefusal::None);
     CHECK(std::string(PlanStepRowKindName(row)) == "gossip");
+
+    // use_on: item `item` used ON game object `entry` at x,y,z (Zul'Farrak's gong 141832 with the Mallet 9240). The
+    // object, the item and the point are required; no flag or param is read, so a set one is refused, not ignored.
+    // Appended at the end of the enum: the ids of the older kinds do not move.
+    CHECK(static_cast<int>(PlanStepKind::UseOn) == static_cast<int>(PlanStepKind::Gossip) + 1);
+    CHECK(ParsePlanStepKind("use_on") == PlanStepKind::UseOn && std::string(PlanStepKindName(PlanStepKind::UseOn)) == "use_on");
+    PlanStep gong = Step(9, 10, PlanStepKind::UseOn, 1650.9f, 1171.9f, 10.9f);
+    gong.item = 9240;
+    CHECK(NormalizePlanStep(gong) == PlanStepRefusal::MissingEntry); // no object
+    gong.entry = 141832;
+    gong.item = 0;
+    CHECK(NormalizePlanStep(gong) == PlanStepRefusal::MissingEntry); // no item
+    gong.item = 9240;
+    PlanStep nowhere = gong;
+    nowhere.x = nowhere.y = nowhere.z = 0.0f;
+    CHECK(NormalizePlanStep(nowhere) == PlanStepRefusal::BadPoint);
+    PlanStep flagged = gong;
+    flagged.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(flagged) == PlanStepRefusal::BadParam);
+    flagged.flags = kPlanFlagAlliance;
+    CHECK(NormalizePlanStep(flagged) == PlanStepRefusal::BadParam);
+    PlanStep withParam = gong;
+    withParam.param = 1;
+    CHECK(NormalizePlanStep(withParam) == PlanStepRefusal::BadParam);
+    CHECK(NormalizePlanStep(gong) == PlanStepRefusal::None && gong.timeoutS == kPlanDefaultTimeoutS);
+    CHECK(talks.AddPlan("zf2", 209));
+    PlanStep gongRow = Step(9, 10, ParsePlanStepKind("use_on"), 1650.9f, 1171.9f, 10.9f);
+    gongRow.entry = 141832;
+    gongRow.item = 9240;
+    CHECK(talks.AddStep("zf2", gongRow) == PlanStepRefusal::None);
+    CHECK(std::string(PlanStepRowKindName(gongRow)) == "use_on");
 
     // move_hop_exact: a MoveDirect with exactLaunch, and back to its text.
     PlanStepKind kind = PlanStepKind::None;
@@ -277,6 +360,61 @@ static void TestPlanUnits()
     CHECK(bare.Find("u")->CcRank(5650) == -1 && bare.Find("u")->KillFirstRank(8179) == -1);
 }
 
+static void TestBossEntries()
+{
+    // The entries of the plans' boss steps, per map: the run's own boss list,
+    // which the telemetry ranks 'b' (five-man bosses carry creature rank 1).
+    DungeonPlanTable table;
+    CHECK(table.AddPlan("uldaman", 70));
+    CHECK(table.AddPlan("wailing_caverns", 43));
+    PlanStep baelog = Step(0, 12, PlanStepKind::Boss, -353.0f, 117.2f, -44.4f);
+    baelog.entry = 6906;
+    baelog.entries = {6907, 6908};  // killed first, but not the step's boss
+    CHECK(table.AddStep("uldaman", baelog) == PlanStepRefusal::None);
+    PlanStep pull = Step(0, 13, PlanStepKind::Pull, -281.8f, 163.8f, -47.3f);
+    pull.entries = {4851, 4852};
+    CHECK(table.AddStep("uldaman", pull) == PlanStepRefusal::None);
+    PlanStep open = Step(0, 14, PlanStepKind::Open, -230.0f, 160.0f, -45.0f);
+    open.entry = 124371;  // an object step's entry is no boss
+    CHECK(table.AddStep("uldaman", open) == PlanStepRefusal::None);
+    PlanStep cobrahn = Step(4, 8, PlanStepKind::Boss, -151.1f, 414.4f, -72.6f);
+    cobrahn.entry = 3669;
+    CHECK(table.AddStep("wailing_caverns", cobrahn) == PlanStepRefusal::None);
+
+    CHECK(!table.IsBossEntry(70, 6906));  // nothing before the seal
+    table.Seal();
+    CHECK(table.IsBossEntry(70, 6906));
+    CHECK(table.IsBossEntry(43, 3669));
+    CHECK(!table.IsBossEntry(43, 6906));  // another map's boss
+    CHECK(!table.IsBossEntry(70, 6907) && !table.IsBossEntry(70, 6908));  // a boss step's adds
+    CHECK(!table.IsBossEntry(70, 4851));  // a pull's member
+    CHECK(!table.IsBossEntry(70, 124371));  // another kind of step's entry
+    CHECK(!table.IsBossEntry(70, 0) && !table.IsBossEntry(0, 0));
+}
+
+static void TestBossRows()
+{
+    // ai_dungeon_boss rows: bosses no boss step names (Kresh 3653 is skipped, Mutanus 3654 is an event), in the
+    // same (map, entry) set as the boss steps' entries.
+    DungeonPlanTable table;
+    CHECK(table.AddPlan("wailing_caverns", 43));
+    PlanStep cobrahn = Step(4, 8, PlanStepKind::Boss, -151.1f, 414.4f, -72.6f);
+    cobrahn.entry = 3669;
+    CHECK(table.AddStep("wailing_caverns", cobrahn) == PlanStepRefusal::None);
+    CHECK(table.AddBoss(43, 3653));
+    CHECK(table.AddBoss(43, 3654));
+    CHECK(table.AddBoss(43, 3669));   // also a boss step: one key, no harm
+    CHECK(!table.AddBoss(43, 3653));  // the primary key: first row wins
+    CHECK(!table.AddBoss(0, 3653) && !table.AddBoss(43, 0));
+    CHECK(!table.IsBossEntry(43, 3653));  // nothing before the seal
+    table.Seal();
+    CHECK(!table.AddBoss(43, 3671));  // loading only
+    CHECK(table.IsBossEntry(43, 3653) && table.IsBossEntry(43, 3654) && table.IsBossEntry(43, 3669));
+    CHECK(!table.IsBossEntry(43, 3671));
+    CHECK(!table.IsBossEntry(70, 3653));  // another map
+    CHECK(table.BossCount() == 3);
+}
+
 int main()
 {
     TestPlanUnits();
@@ -284,6 +422,8 @@ int main()
     TestEntries();
     TestNormalize();
     TestTable();
+    TestBossEntries();
+    TestBossRows();
     TestLaterOwner();
     TestLongHops();
     std::cout << "test_dungeon_plan_policy: ok\n";

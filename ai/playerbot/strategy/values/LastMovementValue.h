@@ -5,6 +5,7 @@
 #include "playerbot/TravelNode.h"
 #include "playerbot/CombatSpreadPolicy.h"
 #include "playerbot/TravelRouteCachePolicy.h"
+#include "playerbot/MagmaHazardPolicy.h"
 
 namespace ai
 {
@@ -28,6 +29,7 @@ namespace ai
         MOVE_FAIL_HAZARD_SHORT = 10,  // DispatchMovement: hazard rewrite left nothing to walk
         MOVE_FAIL_BAD_UNIT_TARGET = 11, // MoveTo(Unit*): null target or not in world
         MOVE_FAIL_NO_FORMATION = 12,  // MoveTo(Unit*): hostile target with no formation slot
+        MOVE_FAIL_MAGMA = 13,         // MoveTo2: end point in magma, or magma right ahead (MagmaHazardPolicy.h)
     };
 
     inline const char* MoveFailReasonName(uint32 reason)
@@ -46,6 +48,7 @@ namespace ai
             case MOVE_FAIL_HAZARD_SHORT: return "hazard-short";
             case MOVE_FAIL_BAD_UNIT_TARGET: return "bad-unit-target";
             case MOVE_FAIL_NO_FORMATION: return "no-formation";
+            case MOVE_FAIL_MAGMA: return "magma";
             default: return "none";
         }
     }
@@ -76,6 +79,8 @@ namespace ai
             lastSpreadStepMs = other.lastSpreadStepMs;
             fleeNoSpotMs = other.fleeNoSpotMs;
             moveFailReason = other.moveFailReason;
+            magmaLogAt = other.magmaLogAt;
+            magmaRefusal = other.magmaRefusal;
             moveEvent = Event();
         }
 
@@ -142,6 +147,13 @@ namespace ai
         // `return false` so the TravelMoveFailed row can say more than the
         // navmesh probe bucket; cleared on success paths.
         uint32 moveFailReason;
+        // Wall-clock of the last "move refused: magma" log line (one per bot
+        // per 10 s, MovementActions.cpp); clear() leaves it alone.
+        time_t magmaLogAt = 0;
+        // The destination the magma guard refused last (MagmaHazardPolicy.h):
+        // MoveTo2 refuses it again from memory, without terrain queries, for
+        // kMagmaRefusalSeconds. clear() leaves it alone too.
+        MagmaRefusal magmaRefusal;
         Event moveEvent;
     };
 

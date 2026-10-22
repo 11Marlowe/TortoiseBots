@@ -22,6 +22,15 @@ using ai::HunterKitDwellElapsed;
 using ai::NoteHunterKitSwitch;
 using ai::BeginHunterStepOut;
 using ai::HunterMeleeRowIgnoresThreatBackoff;
+using ai::kHunterSwarmAttackers;
+using ai::HunterSwarmed;
+using ai::HunterSwarmClipWanted;
+using ai::kMultiShotMinTargets;
+using ai::MultiShotWorthIt;
+using ai::HuntersMarkHolder;
+using ai::HuntersMarkAllowed;
+using ai::HunterSwarmAttackers;
+using ai::ClassifyHuntersMarkHolder;
 using ai::HunterStepOutLength;
 using ai::HunterTrapTargetInReach;
 using ai::kHunterStepOutMaxAttempts;
@@ -208,6 +217,103 @@ int main()
         CHECK(HunterMeleeRowIgnoresThreatBackoff(true));
         CHECK(!HunterMeleeRowIgnoresThreatBackoff(false));
         std::cout << "  [PASS] melee row: exempt from the threat back-off only for a mob on the hunter\n";
+    }
+
+    // Audit F13 (r7 RFC, a hunter held three mobs for 27 s and Mongoose Bite
+    // until dead): with two or more mobs on the hunter the melee trade is not
+    // made and the ranged kit comes back, so Wing Clip and the step-out run
+    // instead of a raptor/mongoose chain on one of the mobs.
+    {
+        CHECK(kHunterSwarmAttackers == 2);
+        CHECK(!HunterSwarmed(0));
+        CHECK(!HunterSwarmed(1));
+        CHECK(HunterSwarmed(2));
+        CHECK(HunterSwarmed(3));
+
+        // One mob on the hunter: today's trade (attackers default 1, and 1).
+        CHECK(ShouldSwitchToMelee(true, true, false, false, 3.0f, true, false, true, 1));
+        // Two mobs: no melee trade, whatever the distance or dwell.
+        CHECK(!ShouldSwitchToMelee(true, true, false, false, 3.0f, true, false, true, 2));
+        CHECK(!ShouldSwitchToMelee(true, true, false, true, 8.0f, true, false, true, 3));
+        // Out of ammo there is nothing to shoot with: melee stays the answer.
+        CHECK(ShouldSwitchToMelee(true, true, false, false, 3.0f, false, false, true, 3));
+
+        // The close kit hands the ranged kit back when swarmed, even though
+        // the current target is on the hunter, after the dwell.
+        CHECK(!ShouldSwitchToRanged(true, false, false, false, 3.0f, true, false, true, 1));
+        CHECK(ShouldSwitchToRanged(true, false, false, false, 3.0f, true, false, true, 2));
+        CHECK(!ShouldSwitchToRanged(true, false, false, false, 3.0f, true, false, false, 2));
+        CHECK(!ShouldSwitchToRanged(false, false, false, false, 3.0f, true, false, true, 2));
+        CHECK(!ShouldSwitchToRanged(true, false, false, false, 3.0f, false, false, true, 2));
+
+        // Wing Clip first, only on a mob that is on the hunter and in reach.
+        CHECK(HunterSwarmClipWanted(2, true, true));
+        CHECK(HunterSwarmClipWanted(4, true, true));
+        CHECK(!HunterSwarmClipWanted(1, true, true));
+        CHECK(!HunterSwarmClipWanted(2, false, true)); // the mob is on the tank
+        CHECK(!HunterSwarmClipWanted(2, true, false)); // out of reach
+        std::cout << "  [PASS] swarmed hunter: no melee trade, ranged kit back, wing clip first\n";
+    }
+
+    // Audit F6: Multi-Shot's share was the same on one mob (7.0 %) as on
+    // three or more (7.7 %). It is an area shot: only on two or more usable
+    // (alive, not breakable-CC'd) targets within its radius, the target
+    // itself counting.
+    {
+        CHECK(kMultiShotMinTargets == 2);
+        CHECK(!MultiShotWorthIt(0));
+        CHECK(!MultiShotWorthIt(1));
+        CHECK(MultiShotWorthIt(2));
+        CHECK(MultiShotWorthIt(3));
+        std::cout << "  [PASS] multi-shot: only on two or more usable targets\n";
+    }
+
+    // Audit F13: Hunter's Mark was re-cast on each new target while the hunter
+    // tanked three mobs. With a living tank in the fight it goes only on a
+    // mob the tank holds (or that nobody holds yet: the opening mark).
+    {
+        // No tank in the fight (solo, or tankless party): unchanged.
+        CHECK(HuntersMarkAllowed(false, HuntersMarkHolder::Hunter));
+        CHECK(HuntersMarkAllowed(false, HuntersMarkHolder::Other));
+        CHECK(HuntersMarkAllowed(false, HuntersMarkHolder::Tank));
+        // A tank in the fight: the tank's mob and the opening mark only.
+        CHECK(HuntersMarkAllowed(true, HuntersMarkHolder::Tank));
+        CHECK(HuntersMarkAllowed(true, HuntersMarkHolder::Nobody));
+        CHECK(!HuntersMarkAllowed(true, HuntersMarkHolder::Hunter));
+        CHECK(!HuntersMarkAllowed(true, HuntersMarkHolder::Other));
+        std::cout << "  [PASS] hunter's mark: with a tank only on the tank's mob\n";
+    }
+
+    // The swarm rules apply only to a hunter grouped with a living tank
+    // (review 2026-10-21): a solo or tankless hunter has no pet-less answer
+    // other than melee in a dead-zone swarm, so it keeps the old rules.
+    {
+        CHECK(HunterSwarmAttackers(3, true) == 3);
+        CHECK(HunterSwarmAttackers(2, true) == 2);
+        CHECK(HunterSwarmAttackers(3, false) == 0);
+        CHECK(HunterSwarmAttackers(0, true) == 0);
+        // Fed through the switch rules: solo with 3 mobs still trades to melee
+        // and the close kit does not bounce back to ranged.
+        CHECK(ShouldSwitchToMelee(true, true, false, false, 3.0f, true, false, true, HunterSwarmAttackers(3, false)));
+        CHECK(!ShouldSwitchToMelee(true, true, false, false, 3.0f, true, false, true, HunterSwarmAttackers(3, true)));
+        CHECK(!ShouldSwitchToRanged(true, false, false, false, 3.0f, true, false, true, HunterSwarmAttackers(3, false)));
+        CHECK(ShouldSwitchToRanged(true, false, false, false, 3.0f, true, false, true, HunterSwarmAttackers(3, true)));
+        CHECK(!HunterSwarmClipWanted(HunterSwarmAttackers(3, false), true, true));
+        CHECK(HunterSwarmClipWanted(HunterSwarmAttackers(3, true), true, true));
+        std::cout << "  [PASS] swarm rules only for a hunter grouped with a living tank\n";
+    }
+
+    // Who holds the mob, for Hunter's Mark: the bot, any living tank of the
+    // group (an off-tank counts), nobody, or someone else (healer, pet).
+    {
+        CHECK(ClassifyHuntersMarkHolder(false, false, false) == HuntersMarkHolder::Nobody);
+        CHECK(ClassifyHuntersMarkHolder(true, true, false) == HuntersMarkHolder::Hunter);
+        CHECK(ClassifyHuntersMarkHolder(true, false, true) == HuntersMarkHolder::Tank);
+        CHECK(ClassifyHuntersMarkHolder(true, false, false) == HuntersMarkHolder::Other);
+        // The off-tank holds the mob: the mark is allowed.
+        CHECK(HuntersMarkAllowed(true, ClassifyHuntersMarkHolder(true, false, true)));
+        CHECK(!HuntersMarkAllowed(true, ClassifyHuntersMarkHolder(true, false, false)));
+        std::cout << "  [PASS] hunter's mark: any living tank's mob counts\n";
     }
 
     std::cout << "All hunter-switch checks PASSED!\n";

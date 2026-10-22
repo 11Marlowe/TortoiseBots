@@ -122,9 +122,16 @@ static void TestDirectSummon()
     // She stands at the lead bot: the step goes out again.
     f.members[0].yd = 1.5f;
     CHECK(Tick(r, f) == "move 20.0 0.0 0.0 direct");
-    // Refused for the same bot again: once per bot and step, so it pauses.
+    // Refused for the same bot again at once: no second summon before kDirectResummonMs and no pause before two
+    // summons and kDirectPauseMs (r12-19z29, the summon-once rule paused here): the run waits for her.
     OrderRefused(r, "move 20.0 0.0 0.0 direct", answer);
-    CHECK(r.state == State::Paused);
+    CHECK(r.state == State::Running && r.directWaitFor == "Elia");
+    CHECK(Tick(r, f).empty());
+    // More than kDirectResummonMs later: summoned again.
+    r.runMs += kDirectResummonMs;
+    r.directWaitFor.clear();
+    OrderRefused(r, "move 20.0 0.0 0.0 direct", answer);
+    CHECK(r.state == State::Running && r.summonDue == "Elia");
     // The wait is capped: a summoned bot that never arrives lets the step go out after kSummonWaitMs.
     Run c = Start(&plan, 1);
     Facts far = Party(10);

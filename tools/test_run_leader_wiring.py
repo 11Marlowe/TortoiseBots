@@ -220,6 +220,41 @@ class RunLeaderWiringTest(unittest.TestCase):
         # A new order picks afresh: the previous order's bot is cleared before the pick.
         self.assertIn("slot.carrierRaw = 0;\n            slot.carrierRaw = RunTaskBot(slot, lead, bots,", COMMANDS)
 
+    def test_use_on_is_wired_like_an_open(self):
+        # use_on (Zul'Farrak's gong with the Mallet): its carrier is the bot that carries the step's `item`, picked, pinned and
+        # retired as for an open, and its facts (carrier, item, busy, answer) are read in the open / use_item case. The order
+        # it sends starts with "use ", so the dispatch picks the carrier afresh for it. The policy dispatches the kind.
+        bags = body(COMMANDS, "std::vector<TortoiseBots::DungeonRun::BagFact> RunTaskBags(", "\n}\n")
+        self.assertIn("step.kind == ai::PlanStepKind::Open || step.kind == ai::PlanStepKind::UseOn ? step.item : step.entry", bags)
+        task = body(COMMANDS, "Player* RunTaskBot(", "\n}\n")
+        self.assertIn("step->kind != ai::PlanStepKind::UseOn)\n        return lead;", task)
+        retire = body(COMMANDS, "void RetireLostCarrier(", "\n}\n")
+        self.assertIn("step->kind != ai::PlanStepKind::UseOn))\n        return;", retire)
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("case ai::PlanStepKind::UseItem:\n        case ai::PlanStepKind::UseOn:", facts)
+        self.assertIn("f.carrierHasItem = step->item && carrier->HasItemCount(step->item);", facts)
+        self.assertIn('order.compare(0, 4, "use ") == 0', COMMANDS)
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        self.assertIn("case PlanStepKind::UseOn:\n            UseOnStep(r, f, *s, order);", policy)
+        # The review of 2026-10-21: the answer carries whether the act had started and whether the object reacted (its state
+        # before the cast is kept for a use on a game object), the slot clears both with each new order, and the facts read the
+        # summoned boss (the boss row after the use_on) alive or dead around the lead bot.
+        note = body(COMMANDS, "void NoteRunTaskReply(CommanderTask const& task, bool ok, std::string const& text)", "\n}\n")
+        self.assertIn("it->second.taskActStarted = task.actStarted;", note)
+        self.assertIn("ObjectEffectOf(task, ai) == RemoteCommander::ObjectEffect::Reacted", note)
+        begin = body(COMMANDS, "ActStart BeginUseAct(", "\n}\n")
+        self.assertLess(begin.index("task.baseline = PackGoState(go);"), begin.index('ExecuteQuietAction(ai, "commander use"'))
+        self.assertIn("slot.taskActStarted = false;\n            slot.taskObjectReacted = false;", COMMANDS)
+        self.assertIn("slot.taskActStarted = false;\n    slot.taskObjectReacted = false;", retire)
+        self.assertIn("f.taskActStarted = slot.taskActStarted;", facts)
+        self.assertIn("f.objectReacted = slot.taskObjectReacted;", facts)
+        self.assertIn("f.summonSeen = !found.empty();", facts)
+        use_on = body(policy, "inline void UseOnStep(", "\n}\n")
+        self.assertIn("TaskResendable(f.taskText) && !f.taskActStarted && r.taskResends < kUseOnResends", use_on)
+        reset = body(policy, "inline void ResetStep(Run& r)", "\n}\n")
+        self.assertNotIn("useOnRang", reset)
+        self.assertIn('order = "use " + std::to_string(s.item) + " " + f.carrier + " " + EntryArg(s.entry, s.x, s.y, s.z);', use_on)
+
     def test_live_fixes_2026_10_16_are_wired(self):
         # 1. `cmd move` takes the floor at or below the point before a surface above it (a low ceiling).
         move = body(COMMANDS, "static bool CommanderMove(", "\n}\n")
@@ -227,9 +262,36 @@ class RunLeaderWiringTest(unittest.TestCase):
         # 2. A follower off the lead bot's line walks its own; the refusal still names the bot for the summon.
         direct = body(COMMANDS, "static bool CommanderMoveDirect(ChatHandler* handler, CommanderOrder const& order,\n"
                       "    RemoteCommander::MovePoint const& point, std::string const& intent)\n{", "\n}\n")
-        self.assertIn("pathComplete, pathLength, ownLine);", direct)
+        join = body(COMMANDS, "static RemoteCommander::DirectJoin DirectFollowerJoin(", "\n}\n")
+        self.assertIn("pathComplete, pathLength, ownLine);", join)
+        self.assertIn("DirectFollowerJoin(bot, map, leadX, leadY, leadZ, point.x, point.y, ground, horizontal, route);",
+                      direct)
         self.assertIn("join == RemoteCommander::DirectJoin::Own", direct)
         self.assertIn('" is not with " + lead->GetName()', direct)
+
+    def test_direct_gate_asks_the_steps_own_test(self):
+        # r12-19z29 Uldaman leg 5: the gate before a direct step passed on the 20 yd ground distance while the step
+        # refused the bot too-far. The facts read the step's own test (DirectFollowerJoin) per follower while a
+        # direct step is under the gate, and the policy's gate asks it.
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("DirectJoinWanted(slot.run, joinX, joinY, joinZ);", facts)
+        self.assertIn("f.directJoinRead = joinWanted;", facts)
+        self.assertIn("f.directJoinSupported = true;", facts)
+        # Cost: no path for a follower past kGatherYd (its distance fails the gate already); none during a walk
+        # (DirectJoinWanted is false in Phase::Walk: test_dungeon_run_policy TestDirectOrderWaitsForTheRead).
+        self.assertIn("if (joinWanted && bot != lead && yd <= kGatherYd && bot->IsInWorld()", facts)
+        self.assertIn("member.withLead = DirectFollowerJoin(bot, joinMap, f.leadX, f.leadY, f.leadZ, joinX, joinY, "
+                      "joinGround,", facts)
+        self.assertLess(facts.index("member.withLead = DirectFollowerJoin("), facts.index("f.members.push_back(member);"))
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        move = body(policy, "inline void MoveStep(", "\n}\n")
+        self.assertIn("s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && !DirectGathered(f)", move)
+        self.assertIn('yd from the lead bot)", true);', move)
+        walk_back = body(policy, "inline bool WalkBack(", "\n}\n")
+        self.assertIn("if (direct && r.phase != Phase::Walk && HoldForDirectJoin(r, f))", walk_back)
+        self.assertIn("if (s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && HoldForDirectJoin(r, f))", move)
+        self.assertIn("direct && r.phase != Phase::Walk && !DirectGathered(f)", walk_back)
+        self.assertIn('yd from the lead bot)", true);', walk_back)
         # 4. A door whose lock needs no key and no skill opens on a plain use.
         use = (ROOT / "ai/playerbot/strategy/actions/UseItemAction.cpp").read_text()
         self.assertIn("TortoiseBots::DoorLock::OpensOnPlainUse(lockTypes, lockIndex)", use)
@@ -296,8 +358,8 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("bot->IsRessurectRequested()", roster)
         self.assertIn("m.blocksDruid =", roster)
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
-        self.assertIn("if (f.rezHold)", policy)
-        self.assertIn("else if (f.rezzer && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)", policy)
+        self.assertIn("if (f.rezHold && !r.rezBodyUnreachable)", policy)
+        self.assertIn("else if (f.rezzer && !r.reviveSent && !r.rezBodyUnreachable && r.regroupMs < kPartyRezWaitMs)", policy)
         self.assertIn("TortoiseBots::RezHold::Decide(hold, f.rezMembers)", policy)
         for doc in ("docs/server/settings/dungeons-raids.md",):
             self.assertIn("AiPlayerbot.DungeonRunRezHold", (ROOT / doc).read_text())
@@ -374,6 +436,26 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("horizontal > refusedYd", direct)
 
 
+    def test_pull_step_patrollers_reach_the_policy(self):
+        # DungeonRun::WaitForPatroller (Uldaman r10 step 66): a pull step's living entries on a waypoint patrol outside
+        # the radius, within kPatrolSeeYd beyond it, none a later step owns; the grid search of a pull step reaches that far.
+        read = body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot,", "\n}\n")
+        add = read[read.index("auto addPatroller"):read.index("f.patrollers.push_back(unit);")]
+        self.assertIn("bool const pullStep = step->kind == ai::PlanStepKind::Pull;", read)
+        self.assertIn("creature->GetDefaultMovementType() != WAYPOINT_MOTION_TYPE", add)
+        self.assertIn("fromPoint <= step->radius || fromPoint > step->radius + kPatrolSeeYd", add)
+        self.assertIn("ai::OwnedByLaterStep(*slot.run.plan, slot.run.step, creature->GetEntry(),", add)
+        self.assertIn("pullStep ? std::min(toPoint + step->radius + kPatrolSeeYd, 2.0f * kSeeYd) : range", read)
+        self.assertIn("unit.z = creature->GetPositionZ();", add)
+        self.assertIn("unit.distSpot = fromPoint;", add)
+        # Only living ones: the corpse branch lists none (the policy never sees a dead patroller).
+        self.assertEqual(read.count("addPatroller(creature, fromPoint)"), 1)
+        alive = read.index("if (!creature->IsAlive())")
+        self.assertLess(alive, read.index("addPatroller(creature, fromPoint)"))
+        self.assertNotIn("addPatroller", read[alive:read.index("if (fromPoint > step->radius)", alive)])
+        # The wait and the pull are the policy's: the glue never orders a patroller.
+        self.assertNotIn("pullback", add)
+
     def test_aggro_estimate_is_a_read_side_fact_behind_its_key(self):
         # AiPlayerbot.DungeonRunAggroEstimate (default 0): the glue reads the estimate, the policy decides.
         read = body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot,", "\n}\n")
@@ -445,8 +527,28 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("r.shotStandFor = u.guid;", hold)
         # Every pull caller hands its tick length to the stand walk.
         self.assertIn("PullUnit(r, f, *pick, order, PickCc(r, f, pick->guid), false, dt);", policy)
-        self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, false, dt);", policy)
+        self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, false, dt, true);", policy)
         self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, true, dt);", policy)
+        # PLAN-ZF-NOFIGHT: a move's and the walk back's pulls are hop pulls; a hop unit the tank cannot shoot is
+        # left out with no order (after the stand gate, before any pullback). The run-wide set holds hop units
+        # only, is read only by the two hop picks, is cleared by every regroup, and loses a unit that attacks.
+        self.assertIn("hop = hop || walkBack;", pull)
+        nohop = pull.index("if (hop && PullStandOn(r, f) && !ShootableFromLead(f, u))")
+        self.assertLess(gate, nohop)
+        self.assertLess(nohop, pull.index('order = "pullback " + std::to_string(u.guid);'))
+        self.assertIn("r.pullHop = hop;", pull)
+        reset = body(policy, "inline void ResetStep(", "\n}\n")
+        self.assertIn("r.passed.clear();", reset)
+        self.assertNotIn("neverCame", reset)
+        await_pull = body(policy, "inline void AwaitPull(", "\n}\n")
+        self.assertIn("if (r.pullHop)\n        r.neverCame.insert(r.pullGuid);", await_pull)
+        self.assertEqual(policy.count("PickPull(r, f.hopUnits, 0, true)"), 2)
+        self.assertEqual(policy.count("r.neverCame.count("), 1)
+        regroup = body(policy, "inline void BeginRegroup(", "\n}\n")
+        self.assertIn("r.neverCame.clear();", regroup)
+        tick_body = body(policy, "inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines)\n{",
+                         "\n}\n")
+        self.assertIn("ForgetUnitsThatCame(r, f);", tick_body)
         config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
         header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
         template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
@@ -455,6 +557,39 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("AiPlayerbot.DungeonRunPullStand = 0", template)
         for doc in ("docs/server/settings/dungeons-raids.md", "docs/play/dungeon-run-leader.md"):
             self.assertIn("AiPlayerbot.DungeonRunPullStand", (ROOT / doc).read_text())
+
+
+    def test_hold_follows_the_tank_and_dead_gossip_npc_is_named(self):
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        # 1. A hold's fight lets the places go when the tank is off the spot; the glue's existing release
+        #    (SyncHoldStands -> FormUpOnLead) is what makes the placed bots follow it.
+        fight = body(policy, "        ReleaseHoldStands(r, f);\n", "        if (CheckGuard(r, f, dt, order))")
+        self.assertIn("CheckReach(r, f);", fight)
+        release = body(policy, "inline bool ReleaseHoldStands(", "\n}\n")
+        self.assertIn("++r.holdStandsGen;", release)
+        self.assertIn("r.holdPlaced = false;", release)
+        self.assertIn("farthest > kHoldFollowRangedYd", release)
+        self.assertIn("fromSpot > kHoldReturnYd", release)
+        self.assertIn("++r.holdFarTicks < kHoldFollowTicks", release)
+        self.assertIn("constexpr float kHoldFollowRangedYd = 30.0f;", policy)
+        stands = body(COMMANDS, "void SyncHoldStands(", "\n}\n")
+        self.assertIn("else if (!stand && placed)", stands)
+        self.assertIn("FormUpOnLead(commander, lead, released, false);", stands)
+        self.assertIn("if (bot->IsAlive() && run.state == TortoiseBots::DungeonRun::State::Running)", stands)
+        # 2. The module names a dead gossip NPC in the no-npc text, and the policy reads that wording.
+        gossip = body(COMMANDS, "static bool CommanderGossip(", "\n}\n")
+        no_npc = body(gossip, "if (!target.creature)", "return true;")
+        self.assertIn("DeadGossipNpcText(bot, request.entry)", no_npc)
+        self.assertIn("DeadGossipNpcText(bot, task.gossip.entry)", COMMANDS)
+        text = body(COMMANDS, "std::string DeadGossipNpcText(", "\n}\n")
+        self.assertIn("!creature->IsAlive()", body(COMMANDS, "class EntryDeadCreatureCheck", "};"))
+        self.assertIn(") lies dead ", text)
+        self.assertIn("GetRespawnDelay() == 0", text)
+        self.assertIn('constexpr const char* kGossipNpcDeadMark = "lies dead";', policy)
+        refused = body(policy, "inline void OrderRefused(", "\n}\n")
+        self.assertIn("GossipNpcDeadNote(", refused)
+        gossip_step = body(policy, "inline void GossipStep(", "\n}\n")
+        self.assertIn("GossipNpcDeadNote(what, f.taskText)", gossip_step)
 
 
 if __name__ == "__main__":

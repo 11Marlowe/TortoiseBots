@@ -1,6 +1,7 @@
 #pragma once
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "playerbot/BattleShoutPolicy.h"
+#include "playerbot/WarriorRagePolicy.h"
 
 namespace ai
 {
@@ -9,7 +10,7 @@ namespace ai
     BUFF_TRIGGER_A(BerserkerStanceTrigger, "berserker stance");
     BUFF_TRIGGER_A(ShieldBlockTrigger, "shield block");
     DEBUFF_TRIGGER(RendDebuffTrigger, "rend");
-    DEBUFF_TRIGGER(DisarmDebuffTrigger, "disarm");
+    DEBUFF_TRIGGER_A(DisarmDebuffTrigger, "disarm");
     DEBUFF_TRIGGER_A(SunderArmorDebuffTrigger, "sunder armor");
     DEBUFF_TRIGGER(DemoralizingShoutDebuffTrigger, "demoralizing shout");
     DEBUFF_TRIGGER(MortalStrikeDebuffTrigger, "mortal strike");
@@ -39,6 +40,28 @@ namespace ai
     SNARE_TRIGGER(ThunderClapSnareTrigger, "thunder clap");
     DEBUFF_TRIGGER(ThunderClapTrigger, "thunder clap");
     SNARE_TRIGGER(TauntSnareTrigger, "taunt");
+
+    // A mob standing on a non-tank party member (the healer first) that the
+    // tank can Taunt from where it stands ("attacker of non-tank"); "taunt
+    // on snare target" keeps the mobs still running at someone.
+    class TauntAttackerOfNonTankTrigger : public SpellTrigger
+    {
+    public:
+        TauntAttackerOfNonTankTrigger(PlayerbotAI* ai) : SpellTrigger(ai, "taunt") {}
+        virtual std::string getName() override { return "party member attacked"; }
+        virtual Value<Unit*>* GetTargetValue() override;
+        virtual bool IsActive() override;
+    };
+
+    // Three or more mobs on non-tank party members within Challenging
+    // Shout's radius, and the shout needs no step (the current target is in
+    // melee reach: the "challenging shout" action is a melee action on it).
+    class ChallengingShoutOnAttackersTrigger : public Trigger
+    {
+    public:
+        ChallengingShoutOnAttackersTrigger(PlayerbotAI* ai) : Trigger(ai, "party member attacked aoe") {}
+        virtual bool IsActive() override;
+    };
     SNARE_TRIGGER(InterceptSnareTrigger, "intercept");
     CD_TRIGGER(InterceptCanCastTrigger, "intercept");
     BOOST_TRIGGER(DeathWishTrigger, "death wish");
@@ -60,6 +83,10 @@ namespace ai
 
         bool IsActive() override
         {
+            // Audit F2: impossible below its cost (79 % of tried ticks).
+            if (!ShouldBattleShoutForRage(AI_VALUE2(uint8, "rage", "self target")))
+                return false;
+
             static const std::vector<uint32> battleShoutIds = {6673, 5242, 6192, 11549, 11550, 11551, 25289};
 
             for (uint32 id : battleShoutIds)

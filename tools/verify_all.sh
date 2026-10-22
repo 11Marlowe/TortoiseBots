@@ -46,6 +46,7 @@ python3 -m unittest tools/test_outfit_item_parser.py
 python3 -m unittest tools/test_queue_prerequisite_merge.py
 python3 -m unittest tools/test_tactical_stay_release.py
 python3 -m unittest tools/test_stay_anchor_wiring.py
+python3 -m unittest tools/test_magma_guard_wiring.py
 python3 -m unittest tools/test_attack_order_wiring.py
 python3 -m unittest tools/test_bot_area_trigger_wiring.py
 python3 -m unittest tools/test_gossip_order_wiring.py
@@ -60,6 +61,12 @@ python3 -m unittest tools/test_wand_fallback_wiring.py
 python3 -m unittest tools/test_boss_tactics_sql.py
 python3 -m unittest tools/test_dungeon_plan_sql.py
 python3 -m unittest tools/test_run_leader_wiring.py
+python3 -m unittest tools/test_bot_guid_key_wiring.py
+python3 -m unittest tools/test_island_escape_wiring.py
+python3 -m unittest tools/test_taunt_attacker_wiring.py
+python3 -m unittest tools/test_warrior_rage_wiring.py
+python3 -m unittest tools/test_hunter_manners_wiring.py
+python3 -m unittest tools/test_dash_bosses_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -92,6 +99,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_boss_tactics_policy
         test_bot_area_trigger_policy
         test_bot_chat_gate
+        test_bot_guid_key_policy
         test_bot_appearance_policy
         test_bot_kind_policy
         test_bot_command_queue
@@ -180,6 +188,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_loot_roll_policy
         test_loot_window_policy
         test_lowbie_graveyard_policy
+        test_magma_hazard_policy
         test_main_tank_policy
         test_mc_garr_shazzrah_policy
         test_mimic_consumable_policy
@@ -194,6 +203,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_open_follow_step_policy
         test_owned_bot_qol_policy
         test_party_help_policy
+        test_pet_attack_gate_policy
         test_pet_revive_policy
         test_pet_spawn_policy
         test_pet_spell_rank_policy
@@ -270,6 +280,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_summon_restore_policy
         test_survive_policy
         test_taker_reachability_cache
+        test_taunt_attacker_policy
         test_tank_add_pickup_policy
         test_taxi_path_policy
         test_thaddius_polarity_policy
@@ -295,6 +306,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_warlock_pet_policy
         test_warlock_stone_policy test_warlock_soulstone_policy
         test_warlock_tap_policy
+        test_warrior_rage_policy
         test_weighted_shuffle_policy
         test_work_idle_policy
         test_world_buff_policy

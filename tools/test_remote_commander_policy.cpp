@@ -618,6 +618,18 @@ static void TestMoveVerdict()
     CHECK(CheckMove(facts) == MoveVerdict::Ok);     // the run leader's hop
     facts.endFromLead = 0.5f;
     CHECK(CheckMove(facts) == MoveVerdict::NoPath); // no progress at all
+    // Only that no-progress refusal is the lead bot's own spot's (the run leader's island sign, Uldaman r16-19z34);
+    // a NOPATH or a path that made progress says the point is the trouble.
+    CHECK(NoProgressFromLead(facts));
+    facts.endFromLead = kNoProgressYd + 0.1f;
+    CHECK(!NoProgressFromLead(facts));
+    facts.endFromLead = -1.0f;
+    CHECK(!NoProgressFromLead(facts));
+    facts.endFromLead = 0.5f;
+    facts.pathType = kPathNoPath;
+    CHECK(CheckMove(facts) == MoveVerdict::NoPath && !NoProgressFromLead(facts));
+    facts.pathType = kPathNoPath | kPathIncomplete;
+    CHECK(!NoProgressFromLead(facts));
     // A short incomplete path that ends near the point is walkable.
     facts = Walkable();
     facts.distanceFromLead = 20.0f;

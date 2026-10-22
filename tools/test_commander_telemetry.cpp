@@ -291,9 +291,13 @@ void TestUnitInfo()
     Check(CcKind(true, true, true, true) == 's' && CcKind(false, true, true, true) == 'c' && CcKind(false, false, true, true) == 'f' &&
               CcKind(false, false, false, true) == 'r' && CcKind(false, false, false, false) == 0,
         "crowd control is the first kind that holds");
-    Check(RankKind(3, false) == 'b' && RankKind(1, true) == 'b' && RankKind(1, false) == 'e' && RankKind(2, false) == 'r' &&
-              RankKind(4, false) == 'r' && RankKind(0, false) == 0,
+    Check(RankKind(3, false, false) == 'b' && RankKind(1, true, false) == 'b' && RankKind(1, false, false) == 'e' &&
+              RankKind(2, false, false) == 'r' && RankKind(4, false, false) == 'r' && RankKind(0, false, false) == 0,
         "a rank letter: boss, elite, rare, ordinary");
+    // A five-man boss is an elite by rank (Lord Cobrahn 3669, Kresh 3653: rank 1, no instance bind); a dungeon plan's
+    // boss step names it, and that makes it a boss.
+    Check(RankKind(1, false, true) == 'b' && RankKind(0, false, true) == 'b' && RankKind(2, false, true) == 'b',
+        "a dungeon plan's boss is a boss whatever its rank");
 
     BindingInfo b;
     b.commander = "Zfmagea";
@@ -545,6 +549,267 @@ void TestPathData()
     std::printf("worst case with paths (%zu bindings): %zu bytes\n", kMaxBindings, json2.size());
 }
 
+// Every known boss of the lead's dungeon map with its state in the lead's instance (owner 2026-10-21: all bosses on the dashboard map,
+// alive or dead): the state rule, the merge of several spawns of one entry, and the payload fields, caps and byte budget.
+void TestBosses()
+{
+    // the state of one spawn: on the map -> alive or a corpse; not on the map -> killed while its respawn time runs, else not known
+    Check(BossState(true, true, false) == 'a', "a living creature is alive");
+    Check(BossState(true, true, true) == 'a', "found alive beats an old respawn time");
+    Check(BossState(true, false, false) == 'd', "a corpse on the map is dead");
+    Check(BossState(true, false, true) == 'd', "a corpse with its respawn time running is dead");
+    Check(BossState(false, false, true) == 'd', "gone with its respawn time running: killed, corpse despawned");
+    Check(BossState(false, false, false) == 'u', "not on the map, no respawn time: not loaded or not spawned, unknown");
+    Check(BossState(false, true, false) == 'u', "not found never says alive");
+
+    auto boss = [](uint32_t e, char st, bool plan = false, std::string n = "B") {
+        BossInfo b; b.entry = e; b.name = n; b.x = static_cast<float>(e); b.y = -1.0f; b.state = st; b.inPlan = plan; return b; };
+    // the cache groups the spawns of a map by entry once (no search of the output per spawn): one row per entry in first-seen order,
+    // the first spawn's place and name, in the plan when any spawn is, every spawn row's guid kept, a zero entry and a zero guid dropped
+    auto row = [&](uint32_t g, uint32_t e, bool plan = false, std::string n = "B") { BossSpawnRow r; r.dbGuid = g; r.info = boss(e, 'u', plan, n); return r; };
+    std::vector<BossEntrySpawns> g = GroupBossSpawns({row(11, 5, false, "first"), row(12, 7), row(13, 5, true, "second"), row(0, 9), row(14, 7), row(15, 0)});
+    Check(g.size() == 3, "one row per entry, a zero entry dropped");
+    Check(g[0].info.entry == 5 && g[0].info.name == "first" && g[0].info.x == 5.0f, "the first spawn's name and place");
+    Check(g[0].info.inPlan, "in the plan when any spawn of the entry is");
+    Check(g[0].dbGuids == std::vector<uint32_t>({11, 13}) && g[1].dbGuids == std::vector<uint32_t>({12, 14}), "every spawn row of the entry kept");
+    Check(g[2].info.entry == 9 && g[2].dbGuids.empty(), "a plan boss with no spawn row: a row, no guid");
+    std::vector<BossSpawnRow> many;
+    for (uint32_t i = 1; i <= 40; ++i)
+        many.push_back(row(i, i));
+    Check(GroupBossSpawns(many).size() == 40, "the grouping never cuts a roster short (the payload leaves a long one out whole)");
+    // several spawns of one entry make one state: alive beats dead beats unknown, a stray letter is unknown
+    Check(StrongerBossState('u', 'd') == 'd' && StrongerBossState('d', 'u') == 'd', "dead beats unknown");
+    Check(StrongerBossState('d', 'a') == 'a' && StrongerBossState('a', 'd') == 'a', "alive beats dead");
+    Check(StrongerBossState('u', 'a') == 'a' && StrongerBossState('u', 'u') == 'u', "alive beats unknown; unknown stays unknown");
+    Check(StrongerBossState('u', 'z') == 'u' && StrongerBossState('z', 'u') == 'u', "an unknown letter becomes unknown");
+
+    // the state from what the game hands over: on the map (alive or a corpse), else the instance's respawn time against now
+    Check(BossSpawnState(true, true, 0, 100) == 'a' && BossSpawnState(true, false, 0, 100) == 'd', "found: alive or a corpse");
+    Check(BossSpawnState(false, false, 101, 100) == 'd', "gone, respawn time still ahead: killed");
+    Check(BossSpawnState(false, false, 100, 100) == 'u' && BossSpawnState(false, false, 50, 100) == 'u', "a respawn time that has passed: not killed");
+    Check(BossSpawnState(false, false, 0, 100) == 'u', "no respawn time: not known");
+    Check(BossSpawnState(false, true, 500, 100) == 'd', "the respawn time decides for a creature not found");
+
+    // the payload: absent when not reported, [] when reported with none, the fields, the letters sanitized, the name clipped
+    BindingInfo b;
+    b.commander = "Gb";
+    std::string json = BuildPayload(9, 1, 1, 1, {b});
+    Check(!Has(json, "\"bosses\"") && !Has(json, "\"bosses_map\""), "not reported: no bosses fields");
+    b.bossesReported = true;
+    b.bossesMap = 70;
+    json = BuildPayload(9, 1, 1, 1, {b});
+    Check(Has(json, ",\"bosses_map\":70,\"bosses\":[]"), "reported, no boss known: []");
+    BossInfo rev = boss(6910, 'a', true, "Revelosh");
+    rev.x = -123.42f; rev.y = 56.78f;
+    BossInfo arch = boss(2748, 'd', false, std::string(60, 'A'));
+    BossInfo odd = boss(1, 'q', false, "Q\"x");
+    b.bosses = {rev, arch, odd};
+    json = BuildPayload(9, 1, 1, 1, {b});
+    Check(Has(json, "{\"e\":6910,\"n\":\"Revelosh\",\"x\":-123.4,\"y\":56.8,\"s\":\"a\",\"p\":1}"), "a boss of the plan, alive");
+    Check(Has(json, "{\"e\":2748,\"n\":\"" + std::string(kMaxBossName, 'A') + "\",\"x\":2748.0,\"y\":-1.0,\"s\":\"d\"}"), "outside the plan: no p; name clipped");
+    Check(Has(json, "\"n\":\"Q\\\"x\"") && Has(json, "\"s\":\"u\"}"), "names escaped, a stray letter sent as unknown");
+    Check(Has(json, "\"bosses\":[") && Has(json, "],\"orders\":["), "the list sits before the orders");
+
+    // per binding: a roster of up to kMaxBossesPerBinding goes whole (Naxxramas: 18 boss-rule entries, AQ40: 16); a longer one not at all
+    auto roster = [&](size_t n) { BindingInfo r = b; r.bosses.clear(); for (uint32_t i = 1; i <= n; ++i) r.bosses.push_back(boss(i, 'u')); return r; };
+    json = BuildPayload(9, 1, 1, 1, {roster(18)});
+    Check(Count(json, "\"e\":") == 18, "an 18-boss raid roster is sent whole");
+    json = BuildPayload(9, 1, 1, 1, {roster(kMaxBossesPerBinding)});
+    Check(Count(json, "\"e\":") == kMaxBossesPerBinding, "a roster at the cap is sent whole");
+    json = BuildPayload(9, 1, 1, 1, {roster(kMaxBossesPerBinding + 1)});
+    Check(!Has(json, "\"bosses\"") && !Has(json, "\"bosses_map\""), "a roster over the cap is left out whole, never cut short");
+    // per payload: the lists go in whole while the count allows; a list that does not fit is left out, a later one that fits goes in
+    json = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, roster(20)));
+    Check(Count(json, "\"bosses\":[") == kMaxBossesPerPayload / 20 && Count(json, "\"e\":") == (kMaxBossesPerPayload / 20) * 20,
+        "whole lists while the per-datagram count allows");
+    json = BuildPayload(9, 1, 0, 1, {roster(30), roster(30), roster(18)});
+    Check(Count(json, "\"bosses\":[") == 2 && Count(json, "\"e\":") == 48, "the second list does not fit the count, the third does");
+}
+
+// The boss lists never push a datagram past the byte budget: with every other cap reached, the bindings that still fit keep their list
+// (the first ones) and the rest leave it out (the dashboard then falls back to the plan and what it sees); the other fields are untouched.
+void TestBossesByteBudget()
+{
+    auto boss = [](uint32_t e) {
+        BossInfo b; b.entry = 4000000000u + e; b.name = std::string(60, 'N'); b.x = b.y = -12345.67f; b.state = 'd'; b.inPlan = true; return b; };
+    BindingInfo big;
+    big.commander = std::string(60, 'C');
+    for (int i = 0; i < 6; ++i)
+    {
+        BotInfo bot = Bot("Botname" + std::to_string(i), i == 0);
+        bot.id = bot.target = 0xFFFFFFFFFFFFFFFFull;
+        bot.hasExtra = true;
+        bot.extra.action = std::string(60, 'a');
+        bot.extra.cast = std::string(60, 'c');
+        bot.extra.castTarget = 0xFFFFFFFFFFFFFFFFull;
+        bot.extra.targetName = std::string(60, 't');
+        big.bots.push_back(bot);
+    }
+    for (int i = 0; i < 8; ++i)
+        big.orders.push_back(Order(i, "ritual", true, std::string(kMaxOrderResult, 'r'), std::string(kMaxOrderDetail, 'd')));
+    big.mobsReported = true;
+    for (int i = 0; i < 40; ++i)
+        big.mobs.push_back(Mob(0xFFFFFFFFFFFFFFFFull, std::string(60, 'M'), 'h', 'k', 0xFFFFFFFFFFFFFFFFull));
+    big.run.present = true;
+    big.run.plan = std::string(60, 'p');
+    big.run.note = std::string(500, 'n');
+    for (uint32_t i = 0; i < 60; ++i)
+    {
+        RunStepInfo st;
+        st.index = 4000000000u + i;
+        st.kind = "move_direct";
+        st.x = st.y = -12345.67f;
+        st.radius = 100.0f;
+        st.entry = 4000000000u;
+        st.name = std::string(60, 'S');
+        st.skipped = true;
+        big.run.stepList.push_back(st);
+    }
+    big.objectsReported = true;
+    for (int i = 0; i < 40; ++i)
+    {
+        ObjectInfo o;
+        o.id = 0xFFFFFFFFFFFFFFFFull;
+        o.name = std::string(60, 'O');
+        big.objects.push_back(o);
+    }
+    std::string const without = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, big));
+    big.bossesReported = true;
+    big.bossesMap = 4000000000u;
+    for (uint32_t i = 0; i < 16; ++i)
+        big.bosses.push_back(boss(i));
+    std::string const one = BuildPayload(9, 1, 1, 1, {big});
+    Check(Count(one, "\"s\":\"d\"") == 16, "one full binding keeps its whole list");
+    std::printf("one full binding with bosses: %zu bytes\n", one.size());
+    std::string const json = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, big));
+    Check(json.size() <= kPayloadByteBudget, "the worst case with bosses stays within the byte budget");
+    Check(json.size() < 60000, "and fits one datagram");
+    size_t const lists = Count(json, "\"bosses\":[");
+    Check(lists < kMaxBindings, "the bindings past the budget leave their list out");
+    Check(Count(json, "\"bosses_map\":") == lists, "a binding without its list has no bosses_map either");
+    Check(Count(json, "\"s\":\"d\"") == lists * 16, "a binding that keeps its list keeps all of it");
+    Check(json.size() - without.size() == lists * (one.size() - BuildPayload(9, 1, 1, 1, {[&] { BindingInfo c = big; c.bossesReported = false; return c; }()}).size()),
+        "nothing but the lists changes");
+    std::printf("worst case with bosses (%zu bindings, %zu lists kept): %zu bytes\n", kMaxBindings, lists, json.size());
+    // a heavy but ordinary report (no plan steps, no objects): the lists fit, the first bindings keep theirs (the payload cap stops the rest)
+    BindingInfo dungeon = big;
+    dungeon.run.stepList.clear();
+    dungeon.objects.clear();
+    std::string const usual = BuildPayload(9, 1, 0, 1, std::vector<BindingInfo>(kMaxBindings, dungeon));
+    Check(Count(usual, "\"bosses\":[") == kMaxBossesPerPayload / 16, "the lists that the payload count allows all fit");
+    Check(usual.find("\"bosses\":[") < usual.find("\"commander\":\"" + big.commander + "\"", usual.find("\"commander\":\"") + 1),
+        "the first binding keeps its list");
+    Check(usual.size() <= kPayloadByteBudget, "within the budget");
+    std::printf("8 dungeon bindings with bosses: %zu bytes\n", usual.size());
+}
+
+// A list the byte budget leaves out does not use up the per-datagram count: a later list that fits both still goes in.
+void TestBossesBudgetDoesNotCount()
+{
+    auto mk = [](size_t n, size_t nameLen) {
+        BindingInfo r;
+        r.commander = "C";
+        r.bossesReported = true;
+        r.bossesMap = 70;
+        for (uint32_t i = 1; i <= n; ++i)
+        {
+            BossInfo b; b.entry = i; b.name = std::string(nameLen, 'N'); b.state = 'u'; r.bosses.push_back(b);
+        }
+        return r;
+    };
+    BindingInfo pad = mk(0, 0);
+    pad.bossesReported = false;
+    BindingInfo big = mk(30, kMaxBossName);   // ~30 x 60 bytes
+    BindingInfo small = mk(20, 1);            // ~20 x 36 bytes
+    std::string const bigList = BuildPayload(9, 1, 1, 1, {big}), smallList = BuildPayload(9, 1, 1, 1, {small});
+    std::string const bare = BuildPayload(9, 1, 1, 1, {pad, mk(0, 0), mk(0, 0)});
+    size_t const bigLen = bigList.size() - BuildPayload(9, 1, 1, 1, {[&] { BindingInfo c = big; c.bossesReported = false; return c; }()}).size();
+    size_t const smallLen = smallList.size() - BuildPayload(9, 1, 1, 1, {[&] { BindingInfo c = small; c.bossesReported = false; return c; }()}).size();
+    Check(bigLen > smallLen + 200, "the test needs a big and a small list");
+    // pad the first binding so that the small list fits the budget and the big one does not
+    pad.commander = std::string(kPayloadByteBudget - bare.size() - (bigLen + smallLen) / 2 - 2 * 20, 'P');
+    std::string const json = BuildPayload(9, 1, 0, 1, {pad, big, small}); // seq 0: the big list is tried first
+    Check(json.size() <= kPayloadByteBudget, "within the budget");
+    Check(Count(json, "\"bosses\":[") == 1 && Count(json, "\"e\":") == 20,
+        "the big list is left out by the budget and the small one still goes in (30 + 20 would pass the count of 48)");
+}
+
+// Codex review 2026-10-22: with the lists tried in a fixed order, a binding late in the list could lose its roster every snapshot. The
+// first list tried moves on with the snapshot sequence, so over as many snapshots as there are lists every binding is sent whole at least
+// once (each list is the first one tried once), and a list still never goes in short.
+void TestBossRotation()
+{
+    auto mk = [](uint32_t map, size_t n) {
+        BindingInfo r;
+        r.commander = "C" + std::to_string(map);
+        r.bossesReported = true;
+        r.bossesMap = map;
+        for (uint32_t i = 1; i <= n; ++i)
+        {
+            BossInfo b; b.entry = i; b.name = "B"; b.state = 'u'; r.bosses.push_back(b);
+        }
+        return r;
+    };
+    // five bindings of 30 bosses: only one list fits the 48 of a datagram
+    std::vector<BindingInfo> five;
+    for (uint32_t m = 101; m <= 105; ++m)
+        five.push_back(mk(m, 30));
+    std::vector<int> sent(5, 0);
+    for (uint64_t seq = 1000; seq < 1000 + five.size(); ++seq)
+    {
+        std::string const json = BuildPayload(9, 1, seq, 1, five);
+        Check(Count(json, "\"bosses\":[") == 1 && Count(json, "\"e\":") == 30, "one whole list per datagram, never a short one");
+        for (size_t i = 0; i < five.size(); ++i)
+            sent[i] += Has(json, "\"bosses_map\":" + std::to_string(101 + i) + ",") ? 1 : 0;
+    }
+    for (size_t i = 0; i < five.size(); ++i)
+        Check(sent[i] >= 1, "over as many snapshots as lists, every binding's roster is sent at least once");
+    // a binding whose roster is over the cap is no candidate: the others still take turns
+    std::vector<BindingInfo> mixed = {mk(201, 30), mk(202, kMaxBossesPerBinding + 1), mk(203, 30)};
+    bool got201 = false, got203 = false;
+    for (uint64_t seq = 0; seq < 2; ++seq)
+    {
+        std::string const json = BuildPayload(9, 1, seq, 1, mixed);
+        Check(!Has(json, "\"bosses_map\":202,"), "an over-cap roster is never sent");
+        got201 = got201 || Has(json, "\"bosses_map\":201,");
+        got203 = got203 || Has(json, "\"bosses_map\":203,");
+    }
+    Check(got201 && got203, "the candidates take turns");
+}
+
+// Codex review 2026-10-22 (lead's decision): a killed boss whose respawn timer ran out while its grid was unloaded read 'u' again. The
+// latch keeps it killed for that instance until a living creature of the entry is seen, the instance id changes (a reset gives a new id)
+// or no binding has stood on the instance for kForgetAfterS; bounded at kMaxLatches (the oldest is dropped).
+void TestBossKillLatch()
+{
+    BossKillLatch l;
+    Check(l.Apply(7, 100, 'u', 0) == 'u', "nothing latched: unknown stays unknown");
+    Check(l.Apply(7, 100, 'd', 10) == 'd' && l.Holds(7, 100), "read killed: latched");
+    Check(l.Apply(7, 100, 'u', 20) == 'd', "killed, then the timer ran out with the grid unloaded (not found): still killed");
+    Check(l.Apply(7, 101, 'u', 20) == 'u', "another entry of the instance is not latched");
+    Check(l.Apply(8, 100, 'u', 20) == 'u', "a new instance id (a reset) starts fresh");
+    Check(l.Apply(7, 100, 'a', 30) == 'a' && !l.Holds(7, 100), "a living creature of the entry clears the latch");
+    Check(l.Apply(7, 100, 'u', 40) == 'u', "cleared: unknown again");
+    Check(l.Apply(0, 100, 'd', 40) == 'd' && !l.Holds(0, 100), "no instance id: nothing latched");
+    // forgotten once no binding has stood on the instance for kForgetAfterS
+    l.Apply(9, 300, 'd', 1000);
+    l.Expire(1000 + BossKillLatch::kForgetAfterS - 1);
+    Check(l.Holds(9, 300), "kept while a binding stood there recently");
+    l.Apply(9, 300, 'u', 1000 + BossKillLatch::kForgetAfterS - 1); // still seen: the clock restarts
+    l.Expire(1000 + 2 * BossKillLatch::kForgetAfterS - 2);
+    Check(l.Holds(9, 300), "every report on the instance keeps it");
+    l.Expire(1000 + 2 * BossKillLatch::kForgetAfterS);
+    Check(!l.Holds(9, 300), "no binding on the instance for the forget time: dropped");
+    // the size bound: the oldest latch goes first
+    BossKillLatch b;
+    for (uint32_t i = 1; i <= BossKillLatch::kMaxLatches + 5; ++i)
+        b.Apply(1, i, 'd', 0);
+    Check(b.Size() == BossKillLatch::kMaxLatches, "at most kMaxLatches latches");
+    Check(!b.Holds(1, 1) && !b.Holds(1, 5) && b.Holds(1, 6) && b.Holds(1, BossKillLatch::kMaxLatches + 5), "the oldest dropped first");
+    b.Apply(1, 6, 'd', 1); // read killed again: not a new latch, the size stays
+    Check(b.Size() == BossKillLatch::kMaxLatches, "a latch read again is not added twice");
+}
+
 void TestControlCharacters()
 {
     BindingInfo b;
@@ -567,6 +832,11 @@ int main()
     TestUnitInfo();
     TestRunInfo();
     TestPathData();
+    TestBosses();
+    TestBossesByteBudget();
+    TestBossesBudgetDoesNotCount();
+    TestBossRotation();
+    TestBossKillLatch();
     TestControlCharacters();
     if (g_failures)
     {

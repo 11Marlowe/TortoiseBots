@@ -7,7 +7,7 @@ namespace ai
     // The one plan table, filled by LoadDungeonPlans() and read-only afterwards.
     DungeonPlanTable& GetDungeonPlans();
 
-    // Reads `ai_dungeon_plan`, `ai_dungeon_leg` and `ai_dungeon_step` once at
+    // Reads `ai_dungeon_plan`, `ai_dungeon_leg`, `ai_dungeon_step` and `ai_dungeon_boss` once at
     // startup (one pass over each) and seals the table. A second call does nothing.
     void LoadDungeonPlans();
 }

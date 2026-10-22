@@ -40,6 +40,7 @@ namespace ai
         Ritual,      // a summoning ritual object several bots use together (`param` bots; 0 = 3): an event's start
         Hold,        // a scripted event: stand at x,y,z, fight what comes, until its done condition (flags)
         Gossip,      // talk to creature `entry` (searched within kGossipSearchYd of x,y,z) and pick option `param` (1-15)
+        UseOn,       // use item `item` ON game object `entry` at x,y,z (a key item whose spell opens the object's lock)
     };
 
     inline PlanStepKind ParsePlanStepKind(const std::string& text)
@@ -51,7 +52,7 @@ namespace ai
             {"use_item", PlanStepKind::UseItem}, {"wait_object", PlanStepKind::WaitObject},
             {"wait_clear", PlanStepKind::WaitClear}, {"rest", PlanStepKind::Rest},
             {"ritual", PlanStepKind::Ritual}, {"hold", PlanStepKind::Hold},
-            {"gossip", PlanStepKind::Gossip},
+            {"gossip", PlanStepKind::Gossip}, {"use_on", PlanStepKind::UseOn},
         };
         for (const auto& k : kinds)
             if (text == k.name)
@@ -94,6 +95,7 @@ namespace ai
             case PlanStepKind::Ritual: return "ritual";
             case PlanStepKind::Hold: return "hold";
             case PlanStepKind::Gossip: return "gossip";
+            case PlanStepKind::UseOn: return "use_on";
             default: return "none";
         }
     }
@@ -119,6 +121,17 @@ namespace ai
     // point (detour) is taken for it. Any other kind with this flag is refused
     // (BadParam).
     constexpr std::uint32_t kPlanFlagExact = 64;
+    // loot or open only: the object being GONE (nothing of `entry` spawned near the point, or it despawned on the
+    // way: an opened chest that stays gone, a grave opened before a wipe) counts as done, with the note "object gone:
+    // counted as done", instead of pausing the run on a refused order. Read only on a row with no item (item 0).
+    // Any other kind with this flag is refused (BadParam). 128 is reserved.
+    constexpr std::uint32_t kPlanFlagGoneIsDone = 256;
+    // gossip only: the NPC being DEAD counts as done. The order refused with the dead-NPC wording (the module's no-npc text
+    // with "lies dead", GossipNpcDeadNote) or the task failed with it ends the step with the note "<name> lies dead, nothing
+    // to talk to: the step is counted done" instead of pausing the run. Zul'Farrak's Sergeant Bly: his crew dies in the pyramid
+    // event's troll waves in some runs. A gossip row without it pauses as before (Weegli: the End Door stays shut without him).
+    // Any other kind with this flag is refused (BadParam), and a gossip row with any other flag.
+    constexpr std::uint32_t kPlanFlagDeadNpcIsDone = 512;
     constexpr std::uint32_t kPlanEncounterNotStarted = 0;
     constexpr std::uint32_t kPlanEncounterFail = 2;
     constexpr std::uint32_t kPlanEncounterMax = 4;
@@ -261,15 +274,16 @@ namespace ai
         UnknownPlan,
         UnknownKind,
         Duplicate,
-        MissingEntry,     // pull without entries; boss/loot/open/use_item/wait_object/ritual/gossip without entry;
+        MissingEntry,     // pull without entries; boss/loot/open/use_item/wait_object/ritual/gossip/use_on without entry;
+                          // use_on without item;
                           // hold done by object without entry, by its units without entries
         BadRadius,        // negative, over kPlanMaxRadius, or a wait_clear without one
         BadTimeout,       // over kPlanMaxTimeoutS
         BadParam,         // wait_object state other than 0-2; hold with both done flags, an encounter
                           // flag without the data flag or a state above 4, an object state above 2;
                           // the exact flag on a step that is not a move; gossip with an option
-                          // outside 1-15 or with any flag
-        BadPoint,         // not a finite point
+                          // outside 1-15 or with any flag; use_on with any flag or param
+        BadPoint,         // not a finite point; a use_on without a point (0,0,0)
         BadEntries,       // `entries` is not a comma list of non-zero creature entries
     };
 
@@ -306,6 +320,10 @@ namespace ai
             return PlanStepRefusal::BadTimeout;
         if ((step.flags & kPlanFlagExact) && step.kind != PlanStepKind::Move)
             return PlanStepRefusal::BadParam;
+        if ((step.flags & kPlanFlagGoneIsDone) && step.kind != PlanStepKind::Loot && step.kind != PlanStepKind::Open)
+            return PlanStepRefusal::BadParam;
+        if ((step.flags & kPlanFlagDeadNpcIsDone) && step.kind != PlanStepKind::Gossip)
+            return PlanStepRefusal::BadParam;
         if (step.exactLaunch && step.kind != PlanStepKind::MoveDirect)
             return PlanStepRefusal::BadParam;
         switch (step.kind)
@@ -325,8 +343,19 @@ namespace ai
             case PlanStepKind::Gossip:
                 if (step.entry == 0)
                     return PlanStepRefusal::MissingEntry;
-                // No flag is read on a gossip yet (team flags come with a later change): a set one is refused, not ignored.
-                if (step.param < 1 || step.param > kPlanMaxGossipOption || step.flags != 0)
+                // The one flag read on a gossip is kPlanFlagDeadNpcIsDone (team flags come with a later change): any other set
+                // one is refused, not ignored.
+                if (step.param < 1 || step.param > kPlanMaxGossipOption || (step.flags & ~kPlanFlagDeadNpcIsDone) != 0)
+                    return PlanStepRefusal::BadParam;
+                break;
+            case PlanStepKind::UseOn:
+                // The object and the item used on it; the point names the object (the commander's entry:<id>@x,y,z).
+                // No flag or param is read: a set one is refused, not ignored.
+                if (step.entry == 0 || step.item == 0)
+                    return PlanStepRefusal::MissingEntry;
+                if (step.x == 0.0f && step.y == 0.0f && step.z == 0.0f)
+                    return PlanStepRefusal::BadPoint;
+                if (step.flags != 0 || step.param != 0)
                     return PlanStepRefusal::BadParam;
                 break;
             case PlanStepKind::WaitObject:
@@ -457,6 +486,9 @@ namespace ai
                 });
                 std::sort(entry.second.legs.begin(), entry.second.legs.end(),
                     [](const PlanLeg& a, const PlanLeg& b) { return a.leg < b.leg; });
+                for (const PlanStep& step : steps)
+                    if (step.kind == PlanStepKind::Boss && step.entry)
+                        bossEntries_.insert(BossKey(entry.second.map, step.entry));
             }
             sealed_.store(true, std::memory_order_release);
         }
@@ -500,7 +532,38 @@ namespace ai
             return out;
         }
 
+        // Loading only: an `ai_dungeon_boss` row, a boss no boss step has to
+        // name (one the plan skips, or the end of a scripted event). False after
+        // the seal, for a zero map or entry, or for a (map, entry) already added
+        // (the first row wins, as under the primary key).
+        bool AddBoss(std::uint32_t map, std::uint32_t entry)
+        {
+            if (Sealed() || map == 0 || entry == 0)
+                return false;
+            return bossEntries_.insert(BossKey(map, entry)).second;
+        }
+
+        // The (map, entry) keys of the bosses: the rows plus, after the seal,
+        // the boss steps' entries.
+        std::size_t BossCount() const { return bossEntries_.size(); }
+
+        // Whether a creature of `entry` on `map` is a boss: an `ai_dungeon_boss`
+        // row, or the boss of a plan's boss step (its `entry`, not the adds of
+        // its `entries`). The steps join at the seal; false before it.
+        bool IsBossEntry(std::uint32_t map, std::uint32_t entry) const
+        {
+            if (!Sealed() || !entry)
+                return false;
+            return bossEntries_.count(BossKey(map, entry)) != 0;
+        }
+
     private:
+        static std::uint64_t BossKey(std::uint32_t map, std::uint32_t entry)
+        {
+            return (static_cast<std::uint64_t>(map) << 32) | entry;
+        }
+
+        std::unordered_set<std::uint64_t> bossEntries_;
         std::unordered_map<std::string, DungeonPlan> plans_;
         std::unordered_map<std::string, std::unordered_set<std::uint32_t>> stepKeys_;
         std::size_t steps_ = 0;

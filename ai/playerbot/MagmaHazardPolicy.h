@@ -1,0 +1,246 @@
+#pragma once
+
+// Magma guard for bot movement (RFC r3-19z20, step 22: the lead tank's idle
+// "formation station" walk ended in the trogg-cave lava basin and the party
+// followed it in; 5 deaths). The core hurts a player standing in magma with a
+// flat 605-610 fire tick (Player::UpdateTerainEnvironmentFlags sets
+// ENVIRONMENT_FLAG_IN_MAGMA, the mirror timer calls
+// EnvironmentalDamage(DAMAGE_LAVA, EnvironmentalDamage.Min..Max)), which kills
+// a level-16 bot on its first or second tick. The navmesh calls a shallow
+// basin floor plain ground, so the path finder walks straight in.
+//
+// This header owns the pure rules, MovementAction::MoveTo2 and the formation
+// station trigger own the terrain query, so the rules stay testable in
+// tools/test_magma_hazard_policy.cpp. No core includes: the core's liquid
+// values are mirrored below and pinned with static_asserts where the core
+// headers are in scope (MovementActions.cpp).
+//
+// Magma only. Slime does no damage in this core (Player.cpp, the DAMAGE_SLIME
+// tick is commented out), and refusing it would strand bots in Undercity.
+
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
+namespace ai
+{
+    // GridMapDefines.h: MAP_LIQUID_TYPE_MAGMA (a type_flags bit).
+    constexpr std::uint32_t kMagmaLiquidTypeFlag = 0x01;
+    // GridMapDefines.h GridMapLiquidStatus: LIQUID_MAP_WATER_WALK,
+    // LIQUID_MAP_IN_WATER, LIQUID_MAP_UNDER_WATER.
+    constexpr std::uint32_t kLiquidStatusWaterWalk = 0x02;
+    constexpr std::uint32_t kLiquidStatusInWater = 0x04;
+    constexpr std::uint32_t kLiquidStatusUnderWater = 0x08;
+
+    // Spacing (yards) of the samples taken between two path points: the
+    // magma lip in Ragefire Chasm is a few yards wide, a path corner can sit
+    // either side of it.
+    constexpr float kMagmaSampleStepYd = 2.0f;
+
+    // At most this many samples between path points per route check; past it
+    // only the path points themselves are looked at (the nearest 2 * 48 =
+    // 96 yd of the route keep the 2 yd spacing). Worst case per MoveTo2: 1
+    // lookup for the end point, 1 for the bot's own spot, 48 between points
+    // and 1 per path point (ClipPath has already ended the route within
+    // ReactDistance of its start); each lookup is one getLiquidStatus (a vmap
+    // liquid query plus a static height query).
+    constexpr std::size_t kMagmaMaxInteriorSamples = 48;
+
+    // How long (seconds) a refused magma destination stays refused for a bot
+    // without a new look, and the grid (yards) its point is rounded to.
+    constexpr std::int64_t kMagmaRefusalSeconds = 10;
+    constexpr float kMagmaRefusalGridYd = 2.0f;
+    // A refused route is refused from memory only while the bot is still in
+    // the same cell of this size: from anywhere else (a knockback to the safe
+    // side, a step) the route is looked at again at once.
+    constexpr float kMagmaRefusalOriginGridYd = 4.0f;
+
+    // The core's rule for "in magma" (Player::UpdateTerainEnvironmentFlags):
+    // the liquid there is magma and the point is under it, in it, or just on
+    // its surface. `typeFlags` is GridMapLiquidData::type_flags, `status` the
+    // GridMapLiquidStatus that getLiquidStatus returned.
+    inline bool IsMagmaHazard(std::uint32_t typeFlags, std::uint32_t status)
+    {
+        if (!(typeFlags & kMagmaLiquidTypeFlag))
+            return false;
+        return (status & (kLiquidStatusUnderWater | kLiquidStatusInWater | kLiquidStatusWaterWalk)) != 0;
+    }
+
+    // Where the guard applies: bots on an instance map (dungeon or raid,
+    // Map::IsDungeon). The movement layer runs for every bot on the server;
+    // the open world keeps its old movement (no added terrain queries for the
+    // random population, no refused grind or quest targets).
+    inline bool MagmaGuardApplies(bool mapIsInstance)
+    {
+        return mapIsInstance;
+    }
+
+    // A bot's memory of the last destination the guard refused: the same
+    // destination (same map, same 2 yd cell) is refused again without terrain
+    // queries until `until` (wall-clock seconds).
+    // A route refusal also keeps the bot's origin cell (`hasOrigin`): the
+    // memory then holds only while the bot is still there. An end point in
+    // magma is refused from anywhere (no origin).
+    struct MagmaRefusal
+    {
+        bool set = false;
+        std::uint32_t mapId = 0;
+        std::int32_t cellX = 0, cellY = 0, cellZ = 0;
+        bool hasOrigin = false;
+        std::int32_t originX = 0, originY = 0, originZ = 0;
+        std::int64_t until = 0;
+    };
+
+    inline std::int32_t MagmaGridCell(float v, float grid)
+    {
+        if (v != v)
+            return 0;
+        return static_cast<std::int32_t>(std::floor(v / grid));
+    }
+
+    inline std::int32_t MagmaRefusalCell(float v)
+    {
+        return MagmaGridCell(v, kMagmaRefusalGridYd);
+    }
+
+    // An end point in magma: refused from anywhere.
+    inline MagmaRefusal MagmaRefusalFor(std::uint32_t mapId, float x, float y, float z, std::int64_t now)
+    {
+        MagmaRefusal r;
+        r.set = true;
+        r.mapId = mapId;
+        r.cellX = MagmaRefusalCell(x);
+        r.cellY = MagmaRefusalCell(y);
+        r.cellZ = MagmaRefusalCell(z);
+        r.until = now + kMagmaRefusalSeconds;
+        return r;
+    }
+
+    // A route into magma: refused from this origin only.
+    inline MagmaRefusal MagmaRouteRefusalFor(std::uint32_t mapId, float x, float y, float z,
+        float fromX, float fromY, float fromZ, std::int64_t now)
+    {
+        MagmaRefusal r = MagmaRefusalFor(mapId, x, y, z, now);
+        r.hasOrigin = true;
+        r.originX = MagmaGridCell(fromX, kMagmaRefusalOriginGridYd);
+        r.originY = MagmaGridCell(fromY, kMagmaRefusalOriginGridYd);
+        r.originZ = MagmaGridCell(fromZ, kMagmaRefusalOriginGridYd);
+        return r;
+    }
+
+    // Whether a move from (fromX, fromY, fromZ) to (mapId, x, y, z) at `now`
+    // is refused from memory.
+    inline bool MagmaRefusalActive(MagmaRefusal const& r, std::uint32_t mapId, float x, float y, float z,
+        float fromX, float fromY, float fromZ, std::int64_t now)
+    {
+        if (!(r.set && now < r.until && r.mapId == mapId &&
+                r.cellX == MagmaRefusalCell(x) && r.cellY == MagmaRefusalCell(y) && r.cellZ == MagmaRefusalCell(z)))
+            return false;
+        if (!r.hasOrigin)
+            return true;
+        return r.originX == MagmaGridCell(fromX, kMagmaRefusalOriginGridYd) &&
+            r.originY == MagmaGridCell(fromY, kMagmaRefusalOriginGridYd) &&
+            r.originZ == MagmaGridCell(fromZ, kMagmaRefusalOriginGridYd);
+    }
+
+    // A commander task's walk nudge (a plain core MovePoint to its standing
+    // point, BotCommands NudgeTaskWalk) on an instance map waits while the
+    // bot's last MoveTo2 was a magma refusal still in its window, or when the
+    // standing point itself is in magma: otherwise the nudge walks the bot
+    // where MoveTo2 refused to.
+    inline bool MagmaNudgeBlocked(bool guardApplies, bool lastMoveRefusedMagma, MagmaRefusal const& r,
+        std::int64_t now, bool standInMagma)
+    {
+        if (!guardApplies)
+            return false;
+        if (standInMagma)
+            return true;
+        return lastMoveRefusedMagma && r.set && now < r.until;
+    }
+
+    struct MagmaPoint
+    {
+        float x = 0.0f, y = 0.0f, z = 0.0f;
+    };
+
+    // The verdict on a route. `cut` true: it walks into magma after dry
+    // ground (MoveTo2 then refuses the whole move and dispatches nothing);
+    // `keepPoints`, `addPoint` and `point` say where the dry part ends (the
+    // first `keepPoints` path points, then the last dry sample between two
+    // path points when `addPoint`), for the log and the tests.
+    struct MagmaPathCut
+    {
+        bool cut = false;
+        std::size_t keepPoints = 0;
+        bool addPoint = false;
+        MagmaPoint point;
+    };
+
+    // How many samples lie strictly between two path points `length` yards
+    // apart, at most kMagmaSampleStepYd apart.
+    inline std::size_t MagmaInteriorSamples(float length)
+    {
+        if (!(length > kMagmaSampleStepYd))
+            return 0;
+        return static_cast<std::size_t>(std::ceil(length / kMagmaSampleStepYd)) - 1;
+    }
+
+    // The route from `start` (the bot) along `path`, sampled at each path
+    // point and every kMagmaSampleStepYd between them (at most
+    // `maxInteriorSamples` of those, nearest the bot first), is cut at its
+    // first magma sample. A bot already standing in magma walks out first:
+    // the leading run of magma samples is not a cut (only magma after dry
+    // ground is). A route that never leaves magma is no cut either (the
+    // destination check refuses a magma end point before this runs).
+    template <typename InMagma>
+    MagmaPathCut CutPathBeforeMagma(MagmaPoint const& start, std::vector<MagmaPoint> const& path, InMagma inMagma,
+        std::size_t maxInteriorSamples = kMagmaMaxInteriorSamples)
+    {
+        MagmaPathCut result;
+        std::size_t budget = maxInteriorSamples;
+        bool dry = !inMagma(start);
+        MagmaPoint lastSafe = start;
+        MagmaPoint prev = start;
+        for (std::size_t i = 0; i < path.size(); ++i)
+        {
+            MagmaPoint const& next = path[i];
+            float const dx = next.x - prev.x, dy = next.y - prev.y, dz = next.z - prev.z;
+            float const length = std::sqrt(dx * dx + dy * dy + dz * dz);
+            std::size_t const interior = MagmaInteriorSamples(length);
+            std::size_t const taken = interior < budget ? interior : budget;
+            budget -= taken;
+            for (std::size_t k = 0; k <= taken; ++k)
+            {
+                bool const atPoint = k == taken;
+                MagmaPoint sample = next;
+                if (!atPoint)
+                {
+                    float const t = static_cast<float>(k + 1) / static_cast<float>(interior + 1);
+                    sample.x = prev.x + dx * t;
+                    sample.y = prev.y + dy * t;
+                    sample.z = prev.z + dz * t;
+                }
+                if (inMagma(sample))
+                {
+                    if (dry)
+                    {
+                        result.cut = true;
+                        result.keepPoints = i;
+                        // The last safe sample is a path point already kept
+                        // (or the bot's own spot) unless it lies inside this
+                        // segment.
+                        result.addPoint = k > 0;
+                        result.point = lastSafe;
+                        return result;
+                    }
+                    continue;
+                }
+                dry = true;
+                lastSafe = sample;
+            }
+            prev = next;
+        }
+        return result;
+    }
+}

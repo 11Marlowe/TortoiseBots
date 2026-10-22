@@ -127,6 +127,10 @@ namespace ai
         bool isInWater() const { return getTerrain() ? getTerrain()->IsInWater(x, y, z) : false; };
         bool isUnderWater() const { return getTerrain() ? getTerrain()->IsUnderWater(x, y, z) : false; };
         bool IsUnderWater() const { return isUnderWater(); }
+        // In magma by the core's own rule (MagmaHazardPolicy.h); the overload
+        // takes a terrain the caller already resolved (one lookup per route).
+        bool isInMagma() const { return isInMagma(getTerrain()); }
+        bool isInMagma(const TerrainInfo* terrain) const;
         bool setAtWaterSurface();
         bool isUnderground() const;
         float getWaterLevel() const { return getTerrain() ? getTerrain()->GetWaterLevel(x, y, z) : -200000.0f; };
