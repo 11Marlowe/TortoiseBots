@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <vector>
+#include "AhSyntheticMarketPolicy.h"
 
 class Player;
 class Unit;
@@ -69,8 +70,9 @@ public:
     bool ResetItemOverride(uint32_t itemId);
 
     // Synthetic inventory & auction identification and isolation
-    static constexpr uint32_t SYNTHETIC_OWNER_GUID = 0;
-    static constexpr uint32_t SYNTHETIC_OWNER_ACCOUNT = 0;
+    // (values owned by AhSyntheticMarketPolicy.h)
+    static constexpr uint32_t SYNTHETIC_OWNER_GUID = ai::kAhSyntheticOwnerGuid;
+    static constexpr uint32_t SYNTHETIC_OWNER_ACCOUNT = ai::kAhSyntheticOwnerAccount;
 
     bool IsSyntheticAuction(uint32_t auctionId) const;
     bool IsSyntheticAuction(AuctionEntry const* auction) const;
