@@ -2,8 +2,12 @@
 
 #include "../../runtime/PlayerbotAIStorage.h"
 
+#include <vector>
+
 class Player;
 class ChatHandler;
+class Item;
+struct ItemPrototype;
 
 
 class PlayerbotFactory
@@ -62,6 +66,24 @@ public:
     // arrows, gun with bullets), see OwnedBotAcceptRangedPick; no ammo is
     // handed out here.
     void AutogearOwned(uint32 cappedQuality, uint32 ilvlCap);
+    // Real-player `.autogear`: the same incremental candidate pool and score
+    // as AutogearOwned, with a forced spec (the caller resolves the name to a
+    // weightscale id) and no bot AI anywhere. Upgrades only; the replaced
+    // pieces go to the bags or, when the bags are full, to the target's own
+    // mailbox (never destroyed) and are reported in autogearUpgrades.
+    // Shirts and tabards are skipped: a random cosmetic swap is not an
+    // upgrade. Ranged is picked purely by score, so the command can warn
+    // about missing ammo exactly like the owned-bot command does.
+    void AutogearPlayer(uint32 specId, uint32 ilvlCap);
+    struct AutogearUpgrade
+    {
+        uint8 slot;
+        uint32 oldItemId;
+        uint32 newItemId;
+        bool mailed;
+    };
+    // Filled only by AutogearPlayer, one entry per slot actually upgraded.
+    std::vector<AutogearUpgrade> autogearUpgrades;
     // True when the bags hold usable ammo for a ranged weapon of this item
     // subclass (gun -> bullets, bow/crossbow -> arrows). Weapons that need no
     // ammo report true. Used by the autogear reply to warn about a dud weapon.
@@ -194,6 +216,12 @@ private:
     // Set only by AutogearOwned: InitEquipment then filters the ranged slot
     // by the ammo the bags hold.
     bool ammoAwareRanged = false;
+    // Set only by AutogearPlayer: InitEquipment runs with the forced spec,
+    // never destroys anything and reports every slot it upgrades.
+    bool playerUpgrade = false;
+    uint32 forcedSpecId = 0;
+    // Bags first, mailbox when the bags are full; false when mailed.
+    bool StoreReplacedItem(Item* oldItem);
     // Generated-gear item-level cap: how far above its own level a bot's
     // *generated* gear may sit (TortoiseBots::GearItemLevelCap). Set through
     // UsePoolGearCap() / UseStandardHireGearCap() by the passes that serve pool

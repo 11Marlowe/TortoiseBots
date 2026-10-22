@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Commands
+- New `.autogear` command gears a real player the way a spawned bot gets geared: items picked for the level and spec from the same gear pool the bots use, upgrades only, replaced items to the bags or the mailbox. GameMasters can gear any player; `AiPlayerbot.PlayerAutogearForAll` (default `0`) lets every player gear themselves.
+
 ## v1.8.0 (2026-10-22)
 
 ### Classes & Combat

@@ -171,6 +171,50 @@ Evaluates a bot's level and automatically equips level-appropriate equipment up 
 
 Requires [`AiPlayerbot.OwnedBotAutogearEnabled`](../../server/settings/party.md#aiplayerbotownedbotautogearenabled) to be enabled (1). Defaults to uncommon (green) gear unless specified (e.g. `blue` or `200`). Ranged weapons are selected to match existing ammunition in the bot's bags. Note: autogear hands out no ammo; hunter ammunition must be stocked separately.
 
+For real players, use [`.autogear`](#autogear) instead — `.bot autogear` only works on owned or hired bots.
+
+### `.autogear`
+
+Gears a **real player** the way a spawned bot gets geared: items picked for the character's level and the chosen spec from the same gear pool the bots use, under the same item level and quality limits. Upgrades only — nothing already worn is lost.
+
+```text
+.autogear [player name] <spec> [ilvl]
+```
+
+Without a player name the command gears the selected player. The class comes from the character, so you only type the spec. The target must be a real player who is online, alive and out of combat; bots are refused. A druid must leave their shapeshift form first. Characters on a Turtle challenge mode (Hardcore, Slow & Steady, ...) are GM-only whatever the settings below are.
+
+**Specs and aliases.** A tank variant can be typed with a hyphen or a space. Short aliases work too. An unknown or missing spec changes nothing and lists the valid specs for the target's class:
+
+| Class | Specs | Short aliases |
+| :--- | :--- | :--- |
+| Warrior | `arms`, `fury`, `protection` | `prot`, `tank` |
+| Paladin | `holy`, `protection`, `retribution` | `prot`, `ret` |
+| Hunter | `beast`, `marksmanship`, `survival` | `bm`, `mm`, `surv` |
+| Rogue | `assassination`, `combat`, `subtlety` | `sin`, `sub` |
+| Priest | `discipline`, `holy`, `shadow` | `disc` |
+| Shaman | `elemental`, `enhancement`, `enhancement-tank`, `restoration` | `ele`, `enh`, `resto` |
+| Mage | `arcane`, `fire`, `frost` | — |
+| Warlock | `affliction`, `demonology`, `destruction` | `afflic`, `demo`, `destro` |
+| Druid | `balance`, `feral`, `feral-tank`, `restoration` | `moonkin`, `cat`, `bear`, `resto` |
+
+**Upgrades only.** An item goes on only if it scores better for the chosen spec than what is in that slot. Replaced items go to the target's bags; when the bags are full they are mailed to the target with no expiry. Nothing is destroyed. A slot holding something better than the pool would give (for example a manually added epic) is left alone, and pieces of an item set that currently gives an active set bonus are kept whole. A two-handed weapon must beat the current main-hand **and** off-hand pieces together before it displaces the pair. Two copies of a unique or unique-equippable item are never equipped.
+
+**Level and quality limits.** Only items the player can wear at their current level (required level ≤ player level). The default ceiling is the same item level and quality a spawned bot of that level gets. The optional `ilvl` argument can only lower that ceiling — a higher value is clamped to the default and the reply says so. At level 60 (max level) the `ilvl` argument may also **raise** the ceiling, e.g. `.autogear Thrall protection 90` picks the best items up to item level 90.
+
+**Gear only.** No weapon skills, bags, ammo or consumables are given. If the equipped ranged weapon has no matching ammo in the bags, the command answers with the same missing-ammo warning `.bot autogear` gives.
+
+**Who can use it.** By default GMs only, on any real online player including themselves. With [`AiPlayerbot.PlayerAutogearForAll`](../../server/settings/party.md#aiplayerbotplayerautogearforall) = `1`, every player can use it — but only on themselves. It is free and has no cooldown.
+
+Examples:
+
+```text
+.autogear Thrall enhancement-tank        # GM gears Thrall as a shaman tank
+.autogear enhancement tank               # gears the selected player (space form)
+.autogear resto                          # gears yourself as resto (selected target)
+.autogear <shaman> enhancement 15        # ceiling lowered to item level 15
+.autogear <60 warrior> protection 90     # at level 60: ceiling raised to 90
+```
+
 ### `.bot release`
 
 Commands all dead companion bots in the party to release spirit to the graveyard. Also available as `.bot action release`.
