@@ -2154,10 +2154,6 @@ AiPlayerbot.PerfMonEnabled = 0
 #                                                                                #
 ##################################################################################
 
-# Currently has no effect (read but unused).
-# Instant randomize: Force randombots to randomize on initial login.
-# AiPlayerbot.InstantRandomize = 0
-
 # Bot cheats. Same as "/w <bot> cheat (+/-/?) <cheatcode>" but only globally for all bots.
 # Values: taxi            (all nodes learned)
 #         item            (unlimited items for spells)

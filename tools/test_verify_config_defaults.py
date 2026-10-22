@@ -151,6 +151,50 @@ class ParseTemplateTest(unittest.TestCase):
         self.assertEqual(entries['AiPlayerbot.RespawnModNeutral'], [(True, '10.0')])
 
 
+class ConstantsMatchTemplateTest(unittest.TestCase):
+    """The ALLOWLIST exempts keys whose code default is a C++ constant; these
+    tests are the assertion those ALLOWLIST entries promise: the constant still
+    equals the value the template shows."""
+
+    def header_constant(self, header_rel, name):
+        text = (ROOT / header_rel).read_text()
+        i = text.index(name)
+        i = text.index('=', i) + 1
+        while text[i] in ' \t\n\r':
+            i += 1
+        start = i
+        n = len(text)
+        while i < n and text[i] != ';':  # scan to the initializer's semicolon,
+            if text[i] == '"':           # skipping string contents (they hold ';')
+                i += 1
+                while text[i] != '"':
+                    i += 2 if text[i] == '\\' else 1
+            i += 1
+        return parse_default(text[start:i])
+
+    def assert_constant_matches_template(self, header_rel, name, key):
+        value = self.header_constant(header_rel, name)
+        entries = parse_template(ROOT / 'ai/playerbot/aiplayerbot.conf.dist.in').get(key, [])
+        self.assertTrue(
+            any(values_equal(value, v) for _, v in entries),
+            f'{name} = {value!r} matches none of the template entries for {key}')
+
+    def test_ammo_stacks_non_hunter(self):
+        self.assert_constant_matches_template(
+            'ai/playerbot/AmmoStackPolicy.h', 'kAmmoStacksNonHunterDefault',
+            'AiPlayerbot.AmmoStacksNonHunter')
+
+    def test_hire_raid_spread(self):
+        self.assert_constant_matches_template(
+            'runtime/HireRaidPolicy.h', 'kHireRaidSpreadDefault',
+            'AiPlayerbot.HireRaidSpread')
+
+    def test_hire_raid_presets(self):
+        self.assert_constant_matches_template(
+            'runtime/HireRaidPolicy.h', 'kHireRaidPresetsDefault',
+            'AiPlayerbot.HireRaidPresets')
+
+
 class RepoCleanTest(unittest.TestCase):
     def test_repository_currently_has_no_drift(self):
         self.assertEqual(check(), [])

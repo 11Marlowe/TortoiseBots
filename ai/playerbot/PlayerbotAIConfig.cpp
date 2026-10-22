@@ -219,6 +219,8 @@ bool PlayerbotAIConfig::Initialize()
     rpgDistance = config.GetFloatDefault("AiPlayerbot.RpgDistance", 200.0f);
     proximityDistance = config.GetFloatDefault("AiPlayerbot.ProximityDistance", 20.0f);
     walkDistance = config.GetFloatDefault("AiPlayerbot.WalkDistance", 5.0f);
+    EatDrinkMinDistance = config.GetFloatDefault("AiPlayerbot.EatDrinkMinDistance", 5.0f);
+    EatDrinkMaxDistance = config.GetFloatDefault("AiPlayerbot.EatDrinkMaxDistance", 1000.0f);
 
     criticalHealth = config.GetIntDefault("AiPlayerbot.CriticalHealth", 20);
     lowHealth = config.GetIntDefault("AiPlayerbot.LowHealth", 50);

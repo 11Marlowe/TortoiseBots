@@ -27,7 +27,6 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TEMPLATES = ["ai/playerbot/aiplayerbot.conf.dist.in", "conf/tortoise_bots.conf.dist"]
-SCAN_DIRS = ["ai", "runtime", "host", "commands", "behavior", "src"]
 
 CALL = re.compile(
     r'Get(?:Int|Bool|Float|String)Default\(\s*"(AiPlayerbot\.[A-Za-z0-9_.]+)"\s*,\s*')
@@ -230,7 +229,7 @@ def parse_template(path):
 def scan_code(root):
     """Return [(file, line, key, expr)], skipping tools/ and build dirs."""
     calls = []
-    skip = {'tools', 'data', 'docs', 'conf', 'scripts'}
+    skip = {'tools', 'data', 'docs', 'conf', 'scripts', 'build'}
     for path in sorted(root.rglob('*')):
         if path.suffix not in ('.cpp', '.h') or path.is_dir():
             continue
