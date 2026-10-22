@@ -79,6 +79,7 @@
 #include "RangeValues.h"
 #include "SkipSpellsListValue.h"
 #include "SnareTargetValue.h"
+#include "AttackerOfNonTankTargetValue.h"
 #include "Stances.h"
 #include "QuestValues.h"
 #include "BudgetValues.h"
@@ -275,6 +276,7 @@ namespace ai
             creators["train cost"] = [](PlayerbotAI* ai) { return new TrainCostValue(ai); };
             creators["enemy healer target"] = [](PlayerbotAI* ai) { return new EnemyHealerTargetValue(ai); };
             creators["snare target"] = [](PlayerbotAI* ai) { return new SnareTargetValue(ai); };
+            creators["attacker of non-tank target"] = [](PlayerbotAI* ai) { return new AttackerOfNonTankTargetValue(ai); };
             creators["formation"] = [](PlayerbotAI* ai) { return new FormationValue(ai); };
             creators["formation position"] = [](PlayerbotAI* ai) { return new FormationPositionValue(ai); };
             creators["stance"] = [](PlayerbotAI* ai) { return new StanceValue(ai); };

@@ -136,6 +136,20 @@ namespace ai
     // protection
     MELEE_ACTION_U(CastTauntAction, "taunt", GetTarget() && GetTarget()->GetVictim() && GetTarget()->GetVictim() != bot);
     SNARE_ACTION(CastTauntOnSnareTargetAction, "taunt");
+
+    // Taunt the mob picked by "attacker of non-tank target" (issue #1156):
+    // the value only returns mobs already inside the taunt spell range, so
+    // the reach prerequisite below never has to move the tank.
+    class CastTauntOnAttackerAction : public CastSnareSpellAction
+    {
+    public:
+        CastTauntOnAttackerAction(PlayerbotAI* ai) : CastSnareSpellAction(ai, "taunt") {}
+
+    protected:
+        virtual std::string GetTargetName() override { return "attacker of non-tank target"; }
+        virtual std::string getName() override { return "taunt on attacker"; }
+    };
+
     BUFF_ACTION(CastBloodrageAction, "bloodrage");
     MELEE_ACTION(CastShieldBashAction, "shield bash");
     ENEMY_HEALER_ACTION(CastShieldBashOnEnemyHealerAction, "shield bash");

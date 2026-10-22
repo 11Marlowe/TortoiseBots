@@ -40,6 +40,21 @@ namespace ai
     DEBUFF_TRIGGER(ThunderClapTrigger, "thunder clap");
     SNARE_TRIGGER(TauntSnareTrigger, "taunt");
     SNARE_TRIGGER(InterceptSnareTrigger, "intercept");
+
+    // A mob is on a non-tank group member (the healer first, issue #1156):
+    // fires when the "attacker of non-tank target" value picks a mob, next to
+    // "lose aggro", which only sees the tank's current target.
+    class PartyMemberAttackedTrigger : public Trigger
+    {
+    public:
+        PartyMemberAttackedTrigger(PlayerbotAI* ai) : Trigger(ai, "party member attacked") {}
+
+        virtual bool IsActive() override
+        {
+            return AI_VALUE(Unit*, "attacker of non-tank target") != NULL;
+        }
+    };
+
     CD_TRIGGER(InterceptCanCastTrigger, "intercept");
     BOOST_TRIGGER(DeathWishTrigger, "death wish");
     BOOST_TRIGGER(RecklessnessTrigger, "recklessness");

@@ -116,6 +116,15 @@ void ProtectionWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
         "lose aggro",
         NextAction::array(0, new NextAction("taunt", ACTION_INTERRUPT + 1), NULL)));
 
+    // A mob is swinging at a non-tank member (the healer first, issue #1156):
+    // "lose aggro" only sees the tank's current target and the snare row
+    // skips a mob that has arrived, so without this row a mob sitting on the
+    // healer is never taunted. Same priority as "lose aggro": a missed kick
+    // costs damage, a missed taunt costs the healer.
+    triggers.push_back(new TriggerNode(
+        "party member attacked",
+        NextAction::array(0, new NextAction("taunt on attacker", ACTION_INTERRUPT + 1), NULL)));
+
     triggers.push_back(new TriggerNode(
         "taunt on snare target",
         NextAction::array(0, new NextAction("taunt on snare target", ACTION_MOVE), NULL)));
