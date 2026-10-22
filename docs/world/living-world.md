@@ -203,6 +203,7 @@ Fresh pool bots at level 5 and above receive level-appropriate starter equipment
 - **Protection shields:** Tanking specs retain their highest-scoring shield in bags even while holding a two-handed weapon, swapping the shield into the off-hand immediately if a one-handed weapon is equipped.
 - **Armor classes:** Bots prioritize their native armor proficiencies, but will wear a lower armor class if an item fills an empty slot or beats the current item without sacrificing total armor and block.
 - **Duplicate copies:** Re-modelled copies of existing items — the same name at a far higher item id, with no loot, vendor or quest source of their own (such as the unobtainable second "Might of Menethil" next to the real Naxxramas mace) — never enter the gear pools; bots only receive the lowest-id original.
+- **Transmog clones:** Items created by the transmogrification system (clone prototypes with their own item id, and any id a clone shadows) are player-only: no pool that hands items to bots — gear, consumables, auction house, quest rewards or hire kits — ever offers them.
 - **Vendor weapon purchases:** Random pool bots with surplus gold above their trainer reserve will purchase single weapon upgrades from vendors. Profession tools are excluded from weapon evaluation.
 
 ### Bag management & cleanup order

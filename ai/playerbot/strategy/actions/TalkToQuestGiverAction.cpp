@@ -166,6 +166,14 @@ void TalkToQuestGiverAction::RewardSingleItem(Quest const* quest, WorldObject* q
     int index = 0;
     ItemPrototype const *item = sObjectMgr.GetItemPrototype(quest->RewChoiceItemId[index]);
 
+    // Owner transmog rule: the one choice is a clone id (shadowed reward) —
+    // complete the quest without an item rather than hand a bot a clone.
+    if (sRandomItemMgr.IsTransmogClone(quest->RewChoiceItemId[index]))
+    {
+        RewardNoItem(quest, questGiver, out);
+        return;
+    }
+
     std::map<std::string, std::string> args;
     args["%quest"] = chat->formatQuest(quest);
     args["%item"] = chat->formatItem(item);
@@ -223,6 +231,12 @@ ItemIds TalkToQuestGiverAction::BestRewards(Quest const* quest)
                 hireGated, sPlayerbotAIConfig.randomGearAllowPvP,
                 sPlayerbotAIConfig.randomGearAllowReputation);
         };
+        // Owner transmog rule: a quest template never lists a clone, but a
+        // clone id shadows a same-id real reward, so the pick checks the id.
+        auto cloneExcluded = [](uint32 itemId)
+        {
+            return sRandomItemMgr.IsTransmogClone(itemId);
+        };
         auto rankChoices = [&](bool skipGated)
         {
             ItemUsage best = ItemUsage::ITEM_USAGE_NONE;
@@ -230,6 +244,8 @@ ItemIds TalkToQuestGiverAction::BestRewards(Quest const* quest)
             for (uint8 i = 0; i < quest->GetRewChoiceItemsCount(); ++i)
             {
                 if (skipGated && gatedForHire(quest->RewChoiceItemId[i]))
+                    continue;
+                if (cloneExcluded(quest->RewChoiceItemId[i]))
                     continue;
                 ItemUsage usage = AI_VALUE2(ItemUsage, "item usage", quest->RewChoiceItemId[i]);
                 if (usage == ItemUsage::ITEM_USAGE_EQUIP)
@@ -248,6 +264,8 @@ ItemIds TalkToQuestGiverAction::BestRewards(Quest const* quest)
             for (uint8 i = 0; i < quest->GetRewChoiceItemsCount(); ++i)
             {
                 if (skipGated && gatedForHire(quest->RewChoiceItemId[i]))
+                    continue;
+                if (cloneExcluded(quest->RewChoiceItemId[i]))
                     continue;
                 ItemUsage usage = AI_VALUE2(ItemUsage, "item usage", quest->RewChoiceItemId[i]);
                 if (usage == best)
@@ -282,6 +300,14 @@ void TalkToQuestGiverAction::RewardMultipleItem(Player* requester, Quest const* 
         //Pick the best-scored item of the best rewards (AG-3/RPG-A1): usage
         // ties are broken by live stat weight instead of vendor order.
         bestIds = BestRewards(quest);
+        if (bestIds.empty())
+        {
+            // Every choice is excluded by the transmog rule (a clone id
+            // shadowing the reward): complete the quest without an item
+            // rather than hand a bot a clone.
+            RewardNoItem(quest, questGiver, out);
+            return;
+        }
         uint32 rewardIndex = *bestIds.begin();
         uint32 rewardScore = 0;
         if (bestIds.size() > 1)
@@ -323,7 +349,13 @@ void TalkToQuestGiverAction::RewardMultipleItem(Player* requester, Quest const* 
         }
         else
         {
-            uint32 rewardIndex = bestIds.empty() ? 0 : *bestIds.begin();
+            if (bestIds.empty())
+            {
+                // Same transmog fallback as the auto path: no item over a clone.
+                RewardNoItem(quest, questGiver, out);
+                return;
+            }
+            uint32 rewardIndex = *bestIds.begin();
             ItemPrototype const* proto = sObjectMgr.GetItemPrototype(quest->RewChoiceItemId[rewardIndex]);
             if (proto)
             {

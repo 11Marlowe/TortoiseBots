@@ -9,6 +9,7 @@
 #include "BotManager.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "../ai/playerbot/RandomBotFacade.h"
+#include "../ai/playerbot/RandomItemMgr.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "PlayerbotAIStorage.h"
 #include "../ai/playerbot/strategy/values/ItemUsageValue.h"
@@ -705,6 +706,11 @@ bool AhMarketService::IsItemEligible(ItemPrototype const* proto, bool forced) co
     if (!proto)
         return false;
 
+    // Owner rule: no transmog clone or duplicate copy is ever stocked, so no
+    // bot can win one from the synthetic market.
+    if (sRandomItemMgr.IsTransmogClone(proto))
+        return false;
+
     // Caps, blacklist, bonding and loot-window rules are the shared
     // AhSyntheticMarketPolicy; this reads game state into plain inputs.
     return ai::AhItemEligible(IsItemBlacklisted(proto->ItemId), forced, proto->Stackable != 0,
@@ -841,6 +847,11 @@ bool AhMarketService::BuyAuctionCandidate(AuctionEntry* auction, AuctionHouseObj
         return false;
 
     if (IsItemBlacklisted(auction->itemTemplate))
+        return false;
+
+    // Owner rule: players can auction items they created with
+    // transmogrification; a bot never bids on one.
+    if (sRandomItemMgr.IsTransmogClone(auction->itemTemplate))
         return false;
 
     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(auction->itemTemplate);

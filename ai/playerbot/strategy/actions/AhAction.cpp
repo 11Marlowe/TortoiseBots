@@ -246,6 +246,10 @@ bool AhBidAction::ExecuteCommand(Player* requester, std::string text, Unit* auct
             if (!AuctionItemCount(auction))
                 continue;
 
+            // Owner rule: never bid on a transmog clone.
+            if (sRandomItemMgr.IsTransmogClone(auction->itemTemplate))
+                continue;
+
             uint32 totalCost = std::min(auction->buyout, uint32(std::max(auction->bid, auction->startbid) * frand(1.05f, 1.25f)));
             uint32 const auctionItemCount = AuctionItemCount(auction);
             if (!auctionItemCount)
@@ -385,6 +389,11 @@ bool AhBidAction::ExecuteCommand(Player* requester, std::string text, Unit* auct
             continue;
 
         if (!strstri(proto->Name1, text.c_str()))
+            continue;
+
+        // Owner rule: a clone carries the base item's name, so the search can
+        // match one — never bid on it.
+        if (sRandomItemMgr.IsTransmogClone(curAuction.itemTemplate))
             continue;
 
         if (price && curAuction.bid + 5 > price)

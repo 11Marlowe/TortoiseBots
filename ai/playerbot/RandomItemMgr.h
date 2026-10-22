@@ -13,6 +13,7 @@
 #include "strategy/values/ItemUsageValue.h"
 #include "RaidQuestChainPolicy.h"
 #include "GearDuplicateItemPolicy.h"
+#include "TransmogClonePolicy.h"
 
 enum RandomItemType
 {
@@ -174,6 +175,15 @@ class RandomItemMgr
 	public:
         void Init();
         static bool HandleConsoleCommand(ChatHandler* handler, char const* args);
+        // Owner rule gate (TransmogClonePolicy.h): true when the item must
+        // never enter a pool a bot receives items from — a transmog clone
+        // prototype (DestItemId set), an id the core transmog map answers for
+        // (a clone also shadows a same-id real prototype, so the id itself is
+        // poisoned), or a duplicate-copy row. The id overload resolves through
+        // the core lookup first, which is exactly how a clone is reached;
+        // unknown ids pass (fail-open, like the other fresh-seed gates).
+        bool IsTransmogClone(ItemPrototype const* proto) const;
+        bool IsTransmogClone(uint32 itemId) const;
         RandomItemList Query(uint32 level, RandomItemType type, RandomItemPredicate* predicate);
         RandomItemList Query(uint32 level, uint8 clazz, uint8 specId, uint8 slot, uint32 quality);
         // Every item in the item info cache for an equipment slot, stat weight
