@@ -23,7 +23,8 @@ OPT_IN = pathlib.Path(ROOT) / "tools/optional-plans/zulfarrak-gahzrilla.sql"
 TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_boss")
 # The plans whose bosses ai_dungeon_boss lists, and their maps.
 BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36,
-              "stormwind_stockade": 34}
+              "stormwind_stockade": 34,
+              "razorfen_kraul": 47}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -42,11 +43,15 @@ SEEDED_BOSSES = {
     (36, 639): "Edwin VanCleef", (36, 645): "Cookie",
     (34, 1696): "Targorr the Dread", (34, 1663): "Dextren Ward", (34, 1666): "Kam Deepfury", (34, 1717): "Hamhock",
     (34, 1716): "Bazil Thredd",
+    (47, 6168): "Roogug", (47, 4424): "Aggem Thorncurse", (47, 4428): "Death Speaker Jargba",
+    (47, 4420): "Overlord Ramtusk", (47, 62503): "Rotthorn", (47, 4422): "Agathelos the Raging",
+    (47, 4421): "Charlga Razorflank",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
 # Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080,
 # Bruegal Ironknuckle 1720: rank 2, Stormwind Stockade).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720}
+# Razorfen Kraul: Spearhide 4438, Earthcaller Halmgar 4842, Blind Hunter 4425 — rank 2 in the world data).
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425}
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
 ZUMRAH_GRAVES = (
@@ -302,6 +307,35 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((last["entries"], float(last["radius"])), ("1708", 7.0))
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwind_stockade"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
+
+    def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
+        # 20261022210300 (turtle-agent prep/rfk, the plan file of abd37a3 with the pack fixes, 2026-10-22): the Razorfen Kraul draft
+        # with the pack fixes of PREP-RFK-2026-10-22.md, no row hand-set, with the boss rows of map 47. 7 legs, 633 steps
+        # (32 + 20 + 8 + 14 + 17 + 10 + 22 pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the
+        # packs that stand with a boss are that boss row's entries, not pulls; Halmgar 4842 and the Blind Hunter 4425 are pull members.
+        name, text = newest_plan_text("razorfen_kraul")
+        self.assertEqual(name, "20261022210300_world.sql")
+        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent 2054947 dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(len(leg_rows(text, "razorfen_kraul")), 7)
+        rows = [r for r in self.step_rows(text) if r["plan"] == "razorfen_kraul"]
+        self.assertEqual(len(rows), 633)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [32, 20, 8, 14, 17, 10, 22])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["6168", "4424", "4428", "4420", "62503", "4422", "4421"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        # The last step of every leg is its boss; the boss rows' entries are the packs that stand with them (Ramtusk's Spearhides,
+        # 5-6 yd from him; Aggem and the two animal legs hold none).
+        for leg in range(7):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["4516,4442", "", "4515,4523", "4438", "", "", "4517"])
+        # No pull still owns Halmgar as an uncounted extra: his pull row names him, and leg 3 has no skip left.
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertEqual([r["entries"] for r in pulls if "4842" in r["entries"].split(",")], ["4525,4842"])
+        self.assertEqual([r["entries"] for r in pulls if "4425" in r["entries"].split(",")], ["4539,4425"])
+        # No pull of leg 6 holds a Death's Head Priest under the den (the boss is 2 yd 2-D from the old priest pull): the boss row is
+        # the fight; the one priest pull left stands 40 yd from her, with the Warden (leg 6 old group 13).
+        self.assertEqual([(r["entries"], round(float(r["x"])), round(float(r["y"]))) for r in pulls if r["leg"] == "6" and "4517" in r["entries"].split(",")], [("4517,4437", 2189, 1832)])
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["razorfen_kraul"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (47);", text)
 
     def test_zulfarrak_and_uldaman_final_counts(self):
         # Each plan's newest INSERT follows the DELETE of its old steps and legs, so its rows are the plan after all migrations.
