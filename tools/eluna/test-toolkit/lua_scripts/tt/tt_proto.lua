@@ -30,7 +30,9 @@ local CFG = TT.CFG
 if not CFG.prototypes or not CFG.telemetry then return end
 
 local function unitByDb(map, db, entry)
-    local o = map:GetWorldObject(GetUnitGUID(db, entry))
+    local players = map:GetPlayers() or {}
+    if not players[1] then return nil end
+    local o = TT.findCreatureByDb(players[1], db, { entry })
     return o and o:ToUnit() or nil
 end
 

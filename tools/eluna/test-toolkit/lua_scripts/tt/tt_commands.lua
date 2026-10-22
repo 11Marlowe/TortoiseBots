@@ -151,11 +151,20 @@ local function mapInfo(map)
     }
 end
 
-local function playerCounter(p) return p:GetGUIDLow() end
+-- GetPlayerGUID(counter) is a plain uint64 that GetPlayerByGUID refuses in the
+-- pinned Eluna: keep the player's own ObjectGuid (a value, not the object) by counter.
+local PGUID = {}
+local function playerCounter(p)
+    local c = p:GetGUIDLow()
+    PGUID[c] = p:GetGUID()
+    return c
+end
 
 local function findPlayer(counter)
     if not counter then return nil end
-    return GetPlayerByGUID(GetPlayerGUID(counter))
+    local g = PGUID[counter]
+    if not g then return nil end
+    return GetPlayerByGUID(g)
 end
 
 -- point given (x y z) must be near the caller and on the caller's map
@@ -230,7 +239,7 @@ end
 function Q.unit(player, req)
     local map = player:GetMap()
     local hex = req.pos[2]
-    local o, why = TT.findByHex(map, hex)
+    local o, why = TT.findByHex(map, hex, player)
     if not o then return fail(player, req, why or "not_found", "no such unit on your map: " .. tostring(hex)) end
     local u = o:ToUnit()
     if not u then return fail(player, req, "not_a_unit", tostring(hex)) end
@@ -337,7 +346,7 @@ function Q.link(player, req)
     local hex = req.pos[2]
     local db = num(req.kv.db)
     if not db then
-        local o, why = TT.findByHex(map, hex)
+        local o, why = TT.findByHex(map, hex, player)
         if not o or not o:ToCreature() then return fail(player, req, why or "not_found", tostring(hex)) end
         db = o:ToCreature():GetDBTableGUIDLow()
     end
@@ -372,7 +381,7 @@ function Q.link(player, req)
     local function liveOf(dbg, entries)
         for _, e in ipairs(entries) do
             if e and e > 0 then
-                local o = map:GetWorldObject(GetUnitGUID(dbg, e))
+                local o = TT.findCreatureByDb(player, dbg, { e })
                 if o and o:ToUnit() then
                     live[#live + 1] = TT.unitSnap(o:ToUnit(), player:GetX(), player:GetY(), player:GetZ(), nil, map)
                     return
@@ -597,7 +606,7 @@ local function cmdPlace(player, req)
         local o = TT.atan2(ay - sy, ax - sx)
         local from = TT.pos(m)
         m:NearTeleport(sx, sy, sz + 0.1, o)
-        plan[#plan + 1] = { c = m:GetGUIDLow(), x = sx, y = sy, z = sz, n = m:GetName() }
+        plan[#plan + 1] = { c = playerCounter(m), x = sx, y = sy, z = sz, n = m:GetName() }
         out[#out + 1] = { g = TT.objHex(m), n = m:GetName(), from = from,
             to = { TT.round(sx), TT.round(sy), TT.round(sz) }, cb = m:IsInCombat() and true or false }
     end

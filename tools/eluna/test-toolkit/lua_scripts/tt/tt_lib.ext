@@ -235,23 +235,46 @@ end
 
 -- Find a creature/gameobject/player of `map` by hex guid; checks the entry so
 -- a stale or wrong guid never answers with another unit.
-function TT.findByHex(map, hex)
+-- The pinned Eluna's GetUnitGUID/GetObjectGUID/GetPlayerGUID return a plain
+-- uint64 that Map:GetWorldObject / GetPlayerByGUID refuse ("ObjectGuid
+-- expected"), so the object is found by a scan from `near` (an object of the
+-- same map) and matched on GetGUIDLow (the counter) + entry.
+function TT.findByHex(map, hex, near)
     local kind, entry, counter = TT.parseHex(hex)
     if not kind then return nil, "bad_guid" end
-    local g
+    if kind == "Player" then
+        local list = map:GetPlayers() or {}
+        for i = 1, #list do
+            if list[i]:GetGUIDLow() == counter then return list[i] end
+        end
+        return nil, "not_found"
+    end
+    if not near then return nil, "not_found" end
+    local found
     if kind == "Creature" then
-        g = GetUnitGUID(counter, entry)
+        found = near:GetCreaturesInRange(TT.CFG.max_search, entry, 0, 0) or {}
     elseif kind == "Gameobject" then
-        g = GetObjectGUID(counter, entry)
-    elseif kind == "Player" then
-        g = GetPlayerGUID(counter)
+        found = near:GetGameObjectsInRange(TT.CFG.max_search, entry, 0) or {}
     else
         return nil, "kind_not_supported"
     end
-    local o = map:GetWorldObject(g)
-    if not o then return nil, "not_found" end
-    if kind ~= "Player" and o:GetEntry() ~= entry then return nil, "entry_mismatch" end
-    return o
+    for i = 1, #found do
+        if found[i]:GetGUIDLow() == counter then return found[i] end
+    end
+    return nil, "not_found"
+end
+
+-- A creature by DB guid (+ one of `entries`), searched from `near`.
+function TT.findCreatureByDb(near, db, entries)
+    for _, e in ipairs(entries) do
+        if e and e > 0 then
+            local found = near:GetCreaturesInRange(TT.CFG.max_search, e, 0, 0) or {}
+            for i = 1, #found do
+                if found[i]:GetDBTableGUIDLow() == db then return found[i] end
+            end
+        end
+    end
+    return nil
 end
 
 -- ---------------------------------------------------------------------------
