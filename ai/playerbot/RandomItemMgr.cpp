@@ -997,7 +997,7 @@ void RandomItemMgr::BuildItemInfoCache()
         // wearing a copy scores it 0, so autogear replaces it with the real
         // item. The walk is ascending, so the lowest-id instance (the real
         // item) wins and stays eligible.
-        gearDuplicateItems.Add(proto->ItemId, proto->Name1);
+        gearDuplicateItems.Add(proto->ItemId, proto->Name1.c_str());
         if (gearDuplicateItems.IsDuplicate(proto->ItemId))
             continue;
 
