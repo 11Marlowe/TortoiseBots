@@ -175,13 +175,11 @@ class RandomItemMgr
 	public:
         void Init();
         static bool HandleConsoleCommand(ChatHandler* handler, char const* args);
-        // Owner rule gate (TransmogClonePolicy.h): true when the item must
-        // never enter a pool a bot receives items from — a transmog clone
-        // prototype (DestItemId set), an id the core transmog map answers for
-        // (a clone also shadows a same-id real prototype, so the id itself is
-        // poisoned), or a duplicate-copy row. The id overload resolves through
-        // the core lookup first, which is exactly how a clone is reached;
-        // unknown ids pass (fail-open, like the other fresh-seed gates).
+        // One gate for the item-exclusion rule (TransmogClonePolicy.h): a
+        // transmog clone prototype, an id the core transmog map answers for
+        // (it shadows a same-id real prototype), or a duplicate-copy row. The
+        // id overload resolves through the core lookup first; unknown ids
+        // pass (fail-open).
         bool IsTransmogClone(ItemPrototype const* proto) const;
         bool IsTransmogClone(uint32 itemId) const;
         RandomItemList Query(uint32 level, RandomItemType type, RandomItemPredicate* predicate);

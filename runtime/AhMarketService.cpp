@@ -706,8 +706,6 @@ bool AhMarketService::IsItemEligible(ItemPrototype const* proto, bool forced) co
     if (!proto)
         return false;
 
-    // Owner rule: no transmog clone or duplicate copy is ever stocked, so no
-    // bot can win one from the synthetic market.
     if (sRandomItemMgr.IsTransmogClone(proto))
         return false;
 
@@ -849,8 +847,7 @@ bool AhMarketService::BuyAuctionCandidate(AuctionEntry* auction, AuctionHouseObj
     if (IsItemBlacklisted(auction->itemTemplate))
         return false;
 
-    // Owner rule: players can auction items they created with
-    // transmogrification; a bot never bids on one.
+    // Players can auction items they created with transmogrification.
     if (sRandomItemMgr.IsTransmogClone(auction->itemTemplate))
         return false;
 

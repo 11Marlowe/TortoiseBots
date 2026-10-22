@@ -246,7 +246,6 @@ bool AhBidAction::ExecuteCommand(Player* requester, std::string text, Unit* auct
             if (!AuctionItemCount(auction))
                 continue;
 
-            // Owner rule: never bid on a transmog clone.
             if (sRandomItemMgr.IsTransmogClone(auction->itemTemplate))
                 continue;
 
@@ -391,9 +390,8 @@ bool AhBidAction::ExecuteCommand(Player* requester, std::string text, Unit* auct
         if (!strstri(proto->Name1, text.c_str()))
             continue;
 
-        // Owner rule: a clone carries the base item's name, so the search can
-        // match one — never bid on it.
-        if (sRandomItemMgr.IsTransmogClone(curAuction.itemTemplate))
+        // A clone carries the base item's name, so the search can match one.
+        if (sRandomItemMgr.IsTransmogClone(proto))
             continue;
 
         if (price && curAuction.bid + 5 > price)

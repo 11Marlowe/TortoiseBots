@@ -101,11 +101,9 @@ RandomItemMgr::RandomItemMgr()
 
 }
 
-// One gate for the owner rule; see TransmogClonePolicy.h for the three
-// conditions and the call sites (every cache walk and every AH, quest and
-// hire pick). The duplicate-copy condition reads the index built in
-// BuildItemInfoCache, which Init runs before the other cache builds; the two
-// clone conditions need no index at all.
+// The duplicate-copy condition reads the index built in BuildItemInfoCache,
+// which Init runs before the other cache builds; the two clone conditions
+// need no index at all.
 bool RandomItemMgr::IsTransmogClone(ItemPrototype const* proto) const
 {
     if (!proto)
@@ -245,7 +243,6 @@ void RandomItemMgr::BuildRandomItemCache()
             if (!proto)
                 continue;
 
-            // Owner transmog rule: clones never enter the guild-task pools.
             if (IsTransmogClone(proto))
                 continue;
 
@@ -1016,9 +1013,9 @@ void RandomItemMgr::BuildItemInfoCache()
         if (!proto)
             continue;
 
-        // Transmog clones first, BEFORE the duplicate registration: a clone
-        // carries the base item's name, so registering it in the name index
-        // could flag a higher-id original instead of the clone.
+        // Transmog clones must be skipped BEFORE the duplicate registration:
+        // a clone carries the base item's name and would otherwise flag a
+        // higher-id original instead of itself.
         if (IsTransmogClone(proto))
             continue;
 
@@ -3724,8 +3721,7 @@ void RandomItemMgr::BuildEquipCache()
             uint32 itemId = fields[5].GetUInt32();
 
             // Persisted rows predate the duplicate-copy rule; a copy cached
-            // before the fix must not re-enter the pools on load. The full
-            // transmog gate covers clone ids too.
+            // before the fix must not re-enter the pools on load.
             if (IsTransmogClone(itemId))
                 continue;
 
@@ -3818,9 +3814,8 @@ void RandomItemMgr::BuildEquipCache()
                 continue;
 
             // Covers the shirt/tabard lists too: they skip the itemInfoCache
-            // lookup below, so the copy check sits on the walk itself. Full
-            // transmog gate: clone ids and duplicate copies both out.
-            if (IsTransmogClone(itemId))
+            // lookup below, so the copy check sits on the walk itself.
+            if (IsTransmogClone(proto))
                 continue;
 
             // Reject everything no key could ever accept, cheapest test first.
@@ -4042,11 +4037,10 @@ void RandomItemMgr::BuildAmmoCache()
             candidates.push_back(candidate);
         } while (rows->NextRow());
 
-        // Owner transmog rule: this reads plain item_template rows (runtime
-        // clones are never rows there, but the materialised duplicate-copy
-        // rows are), so the composed gate applies before the pick.
+        // Reads plain item_template rows: runtime clones are never rows
+        // there, but the materialised duplicate-copy rows are.
         candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
-                              [this](ai::AmmoCandidate const& c) { return IsTransmogClone(c.entry); }),
+                              [](ai::AmmoCandidate const& c) { return sRandomItemMgr.IsTransmogClone(c.entry); }),
             candidates.end());
         return ai::PickAmmo(candidates, level);
     };
@@ -4142,7 +4136,6 @@ void RandomItemMgr::BuildPotionCache()
                 if (!proto)
                     continue;
 
-                // Owner transmog rule: clones never enter the potion pools.
                 if (IsTransmogClone(proto))
                     continue;
 
@@ -4220,7 +4213,6 @@ void RandomItemMgr::BuildFoodCache()
                 if (!proto)
                     continue;
 
-                // Owner transmog rule: clones never enter the food pools.
                 if (IsTransmogClone(proto))
                     continue;
 
@@ -4338,7 +4330,6 @@ void RandomItemMgr::BuildTradeCache()
             if (!proto)
                 continue;
 
-            // Owner transmog rule: clones never enter the trade pools.
             if (IsTransmogClone(proto))
                 continue;
 

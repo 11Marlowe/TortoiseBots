@@ -1,9 +1,7 @@
-// Standalone test for the transmog-clone exclusion rule: no item created by
-// transmogrification — and no duplicate-copy row — may ever enter a pool a
-// bot receives items from. The facts struct is the pure decision (see
-// TransmogClonePolicy.h); the duplicate-copy condition is the real
-// GearDuplicateItemIndex, composed the way RandomItemMgr::IsTransmogClone
-// composes it for the module call sites.
+// Standalone test for the transmog-clone exclusion rule: the composed gate
+// excludes a clone copy (DestItemId set), a duplicate-copy row and — with the
+// real GearDuplicateItemIndex composed in — the same-name custom-id copy;
+// normal items and unique-name custom ids stay eligible.
 //
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_transmog_clone_policy.cpp -o /tmp/test_transmog_clone_policy

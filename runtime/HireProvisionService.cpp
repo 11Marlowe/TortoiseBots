@@ -1553,9 +1553,8 @@ bool HireProvisionService::EquipHireGearSet(Player* bot, PlayerbotAI* ai, uint8_
         }
         if (!oldItem || oldItem->GetEntry() != row->itemId)
         {
-            // Owner rule: the offline generator never lists one, but a
-            // transmog clone or duplicate-copy id in the hire gear table is
-            // never equipped (the old item stays).
+            // The hire gear table comes from the offline generator; an
+            // excluded id is never equipped (the old item stays).
             if (sRandomItemMgr.IsTransmogClone(row->itemId))
                 continue;
             // A 2H main hand cannot be equipped while the offhand is held.

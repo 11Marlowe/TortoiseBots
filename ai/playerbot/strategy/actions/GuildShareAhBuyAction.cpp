@@ -250,7 +250,6 @@ bool GuildShareAhBuyAction::Execute(Event& event)
             uint32 auctionItemId = item->GetProto()->ItemId;
             uint32 auctionCount = item->GetCount();
 
-            // Owner rule: never buy a transmog clone for the share list.
             if (sRandomItemMgr.IsTransmogClone(auctionItemId))
                 continue;
 
