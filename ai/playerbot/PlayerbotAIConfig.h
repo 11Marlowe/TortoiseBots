@@ -554,7 +554,6 @@ public:
     bool randomBotShowHelmet;
     bool randomBotShowCloak;
     bool disableRandomLevels;
-    bool instantRandomize;
     bool gearscorecheck;
     int32 levelCheck;
     // Pool-bot trade safety (issue #469, donor EnableRandomBotTrading 0-3
