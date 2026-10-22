@@ -1,6 +1,7 @@
 // Standalone check for runtime/DungeonRunPolicy.h (the run leader's step machine):
 //   g++ -std=c++17 -Wall -Wextra tools/test_dungeon_run_policy.cpp -o /tmp/test_dungeon_run_policy && /tmp/test_dungeon_run_policy
 #include "../runtime/DungeonRunPolicy.h"
+#include "../runtime/RemoteCommanderPolicy.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -7161,6 +7162,361 @@ static void TestForwardMoveEscapesNavmeshIsland()
     CHECK(Tick(r, f) == "move 1584.0 1050.0 9.0");
 }
 
+// Uldaman r16-19z34 slot 5, step 39 (UNREACHABLE-ULDAMAN-S39-2026-10-22): the
+// guard return walked a partial path to its end and left the tank on the dead-end
+// tip of the plateau's ramp at -159.7 287.2 -50.2, 2.4 yd above the floor and not
+// linked to it. Its walk back to the stand point (the step's own point, the stay
+// anchor) was refused unreachable ('going on from here'), then the step's own move
+// to the same point was refused with no ring point either: a pause, and a resume
+// paused again. The one reading said island; no second sign came, so the island
+// escape never ran. The slice: step 38's stand, step 39's point, a point after it.
+static DungeonPlan UldamanS39Plan()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, -174.5f, 308.5f, -53.4f), Step(PlanStepKind::Move, -163.5f, 298.7f, -52.8f),
+        Step(PlanStepKind::Move, -150.0f, 280.0f, -46.0f)};
+    return plan;
+}
+
+// The tank on the ramp's tip: the path toward step 39's point is partial and ends
+// 0.03 yd from it, 12.4 yd short of the point (one sign); no fresh good spot.
+static Facts OnRampTip()
+{
+    Facts g = Party(0);
+    g.leadX = -159.7f;
+    g.leadY = 287.2f;
+    g.leadZ = -50.2f;
+    g.leadIsland = LeadOnIsland(false, true, 0.03f, 12.4f);
+    return g;
+}
+
+// CommanderMove's answer for the r16 refusals: the path was incomplete and ended 0.03 yd from the lead bot
+// (RemoteCommander::NoProgressFromLead), so the glue marks it (kLeadNoProgressMark).
+static const std::string kNoWalkablePath =
+    std::string("unreachable: The lead bot has no walkable path to that point (no navmesh route reaches it). ") +
+    kLeadNoProgressMark + ".";
+// The same code without that evidence: a NOPATH (no polygon at the point), or an incomplete path that made real
+// progress toward a point behind a closed door or on a patch of mesh it does not reach.
+static const char* const kBareUnreachable =
+    "unreachable: The lead bot has no walkable path to that point (no navmesh route reaches it).";
+static const char* const kNoRingPointEither = " (no reachable point within 15 yd of it either)";
+
+static void SetGuardReturn(Run& r, float x, float y, float z)
+{
+    r.guardReturn = true;
+    r.guardX = x;
+    r.guardY = y;
+    r.guardZ = z;
+}
+
+static void TestR16StandRefusalHopsOffIsland()
+{
+    DungeonPlan plan = UldamanS39Plan();
+    Facts g = OnRampTip();
+    CHECK(g.leadIsland && !g.goodSpotCut);
+    Run r = Start(&plan, 1);
+    SetGuardReturn(r, -163.5f, 298.7f, -52.8f); // the stay anchor: step 39's own point
+    OrderRefused(r, MoveOrder(-163.5f, 298.7f, -52.8f, false), kNoWalkablePath);
+    CHECK(r.state == State::Running && !r.guardReturn && r.islandSuspect && r.islandRefusals == 1);
+    CHECK(r.note.find("back to the stand point refused (unreachable") == 0);
+    CHECK(r.note.find("navmesh island") != std::string::npos && r.note.find("going on from here") == std::string::npos);
+    // The next tick hops the tank off the tip instead of sending the same move.
+    CHECK(Tick(r, g) == "escape from -159.7 287.2 -50.2 toward -163.5 298.7 -52.8");
+    CHECK(r.escapeFromMove && r.stepEscapes == 1 && r.note.find("(1 of 2)") != std::string::npos);
+}
+
+static void TestR16StepMoveRefusalHopsOffIsland()
+{
+    DungeonPlan plan = UldamanS39Plan();
+    Facts g = OnRampTip();
+    Run r = Start(&plan, 1);
+    // One sign: the move goes out (r16 at 1134.3 s) and is refused; the glue's detour search found no ring point.
+    std::string const move = Tick(r, g);
+    CHECK(move == "move -163.5 298.7 -52.8");
+    CHECK(r.islandEvidence && !r.escapeOn);
+    CHECK(RefusedFromIsland(r, move, kNoWalkablePath));
+    CHECK(r.state == State::Running && r.islandSuspect && r.islandRefusals == 1 && r.phase == Phase::Begin);
+    CHECK(r.note.find("cmd move -163.5 298.7 -52.8 refused (unreachable") == 0);
+    CHECK(r.note.find("navmesh island") != std::string::npos);
+    std::string const escape = Tick(r, g);
+    CHECK(escape == "escape from -159.7 287.2 -50.2 toward -163.5 298.7 -52.8");
+    // The hop finds no spot (the 2.4 yd drop off the tip may fail the line check): the move goes out once more
+    // from that spot, and its refusal pauses with the old text: no second hop, no loop.
+    OrderRefused(r, escape, "no-spot: no spot within 10 yd in the lead bot's sight has a floor, a clear line and a way on");
+    CHECK(r.noSpotKnown && r.state == State::Running);
+    CHECK(Tick(r, g) == move);
+    CHECK(!RefusedFromIsland(r, move, kNoWalkablePath));
+    OrderRefused(r, move, std::string(kNoWalkablePath) + kNoRingPointEither);
+    CHECK(r.state == State::Paused);
+    CHECK(r.note.find(std::string("cmd move -163.5 298.7 -52.8 refused: ") + kNoWalkablePath + kNoRingPointEither) == 0);
+    // The open risk, not proven either way offline: the 3 yd ring spot west of the tip, on the floor at
+    // -162.7 287.2 -52.7 (its path to the point is complete), passes the line check only if the floor read at the
+    // first sample (1.5 yd out) is within kSegmentRiseYd of the tank's -50.2: the floor's -52.3 there is 2.1 yd down.
+    // The one-sided limit: that spot leads on (RingSpotLeadsOn), so the 2.1 yd step down passes (kSegmentDropYd);
+    // the last good spot's line (no leads-on read) keeps kSegmentRiseYd both ways.
+    std::vector<SegmentSample> drop = EscapeSegmentSamples(-159.7f, 287.2f, -50.2f, -162.7f, 287.2f, -52.7f);
+    CHECK(drop.size() == 2);
+    for (SegmentSample& sample : drop)
+    {
+        sample.ground = true;
+        sample.groundZ = sample.x > -162.0f ? -52.3f : -52.7f;
+    }
+    CHECK(RingSpotLeadsOn(false, false, 0.0f, 0.0f)); // its path to the point is complete
+    CHECK(CheckEscapeSegment(-50.2f, drop, false, true) == SegmentVerdict::Ok);
+    CHECK(CheckEscapeSegment(-50.2f, drop, false, false) == SegmentVerdict::Step);
+    drop[0].groundZ = -51.5f; // the ramp's own slope under the first sample
+    CHECK(CheckEscapeSegment(-50.2f, drop, false, false) == SegmentVerdict::Ok);
+    // The walk back to the stand refused at a no-spot spot: 'going on from here', as before.
+    Run n = Start(&plan, 1);
+    Tick(n, g);
+    n.noSpotKnown = true;
+    n.noSpotX = g.leadX;
+    n.noSpotY = g.leadY;
+    n.noSpotZ = g.leadZ;
+    SetGuardReturn(n, -163.5f, 298.7f, -52.8f);
+    OrderRefused(n, move, kNoWalkablePath);
+    CHECK(!n.islandSuspect && n.note.find("going on from here") != std::string::npos);
+}
+
+// After the caps (kIslandEscapes, kStepEscapes, and kStepEscapes refusals taken as
+// the second sign in one step) a path refusal pauses with the existing text.
+static void TestR16RefusalAfterTheCapsPauses()
+{
+    DungeonPlan plan = UldamanS39Plan();
+    Facts g = OnRampTip();
+    std::string const move = "move -163.5 298.7 -52.8";
+    std::string const paused = std::string("cmd ") + move + " refused: " + kNoWalkablePath + kNoRingPointEither;
+    for (int cap = 0; cap < 2; ++cap)
+    {
+        Run c = Start(&plan, 1);
+        CHECK(Tick(c, g) == move);
+        if (cap == 0)
+            c.islandEscapes = kIslandEscapes;
+        else
+            c.stepEscapes = kStepEscapes;
+        CHECK(!RefusedFromIsland(c, move, kNoWalkablePath) && !c.islandSuspect);
+        OrderRefused(c, move, std::string(kNoWalkablePath) + kNoRingPointEither);
+        CHECK(c.state == State::Paused && c.note.find(paused) == 0);
+        // The walk back to the stand: 'going on from here', as before.
+        Run s = Start(&plan, 1);
+        s.islandEscapes = c.islandEscapes;
+        s.stepEscapes = c.stepEscapes;
+        SetGuardReturn(s, -163.5f, 298.7f, -52.8f);
+        OrderRefused(s, move, kNoWalkablePath);
+        CHECK(!s.islandSuspect && s.note.find("going on from here") != std::string::npos);
+    }
+    // Hops that are refused "wait" (a fight, the lead bot on the move) are no tries and give the escape caps back:
+    // the refusals taken as the second sign are capped on their own.
+    Run w = Start(&plan, 1);
+    for (std::uint32_t i = 0; i < kStepEscapes; ++i)
+    {
+        CHECK(Tick(w, g) == move);
+        CHECK(RefusedFromIsland(w, move, kNoWalkablePath));
+        std::string const escape = Tick(w, g);
+        CHECK(escape.compare(0, 12, "escape from ") == 0);
+        OrderRefused(w, escape, "wait: a party bot is in combat");
+        CHECK(w.stepEscapes == 0 && w.islandEscapes == 0);
+    }
+    CHECK(Tick(w, g) == move);
+    CHECK(!RefusedFromIsland(w, move, kNoWalkablePath));
+    OrderRefused(w, move, std::string(kNoWalkablePath) + kNoRingPointEither);
+    CHECK(w.state == State::Paused && w.note.find(paused) == 0);
+    // The next step has fresh refusals.
+    Run x = Start(&plan, 1);
+    x.islandRefusals = kStepEscapes;
+    NextStep(x, "arrived");
+    CHECK(x.islandRefusals == 0);
+}
+
+// Any other refusal is unchanged: not a path refusal of the lead bot's (lead-unavailable, off-mesh: the point is off
+// the walkable ground), a direct step, a walk back, another step kind, or a path just read good.
+static void TestNonPathRefusalUnchanged()
+{
+    DungeonPlan plan = UldamanS39Plan();
+    Facts g = OnRampTip();
+    std::string const move = "move -163.5 298.7 -52.8";
+    for (const char* answer : {"lead-unavailable: The lead bot is dead, on a taxi or teleporting.",
+             "off-mesh: The point is not on walkable ground (the path ends more than 5 yd from it).", "busy: a task"})
+    {
+        Run r = Start(&plan, 1);
+        CHECK(Tick(r, g) == move);
+        CHECK(!RefusedFromIsland(r, move, answer) && !r.islandSuspect && r.islandRefusals == 0);
+        Run s = Start(&plan, 1);
+        SetGuardReturn(s, -163.5f, 298.7f, -52.8f);
+        OrderRefused(s, move, answer);
+        CHECK(s.state == State::Running && !s.islandSuspect);
+        CHECK(s.note == std::string("back to the stand point refused (") + answer + "): going on from here");
+        CHECK(Tick(s, g) == move);
+    }
+    // Another order than the step's own move (a gather, an approach hop) is not the glue's to take.
+    Run o = Start(&plan, 1);
+    CHECK(!RefusedFromIsland(o, "move -160.0 290.0 -50.0", kNoWalkablePath) && !o.islandSuspect);
+    // A direct step: its line crosses a navmesh hole; no island reading.
+    DungeonPlan direct = plan;
+    direct.steps[1].kind = PlanStepKind::MoveDirect;
+    Run d = Start(&direct, 1);
+    CHECK(!RefusedFromIsland(d, MoveOrder(-163.5f, 298.7f, -52.8f, true), kNoWalkablePath) && !d.islandSuspect);
+    Run dg = Start(&direct, 1);
+    SetGuardReturn(dg, -163.5f, 298.7f, -52.8f);
+    OrderRefused(dg, move, kNoWalkablePath);
+    CHECK(!dg.islandSuspect && dg.note.find("going on from here") != std::string::npos);
+    // A walk back: its own rules (PassWalkBackPoint).
+    Run b = Start(&plan, 2);
+    b.walkBack = true;
+    b.walkBackIdx = b.walkBackStart = 1;
+    CHECK(!RefusedFromIsland(b, MoveOrder(-150.0f, 280.0f, -46.0f, false), kNoWalkablePath) && !b.islandSuspect);
+    // A pull step's guard return: going on from here.
+    DungeonPlan pull = plan;
+    pull.steps[1] = PullStep(-163.5f, {7022});
+    Run p = Start(&pull, 1);
+    SetGuardReturn(p, -163.5f, 298.7f, -52.8f);
+    OrderRefused(p, move, kNoWalkablePath);
+    CHECK(!p.islandSuspect && p.note.find("going on from here") != std::string::npos);
+    // The last read path got somewhere: not an island.
+    Run k = Start(&plan, 1);
+    k.leadPathGoodNow = true;
+    CHECK(!RefusedFromIsland(k, move, kNoWalkablePath) && !k.islandSuspect);
+    SetGuardReturn(k, -163.5f, 298.7f, -52.8f);
+    OrderRefused(k, move, kNoWalkablePath);
+    CHECK(!k.islandSuspect && k.note.find("going on from here") != std::string::npos);
+    // A paused run takes nothing.
+    Run q = Start(&plan, 1);
+    q.state = State::Paused;
+    CHECK(!RefusedFromIsland(q, move, kNoWalkablePath));
+}
+
+// Codex review of 51fc904f: a bare `unreachable` is no source-side evidence. From a lead bot on the main floor the
+// same code comes back for a point with no polygon (NOPATH), behind a closed door, or on a patch the path got well
+// toward: no hop, the old pause and 'going on from here', also after a resume. The r16 refusal carries the mark.
+static void TestBareUnreachableIsNoIslandSign()
+{
+    // Where the glue tells them apart (CommanderMove marks only the no-progress one).
+    RemoteCommander::MoveFacts m;
+    m.distanceFromLead = 12.4f;
+    m.maxDistance = 100.0f;
+    m.fromRunLeader = true;
+    m.pathType = RemoteCommander::kPathIncomplete;
+    m.endFromLead = 0.03f; // r16: the path ends at the lead bot
+    CHECK(RemoteCommander::CheckMove(m) == RemoteCommander::MoveVerdict::NoPath && RemoteCommander::NoProgressFromLead(m));
+    m.pathType = RemoteCommander::kPathNoPath; // no polygon at the point
+    CHECK(RemoteCommander::CheckMove(m) == RemoteCommander::MoveVerdict::NoPath && !RemoteCommander::NoProgressFromLead(m));
+    m.pathType = RemoteCommander::kPathIncomplete; // a closed door: real progress, then the end
+    m.endFromLead = 9.0f;
+    m.endOffset = 6.0f;
+    m.fromRunLeader = false; // (the run leader's own move with progress is accepted: no refusal at all)
+    CHECK(RemoteCommander::CheckMove(m) == RemoteCommander::MoveVerdict::NoPath && !RemoteCommander::NoProgressFromLead(m));
+    m.endFromLead = -1.0f; // not measured
+    CHECK(!RemoteCommander::NoProgressFromLead(m));
+    CHECK(LeadNoProgressRefusal(kNoWalkablePath) && !LeadNoProgressRefusal(kBareUnreachable));
+    CHECK(!LeadNoProgressRefusal(std::string("off-mesh: x. ") + kLeadNoProgressMark));
+
+    DungeonPlan plan = UldamanS39Plan();
+    std::string const move = "move -163.5 298.7 -52.8";
+    // The lead bot on the main floor near step 38's stand; its one reading toward the point said nothing.
+    Facts f = Party(0);
+    f.leadX = -170.0f;
+    f.leadY = 305.0f;
+    f.leadZ = -53.0f;
+    // The step's move refused bare: the old pause; resumed (the walk back to step 38's stand, then the move), the
+    // same refusal pauses again, and no tick in between sends a hop.
+    Run r = Start(&plan, 1);
+    CHECK(Tick(r, f) == move);
+    CHECK(!RefusedFromIsland(r, move, kBareUnreachable) && !r.islandSuspect);
+    OrderRefused(r, move, std::string(kBareUnreachable) + kNoRingPointEither);
+    CHECK(r.state == State::Paused && r.note.find("cmd " + move + " refused: " + kBareUnreachable) == 0);
+    CHECK(Resume(r));
+    Facts atStand = f;
+    atStand.leadX = -174.5f;
+    atStand.leadY = 308.5f;
+    atStand.leadZ = -53.4f;
+    std::string sent;
+    for (int i = 0; i < 40 && sent != move && r.state == State::Running; ++i)
+    {
+        sent = Tick(r, i == 0 ? f : atStand);
+        CHECK(sent.find("escape") == std::string::npos);
+    }
+    CHECK(sent == move && !r.islandSuspect);
+    CHECK(!RefusedFromIsland(r, move, kBareUnreachable));
+    OrderRefused(r, move, std::string(kBareUnreachable) + kNoRingPointEither);
+    CHECK(r.state == State::Paused && r.note.find("cmd " + move + " refused: " + kBareUnreachable) == 0);
+    // The walk back to the stand refused bare: 'going on from here', and the next tick sends the move, not a hop.
+    Run s = Start(&plan, 1);
+    CHECK(Tick(s, f) == move);
+    SetGuardReturn(s, -163.5f, 298.7f, -52.8f);
+    OrderRefused(s, move, kBareUnreachable);
+    CHECK(!s.islandSuspect && s.note.find("going on from here") != std::string::npos);
+    CHECK(Tick(s, f) == move);
+    // Even on the ramp's tip (one reading said island) a bare `unreachable` adds no sign.
+    Run t = Start(&plan, 1);
+    CHECK(Tick(t, OnRampTip()) == move);
+    CHECK(!RefusedFromIsland(t, move, kBareUnreachable) && !t.islandSuspect);
+    OrderRefused(t, move, std::string(kBareUnreachable) + kNoRingPointEither);
+    CHECK(t.state == State::Paused);
+}
+
+// The glue's order for a refused own-step move (BotCommands.cpp, !accepted): the detour first, then
+// RefusedFromIsland, then OrderRefused. `detour` is what NearestReachablePoint and UseDetour gave.
+static void GlueRefused(Run& r, const std::string& order, const std::string& answer, bool detour)
+{
+    const PlanStep* step = Current(r);
+    bool const ownMove = step && (step->kind == PlanStepKind::Move || step->kind == PlanStepKind::MoveDirect) &&
+        order == MoveOrder(step->x, step->y, step->z, step->kind == PlanStepKind::MoveDirect);
+    bool const unreachable = ownMove && (answer.compare(0, 11, "unreachable") == 0 || answer.compare(0, 8, "off-mesh") == 0);
+    if (!(unreachable && step && !r.detour && detour) && !(unreachable && RefusedFromIsland(r, order, answer)))
+        OrderRefused(r, order, answer + (unreachable ? " (no reachable point within 15 yd of it either)" : ""));
+}
+
+// Opus review of 51fc904f: the guard's walk back to the stand point is the step's own point (the stay anchor, the
+// plan's z): the glue hands it to RefusedFromIsland before OrderRefused, so its guard branch never runs. The walk
+// back must not go out again on the next tick (Tick walks a guard return before MoveStep): the hop does.
+static void TestGuardReturnThroughTheGlue()
+{
+    DungeonPlan plan = UldamanS39Plan();
+    Facts g = OnRampTip();
+    Run r = Start(&plan, 1);
+    SetGuardReturn(r, -163.5f, 298.7f, -52.8f); // plan z == guard z
+    std::string const back = MoveOrder(r.guardX, r.guardY, r.guardZ, false);
+    CHECK(back == MoveOrder(plan.steps[1].x, plan.steps[1].y, plan.steps[1].z, false));
+    GlueRefused(r, back, kNoWalkablePath, false);
+    CHECK(r.state == State::Running && r.islandSuspect && !r.guardReturn);
+    CHECK(r.note.find("cmd " + back + " refused (unreachable") == 0);
+    CHECK(Tick(r, g) == "escape from -159.7 287.2 -50.2 toward -163.5 298.7 -52.8");
+    // A detour found: the glue's detour, no sign taken (the guard branch is not this path's).
+    Run d = Start(&plan, 1);
+    SetGuardReturn(d, -163.5f, 298.7f, -52.8f);
+    d.detour = false;
+    GlueRefused(d, back, kNoWalkablePath, true);
+    CHECK(!d.islandSuspect && d.state == State::Running);
+    // A bare `unreachable` through the glue: the guard branch, 'going on from here', as before.
+    Run b = Start(&plan, 1);
+    SetGuardReturn(b, -163.5f, 298.7f, -52.8f);
+    GlueRefused(b, back, kBareUnreachable, false);
+    CHECK(!b.islandSuspect && !b.guardReturn && b.state == State::Running);
+    CHECK(b.note.find("going on from here") != std::string::npos);
+}
+
+// Opus review of 51fc904f: the sign taken, a fight moves the tank off the tip; the new spot's path reads good:
+// the suspicion is gone and the move goes out, no hop.
+static void TestGoodPathClearsTheRefusalSign()
+{
+    DungeonPlan plan = UldamanS39Plan();
+    Facts g = OnRampTip();
+    Run r = Start(&plan, 1);
+    std::string const move = Tick(r, g);
+    CHECK(RefusedFromIsland(r, move, kNoWalkablePath) && r.islandSuspect);
+    Facts f = Party(0);
+    f.leadX = -162.1f;
+    f.leadY = 287.0f;
+    f.leadZ = -52.7f;
+    f.leadPathGood = true;
+    f.anyInCombat = true;
+    Tick(r, f);
+    CHECK(!r.islandSuspect);
+    f.anyInCombat = false;
+    CHECK(Tick(r, f) == move);
+    CHECK(!r.escapeOn && r.stepEscapes == 0);
+}
+
 // The detour's candidate check (NearestReachablePoint). r6-19z24: from the
 // island at 1591.2 1044.3 the 3 yd ring point of step 64, 1587.0 1050.0, had a
 // partial path ending at 1588.4 1046.5 (3.8 yd from it, 3.6 yd from the lead
@@ -7659,6 +8015,48 @@ static void TestEscapeSegmentCheck()
     v = flat();
     v[3].liquid = true;
     CHECK(CheckEscapeSegment(0, v, false) == SegmentVerdict::Liquid);
+    // One-sided steps (Uldaman r16-19z34): a rise over kSegmentRiseYd is refused even where the spot leads on ...
+    v = flat();
+    v[0].groundZ = kSegmentRiseYd + 0.1f;
+    CHECK(CheckEscapeSegment(0, v, false, true) == SegmentVerdict::Step);
+    // ... a step down of 2.1-4.0 yd passes only to a spot whose path leads on ...
+    for (float down : {kSegmentRiseYd + 0.1f, 3.0f, kSegmentDropYd})
+    {
+        v = flat();
+        for (SegmentSample& x : v)
+        {
+            x.groundZ = -down;
+            x.z = -down;
+        }
+        CHECK(CheckEscapeSegment(0, v, false, true) == SegmentVerdict::Ok);
+        CHECK(CheckEscapeSegment(0, v, false, false) == SegmentVerdict::Step);
+    }
+    // ... and one over kSegmentDropYd never.
+    v = flat();
+    for (SegmentSample& x : v)
+    {
+        x.groundZ = -(kSegmentDropYd + 0.1f);
+        x.z = x.groundZ;
+    }
+    CHECK(CheckEscapeSegment(0, v, false, true) == SegmentVerdict::Step);
+    // The step down counts from sample to sample: two 3 yd steps down (6 yd in all, within kEscapeMaxVertical) pass.
+    v = flat();
+    for (std::size_t i = 0; i < v.size(); ++i)
+    {
+        v[i].groundZ = i == 0 ? -3.0f : -6.0f;
+        v[i].z = v[i].groundZ;
+    }
+    CHECK(CheckEscapeSegment(0, v, false, true) == SegmentVerdict::Ok);
+    // Uldaman r13-19z30's closed pit stays refused: 2.6 yd below the crest, its spot's own path ends 1.1 yd from it
+    // (no leads-on), so the glue never asks the line with the larger drop, and the plain line check refuses it.
+    CHECK(!RingSpotLeadsOn(false, true, 1.1f, 4.3f));
+    std::vector<SegmentSample> pit = EscapeSegmentSamples(42.7f, 376.5f, -36.3f, 42.7f, 373.5f, -38.9f);
+    for (SegmentSample& x : pit)
+    {
+        x.ground = true;
+        x.groundZ = -38.9f;
+    }
+    CHECK(CheckEscapeSegment(-36.3f, pit, false, RingSpotLeadsOn(false, true, 1.1f, 4.3f)) == SegmentVerdict::Step);
     // A ramp of 1.9 yd per sample up a line to 9.5 yd: no step, too far up in all.
     v = EscapeSegmentSamples(0, 0, 0, 10, 0, 9.5f);
     for (SegmentSample& x : v)
@@ -10945,6 +11343,13 @@ int main()
     TestLeadOnIslandReading();
     TestWalkBackEscapesNavmeshIsland();
     TestForwardMoveEscapesNavmeshIsland();
+    TestR16StandRefusalHopsOffIsland();
+    TestR16StepMoveRefusalHopsOffIsland();
+    TestR16RefusalAfterTheCapsPauses();
+    TestNonPathRefusalUnchanged();
+    TestBareUnreachableIsNoIslandSign();
+    TestGuardReturnThroughTheGlue();
+    TestGoodPathClearsTheRefusalSign();
     TestForwardMoveIslandNeedsSecondSign();
     TestForwardMoveNoPathLedgeEscapes();
     TestDetourPointReachable();

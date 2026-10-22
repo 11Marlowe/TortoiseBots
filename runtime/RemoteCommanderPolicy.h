@@ -1409,6 +1409,18 @@ inline bool IsAtLead(float distanceFromLead)
     return distanceFromLead <= kAtLeadDistance;
 }
 
+// The no-progress refusal (CheckMove's NoPath for an incomplete path that ends
+// within kNoProgressYd of the lead bot): the lead bot's own spot leads nowhere
+// toward the point. Not a NOPATH (the point may have no polygon at all), nor an
+// incomplete path that made real progress (a closed door, a point on another
+// patch of mesh): those say the point is the trouble, not the lead bot's spot.
+// The run leader takes only this one as an island's sign (DungeonRun::RefusedFromIsland).
+inline bool NoProgressFromLead(MoveFacts const& facts)
+{
+    return !(facts.pathType & kPathNoPath) && (facts.pathType & kPathIncomplete) && facts.endFromLead >= 0.0f &&
+        facts.endFromLead <= kNoProgressYd;
+}
+
 inline MoveVerdict CheckMove(MoveFacts const& facts)
 {
     if (facts.maxDistance <= 0.0f || facts.distanceFromLead > facts.maxDistance)
