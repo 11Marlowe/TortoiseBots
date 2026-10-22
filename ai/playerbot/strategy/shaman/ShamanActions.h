@@ -593,8 +593,8 @@ namespace ai
         CastEarthShockAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "earth shock") {}
     };
 
-    // Issue #1158: the interrupt rows only - "earth shock" itself stays on
-    // the current target (rotation and lose-aggro rows cast it there).
+    // Interrupt rows only: "earth shock" itself stays on the current target
+    // (rotation and lose-aggro rows cast it there).
     class CastEarthShockInterruptAction : public CastInterruptSpellAction
     {
     public:

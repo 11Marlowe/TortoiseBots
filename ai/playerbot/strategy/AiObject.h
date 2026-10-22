@@ -309,8 +309,8 @@ class clazz : public super \
         clazz(PlayerbotAI* ai) : CastSpellAction(ai, spell) {} \
     }
 
-// Interrupt rows (issue #1158): cast at the "interrupt target" pick, not
-// the current target. Pair only with an InterruptSpellTrigger row.
+// Interrupt rows: cast at the "interrupt target" pick, not the current
+// target. Pair only with an InterruptSpellTrigger row.
 #define MELEE_INTERRUPT_ACTION(clazz, spell) \
     class clazz : public CastMeleeInterruptSpellAction \
     { \
@@ -542,7 +542,7 @@ class clazz : public CastSpellAction \
         public: \
         clazz(PlayerbotAI* ai) : CastSpellAction(ai, name) {} \
 
-// Interrupt rows (issue #1158): see CastInterruptSpellAction.
+// Interrupt rows: see CastInterruptSpellAction.
 #define BEGIN_INTERRUPT_SPELL_ACTION(clazz, name) \
 class clazz : public CastInterruptSpellAction \
         { \

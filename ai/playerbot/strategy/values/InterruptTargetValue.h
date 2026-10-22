@@ -5,11 +5,10 @@
 
 namespace ai
 {
-    // Issue #1158: the bot's interrupt pick - any engaged hostile in the
-    // interrupt spell's range that is casting something the interrupt can
-    // stop, best cast first (InterruptTargetPolicy.h). Qualified by the
-    // interrupt spell ("interrupt target::kick"), like "enemy healer
-    // target", so the trigger and its action read the same pick.
+    // The bot's interrupt pick: the best casting attacker the interrupt can
+    // reach (InterruptTargetPolicy.h). Qualified by the interrupt spell
+    // ("interrupt target::kick"), like "enemy healer target", so the trigger
+    // and its action read the same pick.
     class InterruptTargetValue : public UnitCalculatedValue, public Qualified
     {
     public:

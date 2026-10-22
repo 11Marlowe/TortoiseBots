@@ -121,11 +121,10 @@ namespace ai
     };
 
     //---------------------------------------------------------------------------------------------------------------------
-    // Issue #1158: the interrupt rows cast at the "interrupt target" pick -
-    // any engaged hostile in range casting an interruptible spell - instead
-    // of the current target, matching InterruptSpellTrigger. Only rows
-    // fired by an interrupt trigger may use these: a shared action would
-    // drag non-interrupt rows off the current target.
+    // The interrupt rows cast at the "interrupt target" pick - any engaged
+    // hostile in range casting an interruptible spell. Only rows fired by
+    // an interrupt trigger may use these: a shared action would drag
+    // non-interrupt rows off the current target.
     class CastInterruptSpellAction : public CastSpellAction
     {
     public:

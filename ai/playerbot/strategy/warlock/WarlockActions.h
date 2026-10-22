@@ -359,9 +359,9 @@ namespace ai
     public:
         CastSpellLockAction(PlayerbotAI* ai) : CastPetSpellAction(ai, "spell lock") {}
 
-        // Issue #1158: cast at the interrupt pick - any engaged hostile in
-        // range casting an interruptible spell - not only the current
-        // target. Matches the SpellLockTrigger read.
+        // Cast at the interrupt pick - any engaged hostile in range casting
+        // an interruptible spell - not only the current target. Matches the
+        // SpellLockTrigger read.
     protected:
         std::string GetTargetName() override { return "interrupt target"; }
         std::string GetTargetQualifier() override { return GetSpellName(); }

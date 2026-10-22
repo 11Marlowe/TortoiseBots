@@ -146,12 +146,11 @@ namespace ai
         virtual bool IsActive() override;
     };
 
-	// Issue #1158: the pick is any engaged hostile in the interrupt's range
-	// casting an interruptible spell ("interrupt target", best cast first),
-	// not only the current target - a caster the tank is not hitting was
-	// never kicked. The matching actions (CastInterruptSpellAction family)
-	// read the same value. Overrides below pin a spell back to the current
-	// target while its action is shared with non-interrupt rows.
+	// The pick is any engaged hostile in the interrupt's range casting an
+	// interruptible spell, not only the current target; the matching actions
+	// (CastInterruptSpellAction family) read the same value. Overrides below
+	// pin a spell back to the current target while its action is shared with
+	// non-interrupt rows.
     class InterruptSpellTrigger : public SpellTrigger
 	{
     public:
@@ -1458,9 +1457,8 @@ namespace ai
         {
             if (!AI_VALUE2(uint32, "spell id", "arcane torrent"))
                 return false;
-            // Issue #1158: the interrupt pick is a nearby casting attacker
-            // now; the 8 yd torrent radius still decides (the cast is an
-            // AoE silence and needs no target).
+            // The cast itself is an AoE silence and needs no target; the 8 yd
+            // radius is judged on the interrupt pick.
             return InterruptSpellTrigger::IsActive() &&
                 AI_VALUE2(float, "distance", "interrupt target::arcane torrent") <= 8.0f;
         }

@@ -1,12 +1,7 @@
 #pragma once
 
-// Pure pick rules for the shared "interrupt target" value (issue #1158).
-//
-// Interrupt triggers used to look only at the bot's current target, so a
-// caster the tank was not hitting (a Druid of the Fang sleeping the healer
-// from the back of the pack) was never kicked. The value now scans every
-// engaged hostile in the interrupt's range and picks one cast to kick; the
-// rules below decide which.
+// Pure pick rules for the shared "interrupt target" value: which casting
+// enemy a bot's interrupt should take.
 //
 // No core includes: callers in strategy/ translate game state into these
 // plain inputs, so the rules stay testable in
