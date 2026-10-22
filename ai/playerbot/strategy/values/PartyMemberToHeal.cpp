@@ -3,6 +3,7 @@
 #include "playerbot/playerbot.h"
 #include "PartyMemberToHeal.h"
 #include "HealerCoverage.h"
+#include "playerbot/HealPetPolicy.h"
 #include "playerbot/HealReachPolicy.h"
 #include "playerbot/HealerManaPolicy.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -350,7 +351,7 @@ Unit* PartyMemberToHeal::Calculate()
 
 bool PartyMemberToHeal::CanHealPet(Pet* pet)
 {
-    return MINI_PET != pet->getPetType();
+    return HealablePet(MINI_PET == pet->getPetType(), sServerFacade.IsAlive(pet));
 }
 
 bool PartyMemberToHeal::Check(Unit* player)
