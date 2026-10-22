@@ -91,9 +91,11 @@ bool HuntersMarkTrigger::IsActive()
 // empty, so no second trap is laid on top.
 bool FreezingTrapTrigger::IsActive()
 {
-    // The action feigns before dropping the trap, so the feign readiness is
-    // a prerequisite, not an optimization.
-    if (!sServerFacade.IsSpellReady(bot, 5384))
+    // The action feigns before dropping the trap (traps cannot be laid in
+    // combat), so Feign Death must be known - IsSpellReady is true for an
+    // unlearned spell - and ready. Below level 30 the trap row stands down
+    // instead of walking the hunter into melee for a cast that cannot happen.
+    if (!ai->HasSpell("feign death") || !sServerFacade.IsSpellReady(bot, 5384))
         return false;
 
     uint32 const trapId = AI_VALUE2(uint32, "spell id", getName());
@@ -104,11 +106,13 @@ bool FreezingTrapTrigger::IsActive()
 }
 
 // The splash is measured around the current target: an attacker inside the
-// 15 yd splash radius (1.12 DBC) gets hit when the shot lands. Members must
-// be fighting - an idle add selected by nobody never counts - and CC'd
-// members never count; a breakable CC inside the splash vetoes the whole
-// shot. Skull-marked mobs opted out of CC protection (same as the AoE
-// interlock): their CC is treated as stale.
+// 10 yd chain-jump radius (core CHAIN_SPELL_JUMP_RADIUS, starting at the
+// shot's target) gets hit when the shot lands. Members must be fighting -
+// an idle add selected by nobody never counts. A breakable CC inside the
+// splash vetoes the whole shot; damage-immune members (banish, bubbles) are
+// excluded from the count but do not veto. Stuns, fears and roots take the
+// splash harmlessly and still count. Skull-marked mobs opted out of CC
+// protection (same as the AoE interlock): their CC is treated as stale.
 bool HunterMultiShotTrigger::IsActive()
 {
     if (!SpellCanBeCastedTrigger::IsActive())
@@ -141,7 +145,7 @@ bool HunterMultiShotTrigger::IsActive()
             continue;
         }
 
-        if (PossibleAttackTargetsValue::HasUnBreakableCC(unit, bot))
+        if (PossibleAttackTargetsValue::IsImmuneToDamage(unit, bot))
             continue;
 
         ++splashTargets;
