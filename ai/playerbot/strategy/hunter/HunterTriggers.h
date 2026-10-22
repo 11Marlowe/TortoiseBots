@@ -1,6 +1,7 @@
 #pragma once
 
 #include "playerbot/HunterSwitchPolicy.h"
+#include "playerbot/HunterKitePolicy.h"
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "playerbot/strategy/hunter/HunterActions.h"
 #include "playerbot/strategy/hunter/HunterValues.h"
@@ -77,6 +78,10 @@ namespace ai
     {
     public:
         HuntersMarkTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "hunter's mark") {}
+        // #1167: with a living tank in the group, mark only the mob the tank
+        // is fighting (HunterKitePolicy.h) - never the pack chewing on the
+        // hunter. Implemented in HunterTriggers.cpp.
+        virtual bool IsActive() override;
     };
 
     class FreezingTrapTrigger : public HasCcTargetTrigger
@@ -365,12 +370,46 @@ private:
         }
     };
 
+    // Multi-attacker kite (#1167, HunterKitePolicy.h): the ranged kit is
+    // usable - ranged strategy with a loaded ranged weapon - the state in
+    // which standing in melee of 2+ mobs is a death. Shared by the kite
+    // trigger, the melee-chain veto and the melee-switch veto.
+    inline bool HunterKiteReady(PlayerbotAI* ai)
+    {
+        return ai->HasStrategy("ranged", BotState::BOT_STATE_COMBAT) && HunterHasLoadedRangedWeapon(ai);
+    }
+
+    inline bool HunterShouldKite(PlayerbotAI* ai, uint8_t attackerCount)
+    {
+        Unit* nearest = AI_VALUE(Unit*, "closest attacker targeting me");
+        float const nearestYd = nearest ? ai->GetBot()->GetCombatDistance(nearest) : 9999.0f;
+        return ShouldHunterKite(attackerCount, HunterKiteReady(ai), nearestYd);
+    }
+
+    // 2+ mobs on the hunter inside the engage edge: Wing Clip the nearest and
+    // step out to shooting range instead of trading with the pack
+    // (HunterKitePolicy.h). In combat comes from the base trigger.
+    class HunterMultipleAttackersTrigger : public MyAttackerCountTrigger
+    {
+    public:
+        HunterMultipleAttackersTrigger(PlayerbotAI* ai) : MyAttackerCountTrigger(ai, kHunterKiteMinAttackers) {}
+
+        bool IsActive() override
+        {
+            if (!MyAttackerCountTrigger::IsActive())
+                return false;
+            return HunterShouldKite(ai, AI_VALUE(uint8, "my attacker count"));
+        }
+    };
+
     // Raptor Strike / Wing Clip row: the generic 5 yd "enemy is close", but in
     // the ranged kit only for a mob that is on the hunter itself (the melee
     // chain and the kite snare). A mob the pet or a tank holds is left to the
     // dead-zone step-back, and the hunter goes back to shooting (mod-playerbots
     // 79bd428 GenericHunterStrategy ranks its step-back above wing clip). The
     // close kit (mob on the hunter, or no ammo) keeps the row as before.
+    // While 2+ mobs are on the hunter the kite owns the fight (#1167): the
+    // chain stands down and the hunter clips and steps instead.
     class HunterEnemyIsCloseTrigger : public EnemyInRangeTrigger
     {
     public:
@@ -383,6 +422,11 @@ private:
 
             if (!ai->HasStrategy("ranged", BotState::BOT_STATE_COMBAT))
                 return true;
+
+            // 2+ mobs on the hunter: the kite owns the fight (#1167), the
+            // melee chain stands down.
+            if (HunterShouldKite(ai, AI_VALUE(uint8, "my attacker count")))
+                return false;
 
             Unit* target = AI_VALUE(Unit*, "current target");
             return target && target->GetVictim() == bot;
@@ -408,6 +452,11 @@ private:
 
             Unit* target = AI_VALUE(Unit*, "current target");
             if (!target || !ai->HasStrategy("ranged", BotState::BOT_STATE_COMBAT))
+                return false;
+            // 2+ mobs on the hunter: no trading into melee, the kite owns
+            // the fight (#1167). No ammo falls through above - nothing to
+            // kite with.
+            if (HunterShouldKite(ai, AI_VALUE(uint8, "my attacker count")))
                 return false;
             bool const fastOrFinisher = (target->GetSpeed(MOVE_RUN) > (bot->GetSpeed(MOVE_RUN) / 2)) || ((!bot->GetPet() || bot->GetPet()->IsDead()) && target->GetHealthPercent() < 50.f && target->IsCreature() && target->GetHealth() < bot->GetHealth());
             // Same true distance as the ranged half (see above): one call for

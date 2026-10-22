@@ -31,11 +31,18 @@ namespace ai
     // MovementAction::MoveAway. While the step runs it holds without
     // re-dispatching; a step that left the hunter inside is retried farther
     // (a few times per mob, HunterSwitchPolicy.h).
+    // The target it steps away from: the dead-zone row steps from the current
+    // target, the multi-attacker kite row (#1167) from the nearest attacker
+    // targeting the bot.
     class HunterStepOutAction : public MovementAction
     {
     public:
-        HunterStepOutAction(PlayerbotAI* ai) : MovementAction(ai, "hunter step out") {}
+        HunterStepOutAction(PlayerbotAI* ai, std::string targetName = "current target")
+            : MovementAction(ai, "hunter step out"), targetName(std::move(targetName)) {}
         bool Execute(Event& event) override;
+
+    private:
+        std::string targetName;
     };
 
     class CastAutoShotAction : public CastSpellAction
@@ -268,6 +275,28 @@ public:
         {
             return CastMeleeSpellAction::isUseful() && !ai->HasAura(GetSpellName(), GetTarget());
         }
+    };
+
+    // Multi-attacker kite (#1167): clip the nearest mob that is on the hunter,
+    // not whatever the current target happens to be. The aura gate of
+    // CastWingClipAction runs against the same resolved target.
+    class CastWingClipOnAttackerAction : public CastWingClipAction
+    {
+    public:
+        CastWingClipOnAttackerAction(PlayerbotAI* ai) : CastWingClipAction(ai) {}
+        std::string GetTargetName() override { return "closest attacker targeting me"; }
+    };
+
+    // Donor mod-playerbots answers a mob too close for auto shot with
+    // disengage before the flee (GenericHunterStrategy.cpp:83-84). Dev port
+    // dropped the spell; wired again for #1162. Gated on spell readiness so
+    // an untrained (below level 20) or cooling-down hunter does not churn an
+    // impossible cast every tick - the engine falls through to the flee.
+    class CastDisengageAction : public CastSpellAction
+    {
+    public:
+        CastDisengageAction(PlayerbotAI* ai) : CastSpellAction(ai, "disengage") {}
+        virtual bool isUseful() override { return sServerFacade.IsSpellReady(bot, 781) && CastSpellAction::isUseful(); }
     };
 
     class CastRaptorStrikeAction : public HunterMeleeRowAction

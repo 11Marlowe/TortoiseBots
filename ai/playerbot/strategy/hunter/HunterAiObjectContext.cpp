@@ -221,6 +221,7 @@ namespace ai
                 creators["switch to ranged"] = [](PlayerbotAI* ai) { return new SwitchToRangedTrigger(ai); };
                 creators["enemy too close for auto shot"] = [](PlayerbotAI* ai) { return new EnemyTooCloseForAutoShotTrigger(ai); };
                 creators["hunter enemy is close"] = [](PlayerbotAI* ai) { return new HunterEnemyIsCloseTrigger(ai); };
+                creators["hunter multiple attackers"] = [](PlayerbotAI* ai) { return new HunterMultipleAttackersTrigger(ai); };
                 creators["hunter dead zone step out"] = [](PlayerbotAI* ai) { return new HunterDeadZoneStepOutTrigger(ai); };
                 creators["feign death"] = [](PlayerbotAI* ai) { return new FeignDeathTrigger(ai); };
                 creators["scatter shot on snare target"] = [](PlayerbotAI* ai) { return new ScatterShotSnareTrigger(ai); };
@@ -283,8 +284,11 @@ namespace ai
                 creators["trueshot aura"] = [](PlayerbotAI* ai) { return new CastTrueshotAuraAction(ai); };
                 creators["feign death"] = [](PlayerbotAI* ai) { return new CastFeignDeathAction(ai); };
                 creators["wing clip"] = [](PlayerbotAI* ai) { return new CastWingClipAction(ai); };
+                creators["wing clip on attacker"] = [](PlayerbotAI* ai) { return new CastWingClipOnAttackerAction(ai); };
                 creators["raptor strike"] = [](PlayerbotAI* ai) { return new CastRaptorStrikeAction(ai); };
                 creators["hunter step out"] = [](PlayerbotAI* ai) { return new HunterStepOutAction(ai); };
+                creators["hunter kite step out"] = [](PlayerbotAI* ai) { return new HunterStepOutAction(ai, "closest attacker targeting me"); };
+                creators["disengage"] = [](PlayerbotAI* ai) { return new CastDisengageAction(ai); };
                 creators["feed pet"] = [](PlayerbotAI* ai) { return new FeedPetAction(ai); };
                 creators["bestial wrath"] = [](PlayerbotAI* ai) { return new CastBestialWrathAction(ai); };
                 creators["scare beast"] = [](PlayerbotAI* ai) { return new CastScareBeastAction(ai); };
