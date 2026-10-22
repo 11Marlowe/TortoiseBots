@@ -558,7 +558,7 @@ namespace ai
     {
     public:
         // The spells the racials row offers, in its cast order: readiness is
-        // checked against exactly this pair (issue #1166).
+        // checked against exactly this pair.
         GenericBoostTrigger(PlayerbotAI* ai, std::string firstSpell = "berserking",
                             std::string secondSpell = "blood fury")
             : Trigger(ai, "generic boost", 3), firstSpell(firstSpell), secondSpell(secondSpell) {}

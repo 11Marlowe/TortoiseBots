@@ -26,8 +26,8 @@ def rows(path):
 
 class PriestFadeFlashWiringTest(unittest.TestCase):
     def test_fade_above_heals_when_targeted(self):
-        # Issue #1166: the row arms only while fade is trained and off
-        # cooldown ("fade ready" gate ANDed with the attacker condition).
+        # The row arms only while fade is trained and off cooldown ("fade
+        # ready" gate ANDed with the attacker condition).
         self.assertIn(("fade ready and target of attacker", "fade", "ACTION_CRITICAL_HEAL + 3"), rows("PriestStrategy.cpp"))
         ctx = (PRIEST / "PriestAiObjectContext.cpp").read_text()
         self.assertIn('creators["fade ready"]', ctx)

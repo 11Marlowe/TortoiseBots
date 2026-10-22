@@ -902,12 +902,9 @@ bool BoostTrigger::IsActive()
 {
     if (ai->IsStateActive(BotState::BOT_STATE_COMBAT) && BuffTrigger::IsActive())
     {
-        // Issue #1166: BuffTrigger proves the spell is trained, not that it is
-        // ready - while the cooldown runs the aura is always missing, so the
-        // row was armed every tick and the cast died in isPossible. Donor
-        // mod-playerbots has the same hole and gates it per-trigger
-        // (ShadowfiendTrigger adds !bot->HasSpellCooldown); here it is the
-        // shared gate so every class's boost stands down while not castable.
+        // BuffTrigger proves the spell is trained, not that it is ready:
+        // while the cooldown runs the aura is always missing, so the row
+        // would be armed (and the cast refused) every tick without this.
         uint32 spellId = AI_VALUE2(uint32, "spell id", spell);
         if (!ai::BoostReady(spellId != 0, spellId && sServerFacade.IsSpellReady(bot, spellId)))
             return false;
@@ -930,12 +927,9 @@ bool GenericBoostTrigger::IsActive()
     if (!ai->IsStateActive(BotState::BOT_STATE_COMBAT))
         return false;
 
-    // Issue #1166: the row offers berserking then blood fury to every class,
-    // but a bot trained in neither - or with its racial on cooldown - armed
-    // both actions and collected an IMPOSSIBLE verdict per combat tick.
-    // Donor mod-playerbots dodges the unknown half at construction time
-    // (racials rows built only under bot->HasSpell), which cannot see
-    // cooldowns; arm the row only when one of the pair is castable now.
+    // The row is armed for every class, but a bot trained in neither spell -
+    // or with its racial on cooldown - would queue an impossible cast per
+    // tick; arm only when one of the pair is castable now.
     auto castable = [this](std::string const& candidate)
     {
         uint32 spellId = AI_VALUE2(uint32, "spell id", candidate);

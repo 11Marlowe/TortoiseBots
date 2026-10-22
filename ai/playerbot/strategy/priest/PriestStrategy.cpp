@@ -117,7 +117,7 @@ void PriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     // before the next heal, above every heal row (critical heal + 2 is the
     // highest). The action needs a group to shed to, so solo priests are
     // unaffected; its 30 s cooldown keeps it to one cast per window, and the
-    // trigger only arms while that cooldown is spent (issue #1166).
+    // trigger only arms while that cooldown is spent.
     triggers.push_back(new TriggerNode(
         "fade ready and target of attacker",
         NextAction::array(0, new NextAction("fade", ACTION_CRITICAL_HEAL + 3), NULL)));
@@ -126,8 +126,7 @@ void PriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     // GenericPriestStrategy fires fade at 55 here; the raid-only node below
     // keeps its EMERG-adjacent slot). Fade needs a group to shed to - the
     // action's usefulness already requires one - so solo priests keep
-    // burning the GCD on heals instead of fading into nothing. Ready gate:
-    // issue #1166.
+    // burning the GCD on heals instead of fading into nothing.
     triggers.push_back(new TriggerNode(
         "fade ready and medium threat",
         NextAction::array(0, new NextAction("fade", ACTION_HIGH), NULL)));

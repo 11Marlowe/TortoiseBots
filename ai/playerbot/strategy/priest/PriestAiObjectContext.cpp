@@ -191,9 +191,9 @@ namespace ai
                 creators["party member medium health loose pack"] = [](PlayerbotAI* ai) { return new PartyMemberMediumHealthLoosePackTrigger(ai); };
                 creators["low health loose pack"] = [](PlayerbotAI* ai) { return new LowHealthLoosePackTrigger(ai); };
                 creators["ascendance"] = [](PlayerbotAI* ai) { return new AscendanceTrigger(ai); };
-                // Issue #1166: fade rows arm only while the spell is trained
-                // and off cooldown, instead of queueing an impossible cast
-                // every tick through the 30 s window.
+                // Fade rows arm only while the spell is trained and off
+                // cooldown, instead of queueing an impossible cast every
+                // tick through the 30 s window.
                 creators["fade ready"] = [](PlayerbotAI* ai) { return new FadeReadyTrigger(ai); };
                 creators["fade ready and target of attacker"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "fade ready", "target of attacker"); };
                 creators["fade ready and medium threat"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "fade ready", "medium threat"); };

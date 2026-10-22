@@ -58,10 +58,9 @@ namespace ai
         bool IsActive() override { return LowHealthTrigger::IsActive() && PriestPackLoose(ai); }
     };
 
-    // Issue #1166: the Holy capstone sits on a long cooldown and a plain buff
-    // trigger stays active the whole window (spell trained, aura missing), so
-    // the cast died in isPossible every tick. Same readiness gate as
-    // BoostTrigger; the balance gate stays the row's own business.
+    // The capstone's cooldown runs all but a sliver of the fight while the
+    // aura is missing, so a plain buff trigger would arm the row (and refuse
+    // the cast) every tick; the balance gate stays the row's own business.
     class AscendanceTrigger : public BuffTrigger
     {
     public:
@@ -69,10 +68,9 @@ namespace ai
         bool IsActive() override;
     };
 
-    // Issue #1166: fade sits on a 30 s cooldown, and the shed-aggro rows
-    // ("fade ready and ...") kept arming through the whole window, queueing
-    // an impossible cast every tick. The rows now require this ready gate
-    // (trained spell, cooldown spent) before they shed.
+    // Fade's 30 s cooldown keeps the aura missing almost the whole window,
+    // so the shed-aggro rows ("fade ready and ...") arm only while the spell
+    // is trained and the cooldown spent.
     CD_TRIGGER(FadeReadyTrigger, "fade");
     CC_TRIGGER(ShackleUndeadTrigger, "shackle undead");
     INTERRUPT_TRIGGER(SilenceTrigger, "silence");

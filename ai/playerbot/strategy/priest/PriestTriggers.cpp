@@ -6,11 +6,8 @@
 
 using namespace ai;
 
-// Issue #1166: BuffTrigger proves the ascendance spell is trained and the
-// aura missing; it cannot see the capstone's cooldown, which runs all but
-// ~1% of the fight - the audit's 2,416 impossible frames. Same readiness
-// gate as BoostTrigger (donor pattern: ShadowfiendTrigger's
-// !bot->HasSpellCooldown).
+// BuffTrigger proves the spell is trained and the aura missing; it cannot
+// see the capstone's cooldown.
 bool AscendanceTrigger::IsActive()
 {
     if (!BuffTrigger::IsActive())

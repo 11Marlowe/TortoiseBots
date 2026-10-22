@@ -1,7 +1,6 @@
-// Issue #1166: boost triggers (berserking / ascendance / fade and friends)
-// armed every tick while the spell was unknown or on cooldown and the cast
-// died in isPossible. The gate lives in ai/playerbot/BoostReadinessPolicy.h;
-// these tests pin the pure decision.
+// Boost triggers arm only when the spell is trained and off cooldown; the
+// decision lives in ai/playerbot/BoostReadinessPolicy.h and these tests pin
+// the pure rule.
 
 #include "../ai/playerbot/BoostReadinessPolicy.h"
 
