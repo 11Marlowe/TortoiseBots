@@ -147,18 +147,42 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn('ReadCachedGuidList(PlayerbotAIStorage::Instance().GetAI(bot), "attackers", guids);', kill)
         for scan in ("GetCreatureListWithEntryInGrid", "Cell::Visit", "VisitAllObjects", "HostileCreaturesAround"):
             self.assertNotIn(scan, kill)
-        # The casters of auras on an engaged attacker (Hailar's Ritualists, r19-19z37) are read off
-        # that attacker's own aura holders, inside the engaged block, and flagged for the policy.
-        self.assertIn("fact.auraOnEngaged = auraOnEngaged;", kill)
-        self.assertIn("known.auraOnEngaged = true;", kill)
-        engaged = kill.split("if (EngagedWithParty(unit, party))\n", 1)
+        # The creatures channelling an aura at an engaged attacker (Hailar's Ritualists, r19-19z37) are
+        # read off that attacker's own aura holders, inside the engaged block, and flagged for the policy.
+        # Checked on the code with its // comments stripped, so a commented-out line does not pass.
+        code = "\n".join(line.split("//", 1)[0].rstrip() for line in kill.splitlines())
+        self.assertIn("fact.auraOnEngaged = auraOnEngaged;", code)
+        self.assertEqual(code.count("std::unordered_set<uint64> auraWalked;"), 1)
+        engaged = code.split("if (EngagedWithParty(unit, party))\n", 1)
         self.assertEqual(len(engaged), 2)
-        block = engaged[1].split("\n            }\n", 1)[0]
-        self.assertIn("unit->GetSpellAuraHolderMap()", block)
-        self.assertIn("ObjectGuid const caster = holder->GetCasterGuid();", block)
-        self.assertIn("add(lead->GetMap()->GetUnit(caster), true);", block)
         self.assertNotIn("GetSpellAuraHolderMap", engaged[0])
-        self.assertEqual(kill.count(", true);"), 1)  # only the aura caster is flagged
+        block = engaged[1].split("\n            }\n", 1)[0]
+        walk = block.split("if (auraWalked.insert(unit->GetObjectGuid().GetRawValue()).second)\n", 1)
+        self.assertEqual(len(walk), 2)  # each attacker's holders once per read, however many bots list it
+        walk = walk[1]
+        self.assertIn("for (auto const& entry : unit->GetSpellAuraHolderMap())", walk)
+        self.assertIn("ObjectGuid const casterGuid = holder->GetCasterGuid();", walk)
+        # The caster is looked up on the attacker's own map and must be in the world, not deleted,
+        # and channelling at this unit now (a long buff or HoT left by a creature elsewhere is not).
+        lookup = "Unit* caster = unit->GetMap()->GetUnit(casterGuid);"
+        channel = "caster->GetChannelObjectGuid() != unit->GetObjectGuid())\n                            continue;"
+        self.assertIn(lookup, walk)
+        self.assertNotIn("lead->GetMap()", walk)
+        self.assertIn("if (!caster || !caster->IsInWorld() || caster->IsDeleted() ||", walk)
+        self.assertIn(channel, walk)
+        # A caster already read off an attackers list gets the flag on its fact (code, after the
+        # channel check); a new one is added with it. Only the aura caster is flagged.
+        upgrade = ("if (seen.count(casterRaw))\n                        {\n"
+                   "                            for (TortoiseBots::DungeonRun::UnitFact& known : f.killFirst)\n"
+                   "                                if (known.guid == casterRaw)\n"
+                   "                                    known.auraOnEngaged = true;\n"
+                   "                            continue;")
+        self.assertIn(upgrade, "\n".join(l for l in walk.splitlines() if l.strip()))
+        self.assertIn("add(caster, true);", walk)
+        self.assertLess(walk.index(lookup), walk.index(channel))
+        self.assertLess(walk.index(channel), walk.index("known.auraOnEngaged = true;"))
+        self.assertLess(walk.index(channel), walk.index("add(caster, true);"))
+        self.assertEqual(code.count(", true);"), 1)
         self.assertIn("fact.engaged = EngagedWithParty(unit, party);", kill)
         # A ward is read off its engaged owner at once (totems and guardians), not when a cached list takes it in.
         self.assertIn("CONTROLLED_TOTEMS | CONTROLLED_GUARDIANS", kill)
