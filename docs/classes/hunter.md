@@ -53,9 +53,9 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 
 - **Lifecycle:** Hunters obtain their pet at level 10; pool hunters logging in below level 10 give up any previously seeded pet, while player-owned, hired, or adopted hunters retain theirs.
 - Automatically summons, feeds, and revives pets out of combat.
-- Sends pets to attack the primary target.
+- Sends pets to attack the primary target, holding them back for about two seconds after the group enters combat so a grouped tank can build a lead first (bot-led parties included; solo hunters and tankless groups send the pet in at once).
 - Casts *Mend Pet* below 40% in combat (channeled, when no rotation shot is ready) and below 70% out of combat.
-- Controls pets in Defensive stance. Solo hunters keep *Growl* on autocast; when grouped with a tank, *Growl* is automatically disabled and the pet uses *Cower* on threat spikes.
+- Controls pets in Defensive stance. Solo hunters keep *Growl* on autocast; when grouped with a tank, *Growl* is automatically disabled and the pet uses *Cower* on threat spikes — as soon as the pet's threat on the target passes the tank's, before the mob turns on the pet.
 - When an enemy is crowd-controlled, pets are strictly prevented from attacking the controlled target.
 
 </details>

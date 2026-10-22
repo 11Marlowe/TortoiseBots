@@ -7,8 +7,10 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/BotDiagnostics.h" // SC_LOG for attack-command diagnostic trace
 #include "playerbot/strategy/generic/CombatStrategy.h"
+#include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "../../../../runtime/AttackOrderPolicy.h"
+#include "../../../../runtime/PetEngagePolicy.h"
 
 using namespace ai;
 
@@ -182,6 +184,30 @@ bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)
     // the anchor until the join window elapses.
     if (ai->HasPullWindow())
         return false;
+
+    // Issue #1161: the "wait for attack" clock above only runs with a real
+    // player master. A bot-led party (commander-driven, no master) never had
+    // it, so the pet engaged the moment the row fired and held top threat
+    // while the tank was still building it. With a live tank in the group
+    // the pet waits out the tank's lead window (~2 s from the group's combat
+    // start) first; solo pets and tankless groups are the fallback holders
+    // and keep engaging at once (runtime/PetEngagePolicy.h).
+    if (bot->GetGroup())
+    {
+        TortoiseBots::PetEngageInputs engage;
+        engage.grouped = true;
+        engage.tankInGroup = !ai::IsPetTauntAllowed(ai, bot);
+        engage.playerMaster = ai->HasRealPlayerMaster();
+        {
+            Player* targetPlayer = dynamic_cast<Player*>(target);
+            engage.enemyPlayer = targetPlayer && !sServerFacade.IsFriendlyTo(bot, target);
+        }
+        time_t const combatStart = ai->GetAiObjectContext()->GetValue<time_t>("combat start time")->Get();
+        engage.inCombat = combatStart > 0;
+        engage.combatElapsedSeconds = combatStart > 0 ? static_cast<uint32_t>(time(0) - combatStart) : 0;
+        if (TortoiseBots::ShouldHoldPetForTankLead(engage))
+            return false;
+    }
 
     if (ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT) &&
         bot->GetDistance(target) >= ai->GetRange("spell"))
