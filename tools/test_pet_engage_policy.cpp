@@ -1,5 +1,5 @@
 // Standalone regression test for the pet engage hold + threat-lead cower
-// (runtime/PetEngagePolicy.h, issue #1161): in a bot-led party (no real
+// (runtime/PetEngagePolicy.h): in a bot-led party (no real
 // player master) the pet stays parked through the tank's ~2 s lead window
 // before it opens, and the hunter cowers on the pet's first threat lead over
 // the tank instead of waiting for the pet to hold aggro.
@@ -90,13 +90,13 @@ static void TestNoHoldAgainstEnemyPlayer()
     CHECK(!ShouldHoldPetForTankLead(in));
 }
 
-// The issue's "or 2 Sunders": exactly 2 s, not 1, not 3.
+// The lead window is exactly 2 s.
 static void TestLeadWindowIsTwoSeconds()
 {
     CHECK(kPetTankLeadSeconds == 2);
 }
 
-// PET-8b unchanged: the pet already holds aggro — cower now.
+// The pet already holds aggro — cower now.
 static void TestCowerOnAggro()
 {
     CHECK(ShouldPetCower(CowerInputs(true, 0.0f, 0.0f)));
@@ -114,7 +114,7 @@ static void TestCowerOnThreatLead()
 }
 
 // Tankless group (or dead tank): the pet is the holder, it never cowers —
-// except when it already holds aggro, where PET-8b ordered it anyway.
+// except when it already holds aggro, where cowering is ordered anyway.
 static void TestNoThreatLeadCowerWithoutTank()
 {
     CHECK(!ShouldPetCower(CowerInputs(false, 300.0f, -1.0f)));

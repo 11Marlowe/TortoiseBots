@@ -101,9 +101,9 @@ bool HuntersPetLowHealthTrigger::IsActive()
         !AI_VALUE2(bool, "dead", "pet target") && !AI_VALUE2(bool, "mounted", "self target");
 }
 
-// PET-3/PET-8b + issue #1161: fires when the pet holds the enemy's attention
-// AND pet taunts are stood down (grouped with a real tank), or — first, so
-// the mob never turns — when the pet's threat on the target leads the tank's
+// Fires when the pet holds the enemy's attention AND pet taunts are stood
+// down (grouped with a real tank), or — first, so the mob never turns on
+// the pet — when the pet's threat on the target leads the tank's
 // (runtime/PetEngagePolicy.h ShouldPetCower). Cheap-first: the victim check
 // and group check run before the member walk inside the helper, so solo
 // hunters never pay for the scan.

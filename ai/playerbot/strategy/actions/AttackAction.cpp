@@ -185,13 +185,11 @@ bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)
     if (ai->HasPullWindow())
         return false;
 
-    // Issue #1161: the "wait for attack" clock above only runs with a real
-    // player master. A bot-led party (commander-driven, no master) never had
-    // it, so the pet engaged the moment the row fired and held top threat
-    // while the tank was still building it. With a live tank in the group
-    // the pet waits out the tank's lead window (~2 s from the group's combat
-    // start) first; solo pets and tankless groups are the fallback holders
-    // and keep engaging at once (runtime/PetEngagePolicy.h).
+    // The "wait for attack" clock above only runs with a real player
+    // master. A party run by bots alone has none, so with a live tank in
+    // the group the pet waits out the tank's lead window (~2 s from the
+    // group's combat start) first; solo pets and tankless groups are the
+    // fallback holders and keep engaging at once (runtime/PetEngagePolicy.h).
     if (bot->GetGroup())
     {
         TortoiseBots::PetEngageInputs engage;
