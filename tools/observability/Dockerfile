@@ -17,6 +17,10 @@ RUN apk --no-cache add ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /bin/tortoise-observability /app/tortoise-observability
 
+# The daemon binds 127.0.0.1 by default (safe for a host install); a
+# container must listen on all interfaces for its port to be publishable.
+ENV HTTP_HOST=0.0.0.0
+
 EXPOSE 8095
 EXPOSE 9195/udp
 

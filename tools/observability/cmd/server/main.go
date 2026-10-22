@@ -1,12 +1,15 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -49,6 +52,10 @@ func getEnvInt(key string, fallback int) int {
 
 func main() {
 	httpPort := flag.Int("http-port", getEnvInt("HTTP_PORT", 8095), "HTTP server port")
+	// 127.0.0.1 by default: the dashboard is a management surface, so it must
+	// not silently listen on all interfaces. Containers and LAN setups set
+	// 0.0.0.0 (HTTP_HOST) to make the port publishable.
+	httpHost := flag.String("http-host", getEnv("HTTP_HOST", "127.0.0.1"), "HTTP server bind address (127.0.0.1 = local only, 0.0.0.0 = all interfaces, for containers/LAN)")
 	udpHost := flag.String("udp-host", getEnv("UDP_HOST", "127.0.0.1"), "UDP telemetry listen address")
 	udpPort := flag.Int("udp-port", getEnvInt("UDP_PORT", 9195), "UDP telemetry listener port")
 	dbHost := flag.String("db-host", getEnv("DB_HOST", "127.0.0.1"), "MariaDB / MySQL host")
@@ -135,13 +142,26 @@ func main() {
 	}
 	log.Printf("[Map] Initialized coordinate projection engine with %d zones", len(projectionEngine.GetAllZones()))
 
+	// The session cookie is signed with HMAC-SHA256 keyed by SESSION_SECRET.
+	// There is no shipped default: unset, a random key is generated at
+	// startup, which is safe but ends every session on a restart.
+	sessionSecret := getEnv("SESSION_SECRET", "")
+	if sessionSecret == "" {
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			log.Fatalf("Failed to generate a random session key: %v", err)
+		}
+		sessionSecret = hex.EncodeToString(key)
+		log.Println("[Auth] SESSION_SECRET not set: generated a random session key; dashboard sessions end on restart (set SESSION_SECRET to keep them)")
+	}
+
 	authService, err := auth.NewService(auth.Config{
 		DBHost:     *dbHost,
 		DBPort:     *dbPort,
 		DBUser:     *dbUser,
 		DBPassword: *dbPass,
 		DBName:     *dbName,
-		SecretKey:  getEnv("SESSION_SECRET", "tortoise-observability-salt-secret"),
+		SecretKey:  sessionSecret,
 		MinGMLevel: *minGMLevel,
 	})
 	if err != nil {
@@ -296,6 +316,11 @@ func main() {
 		_, _ = w.Write(loginHTML)
 	})
 
+	// Per-IP login backoff (in-memory): 5 failed logins in a row block that
+	// address for 5 minutes. Every failure — wrong password, too low a rank
+	// or a blocked address — answers with the same error text.
+	loginBackoff := auth.NewLoginBackoff()
+
 	mux.HandleFunc("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -311,13 +336,27 @@ func main() {
 			return
 		}
 
-		session, err := authService.Authenticate(req.Username, req.Password)
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
+			ip = r.RemoteAddr
+		}
+		const loginFailure = "invalid username or password"
+		if !loginBackoff.Allow(ip) {
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": loginFailure})
 			return
 		}
+
+		session, err := authService.Authenticate(req.Username, req.Password)
+		if err != nil {
+			loginBackoff.Fail(ip)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": loginFailure})
+			return
+		}
+		loginBackoff.Reset(ip)
 
 		token := authService.CreateSessionToken(session)
 		authService.SetSessionCookie(w, token)
@@ -595,7 +634,9 @@ func main() {
 	}))
 
 	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
+		// Only the dashboard's own pages may open an authenticated stream
+		// (ws.SameOrigin); non-browser clients send no Origin and pass.
+		CheckOrigin: ws.SameOrigin,
 	}
 
 	mux.HandleFunc("/api/v1/stream", func(w http.ResponseWriter, r *http.Request) {
@@ -619,7 +660,7 @@ func main() {
 		hub.Serve(w, r, upgrader, initial...)
 	})
 
-	serverAddr := fmt.Sprintf("0.0.0.0:%d", *httpPort)
+	serverAddr := net.JoinHostPort(*httpHost, strconv.Itoa(*httpPort))
 	log.Printf("[HTTP] Dashboard & API running at http://localhost:%d/dashboard", *httpPort)
 	log.Printf("[HTTP] Prometheus metrics available at http://localhost:%d/metrics", *httpPort)
 
