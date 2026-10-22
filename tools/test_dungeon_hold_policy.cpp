@@ -775,6 +775,136 @@ static void TestApproachNotReadIsNotNoPath()
     CHECK(n.state == State::Paused && Has(n.note, "no walkable path toward the pack"));
 }
 
+// Zul'Farrak's Bly hold (r14-19z32 slot 2, leg bly, steps 223-225): a hold
+// done by its units (no done flag), entries 7604,7608,7606,7605, radius 25,
+// 300 s. Bly (7604) is seen friendly after the gossip; 10 s later he, Oro and
+// Raven turn hostile and are in the fight on the same tick (the fight branch
+// ran, HoldStep never saw an awake unit before the fight). Murta (7608) is
+// never in the radius (he died 69 yd off). The three die, the fight ends, the
+// tank walks back on the spot: the hold ends there. The live run held 300 s
+// twice and paused "event not done after 300 s (3 of 3 down)": the fight
+// branch counted the event but never marked it started.
+static PlanStep BlyHold()
+{
+    PlanStep s;
+    s.kind = PlanStepKind::Hold;
+    s.timeoutS = 300;
+    s.radius = 25.0f;
+    s.entries = {7604, 7608, 7606, 7605};
+    CHECK(ai::NormalizePlanStep(s) == PlanStepRefusal::None);
+    return s;
+}
+
+static void TestBlyHoldEndsWhenTheFightKilledTheCrew()
+{
+    FightHold h;
+    StartFightHold(h, BlyHold(), 7604);
+    Run& r = h.r;
+    Facts& f = h.f;
+    f.units = {Unit(7604, 5, 0, false)};
+    for (int i = 0; i < 10; ++i)
+        Tick(r, f);
+    CHECK(r.step == 1 && !r.eventStarted && r.eventTotal == 1);
+    // Hostile and in the fight on the same tick.
+    f.anyInCombat = true;
+    f.units = {Engaged(7604, 5, 0, 5.0f), Engaged(7606, 6, 2, 6.0f), Engaged(7605, -5, 3, 6.0f)};
+    Tick(r, f);
+    CHECK(r.step == 1 && r.eventTotal == 3 && r.eventUp == 3);
+    CHECK(r.eventStarted);
+    f.units = {Engaged(7604, 5, 0, 5.0f), Engaged(7605, -5, 3, 6.0f)};
+    f.eventDown = 1;
+    Tick(r, f);
+    f.units = {Engaged(7604, 5, 0, 5.0f)};
+    f.eventDown = 2;
+    Tick(r, f);
+    CHECK(r.step == 1);
+    // The last one dies: "3 of 3 down" on the fight's last tick, then the fight is over.
+    f.units.clear();
+    f.eventDown = 3;
+    Tick(r, f);
+    f.anyInCombat = false;
+    for (int i = 0; i < 5 && r.step == 1; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 2);
+    CHECK(Has(r.note, "every unit of it is dead") && Has(r.note, "3 of 3 down"));
+}
+
+// The same awake-in-the-fight start must not mark a data hold's encounter
+// started: Archaedas's statues may wake before data 2 leaves 0, and a hold
+// marked started reads a 0 as "back to 0: the encounter reset" (EventFailed)
+// instead of waiting kEventStartMs for the start to take.
+static void TestFightDoesNotStartADataHold()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(-30), ArchaedasHold(), DoorWait()};
+    Run r = Start(&plan, 1);
+    Facts f = Party();
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    f.eventData = 0; // NOT_STARTED: the ritual has not taken yet
+    f.units = {Unit(2748, 11, 0, false)};
+    Tick(r, f);
+    CHECK(r.step == 1 && r.eventOn && !r.eventStarted);
+    f.anyInCombat = true;
+    f.units = {Engaged(7309, 6, 0, 6.0f)};
+    Tick(r, f);
+    CHECK(r.eventUp == 1 && !r.eventStarted);
+    f.anyInCombat = false;
+    f.units = {Unit(2748, 11, 0, false)};
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && !Has(r.note, "event failed"));
+}
+
+// The Codex review of 81b9fc71: a units hold whose crew is hostile and in the
+// fight on the hold's very first tick (no HoldStep tick before it, so the
+// event was never on and the fight branch never counted it): the three die
+// and the hold ends with "3 of 3 down". A data hold (flag 8) fought on its
+// first tick is left as it was: not on, not started, by the fight alone.
+static void TestBlyHoldFoughtOnItsFirstTickEnds()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(-30), BlyHold(), DoorWait()};
+    Run r = Start(&plan, 1);
+    Facts f = Party();
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    f.anyInCombat = true;
+    f.units = {Engaged(7604, 5, 0, 5.0f), Engaged(7606, 6, 2, 6.0f), Engaged(7605, -5, 3, 6.0f)};
+    CHECK(!r.eventOn);
+    Tick(r, f);
+    CHECK(r.step == 1 && r.eventOn && r.eventStarted && r.eventTotal == 3);
+    f.units.clear();
+    f.eventDown = 3;
+    Tick(r, f);
+    f.anyInCombat = false;
+    for (int i = 0; i < 5 && r.step == 1; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 2);
+    CHECK(Has(r.note, "every unit of it is dead") && Has(r.note, "3 of 3 down"));
+
+    // The fight alone (a party fight near the spot, Bly still friendly) puts
+    // the event on but does not start it: only an awake unit does.
+    Run q = Start(&plan, 1);
+    Facts h = Party();
+    h.leadIsTank = true;
+    h.leadStaying = true;
+    h.anyInCombat = true;
+    h.units = {Unit(7604, 5, 0, false)};
+    Tick(q, h);
+    CHECK(q.step == 1 && q.eventOn && !q.eventStarted);
+
+    DungeonPlan zf;
+    zf.steps = {Move(-30), ZfHold(), DoorWait()};
+    Run z = Start(&zf, 1);
+    Facts g = Party();
+    g.leadIsTank = true;
+    g.leadStaying = true;
+    g.anyInCombat = true;
+    g.units = {Engaged(7789, 5, 0, 5.0f)};
+    Tick(z, g);
+    CHECK(z.step == 1 && !z.eventOn && !z.eventStarted);
+}
+
 int main()
 {
     TestHoldDoneSeenFromAway();
@@ -789,6 +919,9 @@ int main()
     TestZfPyramidPhase2Replay();
     TestUldamanHoldsKeepTheirPlacesInReach();
     TestApproachNotReadIsNotNoPath();
+    TestBlyHoldEndsWhenTheFightKilledTheCrew();
+    TestFightDoesNotStartADataHold();
+    TestBlyHoldFoughtOnItsFirstTickEnds();
     std::cout << "test_dungeon_hold_policy: ok\n";
     return 0;
 }
