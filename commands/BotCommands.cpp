@@ -2946,7 +2946,7 @@ static bool HandlePlayerAutogear(ChatHandler* handler, char const* args)
             requestedIlvl, target->GetLevel(), defaultCeiling);
 
     PlayerbotFactory factory(target, target->GetLevel());
-    factory.AutogearPlayer(specId, ilvl.effective);
+    factory.AutogearPlayer(specId, ilvl.effective, ilvl.effective > defaultCeiling);
 
     Item const* ranged = target->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED);
     ItemPrototype const* rangedProto = ranged ? ranged->GetProto() : nullptr;

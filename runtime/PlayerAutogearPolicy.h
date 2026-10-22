@@ -186,6 +186,14 @@ inline std::string ListAutogearSpecs(uint8_t classId)
     return out;
 }
 
+// Highest item quality the player pass may equip (0 poor .. 5 legendary).
+// The spawn band tops out at rare (3); a raised level-60 ceiling opens the
+// pool up to epic (4) — the point of raising is the best gear in the pool.
+inline uint32_t AutogearMaxQuality(uint32_t playerLevel, uint32_t maxLevel, bool raisedCeiling)
+{
+    return raisedCeiling && playerLevel >= maxLevel ? 4u : 3u;
+}
+
 enum class PlayerAutogearPermission
 {
     Allowed,

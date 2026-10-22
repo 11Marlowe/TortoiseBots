@@ -177,11 +177,25 @@ static void TestTargetState()
     CHECK(DecidePlayerAutogearTargetState(true, true, true) == S::Shapeshifted);
 }
 
+static void TestQualityCeiling()
+{
+    // Spawn band: rare top, whatever the level — a raise below max level
+    // cannot happen (the clamp refuses it first).
+    CHECK(AutogearMaxQuality(30, 60, false) == 3);
+    CHECK(AutogearMaxQuality(59, 60, true) == 3);
+    CHECK(AutogearMaxQuality(30, 60, true) == 3);
+    // Raised level-60 ceiling: the best gear in the pool, epic included.
+    CHECK(AutogearMaxQuality(60, 60, true) == 4);
+    // Level 60 without a raise keeps the spawn band.
+    CHECK(AutogearMaxQuality(60, 60, false) == 3);
+}
+
 int main()
 {
     TestSpecParsing();
     TestPermissions();
     TestIlvlClamp();
+    TestQualityCeiling();
     TestUniqueAndSets();
     TestTargetState();
     std::printf("test_player_autogear_policy: %d checks passed\n", checks);

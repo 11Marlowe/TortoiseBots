@@ -183,17 +183,19 @@ void PlayerbotFactory::AutogearOwned(uint32 cappedQuality, uint32 ilvlCap)
     bot->SaveToDB();
 }
 
-void PlayerbotFactory::AutogearPlayer(uint32 specId, uint32 ilvlCap)
+void PlayerbotFactory::AutogearPlayer(uint32 specId, uint32 ilvlCap, bool raisedCeiling)
 {
     if (!bot || !specId)
         return;
     forcedSpecId = specId;
     playerUpgrade = true;
+    playerRaisedCeiling = raisedCeiling;
     itemQuality = 0;
     autogearUpgrades.clear();
     InitEquipment(true, false, sPlayerbotAIConfig.randomGearProgression, false, ilvlCap);
     forcedSpecId = 0;
     playerUpgrade = false;
+    playerRaisedCeiling = false;
     bot->SaveToDB();
 }
 
@@ -1664,7 +1666,10 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     qBegin = level < 10 ? ITEM_QUALITY_POOR
                            : level < 20 ? ITEM_QUALITY_NORMAL
                                         : ITEM_QUALITY_UNCOMMON;
-                    qEnd = ITEM_QUALITY_RARE + 1;
+                    // Spawn band tops out at rare; a raised level-60 ilvl
+                    // ceiling opens the band up to epic (deterministically).
+                    qEnd = (playerUpgrade ? TortoiseBots::AutogearMaxQuality(level, TortoiseBots::kAutogearMaxLevel, playerRaisedCeiling)
+                                          : ITEM_QUALITY_RARE) + 1;
                 }
                 else if (seedEpic)
                 {
@@ -2125,7 +2130,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             gates.minQuality = level < 10 ? ITEM_QUALITY_POOR
                 : level < 20 ? ITEM_QUALITY_NORMAL
                 : ITEM_QUALITY_UNCOMMON;
-            gates.maxQuality = seedSpread ? ITEM_QUALITY_RARE : ITEM_QUALITY_ARTIFACT;
+            gates.maxQuality = seedSpread
+                ? (playerUpgrade
+                    ? TortoiseBots::AutogearMaxQuality(level, TortoiseBots::kAutogearMaxLevel, playerRaisedCeiling)
+                    : ITEM_QUALITY_RARE)
+                : ITEM_QUALITY_ARTIFACT;
             uint32 pairSlot = PairedSlot(slot);
             // Cheap gates first: provenance and the equip check only run on
             // candidates that already pass them.

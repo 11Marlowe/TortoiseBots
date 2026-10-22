@@ -71,10 +71,12 @@ public:
     // weightscale id) and no bot AI anywhere. Upgrades only; the replaced
     // pieces go to the bags or, when the bags are full, to the target's own
     // mailbox (never destroyed) and are reported in autogearUpgrades.
+    // raisedCeiling is the level-60 raise of the ilvl argument: it opens the
+    // quality band up to epic on top of the wider item-level window.
     // Shirts and tabards are skipped: a random cosmetic swap is not an
     // upgrade. Ranged is picked purely by score, so the command can warn
     // about missing ammo exactly like the owned-bot command does.
-    void AutogearPlayer(uint32 specId, uint32 ilvlCap);
+    void AutogearPlayer(uint32 specId, uint32 ilvlCap, bool raisedCeiling);
     struct AutogearUpgrade
     {
         uint8 slot;
@@ -220,6 +222,9 @@ private:
     // never destroys anything and reports every slot it upgrades.
     bool playerUpgrade = false;
     uint32 forcedSpecId = 0;
+    // Set by AutogearPlayer when the ilvl argument raised the ceiling at max
+    // level: the quality band may then reach epic (no random epic roll).
+    bool playerRaisedCeiling = false;
     // Bags first, mailbox when the bags are full; false when mailed.
     bool StoreReplacedItem(Item* oldItem);
     // Generated-gear item-level cap: how far above its own level a bot's
