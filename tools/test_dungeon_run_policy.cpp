@@ -483,6 +483,183 @@ static void TestDirectStepGathersFirst()
     CHECK(Tick(r, f) == "move 5.0 0.0 0.0 direct");
 }
 
+// r12-19z29 Uldaman leg 5 step 41 (2026-10-22): the re-gather before the direct step passed on the ground distance
+// (Jinkla within kGatherYd) while she stood on the ledge above the ramp's floor (z -45.4 vs -52.3); the glue's own
+// test (no navmesh path of at most 40 yd onto the lead bot's spot, not within 5 yd of it on its floor in its sight)
+// refused the step too-far. The gate asks the glue's test (MemberFact::withLead) instead.
+static Facts LedgeScene(float jinklaYd, bool withLead)
+{
+    Facts f = Party(0);
+    f.directJoinRead = true;
+    MemberFact jinkla = Mem("Jinkla", jinklaYd, 6.9f);
+    jinkla.withLead = withLead;
+    f.members = {Mem("Tanky", 0), Mem("Nathil", 3), jinkla};
+    f.maxMemberYd = jinklaYd;
+    return f;
+}
+
+static void TestDirectGateAsksTheGluesWithLeadTest()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::MoveDirect, 5)};
+    Run r = Start(&plan);
+    CHECK(DirectJoinWanted(r));
+    Facts f = LedgeScene(19.5f, false); // inside kGatherYd on the ground, not with the lead bot
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    CHECK(r.phase == Phase::Gather && r.note == "gathering before a direct step");
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(r, f).empty()); // never the direct step while she is not with the lead bot
+    // The summon brought her: with the lead bot, the step goes out.
+    f = LedgeScene(1.0f, true);
+    CHECK(Tick(r, f) == "move 5.0 0.0 0.0 direct");
+    // Facts the glue did not read (no direct step under it): the ground rule as before.
+    Run g = Start(&plan);
+    Facts old = LedgeScene(19.5f, false);
+    old.directJoinRead = false;
+    CHECK(Tick(g, old) == "move 5.0 0.0 0.0 direct");
+    // Not for other steps: the glue reads no paths for them.
+    DungeonPlan move;
+    move.steps = {Step(PlanStepKind::Move, 5)};
+    Run m = Start(&move);
+    CHECK(!DirectJoinWanted(m));
+}
+
+// The gather's ceiling before a direct step: the straggler not with the lead bot was summoned already this step
+// (the revive's summon) more than kDirectResummonMs ago: it is summoned again instead of the pause.
+static void TestDirectGatherCeilingSummonsAgain()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::MoveDirect, 5)};
+    Run r = Start(&plan);
+    MarkSummoned(r, "Jinkla"); // the mid-step revive's summon (SummonRevived), at runMs 0
+    r.runMs = 90000;           // 980.7 -> 1070.7 in the trace
+    Facts f = LedgeScene(19.5f, false);
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    std::string order;
+    for (std::uint32_t i = 0; i <= kGatherCapMs / kTickMs && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "summon Jinkla");
+    CHECK(r.state == State::Running && r.stepSummons["Jinkla"].count == 2);
+}
+
+static std::string const kLedgeStep = "move 5.0 0.0 0.0 direct";
+static std::string const kLedgeRefusal = "too-far: Jinkla is not with Tankkinz (no navmesh path of at most 40 yd to "
+    "its spot, and not within 5 yd of it on its floor in its sight). A direct step takes the lead bot's line: gather "
+    "the party on it first.";
+
+// Ticks until an order comes (at most `ms`); the ms waited in `waited`.
+static std::string TickUntilOrder(Run& r, const Facts& f, std::uint32_t ms, std::uint32_t& waited)
+{
+    waited = 0;
+    std::string order;
+    while (order.empty() && waited <= ms && r.state == State::Running)
+    {
+        order = Tick(r, f);
+        waited += kTickMs;
+    }
+    return order;
+}
+
+// The refused direct step (r12 1070.7): the straggler was summoned this step already (the revive's summon), so the
+// once-per-step summon was skipped and the refusal paused the run, which stopped the guard: two more deaths. Now:
+// summoned again after kDirectResummonMs (or after it died and came back), at most kDirectSummonCap times a step;
+// no pause before kDirectPauseSummons summons and kDirectPauseMs since the first refusal; the pause text as before.
+static void TestRefusedDirectStepSummonsAgainAndPausesLate()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::MoveDirect, 5)};
+    Run r = Start(&plan);
+    MarkSummoned(r, "Jinkla");
+    r.summoned.insert("Jinkla");
+    r.runMs = 90000;
+    Facts with = Party(0);
+    with.members = {Mem("Tanky", 0), Mem("Jinkla", 1.0f)};
+    with.maxMemberYd = 1.0f;
+    CHECK(Tick(r, with) == kLedgeStep);
+    OrderRefused(r, kLedgeStep, kLedgeRefusal);
+    CHECK(r.state == State::Running); // the summon-once rule paused here
+    CHECK(Tick(r, with) == "summon Jinkla");
+    CHECK(r.stepSummons["Jinkla"].count == 2);
+    // She arrives, the step goes out and is refused again at once: no third summon yet (kDirectResummonMs), no
+    // pause (60 s have not passed since the first refusal): the run waits for her, and does not resend every tick.
+    std::uint32_t waited = 0;
+    CHECK(TickUntilOrder(r, with, kSummonWaitMs, waited) == kLedgeStep);
+    OrderRefused(r, kLedgeStep, kLedgeRefusal);
+    CHECK(r.state == State::Running);
+    CHECK(r.note.find("waiting for it to come") != std::string::npos);
+    std::string order = TickUntilOrder(r, with, kDirectRetryMs + kTickMs, waited);
+    CHECK(order == kLedgeStep && waited >= kDirectRetryMs);
+    // Refused again until kDirectResummonMs since her last summon: then the third summon.
+    for (int i = 0; i < 10 && order != "summon Jinkla"; ++i)
+    {
+        if (order == kLedgeStep)
+            OrderRefused(r, kLedgeStep, kLedgeRefusal);
+        CHECK(r.state == State::Running);
+        order = TickUntilOrder(r, with, kDirectRetryMs + kSummonWaitMs + kTickMs, waited);
+    }
+    CHECK(order == "summon Jinkla" && r.stepSummons["Jinkla"].count == kDirectSummonCap);
+    // The cap: never a fourth summon; once 60 s passed since the first refusal, the pause, with the old text.
+    for (int i = 0; i < 20 && r.state == State::Running; ++i)
+    {
+        order = TickUntilOrder(r, with, kDirectResummonMs + kDirectRetryMs + kSummonWaitMs, waited);
+        CHECK(order != "summon Jinkla");
+        if (order == kLedgeStep)
+            OrderRefused(r, kLedgeStep, kLedgeRefusal);
+    }
+    CHECK(r.state == State::Paused);
+    CHECK(r.stepSummons["Jinkla"].count == kDirectSummonCap);
+    CHECK(r.runMs - r.directRefusedMs >= kDirectPauseMs);
+    CHECK(r.note.find("cmd " + kLedgeStep + " refused: " + kLedgeRefusal) == 0);
+}
+
+// No pause for a refused direct step before kDirectPauseSummons summons, however long: a bot summoned once is
+// summoned a second time once kDirectResummonMs passed, before any pause.
+static void TestRefusedDirectStepNeedsTwoSummonsBeforeThePause()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::MoveDirect, 5)};
+    Run r = Start(&plan);
+    Facts with = Party(0);
+    with.members = {Mem("Tanky", 0), Mem("Jinkla", 1.0f)};
+    with.maxMemberYd = 1.0f;
+    CHECK(Tick(r, with) == kLedgeStep);
+    OrderRefused(r, kLedgeStep, kLedgeRefusal);
+    CHECK(Tick(r, with) == "summon Jinkla"); // the first: never summoned this step
+    std::uint32_t waited = 0;
+    CHECK(TickUntilOrder(r, with, kSummonWaitMs, waited) == kLedgeStep);
+    r.runMs += kDirectPauseMs; // long past the 60 s: still only one summon, so no pause
+    r.stepSummons["Jinkla"].lastMs = r.runMs - 1000; // ... and the last one 1 s ago: no summon now either
+    OrderRefused(r, kLedgeStep, kLedgeRefusal);
+    CHECK(r.state == State::Running && r.stepSummons["Jinkla"].count == 1);
+    CHECK(r.note.find("waiting for it to come") != std::string::npos);
+    CHECK(Tick(r, with).empty()); // the facts do not say she is with the lead bot: the wait goes on
+    // The glue's test finds her with the lead bot: the step goes out at once, not after kDirectRetryMs.
+    with.directJoinRead = true;
+    CHECK(Tick(r, with) == kLedgeStep);
+}
+
+// A bot that died and came back since its last summon is a new case: summoned again at once (the cap still holds).
+static void TestDirectSummonAfterADeathIsANewCase()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::MoveDirect, 5)};
+    Run r = Start(&plan);
+    r.runMs = 10000;
+    MarkSummoned(r, "Jinkla");
+    CHECK(!DirectSummonAllowed(r, "Jinkla"));
+    Facts dead = Party(0);
+    dead.deadNames = {"Jinkla"};
+    Tick(r, dead); // every running tick notes the dead (NoteDeadSeen)
+    CHECK(r.deadSeenMs["Jinkla"] == 10000 + kTickMs);
+    r.runMs = 15000;
+    CHECK(DirectSummonAllowed(r, "Jinkla"));
+    r.stepSummons["Jinkla"].count = kDirectSummonCap;
+    CHECK(!DirectSummonAllowed(r, "Jinkla"));
+    // The step's record starts over with the next step.
+    ResetStep(r);
+    CHECK(r.stepSummons.empty() && !r.directRefusedOn && r.directWaitFor.empty());
+}
+
 // `.bot run skip` while running goes on running.
 static void TestSkipWhileRunning()
 {
@@ -9644,6 +9821,11 @@ int main()
     TestResumeWithLeadDead();
     TestFarMoveWalksBackInHops();
     TestDirectStepGathersFirst();
+    TestDirectGateAsksTheGluesWithLeadTest();
+    TestDirectGatherCeilingSummonsAgain();
+    TestRefusedDirectStepSummonsAgainAndPausesLate();
+    TestRefusedDirectStepNeedsTwoSummonsBeforeThePause();
+    TestDirectSummonAfterADeathIsANewCase();
     TestSkipWhileRunning();
     TestUnreachableMoveDetours();
     TestPullGatherAndFight();

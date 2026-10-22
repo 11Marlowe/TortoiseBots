@@ -108,6 +108,16 @@ constexpr float kStillYd = 2.0f;                   // a bot that moved less than
 constexpr std::uint32_t kStillMs = 6000;          // ... in this long stands still (stuck: summoned at a ceiling)
 constexpr std::uint32_t kStuckSummonMs = 15000;   // in a regroup's gather: a far bot still this long is summoned at once
 constexpr std::uint32_t kSummonWaitMs = 6000;     // a direct step's summoned follower is waited for this long (the summon takes 3 s)
+// A direct step's straggler (refused too-far, or not with the lead bot at its gather's ceiling) is summoned again
+// once more than kDirectResummonMs passed since its last summon of the step, or once it died and came back since
+// then (DirectSummonAllowed), at most kDirectSummonCap summons a bot and step. The refusal pauses only after
+// kDirectPauseSummons summons of it and kDirectPauseMs since the step's first refusal (DirectPauseDue); until then
+// the run waits for it (the guard keeps going) and sends the step again no sooner than kDirectRetryMs.
+constexpr std::uint32_t kDirectResummonMs = 30000;
+constexpr std::uint32_t kDirectSummonCap = 3;
+constexpr std::uint32_t kDirectPauseSummons = 2;
+constexpr std::uint32_t kDirectPauseMs = 60000;
+constexpr std::uint32_t kDirectRetryMs = 10000;
 constexpr std::uint32_t kWalkRetryMs = 12000;     // no progress for this long: send the move again
 constexpr std::uint32_t kShortStallMs = 3000;     // a plain walk within kStalledArriveYd that gains nothing this long arrived
 constexpr std::uint32_t kWalkTries = 3;           // ... at most this often, then pause
@@ -382,6 +392,10 @@ struct MemberFact
     std::uint32_t attackers = 0; // units attacking it (the core's attacker set of that bot, no scan)
     float x = 0.0f, y = 0.0f, z = 0.0f; // where it stands (the stand-still watch: UpdateStill)
     bool ranged = false;    // a ranged bot or a healer: it stands behind the tank in a hold (HoldStands)
+    // With Facts::directJoinRead: the glue's own direct-step test for this bot (the one `cmd move ... direct`
+    // refuses too-far on: a complete navmesh path of at most kDirectMaxGatherPath yd onto the lead bot's spot,
+    // or within kDirectNearLead yd of it on its floor in its sight, or its own line to the point). Unread: true.
+    bool withLead = true;
 };
 
 // What the glue reads once a tick for the run's current step.
@@ -400,6 +414,10 @@ struct Facts
     bool leadMoving = false;            // the lead bot is moving now (Unit::IsMoving): an exact point's proof waits
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
     std::vector<MemberFact> members;    // the living bots, the lead bot too (at 0 yd)
+    // The glue read MemberFact::withLead for every member this tick (only while DirectJoinWanted: a direct step
+    // is the current one or the walk back's). The gate before a direct step then asks that test, not only the
+    // ground distance (kGatherYd), so a bot on another floor within it never passes the gate and fails the step.
+    bool directJoinRead = false;
     std::vector<std::string> deadNames; // the dead bots (ghosts too), the lead bot too
     // The lead bot has a navmesh path back to the run's anchor (Run::anchor*).
     // Read lazily: only on a tick after the policy asked for it
@@ -722,6 +740,19 @@ struct Run
     std::string summonDue; // a follower a direct step left behind (refused too-far): summoned on the next tick
     std::string summonWait; // ... the summon sent: the step waits for that bot at the lead bot (kSummonWaitMs at most)
     std::uint32_t summonWaitMs = 0;
+    // Every summon of a bot this step (MarkSummoned): how many, and the run clock (runMs) of the last one. A
+    // direct step's straggler may be summoned again by this record (DirectSummonAllowed), not once by `summoned`.
+    struct StepSummon
+    {
+        std::uint32_t count = 0;
+        std::uint64_t lastMs = 0;
+    };
+    std::unordered_map<std::string, StepSummon> stepSummons;
+    std::unordered_map<std::string, std::uint64_t> deadSeenMs; // the run clock a bot was last seen dead (NoteDeadSeen), the whole run
+    bool directRefusedOn = false;     // this step's direct step was refused too-far (or its gather hit the ceiling) ...
+    std::uint64_t directRefusedMs = 0; // ... first at this run clock (DirectPauseDue)
+    std::string directWaitFor;        // a refused direct step's straggler the run waits for (no summon allowed yet)
+    std::uint32_t directWaitMs = 0;   // ... this long so far (kDirectRetryMs, then the step goes out again)
     std::unordered_map<std::string, float> memberYd; // each bot's distance to the lead at the gather's last sample
     // Revived bots summoned to the lead bot (SummonRevived), not yet with it:
     // the time since the summon went out. Not counted against the regroup's
@@ -1224,6 +1255,11 @@ inline void ResetStep(Run& r)
     r.summonDue.clear();
     r.summonWait.clear();
     r.summonWaitMs = 0;
+    r.stepSummons.clear();
+    r.directRefusedOn = false;
+    r.directRefusedMs = 0;
+    r.directWaitFor.clear();
+    r.directWaitMs = 0;
     r.memberYd.clear();
     r.ccSent.clear();
     r.joinerHeld.clear();
@@ -1344,6 +1380,105 @@ inline bool IsStill(const Run& r, const std::string& name)
     return it != r.still.end() && it->second.ms >= kStillMs;
 }
 
+// A summon of `name` goes out this tick: once per step and regroup for the summons that keep that rule
+// (Run::summoned), and counted with its time for a direct step's straggler (Run::stepSummons).
+inline void MarkSummoned(Run& r, const std::string& name)
+{
+    r.summoned.insert(name);
+    Run::StepSummon& s = r.stepSummons[name];
+    ++s.count;
+    s.lastMs = r.runMs;
+}
+
+// The run clock a bot was last seen dead (every tick): a bot that died and came back after its last summon is
+// a new case for a direct step's summon (DirectSummonAllowed).
+inline void NoteDeadSeen(Run& r, const Facts& f)
+{
+    for (const std::string& name : f.deadNames)
+        r.deadSeenMs[name] = r.runMs;
+}
+
+// r12-19z29 Uldaman leg 5 (2026-10-22): a direct step's straggler summoned already this step (the mid-step
+// revive's summon) was never summoned again, so its too-far refusal paused the run, and the paused run stopped
+// guarding: two more deaths. It may be summoned again once more than kDirectResummonMs passed since its last
+// summon of the step, or once it died and came back since then; never more than kDirectSummonCap times a step.
+inline bool DirectSummonAllowed(const Run& r, const std::string& name)
+{
+    auto it = r.stepSummons.find(name);
+    if (it == r.stepSummons.end() || it->second.count == 0)
+        return true;
+    if (it->second.count >= kDirectSummonCap)
+        return false;
+    auto dead = r.deadSeenMs.find(name);
+    if (dead != r.deadSeenMs.end() && dead->second >= it->second.lastMs)
+        return true;
+    return r.runMs - it->second.lastMs > kDirectResummonMs;
+}
+
+// The step's first too-far refusal (or its direct gather's first ceiling) starts the clock DirectPauseDue reads.
+inline void NoteDirectTrouble(Run& r)
+{
+    if (r.directRefusedOn)
+        return;
+    r.directRefusedOn = true;
+    r.directRefusedMs = r.runMs;
+}
+
+// A direct step's straggler pauses the run only after kDirectPauseSummons summons of it this step and
+// kDirectPauseMs since the step's first refusal; until then the run waits for it and keeps guarding.
+inline bool DirectPauseDue(const Run& r, const std::string& name)
+{
+    auto it = r.stepSummons.find(name);
+    std::uint32_t const summons = it == r.stepSummons.end() ? 0 : it->second.count;
+    return summons >= kDirectPauseSummons && r.directRefusedOn && r.runMs - r.directRefusedMs >= kDirectPauseMs;
+}
+
+// The point of the direct step the gate before it guards, when there is one: the walk back's next point when it
+// is a direct one, else the current step when it is a direct step. While this holds the glue reads
+// MemberFact::withLead (one navmesh path per bot within reach) with that point for the bot's own line.
+inline bool DirectJoinWanted(const Run& r, float& x, float& y, float& z)
+{
+    if (r.state != State::Running || !r.plan)
+        return false;
+    const PlanStep* s = nullptr;
+    if (r.walkBack && r.walkBackIdx < r.step && r.walkBackIdx < r.plan->steps.size())
+        s = &r.plan->steps[r.walkBackIdx];
+    else
+        s = Current(r);
+    if (!s || s->kind != PlanStepKind::MoveDirect)
+        return false;
+    x = s->x;
+    y = s->y;
+    z = s->z;
+    return true;
+}
+
+inline bool DirectJoinWanted(const Run& r)
+{
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    return DirectJoinWanted(r, x, y, z);
+}
+
+// The farthest living bot the glue's direct-step test finds not with the lead bot (only with
+// Facts::directJoinRead), or none.
+inline const MemberFact* NotWithLead(const Facts& f)
+{
+    if (!f.directJoinRead)
+        return nullptr;
+    const MemberFact* pick = nullptr;
+    for (const MemberFact& m : f.members)
+        if (!m.name.empty() && !m.withLead && (!pick || m.yd > pick->yd))
+            pick = &m;
+    return pick;
+}
+
+// The gate before a direct step: every living bot within kGatherYd of the lead bot and, when the glue read it,
+// with the lead bot by the very test `cmd move ... direct` refuses on.
+inline bool DirectGathered(const Facts& f)
+{
+    return f.maxMemberYd <= kGatherYd && !NotWithLead(f);
+}
+
 // A gather's ceiling: the farthest straggler, a bot more than kSummonYd from
 // the lead bot (or kStragglerDzYd up or down), or one that stands still more
 // than kGatherYd away, that stands still now
@@ -1398,7 +1533,7 @@ inline bool SummonStraggler(Run& r, const Facts& f, std::string& order, bool sti
     SampleMembers(r, f);
     if (!pick)
         return false;
-    r.summoned.insert(pick->name);
+    MarkSummoned(r, pick->name);
     order = "summon " + pick->name;
     r.note = "gather: " + pick->name + " stands " + Num(pick->yd) + " yd from the lead bot and " +
         (pickStill ? "has not moved for " + std::to_string(kStillMs / 1000) + " s" : std::string("does not come closer")) +
@@ -1416,7 +1551,12 @@ inline bool SummonStraggler(Run& r, const Facts& f, std::string& order, bool sti
 // bot is summoned once (past the limit, or when it is walking but not coming)
 // unless it is in a fight; and if none of that applies: the pause, with the
 // text the caller gave.
-inline void GatherCeiling(Run& r, const Facts& f, std::string& order, const std::string& pauseText)
+// A direct step's gather (direct): the farthest bot may also be one within
+// kGatherYd that the glue's test finds not with the lead bot (NotWithLead), and
+// one summoned already this step is summoned again by DirectSummonAllowed; the
+// pause waits for DirectPauseDue, the gather starts over meanwhile.
+inline void GatherCeiling(Run& r, const Facts& f, std::string& order, const std::string& pauseText,
+    bool direct = false)
 {
     std::unordered_map<std::string, float> const sampled = r.memberYd; // SummonStraggler takes a new sample
     if (SummonStraggler(r, f, order))
@@ -1428,6 +1568,31 @@ inline void GatherCeiling(Run& r, const Facts& f, std::string& order, const std:
     for (const MemberFact& m : f.members)
         if (!m.name.empty() && m.yd > kGatherYd && (!farthest || m.yd > farthest->yd))
             farthest = &m;
+    if (direct && !farthest)
+        farthest = NotWithLead(f);
+    if (direct && farthest)
+    {
+        NoteDirectTrouble(r);
+        if (r.summoned.count(farthest->name))
+        {
+            if (!farthest->inCombat && !farthest->attackers && DirectSummonAllowed(r, farthest->name))
+            {
+                MarkSummoned(r, farthest->name);
+                order = "summon " + farthest->name;
+                r.note = "gather: " + farthest->name + " is not with the lead bot before a direct step (" +
+                    Num(farthest->yd) + " yd): summoned again";
+                EnterPhase(r, Phase::Gather);
+                return;
+            }
+            if (!DirectPauseDue(r, farthest->name))
+            {
+                EnterPhase(r, Phase::Gather);
+                r.note = "gathering: waiting for " + farthest->name + " to come before a direct step (" +
+                    Num(farthest->yd) + " yd)";
+                return;
+            }
+        }
+    }
     if (farthest && !r.summoned.count(farthest->name))
     {
         auto it = sampled.find(farthest->name);
@@ -1441,7 +1606,7 @@ inline void GatherCeiling(Run& r, const Facts& f, std::string& order, const std:
         }
         if (!farthest->inCombat && !farthest->attackers)
         {
-            r.summoned.insert(farthest->name);
+            MarkSummoned(r, farthest->name);
             order = "summon " + farthest->name;
             r.note = "gather: " + farthest->name + " stands " + Num(farthest->yd) + " yd from the lead bot and " +
                 (coming ? std::string("did not come in time") : std::string("does not come closer")) + ": summoned";
@@ -1486,7 +1651,7 @@ inline bool SummonStuckInRegroup(Run& r, const Facts& f, std::string& order)
     }
     if (!pick)
         return false;
-    r.summoned.insert(pick->name);
+    MarkSummoned(r, pick->name);
     order = "summon " + pick->name;
     r.RestartRegroupClock();
     r.note = "regroup: " + pick->name + " has not moved for " + std::to_string(kStuckSummonMs / 1000) + " s " +
@@ -1591,7 +1756,7 @@ inline bool SummonRevived(Run& r, const Facts& f, std::string& order)
     }
     if (!pick)
         return false;
-    r.summoned.insert(pick->name);
+    MarkSummoned(r, pick->name);
     r.reviveSummons[pick->name] = 0;
     order = "summon " + pick->name;
     r.note = "regroup: " + pick->name + " is alive again " + Num(pick->yd) +
@@ -2585,18 +2750,37 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
     // A direct step (the step's own or a walk back's) refused because a
     // follower has no way onto the lead bot's line and no straight line of its
     // own (it stands over the navmesh hole the step before crossed, or was left
-    // behind): that follower is summoned to the lead bot, once per bot and
-    // step, and the step goes out again.
+    // behind): that follower is summoned to the lead bot, and the step goes out
+    // again. Summoned again by DirectSummonAllowed (after kDirectResummonMs, or
+    // after it died and came back; at most kDirectSummonCap a step), not once
+    // per step: r12-19z29 the revive's summon used that once, and the refusal
+    // paused the run. No summon allowed yet: the run waits for that bot
+    // (directWaitFor, guarding on) until DirectPauseDue, then the pause below.
     if (order.size() > 7 && order.compare(order.size() - 7, 7, " direct") == 0)
     {
         std::string const name = DirectStragglerName(answer);
-        if (!name.empty() && !r.summoned.count(name))
+        if (!name.empty())
         {
-            r.summoned.insert(name);
-            r.summonDue = name;
-            EnterPhase(r, Phase::Begin);
-            r.note = "direct step: " + name + " is not with the lead bot: summoning it";
-            return;
+            NoteDirectTrouble(r);
+            if (DirectSummonAllowed(r, name))
+            {
+                MarkSummoned(r, name);
+                r.summonDue = name;
+                EnterPhase(r, Phase::Begin);
+                r.note = "direct step: " + name + " is not with the lead bot: summoning it";
+                return;
+            }
+            if (!DirectPauseDue(r, name))
+            {
+                r.directWaitFor = name;
+                r.directWaitMs = 0;
+                EnterPhase(r, Phase::Begin);
+                auto const it = r.stepSummons.find(name);
+                std::uint32_t const summons = it == r.stepSummons.end() ? 0 : it->second.count;
+                r.note = "direct step: " + name + " is not with the lead bot (summoned " + std::to_string(summons) +
+                    " times this step): waiting for it to come";
+                return;
+            }
         }
     }
     if (SpentRitual(r, order, answer))
@@ -4052,7 +4236,7 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
             return true;
         }
     }
-    if (direct && r.phase != Phase::Walk && f.maxMemberYd > kGatherYd && !r.gatherWaived)
+    if (direct && r.phase != Phase::Walk && !DirectGathered(f) && !r.gatherWaived)
     {
         if (r.phase != Phase::Gather)
         {
@@ -4063,7 +4247,7 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         else if (r.phaseMs >= kGatherCapMs)
         {
             GatherCeiling(r, f, order, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
-                " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
+                " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)", true);
         }
         return true;
     }
@@ -4501,7 +4685,7 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         return;
     // A direct step takes the lead bot's line: the party gathers on it first
     // (`cmd move ... direct` refuses while a bot has no way to the lead's spot).
-    if (s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && f.maxMemberYd > kGatherYd && !r.gatherWaived)
+    if (s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && !DirectGathered(f) && !r.gatherWaived)
     {
         if (r.phase != Phase::Gather)
         {
@@ -4512,7 +4696,7 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         else if (r.phaseMs >= kGatherCapMs)
         {
             GatherCeiling(r, f, order, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
-                " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
+                " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)", true);
         }
         return;
     }
@@ -6396,6 +6580,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     if (f.anchorPathRead)
         r.anchorPathWanted = false;
     UpdateStill(r, f, dt);
+    NoteDeadSeen(r, f);
     NoteLeadDeath(r, f);
     NoteLeadPath(r, f);
     if (r.lootFfaLive)
@@ -6992,6 +7177,27 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         // facts still show it, so the step goes out on the next tick, without it.
         if (stillHeld)
             return order;
+    }
+    // A refused direct step's straggler no summon is allowed for yet
+    // (OrderRefused): the step goes out again after kDirectRetryMs, or as soon
+    // as the glue's test finds it with the lead bot. No pause meanwhile: a
+    // fight on the way runs the guard (CheckGuard) as on any other tick.
+    if (!r.directWaitFor.empty())
+    {
+        const MemberFact* member = nullptr;
+        for (const MemberFact& m : f.members)
+            if (m.name == r.directWaitFor)
+                member = &m;
+        r.directWaitMs += dt;
+        bool const arrived = member && f.directJoinRead && member->withLead && member->yd <= kGatherYd;
+        if (!arrived && r.directWaitMs < kDirectRetryMs) // a held bot is not in these facts: the full wait
+        {
+            r.note = "direct step: waiting for " + r.directWaitFor + " to come to the lead bot";
+            return order;
+        }
+        r.directWaitFor.clear();
+        r.directWaitMs = 0;
+        EnterPhase(r, Phase::Begin);
     }
 
     if (WalkBack(r, f, dt, order))
