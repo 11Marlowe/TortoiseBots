@@ -14,7 +14,8 @@
 --     entries, not pulls; Ramtusk's two Spearhides (rank 2, 5-6 yd from him) are his boss row's entries and leg 3 no longer skips them;
 --   * the rare Earthcaller Halmgar 4842 (2 yd from leg 3's Earthbreaker pull, a skipped unit the pull dragged in) is a member of that
 --     pull and the trio east of him has a radius that stops short of him; the rare Blind Hunter 4425 (faction 411, standing on the last
---     bat pull's own position) is a member of that pull;
+--     bat pull's own position) is a member of that pull. Halmgar's mechanic_immune_mask 608908882 holds charm, stun, root, snare,
+--     silence, fear, banish, bleed and bandage; polymorph (mechanic 8) is not in it, so the CC list still answers him;
 --   * the rotthorn leg's overlapping clusters (mates 2-4 yd apart: Blood + Agam'ar, the two thicket pairs, the north pair + Blood) are
 --     one pull each; the plateau packs' radii stop at the 28 yd of floor between them; the Seer pair of leg 0 stops short of the Seer on
 --     the other ledge.
