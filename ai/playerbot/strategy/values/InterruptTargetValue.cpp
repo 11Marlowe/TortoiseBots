@@ -15,14 +15,37 @@ Unit* InterruptTargetValue::Calculate()
     if (interruptSpell.empty())
         return NULL;
 
+    // A bot whose interrupt is on cooldown must neither pick nor claim a
+    // cast: the claim would sit for seconds and suppress the ready
+    // teammate's priority pick.
+    uint32 const interruptId = AI_VALUE2(uint32, "spell id", interruptSpell);
+    if (!interruptId || !sServerFacade.IsSpellReady(bot, interruptId))
+        return NULL;
+
     // Interrupt reach: the interrupt spell's own range, floored at melee
     // distance - combat-reach spells (Kick, Shield Bash, Pummel, Bash)
     // report a bare reach here, and their actions are melee ones at
-    // ATTACK_DISTANCE.
+    // ATTACK_DISTANCE. A self-cast AoE (Arcane Torrent) reports no range:
+    // reach as far as its widest effect radius instead.
     float range = ATTACK_DISTANCE;
     float spellRange;
-    if (ai->GetSpellRange(interruptSpell, &spellRange) && spellRange > range)
-        range = spellRange;
+    if (ai->GetSpellRange(interruptSpell, &spellRange))
+    {
+        if (spellRange > range)
+            range = spellRange;
+        else if (spellRange <= 0)
+        {
+            if (SpellEntry const* info = sServerFacade.LookupSpellInfo(interruptId))
+            {
+                for (uint8 i = 0; i < MAX_EFFECT_INDEX; ++i)
+                {
+                    if (SpellRadiusEntry const* radiusEntry = sSpellRadiusStore.LookupEntry(info->EffectRadiusIndex[i]))
+                        if (radiusEntry->Radius > range)
+                            range = radiusEntry->Radius;
+                }
+            }
+        }
+    }
 
     CcGuard ccGuard(ai);
     Unit* best = NULL;
@@ -59,8 +82,9 @@ Unit* InterruptTargetValue::Calculate()
 
         bool const claimed = bot->GetGroup() &&
             BuffClaimRegistry::IsClaimedByOther(bot->GetObjectGuid(), unit->GetObjectGuid(), InterruptClaimKey());
-
         int const tier = InterruptTargetTier(priority, claimed);
+        if (tier == kInterruptTargetRejected)
+            continue;
         if (!best || tier < bestTier)
         {
             best = unit;
@@ -71,9 +95,8 @@ Unit* InterruptTargetValue::Calculate()
     }
 
     // One interrupter per cast: claim the pick so the next interrupter that
-    // recalculates (same tick or the next few seconds) prefers another
-    // cast. A claim only lowers the rank (InterruptTargetPolicy.h), so it
-    // never wedges coverage when the claiming bot does not cast.
+    // recalculates (same tick or the next few seconds) skips this cast for
+    // another one. Only written after the ready check above.
     if (best && bot->GetGroup())
         BuffClaimRegistry::Claim(bot->GetObjectGuid(), best->GetObjectGuid(), InterruptClaimKey());
 

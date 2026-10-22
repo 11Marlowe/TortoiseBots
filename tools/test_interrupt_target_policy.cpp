@@ -11,6 +11,7 @@
 
 using ai::InterruptClaimKey;
 using ai::InterruptTargetTier;
+using ai::kInterruptTargetRejected;
 
 int main()
 {
@@ -22,20 +23,19 @@ int main()
     std::cout << "  [PASS] one shared claim key across interrupt spells\n";
 
     // Priority casts (crowd control, sleep, fear, heal) outrank plain
-    // damage casts; a free cast outranks a claimed one at the same
-    // priority (two interrupters on one cast bar waste the second
-    // cooldown while a free caster goes unhandled).
-    CHECK(InterruptTargetTier(true, false) == 0);   // free priority cast
-    CHECK(InterruptTargetTier(false, false) == 1);  // free plain cast
-    CHECK(InterruptTargetTier(true, true) == 2);    // claimed priority cast
-    CHECK(InterruptTargetTier(false, true) == 3);   // claimed plain cast
-    std::cout << "  [PASS] tier order: free priority < free plain < claimed priority < claimed plain\n";
+    // damage casts...
+    CHECK(InterruptTargetTier(true, false) == 0);
+    CHECK(InterruptTargetTier(false, false) == 1);
+    std::cout << "  [PASS] free casts: priority cast beats plain cast\n";
 
-    // A claim only lowers the rank, never rejects: a claimed priority cast
-    // still ranks above a claimed plain one, so a hogged claim cannot zero
-    // coverage of the dangerous cast.
-    CHECK(InterruptTargetTier(true, true) < InterruptTargetTier(false, true));
-    std::cout << "  [PASS] claimed priority cast still beats claimed plain cast\n";
+    // ...but one interrupter per cast is strict: a claimed cast is
+    // rejected outright (a second interrupt would waste its cooldown on a
+    // cast bar someone else is already stopping), so a bot with one
+    // caster only never double-commits, whatever its priority read.
+    CHECK(InterruptTargetTier(true, true) == kInterruptTargetRejected);
+    CHECK(InterruptTargetTier(false, true) == kInterruptTargetRejected);
+    CHECK(kInterruptTargetRejected != 0 && kInterruptTargetRejected != 1);
+    std::cout << "  [PASS] claimed casts are rejected outright\n";
 
     std::cout << "All interrupt-target policy tests passed.\n";
     return 0;

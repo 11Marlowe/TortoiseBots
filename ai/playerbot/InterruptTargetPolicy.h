@@ -21,15 +21,17 @@ namespace ai
     }
 
     // Lower wins. A cast that disables or heals someone (crowd control,
-    // sleep, fear, a heal) outranks a plain damage cast among unclaimed
-    // casts; a cast another bot already claimed ranks below every free
-    // one, because two interrupters on one cast bar waste the second
-    // cooldown while a free caster goes unhandled. A claim only lowers
-    // the rank, never rejects: if the claiming bot never casts
-    // (higher-priority action, death, spell on cooldown), the next bot
-    // still takes the cast over.
+    // sleep, fear, a heal) outranks a plain damage cast. A cast another bot
+    // already claimed is rejected outright - two interrupters on one cast
+    // bar waste the second cooldown. A claim is only written by a bot whose
+    // interrupt is ready right now and expires in seconds, so a dead
+    // claimant cannot wedge coverage for long.
+    constexpr int kInterruptTargetRejected = -1;
+
     inline int InterruptTargetTier(bool priorityCast, bool claimedByOther)
     {
-        return (claimedByOther ? 2 : 0) + (priorityCast ? 0 : 1);
+        if (claimedByOther)
+            return kInterruptTargetRejected;
+        return priorityCast ? 0 : 1;
     }
 } // namespace ai
