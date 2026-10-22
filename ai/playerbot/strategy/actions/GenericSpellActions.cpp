@@ -887,10 +887,17 @@ uint32 HealPartyMemberAction::DownrankSpellId(Unit* target)
     if (!missing)
         return 0;
     float const healthPct = maxHealth ? target->GetHealth() * 100.0f / maxHealth : 100.0f;
+    // One melee swing of each attacker in reach, as % of the target's max
+    // health (the same pace signal the party heal rows use): a target the
+    // next swing pushes into the critical band keeps the top rank.
+    float const incomingPct = maxHealth
+        ? float(AI_VALUE2(uint32, "incoming damage", GetTargetName())) * 100.0f / float(maxHealth)
+        : 0.0f;
     HealDownrankState const state{missing,
         healthPct > 100.0f ? 100 : (std::uint8_t)healthPct,
         (std::uint8_t)sPlayerbotAIConfig.lowHealth,
-        (std::uint8_t)sPlayerbotAIConfig.criticalHealth};
+        (std::uint8_t)sPlayerbotAIConfig.criticalHealth,
+        incomingPct > 100.0f ? 100 : (std::uint8_t)incomingPct};
     return PickHealRank(ranks, state);
 }
 

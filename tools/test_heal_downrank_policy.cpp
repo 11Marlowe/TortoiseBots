@@ -31,9 +31,9 @@ static std::vector<HealRankOption> Ladder()
     return {{2060, 400, 180}, {10963, 800, 370}, {10964, 1300, 540}, {25314, 2000, 710}};
 }
 
-static HealDownrankState State(std::uint32_t missing, std::uint8_t healthPct)
+static HealDownrankState State(std::uint32_t missing, std::uint8_t healthPct, std::uint8_t incomingDamage = 0)
 {
-    return HealDownrankState{missing, healthPct, 50, 20};
+    return HealDownrankState{missing, healthPct, 50, 20, incomingDamage};
 }
 
 int main()
@@ -52,6 +52,13 @@ int main()
     CHECK(PickHealRank(ranks, State(200, 20)) == 25314);
     // Emergency below criticalHealth (15%): top rank.
     CHECK(PickHealRank(ranks, State(100, 15)) == 25314);
+    // Predicted emergency: a small wound on a 30% target whose next swing
+    // (15% of max health) would push it into the critical band keeps the
+    // top rank; without the swing it fits a cheap rank.
+    CHECK(PickHealRank(ranks, State(200, 30, 15)) == 25314);
+    CHECK(PickHealRank(ranks, State(200, 30, 5)) == 2060);
+    // Incoming larger than the bar saturates at the emergency gate.
+    CHECK(PickHealRank(ranks, State(200, 60, 100)) == 25314);
     // Medium band (50%, old emergency line): now fits the wound — 200
     // missing -> need 160 -> rank 1. Live raid 2026-10-14 paid top rank
     // here 56x.
