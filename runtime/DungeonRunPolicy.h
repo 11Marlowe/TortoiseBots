@@ -7275,6 +7275,14 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                : !f.leadAlive ? std::string("the lead bot is dead: the others fight on") : std::string("fighting");
         if (runBackWait && !autoRegroup)
             r.note = runBackNote;
+        // A hold done by its units whose fight began before any HoldStep tick
+        // (its crew hostile at once): the event is on, so it is counted and an
+        // awake unit marks it started (CountEvent); else it waited to timeout_s
+        // with every unit dead (Codex review of 81b9fc71). Data and object
+        // holds keep HoldStep's start.
+        if (s->kind == PlanStepKind::Hold && f.seen &&
+            !(s->flags & (ai::kPlanFlagDoneData | ai::kPlanFlagDoneObject)))
+            r.eventOn = true;
         if (s->kind == PlanStepKind::Hold && r.eventOn && f.seen)
         {
             CountEvent(r, f, *s);
