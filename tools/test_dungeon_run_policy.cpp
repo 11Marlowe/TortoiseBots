@@ -5974,6 +5974,262 @@ static void TestCcWindowCountsTheMagesFightTime()
     CHECK(order == "cc moon 2 Magey" && ticks == kCcLandMs / kTickMs);
 }
 
+// Issue #1159: the run's crowd control by the target's creature type and the
+// spells the party knows (kRunCc): Polymorph (mage: humanoid, beast, critter),
+// Shackle Undead (priest: undead), Banish (warlock: demon, elemental), Sap
+// (rogue: humanoid, before the pull only). Entries 100-199 humanoid, 200-299
+// undead, 300 demon, 400 elemental, 500 mechanical (the creature types are
+// the facts', the entries only name them).
+static UnitFact Typed(std::uint64_t guid, std::uint32_t entry, float dist, std::uint32_t type)
+{
+    UnitFact u = Unit(guid, entry, dist);
+    u.creatureType = type;
+    return u;
+}
+
+static MemberFact CcMem(const std::string& name, CcFamily family, bool inCombat = false)
+{
+    MemberFact m = Mem(name, 5);
+    if (family == CcFamily::Polymorph)
+        m.polymorph = true;
+    else
+        m.cc = CcBit(family);
+    m.inCombat = inCombat;
+    return m;
+}
+
+static DungeonPlan CcPlan(std::vector<std::uint32_t> ccPriority)
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1, 100, 101, 200, 201, 300, 400, 500})};
+    plan.ccPriority = ccPriority;
+    return plan;
+}
+
+static void TestPriestShacklesUndeadWithoutAMage()
+{
+    DungeonPlan plan = CcPlan({200});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), CcMem("Priesty", CcFamily::Shackle)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 200, 20, kCreatureUndead)};
+    CHECK(Tick(r, f) == "cc moon 2 Priesty");
+    CHECK(r.note.find("crowd control on 200") == 0 && r.note.find("Shackle Undead") != std::string::npos);
+    CHECK(r.ccPending == 2);
+    CHECK(Tick(r, f) == "pullback 1");
+    // In the fight the shackle shows (the glue's held flag): landed.
+    f.anyInCombat = true;
+    f.members[1].inCombat = true;
+    f.units[1].polymorphed = true;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.ccPending == 0 && r.note.find("200 is shackled") != std::string::npos);
+}
+
+static void TestWarlockBanishesDemonsAndElementals()
+{
+    for (std::uint32_t type : {kCreatureDemon, kCreatureElemental})
+    {
+        DungeonPlan plan = CcPlan({300});
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.members = {CcMem("Locky", CcFamily::Banish)};
+        f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 300, 20, type)};
+        CHECK(Tick(r, f) == "cc moon 2 Locky");
+        CHECK(r.note.find("Banish") != std::string::npos);
+    }
+    // Fear is no run crowd control: a warlock on a humanoid sends nothing.
+    DungeonPlan plan = CcPlan({100});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {CcMem("Locky", CcFamily::Banish)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "pullback 1" && r.ccSent.empty());
+}
+
+static void TestMagePolymorphsHumanoidsFirst()
+{
+    // A humanoid fits the mage and the rogue: the Polymorph goes first.
+    DungeonPlan plan = CcPlan({100});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {CcMem("Roguey", CcFamily::Sap), CcMem("Magey", CcFamily::Polymorph)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "cc moon 2 Magey");
+    // The rogue does not take the same mob: the pull goes.
+    CHECK(Tick(r, f) == "pullback 1");
+    // Two of the same entry: the nearer gets the Polymorph, the other the Sap.
+    Run s = Start(&plan);
+    Facts g = Party(0);
+    g.members = f.members;
+    g.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 30, kCreatureHumanoid), Typed(3, 100, 12, kCreatureHumanoid)};
+    CHECK(Tick(s, g) == "cc moon 3 Magey");
+    CHECK(Tick(s, g) == "cc square 2 Roguey");
+}
+
+static void TestTwoCcBotsTakeTwoMobsNeverOne()
+{
+    DungeonPlan plan = CcPlan({100, 101});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {CcMem("Magey", CcFamily::Polymorph), CcMem("Magetwo", CcFamily::Polymorph)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid),
+        Typed(3, 101, 20, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "cc moon 2 Magey");
+    CHECK(Tick(r, f) == "cc square 3 Magetwo");
+    CHECK(Tick(r, f) == "pullback 1");
+    CHECK(r.ccHolds.size() == 2 && r.ccHolds.at(2).bot == "Magey" && r.ccHolds.at(3).bot == "Magetwo");
+    // One mage alone holds one mob at a time.
+    Run o = Start(&plan);
+    Facts g = f;
+    g.members = {CcMem("Magey", CcFamily::Polymorph)};
+    CHECK(Tick(o, g) == "cc moon 2 Magey");
+    CHECK(Tick(o, g) == "pullback 1");
+    CHECK(o.ccSent.size() == 1);
+    // The mark and the mage are free again once the sheep died: the next
+    // listed mob takes them.
+    Run m = Start(&plan);
+    Facts h = g;
+    h.units.pop_back();
+    CHECK(Tick(m, h) == "cc moon 2 Magey");
+    h.units.erase(h.units.begin() + 1); // the sheep died
+    h.units.push_back(Typed(3, 101, 20, kCreatureHumanoid));
+    CHECK(Tick(m, h) == "cc moon 3 Magey");
+}
+
+static void TestImmuneTypeIsNeverPicked()
+{
+    DungeonPlan plan = CcPlan({200, 500, 300, 100});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    // A mage only: undead, mechanical and demon are immune to Polymorph.
+    f.members = {CcMem("Magey", CcFamily::Polymorph)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 200, 20, kCreatureUndead),
+        Typed(3, 500, 20, kCreatureMechanical), Typed(4, 300, 20, kCreatureDemon)};
+    CHECK(Tick(r, f) == "pullback 1" && r.ccSent.empty());
+    // Every cc class: the mechanical one still never; the undead goes to the
+    // priest, the demon to the warlock.
+    Run a = Start(&plan);
+    Facts g = f;
+    g.members = {CcMem("Magey", CcFamily::Polymorph), CcMem("Priesty", CcFamily::Shackle),
+        CcMem("Locky", CcFamily::Banish), CcMem("Roguey", CcFamily::Sap)};
+    CHECK(Tick(a, g) == "cc moon 2 Priesty");
+    CHECK(Tick(a, g) == "cc square 4 Locky");
+    CHECK(Tick(a, g) == "pullback 1");
+    CHECK(!a.ccSent.count(3));
+    // An unread type (0) is Polymorph's only, as before the table.
+    Run u = Start(&plan);
+    Facts h = Party(0);
+    h.members = {CcMem("Priesty", CcFamily::Shackle), CcMem("Locky", CcFamily::Banish), CcMem("Roguey", CcFamily::Sap)};
+    h.units = {Unit(1, 1, 10), Unit(2, 200, 20)};
+    CHECK(Tick(u, h) == "pullback 1" && u.ccSent.empty());
+    CHECK(!CcFits(CcFamily::Shackle, 0) && CcFits(CcFamily::Polymorph, 0));
+}
+
+static void TestCcPriorityOrderComesBeforeTheSpell()
+{
+    // The priest's undead is ranked first though a humanoid for the mage is
+    // nearer and the more reliable spell.
+    DungeonPlan plan = CcPlan({201, 100});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {CcMem("Magey", CcFamily::Polymorph), CcMem("Priesty", CcFamily::Shackle)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 12, kCreatureHumanoid),
+        Typed(3, 201, 30, kCreatureUndead)};
+    const UnitFact* cc = PickCc(r, f, 0);
+    CHECK(cc && cc->guid == 3);
+    CHECK(Tick(r, f) == "cc moon 3 Priesty");
+    CHECK(Tick(r, f) == "cc square 2 Magey");
+}
+
+static void TestRogueSapsBeforeThePull()
+{
+    DungeonPlan plan = CcPlan({100});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), CcMem("Roguey", CcFamily::Sap)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "cc moon 2 Roguey");
+    CHECK(r.note.find("Sap") != std::string::npos);
+    // The pull waits for the Sap; the rogue walking off is not gathered back.
+    f.maxMemberYd = 30;
+    f.members[1].yd = 30;
+    CHECK(Tick(r, f).empty() && r.note.find("waiting for Roguey's Sap on 100") == 0);
+    CHECK(Tick(r, f).empty());
+    // Sapped: the party gathers (the rogue comes back), then the pull.
+    f.units[1].polymorphed = true;
+    std::string const gather = Tick(r, f);
+    CHECK(gather.compare(0, 5, "move ") == 0 && r.ccPending == 0);
+    f.maxMemberYd = 0;
+    f.members[1].yd = 5;
+    CHECK(Tick(r, f) == "pullback 1");
+    // Never once the party fights: Sap is a pre-pull spell.
+    Run c = Start(&plan);
+    Facts g = Party(0);
+    g.members = {CcMem("Roguey", CcFamily::Sap)};
+    g.units = f.units;
+    g.units[1].polymorphed = false;
+    g.anyInCombat = true;
+    CHECK(PickCc(c, g, 0) == nullptr);
+    g.anyInCombat = false;
+    g.members[0].inCombat = true;
+    CHECK(PickCc(c, g, 0) == nullptr);
+    g.members[0].inCombat = false;
+    CHECK(PickCc(c, g, 0) != nullptr);
+}
+
+static void TestSapThatNeverLandsLetsThePullGo()
+{
+    DungeonPlan plan = CcPlan({100, 101});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {CcMem("Roguey", CcFamily::Sap)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid),
+        Typed(3, 101, 22, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "cc moon 2 Roguey");
+    std::uint32_t ticks = 0;
+    for (; ticks <= kSapWaitMs / kTickMs + 1 && !r.ccSapFailed; ++ticks)
+        CHECK(Tick(r, f).empty());
+    CHECK(ticks == kSapWaitMs / kTickMs);
+    CHECK(r.note.find("sap did not land on 100") == 0);
+    // No second Sap this step: the pull goes, and the unit is not held.
+    std::string order = Tick(r, f);
+    CHECK(order == "pullback 1");
+    CHECK(r.ccSapFailed && !r.ccSent.count(2) && r.ccHolds.empty() && r.ccPending == 0);
+    CHECK(PickCc(r, f, 0) == nullptr);
+    // Combat during the wait: the fight's check drops it, with no second Sap.
+    Run c = Start(&plan);
+    CHECK(Tick(c, f) == "cc moon 2 Roguey");
+    Facts g = f;
+    g.anyInCombat = true;
+    g.members[0].inCombat = true;
+    order.clear();
+    for (std::uint32_t i = 0; i <= 2 * kCcLandMs / kTickMs; ++i)
+        order += Tick(c, g);
+    CHECK(order.find("cc ") == std::string::npos && c.ccWatch.empty() && c.ccPending == 0);
+}
+
+static void TestCcResendUsesItsOwnMark()
+{
+    DungeonPlan plan = CcPlan({100, 200});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {CcMem("Magey", CcFamily::Polymorph), CcMem("Priesty", CcFamily::Shackle)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid),
+        Typed(3, 200, 20, kCreatureUndead)};
+    CHECK(Tick(r, f) == "cc moon 2 Magey");
+    CHECK(Tick(r, f) == "cc square 3 Priesty");
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.members[0].inCombat = true;
+    f.members[1].inCombat = true;
+    f.units[1].polymorphed = true; // the sheep landed; the shackle did not
+    std::string orders;
+    for (std::uint32_t i = 0; i <= kCcLandMs / kTickMs + 1; ++i)
+        orders += Tick(r, f);
+    CHECK(orders == "cc square 3 Priesty");
+    CHECK(r.ccWatch.size() == 1 && r.ccWatch[0].resent && r.ccPending == 3 && r.ccResent);
+}
+
 static void TestStepIdleCeiling()
 {
     DungeonPlan plan;
@@ -11731,6 +11987,15 @@ int main()
     TestGuardAfterAFocusIsRateBounded();
     TestRefusedFocusIsPickedAgainDeadminesS118();
     TestCcWindowCountsTheMagesFightTime();
+    TestPriestShacklesUndeadWithoutAMage();
+    TestWarlockBanishesDemonsAndElementals();
+    TestMagePolymorphsHumanoidsFirst();
+    TestTwoCcBotsTakeTwoMobsNeverOne();
+    TestImmuneTypeIsNeverPicked();
+    TestCcPriorityOrderComesBeforeTheSpell();
+    TestRogueSapsBeforeThePull();
+    TestSapThatNeverLandsLetsThePullGo();
+    TestCcResendUsesItsOwnMark();
     TestTankGuardsThePartyFromItsStand();
     TestTankGuardReturnsToItsOwnSpot();
     TestTankGuardPull100Replay();

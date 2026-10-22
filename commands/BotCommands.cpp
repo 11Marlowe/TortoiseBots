@@ -9615,20 +9615,51 @@ bool HasMealAura(Player* bot)
     return false;
 }
 
-bool KnowsPolymorph(Player* bot)
+template <std::size_t N>
+bool KnowsAny(Player* bot, uint32 const (&spells)[N])
 {
-    for (uint32 spell : TortoiseBots::DungeonRun::kPolymorphSpells)
+    for (uint32 spell : spells)
         if (bot->HasSpell(spell))
             return true;
     return false;
 }
 
-bool Polymorphed(Unit const* unit)
+bool KnowsPolymorph(Player* bot)
 {
-    for (uint32 spell : TortoiseBots::DungeonRun::kPolymorphSpells)
+    return KnowsAny(bot, TortoiseBots::DungeonRun::kPolymorphSpells);
+}
+
+// The run cc a bot knows besides Polymorph (DungeonRun::MemberFact::cc,
+// issue #1159), by its class: a priest's Shackle Undead, a warlock's Banish,
+// a rogue's Sap.
+uint32 KnownRunCc(Player* bot)
+{
+    using namespace TortoiseBots::DungeonRun;
+    switch (bot->GetClass())
+    {
+        case CLASS_PRIEST: return KnowsAny(bot, kShackleUndeadSpells) ? CcBit(CcFamily::Shackle) : 0;
+        case CLASS_WARLOCK: return KnowsAny(bot, kBanishSpells) ? CcBit(CcFamily::Banish) : 0;
+        case CLASS_ROGUE: return KnowsAny(bot, kSapSpells) ? CcBit(CcFamily::Sap) : 0;
+        default: return 0;
+    }
+}
+
+template <std::size_t N>
+bool HasAnyAura(Unit const* unit, uint32 const (&spells)[N])
+{
+    for (uint32 spell : spells)
         if (unit->HasAura(spell))
             return true;
     return false;
+}
+
+// A run crowd-control aura is on it (DungeonRun::UnitFact::polymorphed):
+// Polymorph, Shackle Undead, Banish or Sap.
+bool RunCcHeld(Unit const* unit)
+{
+    using namespace TortoiseBots::DungeonRun;
+    return HasAnyAura(unit, kPolymorphSpells) || HasAnyAura(unit, kShackleUndeadSpells) ||
+        HasAnyAura(unit, kBanishSpells) || HasAnyAura(unit, kSapSpells);
 }
 
 // In this fight: a party bot is its victim or attacks it.
@@ -9837,7 +9868,7 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
         fact.entry = nearestHit->GetEntry();
         fact.distLead = nearestHitYd;
         fact.evading = static_cast<Creature*>(nearestHit)->IsInEvadeMode();
-        fact.polymorphed = Polymorphed(nearestHit);
+        fact.polymorphed = RunCcHeld(nearestHit);
         fact.engaged = true;
         fact.hitting = true;
         f.leadHasAttacker = true;
@@ -9857,7 +9888,7 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
             fact.entry = attacker->GetEntry();
             fact.distLead = lead->GetDistance(attacker);
             fact.evading = attacker->IsCreature() && static_cast<Creature*>(attacker)->IsInEvadeMode();
-            fact.polymorphed = Polymorphed(attacker);
+            fact.polymorphed = RunCcHeld(attacker);
             fact.engaged = true;
             fact.hitting = attacker->CanReachWithMeleeAutoAttack(victim) ||
                 (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
@@ -10339,12 +10370,14 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         float const yd = bot == lead ? 0.0f : bot->GetMap() == lead->GetMap() ? bot->GetDistance(lead) : 1000.0f;
         f.maxMemberYd = std::max(f.maxMemberYd, yd);
         // By name: a gather's straggler is summoned (DungeonRun::SummonStraggler),
-        // and a mage that knows Polymorph is the plan's crowd control (CcBot).
+        // and its crowd control is ordered by name (DungeonRun::PickCcOrder):
+        // a mage that knows Polymorph, a priest, warlock or rogue by KnownRunCc.
         MemberFact member;
         member.name = bot->GetName();
         member.yd = yd;
         member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;
         member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);
+        member.cc = KnownRunCc(bot);
         member.x = bot->GetPositionX(); // the stand-still watch (DungeonRun::UpdateStill)
         member.y = bot->GetPositionY();
         member.z = bot->GetPositionZ();
@@ -10554,7 +10587,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.hostile = !sServerFacade.IsFriendlyTo(creature, lead);
                     unit.stealthed = IsStealthed(creature);
                     unit.evading = creature->IsInEvadeMode();
-                    unit.polymorphed = Polymorphed(creature);
+                    unit.polymorphed = RunCcHeld(creature);
+                    unit.creatureType = creature->GetCreatureType(); // which run cc fits it (DungeonRun::CcFits)
                     // The pull stand: can the tank shoot it from where it stands (one ray, key on only).
                     if (f.pullStand)
                         unit.losLead = lead->IsWithinLOSInMap(creature);
@@ -10729,7 +10763,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.hostile = !sServerFacade.IsFriendlyTo(creature, lead);
                     unit.stealthed = IsStealthed(creature);
                     unit.evading = creature->IsInEvadeMode();
-                    unit.polymorphed = Polymorphed(creature);
+                    unit.polymorphed = RunCcHeld(creature);
+                    unit.creatureType = creature->GetCreatureType(); // which run cc fits it (DungeonRun::CcFits)
                     // Awake and fighting: the unit the tank takes (DungeonRun::HoldEngageTarget).
                     Unit* const victim = creature->GetVictim();
                     unit.engaged = unit.hostile && creature->IsInCombat() && victim;

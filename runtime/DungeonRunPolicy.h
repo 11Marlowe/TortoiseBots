@@ -21,8 +21,8 @@
 // Safety rules, carried over from turtle-agent's remote driver (its plan
 // stepper is the owner's MIT code; provenance in its PR):
 //   - gather before a pull: every living bot within kGatherYd of the lead bot;
-//   - the plan's cc units get one mage's `cc moon` before a pull (never the
-//     pull target), its kill_first units are pulled first and focused in a
+//   - the plan's cc units get a `cc <mark>` before a pull (never the pull
+//     target), one unit per bot by creature type and spell (kRunCc), its kill_first units are pulled first and focused in a
 //     fight (a summoned healing ward too);
 //   - walk in the plan's hops; before each hop, pull what stands near it, but
 //     never what a later pull or boss step owns (OwnedByLaterStep);
@@ -387,7 +387,12 @@ struct UnitFact
     bool hostile = true;     // not friendly to the party (hostile or neutral): it may be pulled
     bool stealthed = false;
     bool evading = false;    // running home: not pulled this tick
-    bool polymorphed = false; // a mage's Polymorph aura is on it (kPolymorphSpells)
+    // A run crowd-control aura is on it: Polymorph, Shackle Undead, Banish or
+    // Sap (kRunCc's spells; the name is from when the run had only Polymorph).
+    bool polymorphed = false;
+    // The core's creature type (kCreatureHumanoid ...): which run cc fits it
+    // (CcFits). 0: not read, Polymorph only (the facts before #1159).
+    std::uint32_t creatureType = 0;
     // Kill-first candidates (Facts::killFirst): in combat with a party member,
     // or summoned / owned (a healing ward) by a unit that is.
     bool engaged = false;
@@ -417,6 +422,72 @@ struct UnitFact
 // The mage's Polymorph (all ranks and forms): the aura the run waits for after
 // a `cc moon`, and the spell a mage must know to be the run's crowd control.
 constexpr std::uint32_t kPolymorphSpells[] = {118, 12824, 12825, 12826, 28270, 28271, 28272};
+// Issue #1159: the other classes' run crowd control (all ranks), known by the
+// bot (MemberFact::cc) and read as an aura on the unit (UnitFact::polymorphed).
+constexpr std::uint32_t kShackleUndeadSpells[] = {9484, 9485, 10955};
+constexpr std::uint32_t kBanishSpells[] = {710, 18647};
+constexpr std::uint32_t kSapSpells[] = {6770, 2070, 11297};
+
+// The core's creature types (CreatureType, SharedDefines.h).
+constexpr std::uint32_t kCreatureBeast = 1;
+constexpr std::uint32_t kCreatureDemon = 3;
+constexpr std::uint32_t kCreatureElemental = 4;
+constexpr std::uint32_t kCreatureUndead = 6;
+constexpr std::uint32_t kCreatureHumanoid = 7;
+constexpr std::uint32_t kCreatureCritter = 8;
+constexpr std::uint32_t kCreatureMechanical = 9;
+constexpr std::uint32_t CreatureBit(std::uint32_t type) { return type ? 1u << type : 0u; }
+
+// The run's crowd-control spells (issue #1159), in the order of their
+// reliability: the bot for a unit is the free one whose spell comes first
+// here. Fear is not one (a feared mob runs into the next pack), nor Freezing
+// Trap (the hunter's "freezing trap on cc" walks to the marked mob and lays
+// the trap at its feet in the fight, TrapOnCcTargetAction; there is no trap
+// laid at the stand before the pull to model).
+enum class CcFamily : std::uint8_t { None = 0, Polymorph, Shackle, Banish, Sap };
+constexpr std::uint32_t CcBit(CcFamily family) { return 1u << static_cast<unsigned>(family); }
+
+struct RunCcSpell
+{
+    CcFamily family;
+    const char* spell;   // for the note
+    const char* held;    // "<entry> is <held>" once its aura shows
+    std::uint32_t types; // CreatureBit of each creature type it works on
+    bool prePull;        // only on a unit out of combat, by a bot out of combat, before the pull (Sap)
+};
+constexpr RunCcSpell kRunCc[] = {
+    {CcFamily::Polymorph, "Polymorph", "polymorphed",
+        CreatureBit(kCreatureHumanoid) | CreatureBit(kCreatureBeast) | CreatureBit(kCreatureCritter), false},
+    {CcFamily::Shackle, "Shackle Undead", "shackled", CreatureBit(kCreatureUndead), false},
+    {CcFamily::Banish, "Banish", "banished", CreatureBit(kCreatureDemon) | CreatureBit(kCreatureElemental), false},
+    {CcFamily::Sap, "Sap", "sapped", CreatureBit(kCreatureHumanoid), true},
+};
+
+inline const RunCcSpell* RunCcOf(CcFamily family)
+{
+    for (const RunCcSpell& c : kRunCc)
+        if (c.family == family)
+            return &c;
+    return nullptr;
+}
+
+// Whether `family` works on a unit of `creatureType`. An unread type (0) is
+// Polymorph's only: the run's crowd control before the table.
+inline bool CcFits(CcFamily family, std::uint32_t creatureType)
+{
+    if (!creatureType)
+        return family == CcFamily::Polymorph;
+    const RunCcSpell* c = RunCcOf(family);
+    return c && (c->types & CreatureBit(creatureType));
+}
+
+// The raid marks the run's cc orders use, one per unit held at a time (the
+// order moves the mark onto its unit and sets the bot's "rti cc" to it, so two
+// held units need two marks). Moon first, as before.
+constexpr const char* kCcMarks[] = {"moon", "square", "diamond", "triangle"};
+// A Sap goes out before the pull, which waits this long for its aura (the
+// rogue stealths and walks to the mob), then goes without it.
+constexpr std::uint32_t kSapWaitMs = 15000;
 // In the fight a `cc moon` must show its aura within this much of the mage's
 // own fight time (19z5: the mage waits for the tank's threat, walks into range
 // and casts 1.5 s; Polymorphs landed 7-8 s into its fight), else once more,
@@ -440,7 +511,16 @@ struct MemberFact
     // refuses too-far on: a complete navmesh path of at most kDirectMaxGatherPath yd onto the lead bot's spot,
     // or within kDirectNearLead yd of it on its floor in its sight, or its own line to the point). Unread: true.
     bool withLead = true;
+    // The run cc it knows besides `polymorph` (CcBit: a priest's Shackle
+    // Undead, a warlock's Banish, a rogue's Sap; issue #1159).
+    std::uint32_t cc = 0;
 };
+
+// Every run cc family `m` knows.
+inline std::uint32_t MemberCc(const MemberFact& m)
+{
+    return m.cc | (m.polymorph ? CcBit(CcFamily::Polymorph) : 0u);
+}
 
 // What the glue reads once a tick for the run's current step.
 struct Facts
@@ -841,7 +921,26 @@ struct Run
     bool holdDue = false;
     float leadDeathX = 0.0f, leadDeathY = 0.0f, leadDeathZ = 0.0f;
     // Crowd control and kill-first (the plan's cc_priority / cc_always / kill_first).
-    std::unordered_set<std::uint64_t> ccSent; // units this step put a `cc moon` on (once each)
+    std::unordered_set<std::uint64_t> ccSent; // units this step put a `cc <mark>` on (once each)
+    // Who holds which unit (issue #1159): one unit per bot and per mark while
+    // that unit lives among the step's units; a unit is never given a second bot.
+    struct CcHold
+    {
+        std::string bot;
+        std::string mark;
+        CcFamily family = CcFamily::None;
+    };
+    std::unordered_map<std::uint64_t, CcHold> ccHolds;
+    // The cc orders whose aura is not seen yet (CheckCc, and SapWait before
+    // the pull), in the order sent.
+    struct CcWatch
+    {
+        std::uint64_t guid = 0;
+        bool resent = false;
+        std::uint32_t waitMs = 0;
+    };
+    std::vector<CcWatch> ccWatch;
+    bool ccSapFailed = false; // a Sap did not land this step: no other Sap in it
     std::uint64_t focusGuid = 0;              // the kill-first unit focused in this fight
     // Kill-first units whose focus was refused (kFocusRefusedIgnoreMs): unit ->
     // runMs until which PickKillFirst passes it over. focusUnstayed: such a
@@ -876,7 +975,8 @@ struct Run
     // gather, a dead member, a joiner rest, a regroup, another step kind) ends
     // the hold: the stand request, the walk and the wait are dropped (Tick).
     bool shotGateRan = false;
-    std::uint64_t ccPending = 0;              // the `cc moon` sent, its Polymorph not seen yet
+    // The first of ccWatch (SyncCcWatch), for the readers of one order:
+    std::uint64_t ccPending = 0;              // the `cc <mark>` sent, its aura not seen yet
     bool ccResent = false;                    // ... sent a second time
     std::uint32_t ccWaitMs = 0;               // fight time since the mark (or its second sending)
     // Regroups the run started by itself at this step (a wipe or kWipeDead
@@ -1345,6 +1445,9 @@ inline void ResetStep(Run& r)
     r.ccPending = 0;
     r.ccResent = false;
     r.ccWaitMs = 0;
+    r.ccHolds.clear();
+    r.ccWatch.clear();
+    r.ccSapFailed = false;
     r.walkBackDue = false;
     r.walkBack = false;
     r.walkBackDirect = false;
@@ -3478,68 +3581,152 @@ inline bool Pullable(const Run& r, const UnitFact& u)
     return u.hostile && !u.evading && !u.stealthed && !r.passed.count(u.guid) && !r.unreachable.count(u.guid);
 }
 
-// The party's crowd control: the first living mage that knows Polymorph, "" none.
-inline std::string CcBot(const Facts& f)
-{
-    for (const MemberFact& m : f.members)
-        if (m.polymorph && !m.name.empty())
-            return m.name;
-    return std::string();
-}
-
-// In the fight after a `cc moon`: the Polymorph aura must show on that unit
-// within kCcLandMs. Not there: the mark once more, then noted as not landed.
-// Returns true when it sent an order.
-inline bool CheckCc(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
-{
-    if (!r.ccPending)
-        return false;
-    const UnitFact* held = nullptr;
-    for (const UnitFact& x : f.units)
-        if (x.guid == r.ccPending)
-            held = &x;
-    if (!held || held->polymorphed)
-    {
-        if (held)
-            r.note = "fighting: " + std::to_string(held->entry) + " is polymorphed";
-        r.ccPending = 0;
-        return false;
-    }
-    // Counted only while the crowd control itself is in the fight.
-    std::string const bot = CcBot(f);
-    for (const MemberFact& m : f.members)
-        if (m.name == bot && m.inCombat)
-            r.ccWaitMs += dt;
-    if (r.ccWaitMs < kCcLandMs)
-        return false;
-    if (!r.ccResent && !bot.empty())
-    {
-        r.ccResent = true;
-        r.ccWaitMs = 0;
-        r.note = "fighting: the crowd control on " + std::to_string(held->entry) + " did not land: once more";
-        order = "cc moon " + std::to_string(held->guid) + " " + bot;
-        return true;
-    }
-    r.note = "fighting: cc did not land on " + std::to_string(held->entry);
-    r.ccPending = 0;
-    return false;
-}
-
-// Whether a unit this step crowd-controlled is still alive among the step's
-// units (one mage holds one Polymorph).
-inline bool CcHeld(const Run& r, const Facts& f)
+// The unit of `guid` among the step's units, null when it is gone (dead, or out of the read).
+inline const UnitFact* StepUnit(const Facts& f, std::uint64_t guid)
 {
     for (const UnitFact& u : f.units)
-        if (r.ccSent.count(u.guid))
+        if (u.guid == guid)
+            return &u;
+    return nullptr;
+}
+
+// ccPending, ccResent and ccWaitMs mirror the first watched order.
+inline void SyncCcWatch(Run& r)
+{
+    r.ccPending = r.ccWatch.empty() ? 0 : r.ccWatch.front().guid;
+    r.ccResent = !r.ccWatch.empty() && r.ccWatch.front().resent;
+    r.ccWaitMs = r.ccWatch.empty() ? 0 : r.ccWatch.front().waitMs;
+}
+
+inline CcFamily HoldFamily(const Run& r, std::uint64_t guid)
+{
+    auto const h = r.ccHolds.find(guid);
+    return h == r.ccHolds.end() ? CcFamily::None : h->second.family;
+}
+
+// In the fight after a `cc <mark>`: its aura must show on that unit within
+// kCcLandMs of its bot's own fight time. Not there: the mark once more (the
+// same mark and bot), then noted as not landed. A Sap is a pre-pull spell
+// (SapWait): one that has not shown when the fight starts is only noted.
+// At most one order a tick. Returns true when it sent one.
+inline bool CheckCc(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
+{
+    bool sent = false;
+    for (std::size_t i = 0; i < r.ccWatch.size();)
+    {
+        Run::CcWatch& w = r.ccWatch[i];
+        const UnitFact* held = StepUnit(f, w.guid);
+        auto const hold = r.ccHolds.find(w.guid);
+        const RunCcSpell* spell = hold == r.ccHolds.end() ? nullptr : RunCcOf(hold->second.family);
+        if (!held || held->polymorphed || !spell)
+        {
+            if (held && spell)
+                r.note = "fighting: " + std::to_string(held->entry) + " is " + spell->held;
+            r.ccWatch.erase(r.ccWatch.begin() + static_cast<std::ptrdiff_t>(i));
+            continue;
+        }
+        std::string const& bot = hold->second.bot;
+        bool botAlive = false;
+        // Counted only while the crowd control itself is in the fight.
+        for (const MemberFact& m : f.members)
+            if (m.name == bot)
+            {
+                botAlive = true;
+                if (m.inCombat)
+                    w.waitMs += dt;
+            }
+        if (spell->prePull)
+        {
+            r.note = "fighting: cc did not land on " + std::to_string(held->entry) + " (" + spell->spell + " before the pull)";
+            r.ccWatch.erase(r.ccWatch.begin() + static_cast<std::ptrdiff_t>(i));
+            continue;
+        }
+        if (w.waitMs < kCcLandMs)
+        {
+            ++i;
+            continue;
+        }
+        if (!w.resent && botAlive)
+        {
+            if (!sent)
+            {
+                w.resent = true;
+                w.waitMs = 0;
+                r.note = "fighting: the crowd control on " + std::to_string(held->entry) + " did not land: once more";
+                order = "cc " + hold->second.mark + " " + std::to_string(held->guid) + " " + bot;
+                sent = true;
+            }
+            ++i;
+            continue;
+        }
+        r.note = "fighting: cc did not land on " + std::to_string(held->entry);
+        r.ccWatch.erase(r.ccWatch.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+    SyncCcWatch(r);
+    return sent;
+}
+
+// Before the pull: a Sap sent is waited for (the rogue stealths and walks to
+// its mob) up to kSapWaitMs, with no gather that would call the rogue back.
+// Landed: the pull goes on (its gather first, the rogue far off). Not landed
+// in time: noted (that tick holds the pull too), the unit is no longer held
+// and no other Sap goes out this step. Returns true while it holds the pull.
+inline bool SapWait(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
+{
+    bool ended = false;
+    bool failed = false;
+    for (std::size_t i = 0; i < r.ccWatch.size();)
+    {
+        Run::CcWatch& w = r.ccWatch[i];
+        auto const hold = r.ccHolds.find(w.guid);
+        const RunCcSpell* spell = hold == r.ccHolds.end() ? nullptr : RunCcOf(hold->second.family);
+        if (!spell || !spell->prePull)
+        {
+            ++i;
+            continue;
+        }
+        const UnitFact* unit = StepUnit(f, w.guid);
+        if (unit && !unit->polymorphed && w.waitMs + dt < kSapWaitMs)
+        {
+            w.waitMs += dt;
+            r.note = "waiting for " + hold->second.bot + "'s " + spell->spell + " on " + std::to_string(unit->entry) +
+                " before the pull";
+            SyncCcWatch(r);
             return true;
-    return false;
+        }
+        if (unit && unit->polymorphed)
+            r.note = std::to_string(unit->entry) + " is " + spell->held + ": the pull goes";
+        else if (unit)
+        {
+            r.note = "sap did not land on " + std::to_string(unit->entry) + " in " +
+                std::to_string(kSapWaitMs / 1000) + " s: the pull goes without it";
+            r.ccSapFailed = true;
+            r.ccSent.erase(w.guid);
+            r.ccHolds.erase(hold);
+            failed = true;
+        }
+        r.ccWatch.erase(r.ccWatch.begin() + static_cast<std::ptrdiff_t>(i));
+        ended = true;
+    }
+    SyncCcWatch(r);
+    if (ended && f.maxMemberYd > kGatherYd)
+    {
+        // The rogue is off by its mob: gather again before the pull (the
+        // gather's ceiling counts from here, not from the cc order).
+        std::string const why = r.note;
+        r.phaseMs = 0;
+        SendGather(r, f, order);
+        r.note = why + "; gathering before the pull";
+        return true;
+    }
+    // A Sap that did not land holds this one tick, so its note is seen.
+    return failed;
 }
 
 // The pack member the run crowd-controls before a pull of `pullGuid`: the
 // best-ranked of the plan's cc entries (cc_priority, then cc_always) among
-// the step's units, never the pull target, not one already done this step,
-// and none while an earlier one is still alive. Null without a mage in the
-// party or a plan list. Never the boss of a boss step or one of its own adds
+// the step's units, never the pull target, not one already done this step.
+// Never the boss of a boss step or one of its own adds
 // (the step's entries, killed first in its kill order): Uldaman's cc lists
 // (20261021174717) name the Geomancer 4853 that Grimlok's step lists and the
 // 7030 of Galgann's, and a polymorphed add of the kill order holds the fight
@@ -3551,13 +3738,47 @@ inline bool BossStepUnit(const PlanStep* s, std::uint32_t entry)
     return entry == s->entry || std::find(s->entries.begin(), s->entries.end(), entry) != s->entries.end();
 }
 
-inline const UnitFact* PickCc(const Run& r, const Facts& f, std::uint64_t pullGuid)
+// A cc order: the unit, the bot, its spell and the mark.
+struct CcPick
 {
-    if (!r.plan || CcBot(f).empty() || CcHeld(r, f))
-        return nullptr;
+    const UnitFact* unit = nullptr;
+    std::string bot;
+    CcFamily family = CcFamily::None;
+    std::string mark;
+};
+
+// Issue #1159: the unit as above, by rank, then the spell's reliability
+// (kRunCc's order), then the nearest; only a unit some free bot has a spell
+// for: the unit's creature type in the spell's (CcFits), a Sap only with the
+// party and that rogue out of combat (after a Sap that did not land this
+// step, none). A bot is free while no unit it holds lives (one unit per bot),
+// and a held unit is never given a second one. Its mark is the first of
+// kCcMarks no living held unit has. Unit null for none.
+inline CcPick PickCcOrder(const Run& r, const Facts& f, std::uint64_t pullGuid)
+{
+    CcPick pick;
+    if (!r.plan)
+        return pick;
+    std::unordered_set<std::string> busy;
+    std::unordered_set<std::string> marks;
+    for (const auto& h : r.ccHolds)
+        if (StepUnit(f, h.first))
+        {
+            busy.insert(h.second.bot);
+            marks.insert(h.second.mark);
+        }
+    const char* mark = nullptr;
+    for (const char* m : kCcMarks)
+        if (!marks.count(m))
+        {
+            mark = m;
+            break;
+        }
+    if (!mark)
+        return pick;
     const PlanStep* const step = Current(r);
-    const UnitFact* best = nullptr;
     int bestRank = 0;
+    std::size_t bestSpell = 0;
     for (const UnitFact& u : f.units)
     {
         if (u.guid == pullGuid || !Pullable(r, u) || r.ccSent.count(u.guid) || BossStepUnit(step, u.entry))
@@ -3565,13 +3786,46 @@ inline const UnitFact* PickCc(const Run& r, const Facts& f, std::uint64_t pullGu
         int const rank = r.plan->CcRank(u.entry);
         if (rank < 0)
             continue;
-        if (!best || rank < bestRank || (rank == bestRank && u.distLead < best->distLead))
+        // The most reliable spell a free bot has for it.
+        std::size_t spellIdx = 0;
+        const MemberFact* bot = nullptr;
+        for (; spellIdx < sizeof(kRunCc) / sizeof(kRunCc[0]) && !bot; ++spellIdx)
         {
-            best = &u;
+            const RunCcSpell& c = kRunCc[spellIdx];
+            if (!CcFits(c.family, u.creatureType))
+                continue;
+            if (c.prePull && (f.anyInCombat || r.ccSapFailed))
+                continue;
+            for (const MemberFact& m : f.members)
+                if (!m.name.empty() && !busy.count(m.name) && (MemberCc(m) & CcBit(c.family)) &&
+                    !(c.prePull && m.inCombat))
+                {
+                    bot = &m;
+                    break;
+                }
+        }
+        if (!bot)
+            continue;
+        --spellIdx; // the loop stepped past the spell it found
+        bool const better = !pick.unit || rank < bestRank ||
+            (rank == bestRank && (spellIdx < bestSpell || (spellIdx == bestSpell && u.distLead < pick.unit->distLead)));
+        if (better)
+        {
+            pick.unit = &u;
+            pick.bot = bot->name;
+            pick.family = kRunCc[spellIdx].family;
             bestRank = rank;
+            bestSpell = spellIdx;
         }
     }
-    return best;
+    if (pick.unit)
+        pick.mark = mark;
+    return pick;
+}
+
+inline const UnitFact* PickCc(const Run& r, const Facts& f, std::uint64_t pullGuid)
+{
+    return PickCcOrder(r, f, pullGuid).unit;
 }
 
 // The pull stand rule is on for this pull (AiPlayerbot.DungeonRunPullStand):
@@ -3898,8 +4152,9 @@ inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t
     return hold("reading a firing stand for " + what);
 }
 
-// Gathers the party, crowd-controls the plan's cc target of the pack (one
-// `cc moon <guid> <mage>`, once per unit and step), then sends `pullback <guid>`.
+// Gathers the party, crowd-controls the plan's cc targets of the pack (a
+// `cc <mark> <guid> <bot>` each, once per unit and step, PickCcOrder), then
+// sends `pullback <guid>`.
 // With the pull stand on (HoldForShot), the tank is put where it can shoot first.
 // `hop`: a move's hop pull (the walk back's are hop pulls too). Such a unit is
 // not the step's target: with the pull stand on, one the tank still cannot
@@ -3924,6 +4179,10 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         r.note = WaitNote(r, f) + ": no pull while a party member is dead";
         return;
     }
+    // A Sap sent before this pull: wait for it, before any gather (that would
+    // call the rogue back from its mob).
+    if (SapWait(r, f, dt, order))
+        return;
     if (!r.hopWaiveUnits.empty() && !r.hopWaiveUnits.count(u.guid))
         DropHopWaiver(r); // another target than the units the hop was abandoned for: gather as usual
     if (r.shotStandPrep && r.shotHoldGuid != u.guid)
@@ -3964,21 +4223,26 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         Pause(r, "walk back: " + std::to_string(kMaxWalkBackPulls) + " pulls on the way did not clear it");
         return;
     }
-    if (cc && cc->guid != u.guid && !r.ccSent.count(cc->guid))
+    CcPick const ccPick = cc ? PickCcOrder(r, f, u.guid) : CcPick();
+    if (ccPick.unit && ccPick.unit->guid == cc->guid && cc->guid != u.guid && !r.ccSent.count(cc->guid))
     {
-        // The mark goes out before the pull; the mage's Polymorph comes with
-        // the fight (its `cc` strategy is a combat one), where the fight gate
-        // checks the aura (CheckCc).
+        // The mark goes out before the pull; a Polymorph, Shackle Undead or
+        // Banish comes with the fight (the class's `cc` strategy is a combat
+        // one), where the fight gate checks the aura (CheckCc). A Sap is cast
+        // out of combat (the rogue's "sap cc mark"): the pull waits for it
+        // (SapWait). One unit per bot, each with its own mark (PickCcOrder).
         r.ccSent.insert(cc->guid);
-        r.ccPending = cc->guid;
-        r.ccResent = false;
-        r.ccWaitMs = 0;
+        r.ccHolds[cc->guid] = Run::CcHold{ccPick.bot, ccPick.mark, ccPick.family};
+        Run::CcWatch watch;
+        watch.guid = cc->guid;
+        r.ccWatch.push_back(watch);
+        SyncCcWatch(r);
         // Still getting the pull ready: the next tick's pull is not counted
         // as a second pull attempt (FightStep's fruitless count).
         EnterPhase(r, Phase::Gather);
-        std::string const bot = CcBot(f);
-        r.note = "crowd control on " + std::to_string(cc->entry) + " (" + bot + ") before the pull";
-        order = "cc moon " + std::to_string(cc->guid) + " " + bot;
+        r.note = "crowd control on " + std::to_string(cc->entry) + " (" + ccPick.bot + ": " +
+            RunCcOf(ccPick.family)->spell + ") before the pull";
+        order = "cc " + ccPick.mark + " " + std::to_string(cc->guid) + " " + ccPick.bot;
         return;
     }
     // The pull stand (off: false at once, nothing changed): before the gather

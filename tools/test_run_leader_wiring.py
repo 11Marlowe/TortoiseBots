@@ -138,9 +138,22 @@ class RunLeaderWiringTest(unittest.TestCase):
 
     def test_crowd_control_and_kill_first_facts(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
-        # The crowd control is a mage that knows Polymorph (the policy picks it from the members).
+        # The crowd control is picked from the members (issue #1159): a mage that knows Polymorph, and
+        # the priest's, warlock's and rogue's run cc by KnownRunCc; each unit carries its creature type
+        # and whether a run cc aura is on it, on both unit reads (the step's pack and a hold's units).
         self.assertIn("member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);", facts)
-        self.assertIn("unit.polymorphed = Polymorphed(creature);", facts)
+        code = "\n".join(line.split("//", 1)[0].rstrip() for line in facts.splitlines())
+        self.assertIn("member.cc = KnownRunCc(bot);", code)
+        self.assertEqual(code.count("unit.polymorphed = RunCcHeld(creature);"), 2)
+        self.assertEqual(code.count("unit.creatureType = creature->GetCreatureType();"), 2)
+        self.assertNotIn("Polymorphed(", COMMANDS)
+        known = body(COMMANDS, "uint32 KnownRunCc(", "\n}\n")
+        self.assertIn("case CLASS_PRIEST: return KnowsAny(bot, kShackleUndeadSpells) ? CcBit(CcFamily::Shackle) : 0;", known)
+        self.assertIn("case CLASS_WARLOCK: return KnowsAny(bot, kBanishSpells) ? CcBit(CcFamily::Banish) : 0;", known)
+        self.assertIn("case CLASS_ROGUE: return KnowsAny(bot, kSapSpells) ? CcBit(CcFamily::Sap) : 0;", known)
+        held = body(COMMANDS, "bool RunCcHeld(", "\n}\n")
+        for spells in ("kPolymorphSpells", "kShackleUndeadSpells", "kBanishSpells", "kSapSpells"):
+            self.assertIn("HasAnyAura(unit, %s)" % spells, held)
         # Kill-first units come from the bots' cached attackers lists: no grid or world scan (AGENTS.md).
         self.assertIn("ReadKillFirst(*slot.run.plan, lead, bots, f);", facts)
         kill = body(COMMANDS, "void ReadKillFirst(", "\n}\n")
