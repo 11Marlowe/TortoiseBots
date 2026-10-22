@@ -928,6 +928,7 @@ struct Run
     bool noSpotKnown = false; // ... or the forward run's move check's (escapeFromMove)
     float noSpotX = 0.0f, noSpotY = 0.0f, noSpotZ = 0.0f;
     std::uint32_t stepEscapes = 0; // hops off an island this step (kStepEscapes)
+    std::uint32_t islandRefusals = 0; // path refusals taken as the island's second sign this step (RefusedFromIsland)
     // The walk-back point last sent, from where, and how often (kWalkBackResends).
     std::size_t resendIdx = static_cast<std::size_t>(-1);
     float resendX = 0.0f, resendY = 0.0f, resendZ = 0.0f;
@@ -1352,6 +1353,7 @@ inline void ResetStep(Run& r)
     r.islandEvidence = false;
     r.noSpotKnown = false;
     r.stepEscapes = 0;
+    r.islandRefusals = 0;
     r.escapeFromMove = false;
     r.resendIdx = static_cast<std::size_t>(-1);
     r.resends = 0;
@@ -2837,6 +2839,50 @@ inline bool GossipDeadIsDone(Run& r, const PlanStep* s, const std::string& answe
     return true;
 }
 
+// Uldaman r16-19z34 step 39: a guard return walked a partial path to its end and
+// left the tank on the dead-end tip of a ramp, 2.4 yd above a floor the navmesh
+// does not link it to. The walk back to the stand point was refused unreachable
+// ("going on from here"), then the step's own move to the same point with no ring
+// point either: a pause, and a resume paused again. The one reading said island,
+// but neither refusal was a second sign (IslandConfirmed), so the hop off it
+// never ran. Such a refusal now is one: CheckMove's no-path verdict ("unreachable":
+// no path, or one that ends where the lead bot stands) says the lead bot's own spot
+// leads nowhere. Only for a plain move step's own point (or the walk back to its
+// stand), off a walk back and a detour, while the last path read got nowhere,
+// nowhere a hop found no spot (noSpotKnown), within the hop caps (kIslandEscapes,
+// kStepEscapes) and at most kStepEscapes times a step (a hop refused "wait" gives
+// its caps back). Past them the refusal pauses or goes on as before.
+inline bool PathRefusalIslandSign(const Run& r, const std::string& answer)
+{
+    const PlanStep* s = Current(r);
+    bool const noSpotHere =
+        r.noSpotKnown && ai::PlanDistance(r.leadLastX, r.leadLastY, r.leadLastZ, r.noSpotX, r.noSpotY, r.noSpotZ) <= kArriveYd;
+    return r.state == State::Running && s && s->kind == PlanStepKind::Move && !r.walkBack && !r.detour &&
+        answer.compare(0, 11, "unreachable") == 0 && !r.leadPathGoodNow && !noSpotHere && !r.islandSuspect &&
+        r.islandEscapes < kIslandEscapes && r.stepEscapes < kStepEscapes && r.islandRefusals < kStepEscapes;
+}
+
+inline void TakeIslandSign(Run& r)
+{
+    ++r.islandRefusals;
+    r.islandSuspect = true; // the next Begin tick's MoveStep (or ApproachHop) hops it off (IslandConfirmed)
+    EnterPhase(r, Phase::Begin);
+}
+
+// The glue: the step's own move refused unreachable and no detour point found
+// (NearestReachablePoint). True when it was taken as the island's second sign
+// (the next tick hops the lead bot off); false: OrderRefused, the pause, as before.
+inline bool RefusedFromIsland(Run& r, const std::string& order, const std::string& answer)
+{
+    const PlanStep* s = Current(r);
+    if (!s || order != MoveOrder(s->x, s->y, s->z, false) || !PathRefusalIslandSign(r, answer))
+        return false;
+    TakeIslandSign(r);
+    r.note = "cmd " + order + " refused (" + answer + "), no reachable point near it either: the lead bot may stand on a " +
+        "navmesh island: a straight hop off it first";
+    return true;
+}
+
 inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)
 {
     // The hop off a navmesh island (IslandEscape) found no spot: counted; the
@@ -2953,11 +2999,19 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         return;
     }
     // The walk back to the stand point after a pick-up (GuardTarget): the
-    // step goes on from where the lead bot stands.
+    // step goes on from where the lead bot stands; refused for want of a path
+    // from it, the lead bot is hopped off first (PathRefusalIslandSign).
     if (r.guardReturn && order == MoveOrder(r.guardX, r.guardY, r.guardZ, false))
     {
         r.guardReturn = false;
         EnterPhase(r, Phase::Begin);
+        if (PathRefusalIslandSign(r, answer))
+        {
+            TakeIslandSign(r);
+            r.note = "back to the stand point refused (" + answer + "): the lead bot may stand on a navmesh island: " +
+                "a straight hop off it first";
+            return;
+        }
         r.note = "back to the stand point refused (" + answer + "): going on from here";
         return;
     }

@@ -167,6 +167,25 @@ class IslandEscapeWiringTest(unittest.TestCase):
         p = body(POLICY, "inline bool LeadOnIsland(", "\n}\n")
         self.assertLess(at(p, "if (pathNoPath)\n        return toPointYd > kArriveYd;"), at(p, "return pathIncomplete &&"))
 
+    def test_a_refused_step_move_without_a_detour_hops_off_first(self):
+        # Uldaman r16-19z34 step 39: the step's own move was refused unreachable from
+        # a ramp's dead-end tip, no ring point passed, and the run paused although the
+        # escape had not run. The glue asks RefusedFromIsland after the detour search
+        # and before OrderRefused (the pause), and only for an own-move path refusal.
+        f = body(COMMANDS, "        if (!accepted)\n        {", "\n        }\n")
+        detour = at(f, "NearestReachablePoint(lead, step->x, step->y, step->z, dx, dy, dz) &&")
+        use = at(f, "TortoiseBots::DungeonRun::UseDetour(it->second.run, dx, dy, dz)) &&")
+        island = at(f, "!(unreachable && TortoiseBots::DungeonRun::RefusedFromIsland(it->second.run, order, answer)))")
+        refused = at(f, "TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +")
+        self.assertTrue(detour < use < island < refused)
+        self.assertEqual(f.count("OrderRefused("), 1)
+        p = body(POLICY, "inline bool PathRefusalIslandSign(", "\n}\n")
+        at(p, 'answer.compare(0, 11, "unreachable") == 0')
+        at(p, "r.islandEscapes < kIslandEscapes && r.stepEscapes < kStepEscapes && r.islandRefusals < kStepEscapes;")
+        refusal = body(POLICY, "inline void OrderRefused(", "\n}\n")
+        guard = at(refusal, "if (r.guardReturn && order == MoveOrder(r.guardX, r.guardY, r.guardZ, false))")
+        self.assertLess(guard, at(refusal, "if (PathRefusalIslandSign(r, answer))"))
+
 
 if __name__ == "__main__":
     unittest.main()

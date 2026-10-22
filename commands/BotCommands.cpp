@@ -11123,9 +11123,13 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                     step->kind == ai::PlanStepKind::MoveDirect);
             bool const unreachable = ownMove &&
                 (answer.compare(0, 11, "unreachable") == 0 || answer.compare(0, 8, "off-mesh") == 0);
+            // No detour either: a refusal for want of a path from the lead bot's own
+            // spot is the island's second sign (Uldaman r16-19z34 step 39): the next
+            // tick hops it off before the run pauses (RefusedFromIsland, its caps).
             if (!(unreachable && step && !it->second.run.detour &&
                     NearestReachablePoint(lead, step->x, step->y, step->z, dx, dy, dz) &&
-                    TortoiseBots::DungeonRun::UseDetour(it->second.run, dx, dy, dz)))
+                    TortoiseBots::DungeonRun::UseDetour(it->second.run, dx, dy, dz)) &&
+                !(unreachable && TortoiseBots::DungeonRun::RefusedFromIsland(it->second.run, order, answer)))
                 TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +
                     (unreachable ? " (no reachable point within 15 yd of it either)" : ""));
         }
