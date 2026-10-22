@@ -6166,6 +6166,47 @@ static void TestGuardRefillIsBounded()
     CHECK(b.guardOrders >= 1 && !b.guardRefilled);
 }
 
+// A refill keeps the spacing and the watch. (a) The engage budget spent on
+// the alternating pair of TestEngageT9 (the attack held, the stay still on),
+// a third unit joins 1 s after the last order: it is engaged kGuardRepeatMs
+// after that order, not at once. (b) Only pick-ups (mobs on a DPS, no engage,
+// no focus), the tank off its stay: after the refill the budgets read 0, and
+// the guard still watches (fightOrders), so the joiner is picked up.
+static void TestGuardRefillKeepsSpacingAndWatch()
+{
+    {
+        DungeonPlan plan;
+        Run r = EngageRun(plan);
+        std::vector<int> at;
+        int i = 0;
+        for (; i < 16 && r.engageOrders < kGuardOrdersPerFight; ++i)
+        {
+            Facts f = EngageFight();
+            OnLead(f, i % 2 == 0 ? 60 : 61, 11517, 2.0f);
+            if (Tick(r, f).compare(0, 7, "attack ") == 0)
+                at.push_back(i);
+        }
+        CHECK(at.size() == kGuardOrdersPerFight && at.back() == i - 1);
+        Facts f = EngageFight();
+        OnLead(f, i % 2 == 0 ? 60 : 61, 11517, 2.0f);
+        f.partyAttackers = {Hitter(62, 2520, 3, true)}; // a summon on the healer, 1 s after the last order
+        CHECK(Tick(r, f).empty());
+        CHECK(Tick(r, f) == "attack 62 Tanky"); // kGuardRepeatMs after the last order
+    }
+    {
+        DungeonPlan plan;
+        Run r = EngageRun(plan);
+        std::vector<UnitFact> att = {Hitter(31, 4855, 20), Hitter(32, 4855, 22)};
+        std::size_t orders = GuardOrders(r, att, static_cast<int>(kGuardWaitMs / kTickMs), 0, true).size();
+        orders += GuardOrders(r, att, 20, 10).size();
+        CHECK(orders == kGuardOrdersPerFight && r.engageGuid == 0 && r.focusGuid == 0);
+        CHECK(r.guardOrders == kGuardOrdersPerFight);
+        att.push_back(Hitter(33, 2520, 5));
+        auto const o = GuardOrders(r, att, static_cast<int>(kGuardRepeatMs / kTickMs), 30);
+        CHECK(o.size() == 1 && o[0].second == "attack 33 Tanky");
+    }
+}
+
 // R1: Ragefire Chasm 19z19, Oggleflint pull (step 25), t=862-875. Oggleflint is
 // on Tanky from 862 while he stands on "stay" with no target; a Ragefire Trogg
 // (be05) hits the mage Gera 4 yd away and later the rogue. The old guard sent
@@ -10336,6 +10377,7 @@ int main()
     TestGuardRefillDeadminesS90();
     TestGuardRefillDeadminesS125();
     TestGuardRefillIsBounded();
+    TestGuardRefillKeepsSpacingAndWatch();
     TestEngageReplayRfcOggleflint();
     TestEngageReplayUldamanStep85();
     TestEmptyPlan();
