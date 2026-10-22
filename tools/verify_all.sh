@@ -61,6 +61,7 @@ python3 -m unittest tools/test_wand_fallback_wiring.py
 python3 -m unittest tools/test_boss_tactics_sql.py
 python3 -m unittest tools/test_dungeon_plan_sql.py
 python3 -m unittest tools/test_run_leader_wiring.py
+python3 -m unittest tools/test_bot_guid_key_wiring.py
 python3 -m unittest tools/test_island_escape_wiring.py
 python3 -m unittest tools/test_taunt_attacker_wiring.py
 python3 -m unittest tools/test_warrior_rage_wiring.py
@@ -98,6 +99,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_boss_tactics_policy
         test_bot_area_trigger_policy
         test_bot_chat_gate
+        test_bot_guid_key_policy
         test_bot_appearance_policy
         test_bot_kind_policy
         test_bot_command_queue

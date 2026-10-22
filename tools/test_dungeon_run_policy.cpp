@@ -5026,8 +5026,11 @@ static void TestGuardWatchesAfterAFocusWipe2Replay()
 }
 
 // The order rate in the new state (focus on, the tank off its stay): healer
-// attackers changing every tick give at most kGuardOrdersPerFight pick-ups,
-// each kGuardRepeatMs after the last order, and the focus is never re-sent.
+// attackers whose nearest changes every tick give at most kGuardOrdersPerFight
+// pick-ups, each kGuardRepeatMs after the last order, and the focus is never
+// re-sent. The same ten units hit the healer from the first tick: none joins
+// later, so the budget is not refilled (CheckGuard; the refill has its own
+// tests, TestGuardRefill*).
 static void TestGuardAfterAFocusIsRateBounded()
 {
     DungeonPlan plan = ZfPlan();
@@ -5045,7 +5048,11 @@ static void TestGuardAfterAFocusIsRateBounded()
     bool any = false;
     for (int i = 0; i < 300; ++i) // 30 s at kTickMs
     {
-        f.partyAttackers = {ZfHitter(100 + (i % 7), 5649, 5.0f + (i % 5)), ZfHitter(200 + (i % 3), 5648, 4)};
+        f.partyAttackers.clear();
+        for (int k = 0; k < 7; ++k)
+            f.partyAttackers.push_back(ZfHitter(100 + k, 5649, 5.0f + ((i + k) % 7)));
+        for (int k = 0; k < 3; ++k)
+            f.partyAttackers.push_back(ZfHitter(200 + k, 5648, 4.5f + ((i + k) % 3)));
         std::string const o = Tick(r, f);
         sinceLast += kTickMs;
         if (o.compare(0, 7, "attack ") == 0)
@@ -5064,6 +5071,80 @@ static void TestGuardAfterAFocusIsRateBounded()
     CHECK(pickups == static_cast<int>(kGuardOrdersPerFight));
     CHECK(minGap >= kGuardRepeatMs);
     CHECK(focuses == 0 && other == 0);
+}
+
+// Deadmines r12-19z29 step 118, t 2207.9-2237: the kill_first 622 3569 was
+// focused, turned to flee, and `focus <guid>` came back "No bot of the group
+// accepted the focus order" (every bot refused an evading target). The focus
+// stayed on it with no second order while it lived. Now the refusal clears
+// the focus; the next tick focuses the next kill_first unit (622 356d), the
+// refused one is passed over kFocusRefusedIgnoreMs and may be focused again
+// after it; with no other unit the focus is none (the bots' own picks), and
+// the guard keeps watching (the focus took every bot off its stay).
+static void TestRefusedFocusIsPickedAgainDeadminesS118()
+{
+    std::uint64_t const fled = 0xf13000026e013569ull, next = 0xf13000026e01356dull;
+    std::string const refusal = "failed: No bot of the group accepted the focus order.";
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1731})};
+    plan.killFirst = {622};
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.leadIsTank = true;
+        f.units = {Unit(1, 1731, 10)};
+        CHECK(Tick(r, f) == "pullback 1");
+        f.anyInCombat = true;
+        f.killFirst = {Engaged(Unit(fled, 622, 4))};
+        std::string const focusFled = "focus " + std::to_string(fled);
+        CHECK(Tick(r, f) == focusFled && r.focusGuid == fled);
+        OrderRefused(r, focusFled, refusal);
+        CHECK(r.state == State::Running && r.focusGuid == 0);
+        CHECK(r.note.find("the focus is picked again") != std::string::npos);
+        // 356d (2218) joins: it is the focus now; the fled one is passed over.
+        f.killFirst = {Engaged(Unit(fled, 622, 4)), Engaged(Unit(next, 622, 9))};
+        CHECK(Tick(r, f) == "focus " + std::to_string(next) && r.focusGuid == next);
+        // 356d dies; the fled one is still passed over: no focus, nothing held.
+        f.killFirst = {Engaged(Unit(fled, 622, 4))};
+        std::string o;
+        int ticks = 1;
+        for (; ticks < static_cast<int>(kFocusRefusedIgnoreMs / kTickMs) - 1; ++ticks)
+            o += Tick(r, f);
+        CHECK(o.empty() && r.focusGuid == 0);
+        // After the wait: focused again (the retry).
+        std::string again;
+        for (int i = 0; i < 3 && again.empty(); ++i)
+            again = Tick(r, f);
+        CHECK(again == focusFled && r.focusGuid == fled);
+    }
+    {
+        // No other kill_first unit: the focus is none, and the guard still
+        // picks up a mob on the healer for the tank off its stay.
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.leadIsTank = true;
+        f.units = {Unit(1, 1731, 10)};
+        CHECK(Tick(r, f) == "pullback 1");
+        f.anyInCombat = true;
+        f.killFirst = {Engaged(Unit(fled, 622, 4))};
+        std::string const focusFled = "focus " + std::to_string(fled);
+        CHECK(Tick(r, f) == focusFled);
+        OrderRefused(r, focusFled, refusal);
+        CHECK(Tick(r, f).empty() && r.focusGuid == 0);
+        f.partyAttackers = {ZfHitter(0xf1300006c301358full, 1731, 1)};
+        CHECK(Tick(r, f) == "attack " + std::to_string(0xf1300006c301358full) + " Tanky");
+        // A refusal of a focus that is no longer the current one leaves it.
+        f.partyAttackers.clear();
+        f.killFirst = {Engaged(Unit(next, 622, 6))};
+        CHECK(Tick(r, f) == "focus " + std::to_string(next));
+        OrderRefused(r, focusFled, refusal);
+        CHECK(r.focusGuid == next);
+        // The next fight starts with an empty list.
+        f.anyInCombat = false;
+        f.killFirst.clear();
+        Tick(r, f);
+        CHECK(r.focusRefused.empty() && !r.focusUnstayed);
+    }
 }
 
 // 19z5: the mage enters the fight seconds after the pull (it waits for the
@@ -5481,9 +5562,57 @@ static void TestTankGuardPull100Replay()
             ++orders;
     // The first order was an engage on arrival (a healer's attacker on the
     // staying tank), which the cap does not count: it and the cap's pick-ups.
-    CHECK(orders == static_cast<int>(kGuardOrdersPerFight) + 1);
-    CHECK(r.guardOrders == kGuardOrdersPerFight);
+    // Nothing joined, so no refill and no per-unit cap: the second Mauler
+    // takes all 3 pick-ups (literals: the Deadmines refill must not change it).
+    CHECK(orders == 4);
+    CHECK(r.guardOrders == 3 && r.guardUnitOrders[91] == 3 && r.guardRefills == 0);
     CHECK(r.state == State::Running);
+}
+
+// Cold review 2026-10-22 of the Deadmines refill: pull 100 with one Mauler on
+// the healer and nothing joining. No refill, so no per-unit cap: the engage on
+// arrival and all 3 pick-ups go to that Mauler, as before the refill. Then a
+// unit joins far off: the refill's orders pass the Mauler over (it had 4, the
+// per-unit cap after a refill is 2) and go to the joiner, 2 at most.
+static void TestTankGuardOneMaulerAndTheCapAfterARefill()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0), PullStep(40, {4855, 4853})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    Tick(r, f);
+    f.units = {Unit(97, 4855, 40)};
+    CHECK(Tick(r, f) == "pullback 97");
+    f.anyInCombat = true;
+    f.leadHit = true; // the Brawler, 1 yd
+    f.partyAttackers = {Hitter(90, 7320, 14, true)};
+    CHECK(Tick(r, f) == "attack 90 Tanky"); // engage on arrival
+    f.leadStaying = false;
+    int orders = 1;
+    for (int i = 0; i < 30; ++i)
+    {
+        std::string const o = Tick(r, f);
+        if (!o.empty())
+        {
+            CHECK(o == "attack 90 Tanky");
+            ++orders;
+        }
+    }
+    CHECK(orders == 4 && r.guardOrders == 3 && r.guardUnitOrders[90] == 4 && r.guardRefills == 0);
+    // A joiner on the healer, 30 yd off: the refill; the Mauler is capped now.
+    f.partyAttackers = {Hitter(90, 7320, 14, true), Hitter(92, 2520, 30, true)};
+    std::vector<std::string> after;
+    for (int i = 0; i < 30; ++i)
+    {
+        std::string const o = Tick(r, f);
+        if (!o.empty())
+            after.push_back(o);
+    }
+    CHECK(r.guardRefills == 1);
+    CHECK(after.size() == 2 && after[0] == "attack 92 Tanky" && after[1] == "attack 92 Tanky");
+    CHECK(r.guardUnitOrders[90] == 4 && r.guardUnitOrders[92] == 2);
 }
 
 // The guard stays out of the way: no tank, a tank off its stay the guard did
@@ -5980,6 +6109,236 @@ static void TestEngageT11()
         CHECK(Tick(r, f).empty());
         CHECK(Tick(r, f) == "attack 41 Tanky");
         CHECK(r.guardOrders == 0 && r.engageOrders == 2);
+    }
+}
+
+// The guard's budget refill (Deadmines r12-19z29, DEADMINES-PACKS-2026-10-22
+// Q1/Q3). Every tick's orders of a fight with the party attackers `att` (the
+// tank off its stay unless `staying`), as (tick, order).
+static std::string gGuardOrderNote; // the run's note on the tick of GuardOrders' last order
+static std::vector<std::pair<int, std::string>> GuardOrders(Run& r, const std::vector<UnitFact>& att, int ticks,
+    int start, bool staying = false)
+{
+    std::vector<std::pair<int, std::string>> out;
+    for (int i = 0; i < ticks; ++i)
+    {
+        Facts f = EngageFight(staying);
+        f.partyAttackers = att;
+        std::string const o = Tick(r, f);
+        if (!o.empty())
+        {
+            out.emplace_back(start + i, o);
+            gGuardOrderNote = r.note;
+        }
+    }
+    return out;
+}
+
+static std::string AttackOn(std::uint64_t guid)
+{
+    return "attack " + std::to_string(guid) + " Tanky";
+}
+
+// Mob guids of the trace (0xF130 creature, the entry in the high part) and the
+// Remote-Controlled Golem summons (0xF140 pet guids).
+constexpr std::uint64_t kDm622a = 0xf13000026e01356cull, kDm622b = 0xf13000026e013569ull;
+constexpr std::uint64_t kDm1731 = 0xf1300006c301358full, kDmRcgA = 0xf14000035700001aull,
+                        kDmRcgB = 0xf14000035700001bull;
+
+// s118, t 2138-2188: 622 356c on the healer at the walk (engaged on arrival),
+// 622 3569 and the golem summons 001a/001b join; the pick-ups are spent in the
+// first seconds. At 2161 1731 358f joins and sits on the healer with the
+// golems for 26 s, the tank 1 yd away sending nothing; she died at 2188.7.
+// Now the joiner restores the budget: an order within kGuardRepeatMs.
+static void TestGuardRefillDeadminesS118()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    std::vector<UnitFact> att = {Hitter(kDm622a, 622, 3, true)};
+    auto o = GuardOrders(r, att, 1, 2138, true);
+    CHECK(o.size() == 1 && o[0].second == AttackOn(kDm622a)); // engage on arrival
+    att = {Hitter(kDm622a, 622, 3, true), Hitter(kDm622b, 622, 6, true), Hitter(kDmRcgA, 2520, 4, true),
+        Hitter(kDmRcgB, 2520, 5, true)};
+    o = GuardOrders(r, att, 22, 2139);
+    CHECK(o.size() == 3); // the pick-ups, spent by 2151
+    CHECK(r.guardOrders == 3);
+    // The old silence: the same units, no order however long.
+    CHECK(GuardOrders(r, att, 10, 2161).empty());
+    // 1731 358f joins on the healer, 1 yd from the tank.
+    att.push_back(Hitter(kDm1731, 1731, 1, true));
+    o = GuardOrders(r, att, 2, 2171);
+    CHECK(o.size() == 1 && o[0].second == AttackOn(kDm1731));
+    CHECK(gGuardOrderNote.find("picks up 1731 off the healer") != std::string::npos &&
+        gGuardOrderNote.find("a new unit joined") != std::string::npos);
+    // Before the refill the nearest 622 356c took the engage and all 3
+    // pick-ups (no per-unit cap without a refill). The refilled budget goes on
+    // to the units still on her, never to 356c (4 orders, over the cap of 2
+    // after a refill), spaced as before, and then the fight is silent again.
+    CHECK(r.guardUnitOrders[kDm622a] == 4 && r.guardRefills == 1);
+    o = GuardOrders(r, att, 30, 2173);
+    CHECK(o.size() == 2);
+    for (std::size_t i = 1; i < o.size(); ++i)
+        CHECK(o[i].first - o[i - 1].first >= 2);
+    for (auto const& order : o)
+        CHECK(order.second != AttackOn(kDm622a));
+    CHECK(r.guardUnitOrders[kDm622a] == 4 && r.guardUnitOrders[kDm1731] <= 2);
+    CHECK(GuardOrders(r, att, 20, 2203).empty());
+}
+
+// s90, t 1707-1777: the pull's 622s, a golem 61962 and the Taskmaster 4417
+// spend the budget by 1718; then the Overseer 634 (1724), the Harvester 61963
+// (1742) and golem summons 0016/0017 (1743) join one after another. Each
+// joiner gets the tank again, within kGuardRepeatMs of its arrival.
+static void TestGuardRefillDeadminesS90()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    std::vector<UnitFact> att = {Hitter(0xf13000026e016a03ull, 622, 12, true),
+        Hitter(0xf13000f20a016998ull, 61962, 23, true), Hitter(0xf130001141016a21ull, 4417, 9, true)};
+    auto o = GuardOrders(r, att, 1, 1709, true);
+    CHECK(o.size() == 1);
+    o = GuardOrders(r, att, 14, 1710);
+    CHECK(o.size() == 3 && r.guardOrders == 3);
+    struct Join
+    {
+        int t;
+        UnitFact u;
+    };
+    std::vector<Join> const joins = {{1724, Hitter(0xf13000027a016a12ull, 634, 8, true)},
+        {1742, Hitter(0xf13000f20b01698cull, 61963, 6, true)},
+        {1752, Hitter(0xf140000357000016ull, 2520, 4, true)},
+        {1762, Hitter(0xf140000357000017ull, 2520, 3, true)}};
+    int t = 1724;
+    for (Join const& j : joins)
+    {
+        // Silent until the joiner: the budget is spent again.
+        CHECK(GuardOrders(r, att, j.t - t, t).size() <= 2);
+        att.push_back(j.u);
+        bool const capped = r.fightOrders >= 12;
+        o = GuardOrders(r, att, 2, j.t);
+        // Each refill's first order goes to its joiner (on the healer, the
+        // nearest); the rest of it to the units still on her. The fight's
+        // 12 ends it: here the fourth joiner, after 12.
+        if (!capped)
+            CHECK(!o.empty() && o[0].second == AttackOn(j.u.guid));
+        else
+            CHECK(o.empty());
+        t = j.t + 2;
+    }
+    CHECK(r.fightOrders == 12);
+    CHECK(GuardOrders(r, att, 20, t).empty());
+}
+
+// s125, t 2556-2619: the boss camp's 1731s and 622s spend the budget; the
+// golem summon 0021 lands at 2572 (the refused pick-up at 2576.1 was its
+// order) and Gilnid 1763 joins at 2595: an order at each.
+static void TestGuardRefillDeadminesS125()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    std::vector<UnitFact> att = {Hitter(0xf1300006c3013564ull, 1731, 2, true),
+        Hitter(0xf1300006c3013561ull, 1731, 9, true), Hitter(0xf13000026e01355cull, 622, 18, true),
+        Hitter(0xf1300006c301355dull, 1731, 10, true)};
+    CHECK(GuardOrders(r, att, 1, 2563, true).size() == 1);
+    CHECK(GuardOrders(r, att, 9, 2564).size() == 3);
+    att.push_back(Hitter(0xf14000035f000021ull, 2520, 5, true));
+    auto o = GuardOrders(r, att, 2, 2573);
+    CHECK(!o.empty() && o[0].second == AttackOn(0xf14000035f000021ull));
+    GuardOrders(r, att, 20, 2575);
+    att.push_back(Hitter(0xf1300006e3013566ull, 1763, 4, true)); // Gilnid on the healer
+    o = GuardOrders(r, att, 2, 2595);
+    CHECK(!o.empty() && o[0].second == AttackOn(0xf1300006e3013566ull));
+}
+
+// The bounds of the refill: a new unit every tick for 2 minutes (a stream of
+// summons) never gives more than 12 orders a fight, never
+// two within kGuardRepeatMs, and after a refill never a third at one unit. A joiner while the budget is not spent does not refill it (TestEngageT9
+// is the alternating pair).
+static void TestGuardRefillIsBounded()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    std::vector<UnitFact> att;
+    std::vector<int> at;
+    for (int i = 0; i < 120; ++i)
+    {
+        att.push_back(Hitter(1000 + i, 2520, 1.0f + (i % 9), true));
+        Facts f = EngageFight(i == 0);
+        f.partyAttackers = att;
+        auto const before = r.guardUnitOrders;
+        bool const refilledBefore = r.guardRefills > 0;
+        std::string const o = Tick(r, f);
+        if (o.compare(0, 7, "attack ") == 0)
+        {
+            at.push_back(i);
+            // Once a refill happened (on this tick or before), an order goes
+            // only to a unit with fewer than 2 orders this fight.
+            if (refilledBefore || r.guardRefills > 0)
+            {
+                std::uint64_t const guid = std::strtoull(o.c_str() + 7, nullptr, 10);
+                auto const it = before.find(guid);
+                CHECK(it == before.end() || it->second < 2);
+            }
+        }
+    }
+    CHECK(at.size() == 12 && r.fightOrders == 12 && r.guardRefills >= 1);
+    for (std::size_t i = 1; i < at.size(); ++i)
+        CHECK(at[i] - at[i - 1] >= 2);
+    // The next fight starts over.
+    Facts over = EngageFight(true);
+    over.anyInCombat = false;
+    Tick(r, over);
+    CHECK(r.fightOrders == 0 && r.guardSeen.empty() && r.guardUnitOrders.empty());
+
+    // A joiner while pick-ups are left: no refill (the budget serves it).
+    DungeonPlan plan2;
+    Run b = EngageRun(plan2);
+    std::vector<UnitFact> two = {Hitter(1, 622, 3, true)};
+    CHECK(GuardOrders(b, two, 1, 0, true).size() == 1);
+    CHECK(GuardOrders(b, two, 2, 1).size() == 1 && b.guardOrders == 1); // a pick-up of the same unit
+    two.push_back(Hitter(2, 622, 2, true));
+    GuardOrders(b, two, 1, 3);
+    CHECK(b.guardOrders >= 1 && !b.guardRefilled);
+}
+
+// A refill keeps the spacing and the watch. (a) The engage budget spent on
+// the alternating pair of TestEngageT9 (the attack held, the stay still on),
+// a third unit joins 1 s after the last order: it is engaged kGuardRepeatMs
+// after that order, not at once. (b) Only pick-ups (mobs on a DPS, no engage,
+// no focus), the tank off its stay: after the refill the budgets read 0, and
+// the guard still watches (fightOrders), so the joiner is picked up.
+static void TestGuardRefillKeepsSpacingAndWatch()
+{
+    {
+        DungeonPlan plan;
+        Run r = EngageRun(plan);
+        std::vector<int> at;
+        int i = 0;
+        for (; i < 16 && r.engageOrders < 3; ++i)
+        {
+            Facts f = EngageFight();
+            OnLead(f, i % 2 == 0 ? 60 : 61, 11517, 2.0f);
+            if (Tick(r, f).compare(0, 7, "attack ") == 0)
+                at.push_back(i);
+        }
+        CHECK(at.size() == 3 && at.back() == i - 1);
+        Facts f = EngageFight();
+        OnLead(f, i % 2 == 0 ? 60 : 61, 11517, 2.0f);
+        f.partyAttackers = {Hitter(62, 2520, 3, true)}; // a summon on the healer, 1 s after the last order
+        CHECK(Tick(r, f).empty());
+        CHECK(Tick(r, f) == "attack 62 Tanky"); // kGuardRepeatMs after the last order
+    }
+    {
+        DungeonPlan plan;
+        Run r = EngageRun(plan);
+        std::vector<UnitFact> att = {Hitter(31, 4855, 20), Hitter(32, 4855, 22)};
+        std::size_t orders = GuardOrders(r, att, 4, 0, true).size();
+        orders += GuardOrders(r, att, 20, 10).size();
+        CHECK(orders == 3 && r.engageGuid == 0 && r.focusGuid == 0);
+        CHECK(r.guardOrders == 3);
+        att.push_back(Hitter(33, 2520, 5));
+        auto const o = GuardOrders(r, att, 2, 30);
+        CHECK(o.size() == 1 && o[0].second == "attack 33 Tanky");
     }
 }
 
@@ -10130,10 +10489,12 @@ int main()
     TestGuardStopsWatchingWhenTheFocusEnds();
     TestGuardWatchesAfterAFocusWipe2Replay();
     TestGuardAfterAFocusIsRateBounded();
+    TestRefusedFocusIsPickedAgainDeadminesS118();
     TestCcWindowCountsTheMagesFightTime();
     TestTankGuardsThePartyFromItsStand();
     TestTankGuardReturnsToItsOwnSpot();
     TestTankGuardPull100Replay();
+    TestTankGuardOneMaulerAndTheCapAfterARefill();
     TestTankGuardLimits();
     TestTankGuardPicksUpMobsOnPets();
     TestEngageT1();
@@ -10148,6 +10509,11 @@ int main()
     TestEngageT9();
     TestEngageT10();
     TestEngageT11();
+    TestGuardRefillDeadminesS118();
+    TestGuardRefillDeadminesS90();
+    TestGuardRefillDeadminesS125();
+    TestGuardRefillIsBounded();
+    TestGuardRefillKeepsSpacingAndWatch();
     TestEngageReplayRfcOggleflint();
     TestEngageReplayUldamanStep85();
     TestEmptyPlan();
