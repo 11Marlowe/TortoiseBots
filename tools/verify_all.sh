@@ -11,6 +11,11 @@ python3 tools/verify_manual_value_types.py
 echo "✓ OKF docs verified."
 
 echo ""
+echo "=== 1b. Verifying .bot Command Table Against Docs ==="
+python3 tools/verify_command_docs.py
+echo "✓ Command table documented."
+
+echo ""
 echo "=== 2. Verifying Tortoise Core Module Surface ==="
 bash tools/verify_tortoise_surface.sh
 echo "✓ Module surface verified."
