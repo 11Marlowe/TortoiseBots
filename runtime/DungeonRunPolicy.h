@@ -246,7 +246,18 @@ constexpr std::uint32_t kGuardWaitMs = 4000;      // ... once mobs were hitting 
 constexpr std::uint32_t kGuardHealerWaitMs = 0;   // ... a mob hitting a healer at once: at pull 100 two Maulers
                                                   // took the healer from 73 % to dead in 4 s
 constexpr std::uint32_t kGuardRepeatMs = 2000;    // a further pick-up no sooner than this after the last one
-constexpr std::uint32_t kGuardOrdersPerFight = 3; // pick-up orders one fight may send
+constexpr std::uint32_t kGuardOrdersPerFight = 3; // pick-up orders one fight may send (per budget: see below)
+// The budget above starts over when a unit that was not in the fight joins it
+// once the budget is spent (a summon lands, a mob crosses into the party).
+// Deadmines r12-19z29 steps 90, 118 and 125: the three pick-ups went in the
+// first seconds, then Remote-Controlled Golem summons, the Overseer, the
+// Harvester and Gilnid joined and beat the healer 25-60 s while the tank sent
+// nothing (13 of the run's 14 deaths). Bounded so that it cannot spam: one
+// unit gets at most kGuardOrdersPerUnit orders a fight (pick-ups and engages
+// together; a unit at the cap is passed over for the next one), and a fight at
+// most kGuardOrdersFightCap in all. kGuardRepeatMs spaces every one of them.
+constexpr std::uint32_t kGuardOrdersPerUnit = 2;
+constexpr std::uint32_t kGuardOrdersFightCap = 12;
 // The kill_first focus (PickKillFirst) sends every bot, the tank too, at its
 // unit. Zul'Farrak r5-19z23 step 27: the camp's witch doctors aggroed on the
 // tank from 20 yd (wipe 1: the focus took it into the camp, next to the north
@@ -254,6 +265,13 @@ constexpr std::uint32_t kGuardOrdersPerFight = 3; // pick-up orders one fight ma
 // is the stand's melee and close-caster reach, well inside the 20 yd at which
 // the camp woke; a unit farther off is left to come to the tank (r3 lived that way).
 constexpr float kKillFirstMaxYd = 15.0f;
+// A kill_first focus every bot refused (OrderRefused: "No bot of the group
+// accepted the focus order"; AttackAction refuses an evading target) leaves
+// its unit out of the pick for this long, and the focus goes to the next one
+// or to none. Deadmines r12-19z29 step 118, t 2210.9: the focused 622 3569 had
+// turned to flee, all three living bots refused, and the focus stayed on it
+// with no second order while it lived. After the wait it may be focused again.
+constexpr std::uint32_t kFocusRefusedIgnoreMs = 8000;
 // The healer's stand for a pull (the run leader's commander context): this far
 // behind the lead bot's spot, on the line from the pull target through that spot
 // (Uldaman run 4: the priest stood level with or ahead of the tank and died of
@@ -803,6 +821,12 @@ struct Run
     // Crowd control and kill-first (the plan's cc_priority / cc_always / kill_first).
     std::unordered_set<std::uint64_t> ccSent; // units this step put a `cc moon` on (once each)
     std::uint64_t focusGuid = 0;              // the kill-first unit focused in this fight
+    // Kill-first units whose focus was refused (kFocusRefusedIgnoreMs): unit ->
+    // runMs until which PickKillFirst passes it over. focusUnstayed: such a
+    // refusal this fight (CommanderFocus takes every bot off "stay" before it
+    // asks them), so the guard keeps watching though focusGuid is cleared.
+    std::unordered_map<std::uint64_t, std::uint64_t> focusRefused;
+    bool focusUnstayed = false;
     // Aggro estimate (Facts::joinerCeiling): a pull expected to bring more
     // joiners than the ceiling waits once for the party to be rested.
     std::unordered_set<std::uint64_t> joinerHeld; // units already held once this step
@@ -946,6 +970,14 @@ struct Run
     std::uint64_t holdEngageGuid = 0; // the unit the last engage order sent the tank at
     std::uint64_t engageGuid = 0;     // the mob the last engage-on-arrival order (EngageTarget) sent the tank at
     std::uint32_t engageOrders = 0;   // engage orders this fight (kGuardOrdersPerFight at most; guardOrders is not touched)
+    // The budget's refill outside a hold (CheckGuard): the units seen attacking
+    // the party this fight (partyAttackers, the lead bot's attacker), the orders
+    // of either kind sent at each, and all orders this fight, refills included
+    // (kGuardOrdersPerUnit, kGuardOrdersFightCap).
+    std::unordered_set<std::uint64_t> guardSeen;
+    std::unordered_map<std::uint64_t, std::uint32_t> guardUnitOrders;
+    std::uint32_t fightOrders = 0;
+    bool guardRefilled = false; // a refill since the last order: that order's note says so
     // Members running back to the party with attackers on them (RunBack): the
     // glue keeps each one a passive follower of the lead bot (it does not stop
     // to fight) while its name is here. Per bot: how long it has run, and its
@@ -1280,6 +1312,8 @@ inline void ResetStep(Run& r)
     r.joinerNote.clear();
     ResetShotStand(r);
     r.focusGuid = 0;
+    r.focusRefused.clear();
+    r.focusUnstayed = false;
     r.ccPending = 0;
     r.ccResent = false;
     r.ccWaitMs = 0;
@@ -1314,6 +1348,10 @@ inline void ResetStep(Run& r)
     r.guardOrders = 0;
     r.engageGuid = 0;
     r.engageOrders = 0;
+    r.guardSeen.clear();
+    r.guardUnitOrders.clear();
+    r.guardRefilled = false;
+    r.fightOrders = 0;
     r.guardReturn = false;
     r.stopReachDue = false;
     r.reachStopped = false;
@@ -2757,6 +2795,21 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         r.note = order + " refused: " + answer;
         return;
     }
+    // A kill_first focus every bot refused (an evading, fleeing unit): the
+    // focus is not left on it. Its unit is passed over kFocusRefusedIgnoreMs,
+    // and the next tick's pick goes to the next kill_first unit, or to none
+    // (the bots' own picks, the plan's order). It never pauses.
+    if (order.compare(0, 6, "focus ") == 0)
+    {
+        std::uint64_t const guid = std::strtoull(order.c_str() + 6, nullptr, 10);
+        r.focusRefused[guid] = r.runMs + kFocusRefusedIgnoreMs;
+        r.focusUnstayed = true;
+        if (r.focusGuid == guid)
+            r.focusGuid = 0;
+        r.note = order + " refused: " + answer + ": the focus is picked again (that unit left out " +
+            std::to_string(kFocusRefusedIgnoreMs / 1000) + " s)";
+        return;
+    }
     if (order == "rest" || order == "revive party" || order.compare(0, 7, "summon ") == 0 ||
         order.compare(0, 3, "cc ") == 0 || order.compare(0, 6, "focus ") == 0 || order.compare(0, 7, "attack ") == 0)
     {
@@ -3395,6 +3448,10 @@ inline const UnitFact* PickKillFirst(const Run& r, const Facts& f)
     for (const UnitFact& u : f.killFirst)
     {
         if (!u.hostile || u.evading || u.stealthed || r.ccSent.count(u.guid))
+            continue;
+        // Its focus was refused a moment ago (kFocusRefusedIgnoreMs).
+        auto const refused = r.focusRefused.find(u.guid);
+        if (refused != r.focusRefused.end() && r.runMs < refused->second)
             continue;
         // Only this fight's: engaged with the party, or the ward of one that is.
         if (!u.engaged && !(u.owner && u.ownerEngaged))
@@ -5996,12 +6053,21 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
 // Inside a scripted event only in its hold (InHoldArea), and only mobs within
 // the hold's radius of its spot (HoldGuardTarget): the moves and the start
 // step leading into a hold, and anything outside its radius, stay untouched.
-inline const UnitFact* GuardPick(const Facts& f, float holdRadius)
+// A unit that had kGuardOrdersPerUnit orders this fight (outside a hold): passed over.
+inline bool GuardUnitCapped(const Run& r, std::uint64_t guid)
+{
+    auto const it = r.guardUnitOrders.find(guid);
+    return it != r.guardUnitOrders.end() && it->second >= kGuardOrdersPerUnit;
+}
+
+inline const UnitFact* GuardPick(const Facts& f, float holdRadius, const Run* capped = nullptr)
 {
     const UnitFact* best = nullptr;
     for (const UnitFact& u : f.partyAttackers)
     {
         if (!u.hostile || u.evading || u.polymorphed || !u.hitting || u.distLead > kGuardYd)
+            continue;
+        if (capped && GuardUnitCapped(*capped, u.guid))
             continue;
         if (holdRadius > 0.0f && (u.distSpot < 0.0f || u.distSpot > holdRadius))
             continue;
@@ -6036,10 +6102,14 @@ inline const PlanStep* InHoldArea(const Run& r, const Facts& f)
 
 inline const UnitFact* GuardTarget(const Run& r, const Facts& f)
 {
-    if (!f.leadAlive || !f.leadIsTank || !(f.leadStaying || r.guardOrders > 0 || r.engageGuid != 0 || r.focusGuid != 0) ||
+    // Watching: fightOrders too, so a refill (guardOrders and engageOrders back
+    // to 0) does not end the watch the earlier orders started.
+    if (!f.leadAlive || !f.leadIsTank ||
+        !(f.leadStaying || r.guardOrders > 0 || r.fightOrders > 0 || r.engageGuid != 0 || r.focusGuid != 0 ||
+            r.focusUnstayed) ||
         f.carrier.empty() || InEvent(r))
         return nullptr;
-    return GuardPick(f, 0.0f);
+    return GuardPick(f, 0.0f, &r);
 }
 
 // The guard inside a hold (Uldaman Keepers, 19z12 attempt 1: the tank held
@@ -6121,14 +6191,26 @@ inline const UnitFact* EngageTarget(const Run& r, const Facts& f)
     {
         if (!u.victimHealer || !u.hostile || u.evading || u.polymorphed || !u.hitting || u.distLead > kGuardYd)
             continue;
+        if (GuardUnitCapped(r, u.guid))
+            continue;
         if (!best || u.distLead < best->distLead)
             best = &u;
     }
     if (best)
         return best;
-    if (f.leadHasAttacker && f.leadAttacker.hostile && !f.leadAttacker.evading && !f.leadAttacker.polymorphed)
+    if (f.leadHasAttacker && f.leadAttacker.hostile && !f.leadAttacker.evading && !f.leadAttacker.polymorphed &&
+        !GuardUnitCapped(r, f.leadAttacker.guid))
         return &f.leadAttacker;
     return nullptr;
+}
+
+// The note's tail for the first order after a refill (CheckGuard), once.
+inline std::string RefillNote(Run& r)
+{
+    if (!r.guardRefilled)
+        return std::string();
+    r.guardRefilled = false;
+    return "; a new unit joined: the orders start over";
 }
 
 // One fight tick of the guard: mobs hitting the party for kGuardWaitMs (a
@@ -6148,6 +6230,29 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
     }
     if (!hold)
     {
+        // A unit not seen in this fight before joins it (a summon, a mob that
+        // crossed into the party) once a budget is spent: both budgets start
+        // over (kGuardOrdersPerFight each), under kGuardOrdersFightCap. A unit
+        // that joins while a budget is left is served by that budget. The
+        // spacing (kGuardRepeatMs after the last order) is kept: fightOrders,
+        // not the budgets, says whether an order went out this fight.
+        bool joined = false;
+        auto const see = [&r, &joined](const UnitFact& u)
+        {
+            if (u.hostile && r.guardSeen.insert(u.guid).second)
+                joined = true;
+        };
+        for (const UnitFact& u : f.partyAttackers)
+            see(u);
+        if (f.leadHasAttacker)
+            see(f.leadAttacker);
+        if (joined && (r.guardOrders >= kGuardOrdersPerFight || r.engageOrders >= kGuardOrdersPerFight) &&
+            r.fightOrders < kGuardOrdersFightCap)
+        {
+            r.guardOrders = 0;
+            r.engageOrders = 0;
+            r.guardRefilled = true;
+        }
         // Engage on arrival: the first order of the fight (of either kind)
         // without a wait, every other one (another mob, or after a pick-up) no
         // sooner than kGuardRepeatMs after the last order of either kind, and
@@ -6157,10 +6262,13 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
         // one of the pick-ups (guardOrders).
         const UnitFact* arrival = EngageTarget(r, f);
         if (arrival && arrival->guid != r.engageGuid && r.engageOrders < kGuardOrdersPerFight &&
-            ((r.engageOrders == 0 && r.guardOrders == 0) || r.guardSinceOrderMs >= kGuardRepeatMs))
+            r.fightOrders < kGuardOrdersFightCap &&
+            (r.fightOrders == 0 || r.guardSinceOrderMs >= kGuardRepeatMs))
         {
             r.engageGuid = arrival->guid;
             ++r.engageOrders;
+            ++r.fightOrders;
+            ++r.guardUnitOrders[arrival->guid];
             r.guardMs = 0;
             r.guardSinceOrderMs = 0; // a pick-up follows it no sooner than kGuardRepeatMs
             if (!r.guardReturn)
@@ -6172,7 +6280,7 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
                 r.guardZ = f.leadStayKnown ? f.leadStayZ : f.leadZ;
             }
             r.note = "fighting: the tank engages " + std::to_string(arrival->entry) + " on arrival (" +
-                Num(arrival->distLead) + " yd)";
+                Num(arrival->distLead) + " yd)" + RefillNote(r);
             order = "attack " + std::to_string(arrival->guid) + " " + f.carrier;
             return true;
         }
@@ -6188,11 +6296,17 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
         r.guardMs += dt;
     std::uint32_t const wait = engage ? 0u : u->victimHealer ? kGuardHealerWaitMs : kGuardWaitMs;
     if ((u && r.guardMs < wait) || r.guardOrders >= kGuardOrdersPerFight ||
-        ((r.guardOrders > 0 || (!hold && r.engageGuid != 0)) && r.guardSinceOrderMs < kGuardRepeatMs))
+        (!hold && r.fightOrders >= kGuardOrdersFightCap) ||
+        ((r.guardOrders > 0 || (!hold && r.fightOrders > 0)) && r.guardSinceOrderMs < kGuardRepeatMs))
         return false;
     r.guardMs = 0;
     r.guardSinceOrderMs = 0;
     ++r.guardOrders;
+    if (!hold)
+    {
+        ++r.fightOrders;
+        ++r.guardUnitOrders[u->guid];
+    }
     if (hold)
     {
         // The hold walks it back to the spot (HoldStep), not the guard's return.
@@ -6217,7 +6331,8 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
         r.guardZ = f.leadStayKnown ? f.leadStayZ : f.leadZ;
     }
     r.note = std::string(hold ? "event" : "fighting") + ": the tank picks up " + std::to_string(u->entry) + " off " +
-        (u->victimHealer ? "the healer" : u->victimPet ? "a pet" : "the party") + " (" + Num(u->distLead) + " yd)";
+        (u->victimHealer ? "the healer" : u->victimPet ? "a pet" : "the party") + " (" + Num(u->distLead) + " yd)" +
+        RefillNote(r);
     order = "attack " + std::to_string(u->guid) + " " + f.carrier;
     return true;
 }
@@ -7059,10 +7174,16 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.eatWaitMs = 0;
         r.pullGuid = 0;
         r.focusGuid = 0;
+        r.focusRefused.clear();
+        r.focusUnstayed = false;
         r.guardMs = 0;
         r.guardOrders = 0;
         r.engageGuid = 0;
         r.engageOrders = 0;
+        r.guardSeen.clear();
+        r.guardUnitOrders.clear();
+        r.guardRefilled = false;
+        r.fightOrders = 0;
         r.reachStopped = false;
         // A fight may have moved the lead bot: an exact point's tighten starts
         // over and its proof is taken again before a direct step goes out.
