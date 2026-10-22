@@ -114,6 +114,12 @@ else
 fi
 
 echo ""
+echo "=== 8. Verifying Config Defaults vs Shipped Templates ==="
+python3 tools/verify_config_defaults.py
+python3 -m unittest tools/test_verify_config_defaults.py
+echo "✓ Config defaults verified."
+
+echo ""
 echo "=========================================="
 echo "🎉 ALL TORTOISEBOTS CHECKS PASSED CLEANLY!"
 echo "=========================================="
