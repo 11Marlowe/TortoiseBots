@@ -593,10 +593,10 @@ namespace ai
         virtual bool isUseful() override { return CastMeleeSpellAction::isUseful() && AI_VALUE2(uint8, "rage", "self target") >= 45; }
     };
 
-    class CastBashAction : public CastMeleeSpellAction
+    class CastBashAction : public CastMeleeInterruptSpellAction
     {
     public:
-        CastBashAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "bash") {}
+        CastBashAction(PlayerbotAI* ai) : CastMeleeInterruptSpellAction(ai, "bash") {}
     };
 
     class CastSwipeAction : public CastMeleeSpellAction

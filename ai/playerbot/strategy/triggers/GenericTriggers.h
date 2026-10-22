@@ -146,12 +146,16 @@ namespace ai
         virtual bool IsActive() override;
     };
 
-	// TODO: check other targets
+	// The pick is any engaged hostile in the interrupt's range casting an
+	// interruptible spell, not only the current target; the matching actions
+	// (CastInterruptSpellAction family) read the same value. Overrides below
+	// pin a spell back to the current target while its action is shared with
+	// non-interrupt rows.
     class InterruptSpellTrigger : public SpellTrigger
 	{
     public:
         InterruptSpellTrigger(PlayerbotAI* ai, std::string spell) : SpellTrigger(ai, spell) {}
-        virtual std::string GetTargetName() override { return "current target"; }
+        virtual Value<Unit*>* GetTargetValue() override { return context->GetValue<Unit*>("interrupt target", spell); }
         virtual bool IsActive() override;
     };
 
@@ -1460,8 +1464,10 @@ namespace ai
         {
             if (!AI_VALUE2(uint32, "spell id", "arcane torrent"))
                 return false;
-            Unit* target = AI_VALUE(Unit*, "current target");
-            return InterruptSpellTrigger::IsActive() && target && AI_VALUE2(float, "distance", "current target") <= 8.0f;
+            // The cast itself is an AoE silence and needs no target; the 8 yd
+            // radius is judged on the interrupt pick.
+            return InterruptSpellTrigger::IsActive() &&
+                AI_VALUE2(float, "distance", "interrupt target::arcane torrent") <= 8.0f;
         }
     };
 

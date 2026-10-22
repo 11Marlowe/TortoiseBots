@@ -74,7 +74,16 @@ namespace ai
     INTERRUPT_HEALER_TRIGGER(PummelInterruptEnemyHealerSpellTrigger, "pummel");
     INTERRUPT_TRIGGER(PummelInterruptSpellTrigger, "pummel");
     INTERRUPT_HEALER_TRIGGER(InterceptInterruptEnemyHealerSpellTrigger, "intercept");
-    INTERRUPT_TRIGGER(InterceptInterruptSpellTrigger, "intercept");
+    // The "intercept" action (CastReachTargetSpellAction) closes on and
+    // casts at the current target, so this trigger stays on the current
+    // target too - it must not point at a different mob than its action
+    // charges.
+    class InterceptInterruptSpellTrigger : public InterruptSpellTrigger
+    {
+    public:
+        InterceptInterruptSpellTrigger(PlayerbotAI* ai) : InterruptSpellTrigger(ai, "intercept") {}
+        virtual Value<Unit*>* GetTargetValue() override { return context->GetValue<Unit*>("current target"); }
+    };
     HAS_AURA_TRIGGER(SuddenDeathTrigger, "sudden death");
     HAS_AURA_TRIGGER(SlamInstantTrigger, "slam!");
     HAS_AURA_TRIGGER(TasteForBloodTrigger, "taste for blood");

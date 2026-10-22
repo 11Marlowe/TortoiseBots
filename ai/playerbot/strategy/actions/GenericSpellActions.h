@@ -121,6 +121,33 @@ namespace ai
     };
 
     //---------------------------------------------------------------------------------------------------------------------
+    // The interrupt rows cast at the "interrupt target" pick - any engaged
+    // hostile in range casting an interruptible spell. Only rows fired by
+    // an interrupt trigger may use these: a shared action would drag
+    // non-interrupt rows off the current target.
+    class CastInterruptSpellAction : public CastSpellAction
+    {
+    public:
+        CastInterruptSpellAction(PlayerbotAI* ai, std::string spell) : CastSpellAction(ai, spell) {}
+
+    protected:
+        virtual std::string GetTargetName() override { return "interrupt target"; }
+        virtual std::string GetTargetQualifier() override { return GetSpellName(); }
+    };
+
+    class CastMeleeInterruptSpellAction : public CastInterruptSpellAction
+    {
+    public:
+        CastMeleeInterruptSpellAction(PlayerbotAI* ai, std::string spell) : CastInterruptSpellAction(ai, spell)
+        {
+            range = ATTACK_DISTANCE;
+        }
+
+    protected:
+        virtual std::string GetReachActionName() override { return "reach melee"; }
+    };
+
+    //---------------------------------------------------------------------------------------------------------------------
     class CastMeleeAoeSpellAction : public CastSpellAction
     {
     public:

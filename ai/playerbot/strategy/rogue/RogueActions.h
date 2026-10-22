@@ -109,10 +109,10 @@ namespace ai
         }
     };
 
-	class CastKickAction : public CastMeleeSpellAction
+	class CastKickAction : public CastMeleeInterruptSpellAction
 	{
 	public:
-		CastKickAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "kick") {}
+		CastKickAction(PlayerbotAI* ai) : CastMeleeInterruptSpellAction(ai, "kick") {}
 	};
 
 	// Feint is a target-enemy threat reduction (spell template: effect THREAT,
