@@ -64,6 +64,7 @@ python3 -m unittest tools/test_dungeon_plan_sql.py
 python3 -m unittest tools/test_run_leader_wiring.py
 python3 -m unittest tools/test_bot_guid_key_wiring.py
 python3 -m unittest tools/test_island_escape_wiring.py
+python3 -m unittest tools/test_lead_other_part_wiring.py
 python3 -m unittest tools/test_taunt_attacker_wiring.py
 python3 -m unittest tools/test_warrior_rage_wiring.py
 python3 -m unittest tools/test_hunter_manners_wiring.py
