@@ -27,6 +27,7 @@ class LogOpenRotationTest(unittest.TestCase):
 #include <mutex>
 #include <sys/stat.h>
 #include <system_error>
+#include <unistd.h>
 #include <unordered_map>
 #include <vector>
 #include <zlib.h>
@@ -144,17 +145,33 @@ int main(int argc, char** argv) {
   pieces=GzPieces(base,"bot_events_");
   assert(pieces.size()==3 && HasContent(pieces,"hour one\n"));
  }
- // A rename that cannot succeed keeps the live file and reports once.
- string rodir=base+"ro/"; filesystem::create_directory(rodir);
- string blocked=rodir+"blocked.csv"; Write(blocked,"keep me\n");
- assert(chmod(rodir.c_str(),0555)==0);
+ // An open that cannot succeed reports once and stays off. A parent that
+ // is a regular file blocks the open even for root, which ignores the
+ // permission bits a read-only directory relies on.
+ Write(base+"ro","not a directory\n");
  {
   PlayerbotAIConfig cfg;
   assert(!cfg.openLog("ro/blocked.csv","w"));
   assert(!cfg.logFiles.at("ro/blocked.csv").first && !cfg.logFiles.at("ro/blocked.csv").second);
-  assert(Read(blocked)=="keep me\n" && sLog.errors==1);
+  assert(sLog.errors==1);
  }
- assert(chmod(rodir.c_str(),0755)==0);
+ filesystem::remove(base+"ro");
+ string rodir=base+"ro/"; filesystem::create_directory(rodir);
+ string blocked=rodir+"blocked.csv"; Write(blocked,"keep me\n");
+ if (geteuid()!=0)
+ {
+  // A rename that cannot succeed keeps the live file and reports once.
+  // Root ignores the permission bits, so this path needs a real user.
+  assert(chmod(rodir.c_str(),0555)==0);
+  {
+   PlayerbotAIConfig cfg;
+   assert(!cfg.openLog("ro/blocked.csv","w"));
+   assert(!cfg.logFiles.at("ro/blocked.csv").first && !cfg.logFiles.at("ro/blocked.csv").second);
+   assert(Read(blocked)=="keep me\n" && sLog.errors==2);
+  }
+  assert(chmod(rodir.c_str(),0755)==0);
+ }
+ unsigned const openFailureErrors=sLog.errors;
  {
   // Append mode packs the previous content first, then appends to a fresh file.
   PlayerbotAIConfig cfg;
@@ -175,13 +192,13 @@ int main(int argc, char** argv) {
   // A failed file stays off: later events neither retry fopen nor report again.
   assert(!cfg.openLog("missing/subdir.csv","a"));
   assert(!cfg.openLog("missing/subdir.csv","a"));
-  assert(sLog.errors==2);
+  assert(sLog.errors==openFailureErrors+1);
   // After the cool-down it is tried once more, and reported once more.
   cfg.logOpenFailed["missing/subdir.csv"]=time(nullptr)-1;
   assert(!cfg.openLog("missing/subdir.csv","a"));
   assert(!cfg.openLog("missing/subdir.csv","a"));
  }
- assert(sLog.errors==3);
+ assert(sLog.errors==openFailureErrors+2);
 }
 '''
         with tempfile.TemporaryDirectory() as tmp:
