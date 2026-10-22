@@ -455,11 +455,9 @@ namespace ai
         }
     };
 
-    // Issue #1168: a hostile within melee reach breaks the bandage channel
-    // with its next swing even when it has not threatened the bot yet (a
-    // tank-held mob parked on the bot, a chaser mid-run), so an own-attacker
-    // gate alone is not enough. Scan the group attacker list with the same
-    // core reach test the flee and incoming-damage paths use.
+    // A hostile within melee reach breaks the bandage channel with its next
+    // swing even when it has not threatened the bot yet, so scan the group
+    // attacker list, not just the bot's own attackers.
     inline bool HasHostileInMeleeReach(PlayerbotAI* ai, Player* bot)
     {
         const std::list<ObjectGuid>& attackers =
@@ -483,7 +481,6 @@ namespace ai
             if (!UseTargetedItemIdAction::isUseful())
                 return false;
 
-            // Pure gate order: BandageSafetyPolicy.h.
             if (BandageGateCheck(bot->HasAura(11196),
                                  AI_VALUE(uint8, "my attacker count") > 0,
                                  bot->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE),

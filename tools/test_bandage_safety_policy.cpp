@@ -23,7 +23,7 @@ int main()
     CHECK(BandageGateCheck(true, false, false, false) == BANDAGE_RECENTLY_BANDAGED);
     std::cout << "  [PASS] Recently Bandaged refuses\n";
 
-    // An attacker on the bot refuses (existing gate, #1168 pre-fix).
+    // An attacker on the bot refuses.
     CHECK(BandageGateCheck(false, true, false, false) == BANDAGE_ATTACKER_ON_BOT);
     std::cout << "  [PASS] attacker on the bot refuses\n";
 
@@ -32,8 +32,8 @@ int main()
     CHECK(BandageGateCheck(false, false, true, false) == BANDAGE_PERIODIC_DAMAGE);
     std::cout << "  [PASS] damage over time refuses\n";
 
-    // The #1168 gap: a hostile in melee reach that has not attacked the bot
-    // yet (not on its threat list) must refuse too.
+    // A hostile in melee reach that has not attacked the bot yet (not on
+    // its threat list) must refuse too.
     CHECK(BandageGateCheck(false, false, false, true) == BANDAGE_HOSTILE_IN_MELEE_REACH);
     std::cout << "  [PASS] hostile in melee reach refuses\n";
 

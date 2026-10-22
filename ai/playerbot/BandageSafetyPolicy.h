@@ -1,17 +1,9 @@
 #pragma once
 
-// Pure decision rules for the First Aid bandage gate (issue #1168): a bot
-// started a bandage with a hostile already in melee reach. The channel
-// breaks on the mob's next swing, so the bot paid the bandage's cooldown
-// (Recently Bandaged) and often died anyway (audit run r7-19z25: hunter at
-// 25% hp, dead two seconds after the cast started).
-//
-// The attacker-count and damage-over-time gates predate this file and only
-// see mobs that already threaten the bot. A hostile standing within melee
-// reach without threatening it yet - a tank-held mob parked on the bot, a
-// chaser mid-run - slipped through, so the gate order below is the whole
-// refusal list the action applies, in the order it asks.
-//
+// Pure decision rules for the First Aid bandage gate. A bandage channel
+// breaks on the next swing a hostile lands, so a mob standing within melee
+// reach without threatening the bot yet (a tank-held mob parked on the bot,
+// a chaser mid-run) must refuse the bandage as much as an attacker on it.
 // No core includes: the action translates the world into flags, so
 // tools/test_bandage_safety_policy.cpp can test the rules.
 

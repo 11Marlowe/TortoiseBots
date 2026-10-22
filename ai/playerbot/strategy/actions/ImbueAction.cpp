@@ -189,10 +189,8 @@ bool TryEmergencyAction::Execute(Event& event)
         return false;
 
     // If bot does not have aggro: use bandage instead of potion/stone/crystal.
-    // Issue #1168: the same safety gate as the First Aid action (no attacker
-    // on the bot, no damage over time, no Recently Bandaged aura, no hostile
-    // in melee reach) - a refused bandage falls through to the instant
-    // consumables below. Gate order: BandageSafetyPolicy.h.
+    // The same safety gate as the First Aid action; a refused bandage falls
+    // through to the instant consumables below.
     if (BandageGateCheck(bot->HasAura(11196), // Recently bandaged
                          AI_VALUE(uint8, "my attacker count") >= 1,
                          bot->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE),
