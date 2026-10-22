@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Classes & Combat
+- Hunters fire Multi-Shot only when the splash around their target catches a second fighting enemy, and never into a crowd-controlled mob standing beside it, so the shot now scales with the pack instead of firing on cooldown.
+- Hunters use Freezing Trap again as crowd control in dungeon runs without assigned marks: they trap a loose extra attacker nobody is fighting yet and lay the trap where the mob will walk into it.
+
+---
+
 ## v1.8.0 (2026-10-22)
 
 ### Classes & Combat

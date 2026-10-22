@@ -9,7 +9,7 @@ class FindCurrentCcTargetStrategy : public FindTargetStrategy
 public:
     FindCurrentCcTargetStrategy(PlayerbotAI* ai, std::string spell) : FindTargetStrategy(ai)
     {
-        this->spell = spell;
+        this->spell = CcAuraName(std::move(spell));
     }
 
 public:

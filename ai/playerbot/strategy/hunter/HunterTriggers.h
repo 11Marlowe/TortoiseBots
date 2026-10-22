@@ -87,17 +87,8 @@ namespace ai
     {
     public:
         FreezingTrapTrigger(PlayerbotAI* ai) : HasCcTargetTrigger(ai, "freezing trap") {}
-
-        bool IsActive() override
-        {
-            // Check if feign death not on cooldown
-            if (sServerFacade.IsSpellReady(bot, 5384))
-            {
-                return HasCcTargetTrigger::IsActive();
-            }
-
-            return false;
-        }
+        // Free pick on the chooser's own target; see HunterTriggers.cpp.
+        virtual bool IsActive() override;
     };
 
     class FrostTrapTrigger : public MeleeLightAoeTrigger
@@ -510,7 +501,17 @@ private:
         }
     };
 
-    CAN_CAST_TRIGGER(MultishotCanCastTrigger, "multi-shot");
+    // Multi-Shot flies only when the splash around the kill target hits a
+    // second fighting enemy (HunterAoePolicy.h): the bare can-cast row fired
+    // the shot on cooldown, so its share never scaled with the pack. The
+    // count and the CC veto live in HunterTriggers.cpp.
+    class HunterMultiShotTrigger : public SpellCanBeCastedTrigger
+    {
+    public:
+        HunterMultiShotTrigger(PlayerbotAI* ai) : SpellCanBeCastedTrigger(ai, "multi-shot") {}
+        virtual bool IsActive() override;
+    };
+
     // BM cooldown: intimidation is a self-cast (BUFF_ACTION on self, core
     // rejects positive spells on hostile targets), ordered by the owner, so
     // the cast gate must run against the hunter itself — plus a live-pet
