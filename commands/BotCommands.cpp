@@ -6977,6 +6977,82 @@ uint64 FindGossipNpc(Player* bot, uint32 entry)
     return RemoteCommander::PickNearestEntry(pool, GossipOrder::kSearchYards, guid) ? guid : 0;
 }
 
+// Grid-search predicate (cmd gossip's refusal text): a dead creature of the entry within range of the bot.
+class EntryDeadCreatureCheck
+{
+public:
+    EntryDeadCreatureCheck(uint32 entry, RemoteCommander::MovePoint const& reference, float range)
+        : m_entry(entry), m_reference(reference), m_range(range) {}
+    bool operator()(Creature* creature)
+    {
+        return creature && creature->GetEntry() == m_entry && !creature->IsAlive() &&
+            DistanceToPoint(m_reference, creature) <= m_range;
+    }
+
+private:
+    uint32 m_entry;
+    RemoteCommander::MovePoint m_reference;
+    float m_range;
+};
+
+// "6 d 23 h" / "3 h 5 min" / "40 s" for a respawn that is `seconds` away.
+std::string RespawnInText(uint32 seconds)
+{
+    uint32 const days = seconds / 86400;
+    uint32 const hours = (seconds % 86400) / 3600;
+    uint32 const minutes = (seconds % 3600) / 60;
+    if (days)
+        return std::to_string(days) + " d " + std::to_string(hours) + " h";
+    if (hours)
+        return std::to_string(hours) + " h " + std::to_string(minutes) + " min";
+    if (minutes)
+        return std::to_string(minutes) + " min";
+    return std::to_string(seconds) + " s";
+}
+
+// The sentence that follows "No living NPC ..." when an NPC of the entry lies dead within
+// GossipOrder::kSearchYards of the bot (the dead one nearest to it): "<name> (<entry>) lies dead
+// <n> yd away and respawns in <time> (<delay> s spawn timer)." (no respawn clause for a delay of 0).
+// It says nothing about NPCs of the entry farther away than the search reaches. The run leader reads
+// the mark "lies dead" (DungeonRun::kGossipNpcDeadMark). "" when none lies dead there.
+std::string DeadGossipNpcText(Player* bot, uint32 entry)
+{
+    Map* map = bot->GetMap();
+    if (!map || !entry)
+        return std::string();
+    RemoteCommander::MovePoint reference;
+    reference.x = bot->GetPositionX();
+    reference.y = bot->GetPositionY();
+    reference.z = bot->GetPositionZ();
+    std::list<Creature*> found;
+    EntryDeadCreatureCheck check(entry, reference, GossipOrder::kSearchYards);
+    MaNGOS::CreatureListSearcher<EntryDeadCreatureCheck> searcher(found, check);
+    Cell::VisitGridObjects(reference.x, reference.y, map, searcher, GossipOrder::kSearchYards);
+    Creature* nearest = nullptr;
+    float best = 0.0f;
+    for (Creature* creature : found)
+    {
+        float const d = DistanceToPoint(reference, creature);
+        if (!nearest || d < best)
+        {
+            nearest = creature;
+            best = d;
+        }
+    }
+    if (!nearest)
+        return std::string();
+    std::string text = std::string(nearest->GetName()) + " (" + std::to_string(entry) + ") lies dead " +
+        std::to_string(static_cast<uint32>(best + 0.5f)) + " yd away";
+    // A scripted or summoned NPC has no respawn delay: it never comes back by itself.
+    if (nearest->GetRespawnDelay() == 0)
+        return text + " (it has no respawn timer).";
+    time_t const now = time(nullptr);
+    time_t const at = nearest->GetRespawnTimeEx();
+    uint32 const left = at > now ? static_cast<uint32>(at - now) : 0;
+    return text + " and respawns in " + RespawnInText(left) + " (" + std::to_string(nearest->GetRespawnDelay()) +
+        " s spawn timer).";
+}
+
 // The GUID an order's target names: the GUID as typed, or the nearest object
 // of the entry. 0 (with the ERR already sent) when the point is out of the bot's reach (`too-far`,
 // before any search) or the search finds nothing. The ACK of a by-entry order is preceded by one
@@ -7875,7 +7951,8 @@ bool StepCommanderTask(CommanderTask& task, uint32 diff)
                 std::strcmp(verdict.code, RemoteCommander::kCodeInvalidTarget) == 0)
             {
                 code = GossipOrder::kCodeNoNpc;
-                message = "The NPC died or despawned before the bot reached it.";
+                std::string const dead = DeadGossipNpcText(bot, task.gossip.entry);
+                message = "The NPC died or despawned before the bot reached it" + (dead.empty() ? std::string(".") : ": " + dead);
             }
             FinishCommanderTask(task, false, 0, "", code, message);
             return true;
@@ -8376,8 +8453,10 @@ static bool CommanderGossip(ChatHandler* handler, CommanderOrder const& order, P
     TaskTarget const target = guid ? ResolveTaskTarget(ai, guid) : TaskTarget();
     if (!target.creature)
     {
+        std::string const dead = DeadGossipNpcText(bot, request.entry);
         SendActionError(handler, intent, GossipOrder::kCodeNoNpc,
-            "No living NPC of that entry is within 40 yd of the bot.");
+            ("No living NPC of that entry is within 40 yd of the bot" +
+                (dead.empty() ? std::string(".") : ": a dead one lies nearby: " + dead)).c_str());
         return true;
     }
     if (target.creature->IsInCombat())

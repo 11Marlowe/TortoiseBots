@@ -219,6 +219,15 @@ constexpr float kPatrolSeeYd = 30.0f;             // the glue reads patrollers o
 constexpr std::uint32_t kBigPackJoiners = 8;      // a pull with this many joiners expected or more is a big pack
 // Scripted events (ritual, hold; docs/play/dungeon-run-leader.md "Events").
 constexpr float kHoldReturnYd = 8.0f;             // out of a fight, a lead bot farther than this from the hold spot walks back
+// ZF r12-19z29: the engage order sent the tank alone down the stairs while the four ranged stood on their
+// places 36-60 yd off, and the freed crew died to the trolls with only the tank beside them. The Uldaman
+// Keepers and Archaedas holds send the tank 15-20 yd after a keeper while the ranged keep their places
+// (that is what the places are for), so the tank's distance from the spot alone never releases them: a
+// living ranged bot (the healer too) must be this far from the living tank, out of heal and cast range,
+// on the ground (the 3D distance less the height), for kHoldFollowTicks fight ticks in a row
+// (ReleaseHoldStands).
+constexpr float kHoldFollowRangedYd = 30.0f;
+constexpr std::uint32_t kHoldFollowTicks = 2;
 constexpr std::uint32_t kHoldIdlePullMs = 10000;  // an awake event unit that has not come for this long is pulled
 constexpr std::uint32_t kEventStartMs = 30000;    // an encounter hold whose data does not leave "not started" in this time failed
 constexpr float kGossipWalkYd = 30.0f;            // a gossip step walks to its point first when the lead bot is farther than this
@@ -907,6 +916,8 @@ struct Run
     std::vector<HoldStand> holdStands;
     std::uint32_t holdStandsGen = 0;
     bool holdPlaced = false;
+    std::uint32_t holdReleases = 0; // times a hold's fight let the places go (ReleaseHoldStands)
+    std::uint32_t holdFarTicks = 0; // fight ticks in a row with a ranged bot out of the tank's reach and the tank off the spot
     // The pause came from a player (an order to the party, `.bot run pause`),
     // not from the run: it never resumes by itself (HoldDoneWhilePaused).
     bool pausedByPlayer = false;
@@ -1163,6 +1174,7 @@ inline void Pause(Run& r, const std::string& why)
     r.holdDue = false;
     r.holdStands.clear();
     r.holdPlaced = false;
+    r.holdFarTicks = 0;
 }
 
 // Clears an exact waypoint's tighten (not its standing proof, exactProved).
@@ -1310,6 +1322,7 @@ inline void ResetStep(Run& r)
     r.eventUp = r.eventDown = r.eventTotal = 0;
     r.holdStands.clear();
     r.holdPlaced = false;
+    r.holdFarTicks = 0;
     r.guardMs = 0;
     r.guardOrders = 0;
     r.engageGuid = 0;
@@ -2693,6 +2706,47 @@ inline void GoneStepDone(Run& r, const PlanStep& s)
     NextStep(r, std::string(ai::PlanStepKindName(s.kind)) + " " + std::to_string(s.entry) + ": object gone: counted as done");
 }
 
+// A gossip NPC the module found dead (cmd gossip, ZF r12-19z29 step 220: Weegli Blastfuse 7607 lay dead at
+// the door): the module's no-npc text then carries "a dead one lies nearby: <name> (<entry>) lies dead N yd
+// away and respawns in <time> (...)". None is alive within the order's 40 yd, and a resume sends the same
+// order into the same search, so the first refusal pauses plainly. The words claim no more than the module
+// found: an NPC of the entry farther away than 40 yd is not ruled out. "" when the answer does not carry the
+// mark. `what` is the step's own words ("gossip 7607 option 1").
+constexpr const char* kGossipNpcDeadMark = "lies dead";
+
+inline std::string GossipNpcDeadNote(const std::string& what, const std::string& answer)
+{
+    std::size_t const mark = answer.find(kGossipNpcDeadMark);
+    if (mark == std::string::npos)
+        return std::string();
+    std::size_t from = answer.rfind(": ", mark);
+    from = from == std::string::npos ? 0 : from + 2;
+    std::string subject = answer.substr(from, mark - from);
+    while (!subject.empty() && subject.back() == ' ')
+        subject.pop_back();
+    if (subject.empty())
+        subject = "the NPC";
+    std::string respawn;
+    std::string const key = "respawns in ";
+    std::size_t const at = answer.find(key, mark);
+    if (at != std::string::npos)
+    {
+        std::size_t const start = at + key.size();
+        std::size_t end = answer.find_first_of("(.", start);
+        end = end == std::string::npos ? answer.size() : end;
+        std::string time = answer.substr(start, end - start);
+        while (!time.empty() && time.back() == ' ')
+            time.pop_back();
+        if (!time.empty())
+            respawn = ", respawns in " + time;
+    }
+    else if (answer.find("no respawn timer", mark) != std::string::npos)
+        respawn = ", it never respawns";
+    return what + " cannot be done: none alive within 40 yd, a dead one lies nearby (" + subject + respawn +
+        "). .bot run resume will not help while it lies dead; .bot run skip goes on without it (a later step that "
+        "needs this NPC may fail too), .bot run stop ends the run";
+}
+
 inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)
 {
     // The hop off a navmesh island (IslandEscape) found no spot: counted; the
@@ -2910,6 +2964,16 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
     {
         LootRefused(r, "cmd " + order + " refused: " + answer);
         return;
+    }
+    if (s && s->kind == PlanStepKind::Gossip && order.compare(0, 7, "gossip ") == 0)
+    {
+        std::string const dead = GossipNpcDeadNote(
+            "gossip " + std::to_string(s->entry) + " option " + std::to_string(s->param), answer);
+        if (!dead.empty())
+        {
+            Pause(r, dead);
+            return;
+        }
     }
     Pause(r, "cmd " + order + " refused: " + answer + MissingHint(r));
 }
@@ -5404,7 +5468,8 @@ inline void GossipStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t 
     }
     if (f.taskReply == 2)
     {
-        Pause(r, what + " failed: " + f.taskText);
+        std::string const dead = GossipNpcDeadNote(what, f.taskText);
+        Pause(r, dead.empty() ? what + " failed: " + f.taskText : dead);
         return;
     }
     if (f.taskReply == 1)
@@ -5955,6 +6020,7 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
             r.holdPlaced = true;
             r.holdStands = std::move(stands);
             ++r.holdStandsGen;
+            r.holdFarTicks = 0;
         }
     }
     // An awake unit of the event that does not come is pulled after a while.
@@ -6129,6 +6195,49 @@ inline const UnitFact* EngageTarget(const Run& r, const Facts& f)
     if (f.leadHasAttacker && f.leadAttacker.hostile && !f.leadAttacker.evading && !f.leadAttacker.polymorphed)
         return &f.leadAttacker;
     return nullptr;
+}
+
+// A hold's fight in which a living ranged bot (the healer too) is more than kHoldFollowRangedYd from the
+// living tank on the ground, and the tank is more than kHoldReturnYd off the spot, for kHoldFollowTicks
+// fight ticks in a row (Zul'Farrak r12-19z29: the tank 30-60 yd down the stairs, the four on their places
+// 36-40 yd from it, out of heal range): the places are let go and the glue's release (SyncHoldStands ->
+// FormUpOnLead) makes the placed bots follow the tank. A tank that goes after a keeper with the ranged
+// within reach of it keeps them in place (the Uldaman Keepers and Archaedas holds). The release is one-way
+// within the fight: HoldStep does not run while the fight branch does, so the places are set again only when
+// the fight is over and HoldStep has the tank back on the spot (holdPlaced false). The dead lead bot is not
+// followed (the rez and regroup rules apply). Only the hold's own fight: another step or a hold whose event
+// is not on touches nothing. True when the places were let go.
+inline bool ReleaseHoldStands(Run& r, const Facts& f)
+{
+    const PlanStep* s = Current(r);
+    if (!s || s->kind != PlanStepKind::Hold || !r.eventOn || !f.leadAlive || !f.leadIsTank || r.holdStands.empty())
+    {
+        r.holdFarTicks = 0;
+        return false;
+    }
+    float const fromSpot = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s->x, s->y, s->z);
+    float farthest = 0.0f;
+    for (const MemberFact& m : f.members)
+    {
+        if (!m.ranged || m.yd >= 1000.0f)
+            continue;
+        farthest = std::max(farthest, std::sqrt(std::max(0.0f, m.yd * m.yd - m.dz * m.dz)));
+    }
+    if (!(fromSpot > kHoldReturnYd) || !(farthest > kHoldFollowRangedYd))
+    {
+        r.holdFarTicks = 0;
+        return false;
+    }
+    if (++r.holdFarTicks < kHoldFollowTicks)
+        return false;
+    r.holdFarTicks = 0;
+    r.holdStands.clear();
+    r.holdPlaced = false;
+    ++r.holdStandsGen;
+    ++r.holdReleases;
+    r.note = "event: the tank is " + Num(fromSpot) + " yd off the spot, the ranged " + Num(farthest) +
+        " yd behind the tank: the ranged leave their places and follow it (" + std::to_string(r.holdReleases) + ")";
+    return true;
 }
 
 // One fight tick of the guard: mobs hitting the party for kGuardWaitMs (a
@@ -7025,6 +7134,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             if (!autoRegroup && f.leadAlive)
                 r.note = "event: fighting" + (progress.empty() ? std::string() : " (" + progress + ")");
         }
+        ReleaseHoldStands(r, f);
         CheckReach(r, f);
         if (CheckCc(r, f, dt, order))
             return order;

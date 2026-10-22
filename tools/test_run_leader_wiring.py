@@ -559,5 +559,38 @@ class RunLeaderWiringTest(unittest.TestCase):
             self.assertIn("AiPlayerbot.DungeonRunPullStand", (ROOT / doc).read_text())
 
 
+    def test_hold_follows_the_tank_and_dead_gossip_npc_is_named(self):
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        # 1. A hold's fight lets the places go when the tank is off the spot; the glue's existing release
+        #    (SyncHoldStands -> FormUpOnLead) is what makes the placed bots follow it.
+        fight = body(policy, "        ReleaseHoldStands(r, f);\n", "        if (CheckGuard(r, f, dt, order))")
+        self.assertIn("CheckReach(r, f);", fight)
+        release = body(policy, "inline bool ReleaseHoldStands(", "\n}\n")
+        self.assertIn("++r.holdStandsGen;", release)
+        self.assertIn("r.holdPlaced = false;", release)
+        self.assertIn("farthest > kHoldFollowRangedYd", release)
+        self.assertIn("fromSpot > kHoldReturnYd", release)
+        self.assertIn("++r.holdFarTicks < kHoldFollowTicks", release)
+        self.assertIn("constexpr float kHoldFollowRangedYd = 30.0f;", policy)
+        stands = body(COMMANDS, "void SyncHoldStands(", "\n}\n")
+        self.assertIn("else if (!stand && placed)", stands)
+        self.assertIn("FormUpOnLead(commander, lead, released, false);", stands)
+        self.assertIn("if (bot->IsAlive() && run.state == TortoiseBots::DungeonRun::State::Running)", stands)
+        # 2. The module names a dead gossip NPC in the no-npc text, and the policy reads that wording.
+        gossip = body(COMMANDS, "static bool CommanderGossip(", "\n}\n")
+        no_npc = body(gossip, "if (!target.creature)", "return true;")
+        self.assertIn("DeadGossipNpcText(bot, request.entry)", no_npc)
+        self.assertIn("DeadGossipNpcText(bot, task.gossip.entry)", COMMANDS)
+        text = body(COMMANDS, "std::string DeadGossipNpcText(", "\n}\n")
+        self.assertIn("!creature->IsAlive()", body(COMMANDS, "class EntryDeadCreatureCheck", "};"))
+        self.assertIn(") lies dead ", text)
+        self.assertIn("GetRespawnDelay() == 0", text)
+        self.assertIn('constexpr const char* kGossipNpcDeadMark = "lies dead";', policy)
+        refused = body(policy, "inline void OrderRefused(", "\n}\n")
+        self.assertIn("GossipNpcDeadNote(", refused)
+        gossip_step = body(policy, "inline void GossipStep(", "\n}\n")
+        self.assertIn("GossipNpcDeadNote(what, f.taskText)", gossip_step)
+
+
 if __name__ == "__main__":
     unittest.main()
