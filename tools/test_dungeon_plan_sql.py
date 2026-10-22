@@ -22,7 +22,8 @@ KINDS = {"move", "move_direct", "move_hop_exact", "pull", "boss", "loot", "open"
 OPT_IN = pathlib.Path(ROOT) / "tools/optional-plans/zulfarrak-gahzrilla.sql"
 TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_boss")
 # The plans whose bosses ai_dungeon_boss lists, and their maps.
-BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36}
+BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36,
+              "blackfathom_deeps": 48}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -39,10 +40,14 @@ SEEDED_BOSSES = {
     (36, 644): "Rhahk'Zor", (36, 642): "Sneed's Shredder", (36, 643): "Sneed", (36, 1763): "Gilnid",
     (36, 61963): "Masterpiece Harvester", (36, 646): "Mr. Smite", (36, 647): "Captain Greenskin",
     (36, 639): "Edwin VanCleef", (36, 645): "Cookie",
+    (48, 4887): "Ghamoo-ra", (48, 4831): "Lady Sarevess", (48, 6243): "Gelihast",
+    (48, 62530): "Velthelaxx the Defiler", (48, 4830): "Old Serra'kis", (48, 4832): "Twilight Lord Kelris",
+    (48, 4829): "Aku'mai",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
-# Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586}
+# Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080),
+# the BFD neutrals Argent Guard 4787 and Woji the Toad 62531 (both rank 0).
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 4787, 62531}
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
 ZUMRAH_GRAVES = (
@@ -266,6 +271,26 @@ class DungeonPlanSql(unittest.TestCase):
                 # A quoted value may hold commas (`entries`); the space after each comma is skipped before the match.
                 values = [v.strip() for v in re.findall(r"\s*('(?:[^']|'')*'|[^,]+)", row)]
                 yield dict(zip(cols, [v.strip("'") for v in values]))
+
+    def test_blackfathom_deeps_is_the_draft_as_exported(self):
+        # 20261022210800 (turtle-agent abd37a3, 2026-10-22): the first export of the Blackfathom Deeps draft, no row hand-set, with the
+        # boss rows of map 48. 7 legs, 580 steps (46 + 9 + 51 + 14 + 18 + 29 + 3 pulls), bosses in leg order, no door or event step and empty unit lists.
+        name, text = newest_plan_text("blackfathom_deeps")
+        self.assertEqual(name, "20261022210800_world.sql")
+        self.assertIn("('blackfathom_deeps', 48, '', '', '', 'turtle-agent abd37a3 dungeons/blackfathom_deeps.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        # leg_rows() matches [A-Za-z0-9_] leg names only; ghamoo-ra, old_serra'kis and aku'mai are not
+        # words, so the legs are counted from the step rows (each leg's boss step proves its rows are there).
+        rows = [r for r in self.step_rows(text) if r["plan"] == "blackfathom_deeps"]
+        self.assertEqual(len({r["leg"] for r in rows}), 7)
+        self.assertEqual(len(rows), 580)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [46, 9, 51, 14, 18, 29, 3])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["4887", "4831", "6243", "62530", "4830", "4832", "4829"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        # The last step of every leg is its boss, and the rows of the other plans in the file: none.
+        for leg in range(7):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["blackfathom_deeps"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (48);", text)
 
     def test_zulfarrak_and_uldaman_final_counts(self):
         # Each plan's newest INSERT follows the DELETE of its old steps and legs, so its rows are the plan after all migrations.
