@@ -25,7 +25,8 @@ TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_bo
 BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36,
               "stormwind_stockade": 34,
               "razorfen_kraul": 47,
-              "gnomeregan": 90}
+              "gnomeregan": 90,
+              "scarlet_library": 189}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -49,6 +50,7 @@ SEEDED_BOSSES = {
     (47, 4421): "Charlga Razorflank",
     (90, 7079): "Viscous Fallout", (90, 6235): "Electrocutioner 6000", (90, 6229): "Crowd Pummeler 9-60",
     (90, 6228): "Dark Iron Ambassador", (90, 7800): "Mekgineer Thermaplugg",
+    (189, 3974): "Houndmaster Loksey", (189, 61983): "Brother Wystan", (189, 6487): "Arcanist Doan",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
 # Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080,
@@ -275,6 +277,38 @@ class DungeonPlanSql(unittest.TestCase):
                          [("1763", "1731", "-177.362", "-574.458")])
         self.assertNotIn(("622,1731", 11, -187.1), pulls(8))
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["644", "642", "61963", "1763", "646", "647", "639"])
+
+    def test_scarlet_library_is_the_plan_with_the_pack_fixes(self):
+        # 20261022210600 (turtle-agent prep/scarlet_library, library census 2026-10-22): the draft with the unit lists
+        # (fleers 4287 4288 4291 4296 4299, cc 4299 4296, cc_always 4299, kill_first 4291), Loksey's three hounds and
+        # Wystan's two camp Monks folded into their boss steps (boss.first), the two patrols on their pulls and the two
+        # Doan-hall packs at radius 9. Every pin below fails when its rows are cut.
+        name, text = newest_plan_text("scarlet_library")
+        self.assertEqual(name, "20261022210600_world.sql")
+        self.assertIn("('scarlet_library', 189, '4299,4296', '4299', '4291', 'turtle-agent c670d6e dungeons/scarlet_library.json',", text)
+        rows = [r for r in self.step_rows(text) if r["plan"] == "scarlet_library"]
+        self.assertEqual(len(rows), 88)
+        self.assertEqual({int(leg): len(leg_steps(rows, leg)) for leg in (0, 1, 2)}, {0: 44, 1: 40, 2: 4})
+        pulls = {leg: [(r["entries"], r["radius"], r["x"], r["y"]) for r in leg_steps(rows, leg) if r["kind"] == "pull"] for leg in (0, 1, 2)}
+        self.assertEqual([len(pulls[0]), len(pulls[1]), len(pulls[2])], [17, 23, 2])
+        # Loksey's cage: the hounds are not a pull any more; they are the boss's first.
+        self.assertEqual([(r["entry"], r["entries"], r["x"], r["y"]) for r in leg_steps(rows, 0) if r["kind"] == "boss"],
+                         [("3974", "4304", "119.938", "-260.869")])
+        # Wystan's camp: the two Monks of 2583275/2583276 are the boss's first (and Fireball is a tactic).
+        self.assertEqual([(r["entry"], r["entries"], r["x"], r["y"]) for r in leg_steps(rows, 1) if r["kind"] == "boss"],
+                         [("61983", "4540", "209.491", "-401.61")])
+        # The patrols of 2583271 (the Monk that walks 220.8 -386.7 to 220.9 -338.5 and back) and 40098 (the Chaplain's
+        # 8-point beat to x 221.1 -329.2) stand on their pulls in the plan: pull rows of those exact spots still exist.
+        self.assertIn(("4540", "10", "220.82", "-386.67"), pulls[1])
+        self.assertIn(("4299", "10", "265.03", "-379.05"), pulls[1])
+        # The Doan hall: both packs at radius 9, the boss 25.7 yd from the first stand.
+        self.assertEqual([(r["entries"], r["radius"], r["x"], r["y"]) for r in leg_steps(rows, 2) if r["kind"] == "pull"],
+                         [("4540", "9", "173.97", "-429.18"), ("4291,4540,4299", "9", "181.14", "-443.63")])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["3974", "61983", "6487"])
+        # The boss table seeds the map's three bosses.
+        self.assertEqual([(m, e, n) for m, e, n in self.boss_rows() if m == 189],
+                         [(189, 3974, "Houndmaster Loksey"), (189, 61983, "Brother Wystan"), (189, 6487, "Arcanist Doan")])
+
 
     def step_rows(self, text):
         # Each ai_dungeon_step row of a migration as a dict of its columns, in file order.
