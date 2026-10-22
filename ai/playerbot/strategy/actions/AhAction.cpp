@@ -246,6 +246,9 @@ bool AhBidAction::ExecuteCommand(Player* requester, std::string text, Unit* auct
             if (!AuctionItemCount(auction))
                 continue;
 
+            if (sRandomItemMgr.IsTransmogClone(auction->itemTemplate))
+                continue;
+
             uint32 totalCost = std::min(auction->buyout, uint32(std::max(auction->bid, auction->startbid) * frand(1.05f, 1.25f)));
             uint32 const auctionItemCount = AuctionItemCount(auction);
             if (!auctionItemCount)
@@ -385,6 +388,10 @@ bool AhBidAction::ExecuteCommand(Player* requester, std::string text, Unit* auct
             continue;
 
         if (!strstri(proto->Name1, text.c_str()))
+            continue;
+
+        // A clone carries the base item's name, so the search can match one.
+        if (sRandomItemMgr.IsTransmogClone(proto))
             continue;
 
         if (price && curAuction.bid + 5 > price)

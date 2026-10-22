@@ -13,6 +13,7 @@
 #include "strategy/values/ItemUsageValue.h"
 #include "RaidQuestChainPolicy.h"
 #include "GearDuplicateItemPolicy.h"
+#include "TransmogClonePolicy.h"
 
 enum RandomItemType
 {
@@ -174,6 +175,13 @@ class RandomItemMgr
 	public:
         void Init();
         static bool HandleConsoleCommand(ChatHandler* handler, char const* args);
+        // One gate for the item-exclusion rule (TransmogClonePolicy.h): a
+        // transmog clone prototype, an id the core transmog map answers for
+        // (it shadows a same-id real prototype), or a duplicate-copy row. The
+        // id overload resolves through the core lookup first; unknown ids
+        // pass (fail-open).
+        bool IsTransmogClone(ItemPrototype const* proto) const;
+        bool IsTransmogClone(uint32 itemId) const;
         RandomItemList Query(uint32 level, RandomItemType type, RandomItemPredicate* predicate);
         RandomItemList Query(uint32 level, uint8 clazz, uint8 specId, uint8 slot, uint32 quality);
         // Every item in the item info cache for an equipment slot, stat weight
