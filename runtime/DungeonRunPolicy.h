@@ -197,9 +197,8 @@ constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a p
 // Stone Steward 4860 walks a lane whose north end only is in the step's 10 yd
 // radius, so the step said "pack cleared" in 0 s in r8, r9 and r10, and where
 // the patrol was decided whether it came alone or into the Keeper's fight.
-constexpr std::uint32_t kPatrolWaitMs = 60000;    // ... waited for this long when the step has no timeout_s of its own
+constexpr std::uint32_t kPatrolWaitMs = 60000;    // ... waited for this long at most (a shorter timeout_s of the step caps it)
 constexpr float kPatrolSeeYd = 30.0f;             // the glue reads patrollers of the step's entries this far outside its radius
-constexpr float kPatrolReachYd = 24.0f;           // one in sight of the lead bot this close is pulled where it walks
 // A big pack's firing stand walk (BigPackWalkGate; Uldaman r10-19z29 step 79):
 // the lead walked to the stand of a 9-joiner scorpid pack with the healer and
 // the mage 27-30 yd behind on the ramp, and the pack woke on a dps first.
@@ -333,7 +332,8 @@ struct UnitFact
     std::uint64_t guid = 0;
     std::uint32_t entry = 0;
     float distLead = 0.0f;
-    float x = 0.0f, y = 0.0f; // hold units only: where it stands (HoldStands: the side the event comes from)
+    float x = 0.0f, y = 0.0f; // hold units and patrollers: where it stands (HoldStands: the side the event comes from)
+    float z = 0.0f;           // ... patrollers only (OwnedByLaterStep)
     bool hostile = true;     // not friendly to the party (hostile or neutral): it may be pulled
     bool stealthed = false;
     bool evading = false;    // running home: not pulled this tick
@@ -358,9 +358,6 @@ struct UnitFact
     // Pull step and hop units, when Facts::pullStand is set: the lead bot sees
     // it now (Unit::IsWithinLOSInMap).
     bool losLead = false;
-    // Facts::patrollers only: the unit is a corpse (never waited for), and
-    // its distance from the step's point is in distSpot.
-    bool dead = false;
 };
 
 // The mage's Polymorph (all ranks and forms): the aura the run waits for after
@@ -454,10 +451,10 @@ struct Facts
     // a known spot of the main mesh the lead bot cannot reach (GoodSpotProbeWanted).
     bool goodSpotCut = false;
     std::vector<UnitFact> units;        // pull/boss: living units of the step's entries within its radius
-    // pull (not boss): units of the step's entries that walk a waypoint patrol
-    // (the core's default movement type), outside its radius and within
-    // kPatrolSeeYd beyond it; corpses too (UnitFact::dead). distSpot: from the
-    // step's point; losLead read for a living one within kPatrolReachYd.
+    // pull (not boss): living units of the step's entries that walk a
+    // waypoint patrol (the core's default movement type), outside its radius
+    // and within kPatrolSeeYd beyond it, none a later step owns
+    // (OwnedByLaterStep). distSpot: from the step's point; x, y, z: where it is.
     std::vector<UnitFact> patrollers;
     std::vector<UnitFact> hopUnits;     // move: living hostile units within kHopPullYd of the point, not owned by a later step
     // boss: a dead unit (corpse) of the boss's entry within the step's radius
@@ -640,6 +637,7 @@ struct Run
     std::uint32_t bossWaitMs = 0;   // a boss step: time at the spot with the boss neither alive nor dead in sight
     bool bossSeenAlive = false;     // a boss step: the boss was among the step's living units
     std::uint32_t patrolWaitMs = 0; // a pull step: time spent waiting for a patroller outside the radius (WaitForPatroller)
+    std::unordered_set<std::uint64_t> patrolSeen; // ... the patrollers this step saw (a pass of one is remembered run-wide)
     // A big pack's stand walk (BigPackWalkGate): the walk's unit, stand and
     // joiner count; the hold for the party, its time, and whether its ceiling
     // was spent (the walk then goes on without the gate).
@@ -665,6 +663,11 @@ struct Run
     // regroup (BeginRegroup: a resume, a wipe recovery); a unit in it that turns
     // up as an attacker of the party is taken out at once (ForgetUnitsThatCame).
     std::unordered_set<std::uint64_t> neverCame;
+    // Patrollers given up on (WaitForPatroller): the wait ran out, or a pull
+    // step passed it after its pulls drew no fight. Run-wide, so a later step
+    // listing the same entry does not wait for it again; cleared like neverCame
+    // by every regroup (a resume, a wipe recovery).
+    std::unordered_set<std::uint64_t> patrolGaveUp;
     // loot: the bot the order goes to ("": the carrier), the bots a refusal on the
     // loot rules has been tried with, and the refusal's pause text while the
     // next bot is tried.
@@ -1209,6 +1212,7 @@ inline void ResetStep(Run& r)
     r.bossWaitMs = 0;
     r.bossSeenAlive = false;
     r.patrolWaitMs = 0;
+    r.patrolSeen.clear();
     EndBigWalk(r);
     r.joinerSeen.clear();
     r.walkBackPulls = 0;
@@ -1691,6 +1695,7 @@ inline void BeginRegroup(Run& r)
 {
     DropHopWaiver(r);
     r.neverCame.clear(); // a resume or a wipe recovery judges the hop units afresh
+    r.patrolGaveUp.clear(); // ... and the patrollers
     r.anchorKnown = false; // the party comes back to life elsewhere
     r.regroup = true;
     r.reviveSent = false;
@@ -3521,7 +3526,11 @@ inline void AwaitPull(Run& r)
         return;
     auto it = r.pullTries.find(r.pullGuid);
     if (it != r.pullTries.end() && it->second >= kPullTriesPerUnit)
+    {
         r.passed.insert(r.pullGuid);
+        if (r.patrolSeen.count(r.pullGuid))
+            r.patrolGaveUp.insert(r.pullGuid); // a patroller that never came: not waited for again this run
+    }
     if (r.pullHop)
         r.neverCame.insert(r.pullGuid);
     r.pullGuid = 0;
@@ -4207,38 +4216,39 @@ inline bool BigPackWalkGate(Run& r, const Facts& f, std::uint32_t dt, std::strin
 // walking a patrol outside the radius (Facts::patrollers). Uldaman r10-19z29
 // step 66: the Stone Steward's lane reaches the 10 yd radius only at its north
 // end; the step said "pack cleared" in 0 s, and the Steward came into the
-// Keeper's fight two steps later. A living, hostile patroller is waited for,
-// like a boss away from his spot (kBossSearchMs), up to the step's timeout_s
-// (kPatrolWaitMs without one): it is pulled once it enters the radius (then it
-// is one of the step's units) or once it stands in sight within kPatrolReachYd
-// of the lead bot. Never in a fight, never for a corpse, a friendly unit or one
-// the run gave up on; none seen: the step is cleared as before. True: the
-// step waits or pulls; false: it is cleared (`timedOut` says the wait ran out).
-inline bool WaitForPatroller(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& order,
-    std::string& timedOut)
+// Keeper's fight two steps later. A hostile patroller is waited for, like a
+// boss away from his spot (kBossSearchMs), up to kPatrolWaitMs or the step's
+// shorter timeout_s, until it walks into the radius: there it is one of the
+// step's units and the usual pick takes it (the way back, the aggro estimate,
+// the fruitless count). Never in a fight, never for a friendly unit, one a
+// later step owns (OwnedByLaterStep) or one the run gave up on (Run::
+// unreachable, Run::patrolGaveUp: the wait ran out, or its pulls drew no
+// fight); none seen: the step is cleared as before. True: the step waits;
+// false: it is cleared (`timedOut` says the wait ran out).
+inline bool WaitForPatroller(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& timedOut)
 {
     if (s.kind != PlanStepKind::Pull || f.anyInCombat)
         return false;
     const UnitFact* p = nullptr;
     for (const UnitFact& u : f.patrollers)
-        if (!u.dead && u.hostile && !r.passed.count(u.guid) && !r.unreachable.count(u.guid) &&
-            (!p || u.distLead < p->distLead))
+    {
+        if (!u.hostile || r.passed.count(u.guid) || r.unreachable.count(u.guid) || r.patrolGaveUp.count(u.guid))
+            continue;
+        if (r.plan && ai::OwnedByLaterStep(*r.plan, r.step, u.entry, u.x, u.y, u.z, f.team))
+            continue;
+        r.patrolSeen.insert(u.guid);
+        if (!p || u.distLead < p->distLead)
             p = &u;
+    }
     if (!p)
         return false;
-    std::uint32_t const capMs = s.timeoutS ? s.timeoutS * 1000u : kPatrolWaitMs;
+    std::uint32_t const capMs = s.timeoutS && s.timeoutS * 1000u < kPatrolWaitMs ? s.timeoutS * 1000u : kPatrolWaitMs;
     std::string const what = std::to_string(p->entry) + " " + GuidArg(p->guid);
     if (r.patrolWaitMs >= capMs)
     {
+        r.patrolGaveUp.insert(p->guid);
         timedOut = "; the patroller " + what + " did not come within " + std::to_string(capMs / 1000) + " s";
         return false;
-    }
-    if (!p->evading && p->losLead && p->distLead <= kPatrolReachYd)
-    {
-        PullUnit(r, f, *p, order, nullptr, false, dt);
-        if (r.phase == Phase::AwaitPull)
-            r.note = "the patroller " + what + " is in reach: " + r.note;
-        return true;
     }
     r.patrolWaitMs += dt;
     r.note = "waiting for the patroller " + what + " (outside the " + Num(s.radius) + " yd radius; up to " +
@@ -4402,7 +4412,7 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
     else if (s.kind != PlanStepKind::Boss)
     {
         std::string timedOut;
-        if (WaitForPatroller(r, f, s, dt, order, timedOut))
+        if (WaitForPatroller(r, f, s, dt, timedOut))
             return;
         NextStep(r, "pack cleared" + timedOut);
     }

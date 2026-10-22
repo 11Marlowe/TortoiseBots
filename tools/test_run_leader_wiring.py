@@ -410,20 +410,24 @@ class RunLeaderWiringTest(unittest.TestCase):
 
 
     def test_pull_step_patrollers_reach_the_policy(self):
-        # DungeonRun::WaitForPatroller (Uldaman r10 step 66): a pull step's entries on a waypoint patrol outside the
-        # radius, corpses too, within kPatrolSeeYd beyond it; the grid search of a pull step reaches that far.
+        # DungeonRun::WaitForPatroller (Uldaman r10 step 66): a pull step's living entries on a waypoint patrol outside
+        # the radius, within kPatrolSeeYd beyond it, none a later step owns; the grid search of a pull step reaches that far.
         read = body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot,", "\n}\n")
+        add = read[read.index("auto addPatroller"):read.index("f.patrollers.push_back(unit);")]
         self.assertIn("bool const pullStep = step->kind == ai::PlanStepKind::Pull;", read)
-        self.assertIn("creature->GetDefaultMovementType() != WAYPOINT_MOTION_TYPE", read)
-        self.assertIn("fromPoint <= step->radius || fromPoint > step->radius + kPatrolSeeYd", read)
+        self.assertIn("creature->GetDefaultMovementType() != WAYPOINT_MOTION_TYPE", add)
+        self.assertIn("fromPoint <= step->radius || fromPoint > step->radius + kPatrolSeeYd", add)
+        self.assertIn("ai::OwnedByLaterStep(*slot.run.plan, slot.run.step, creature->GetEntry(),", add)
         self.assertIn("pullStep ? std::min(toPoint + step->radius + kPatrolSeeYd, 2.0f * kSeeYd) : range", read)
-        self.assertIn("addPatroller(creature, fromPoint, true);", read)
-        self.assertIn("addPatroller(creature, fromPoint, false);", read)
-        self.assertIn("unit.dead = dead;", read)
-        self.assertIn("unit.distSpot = fromPoint;", read)
-        self.assertIn("f.patrollers.push_back(unit);", read)
-        # The wait itself is the policy's: a living patroller out of the radius is never pulled by the glue.
-        self.assertNotIn("pullback", read[read.index("auto addPatroller"):read.index("f.patrollers.push_back(unit);")])
+        self.assertIn("unit.z = creature->GetPositionZ();", add)
+        self.assertIn("unit.distSpot = fromPoint;", add)
+        # Only living ones: the corpse branch lists none (the policy never sees a dead patroller).
+        self.assertEqual(read.count("addPatroller(creature, fromPoint)"), 1)
+        alive = read.index("if (!creature->IsAlive())")
+        self.assertLess(alive, read.index("addPatroller(creature, fromPoint)"))
+        self.assertNotIn("addPatroller", read[alive:read.index("if (fromPoint > step->radius)", alive)])
+        # The wait and the pull are the policy's: the glue never orders a patroller.
+        self.assertNotIn("pullback", add)
 
     def test_aggro_estimate_is_a_read_side_fact_behind_its_key(self):
         # AiPlayerbot.DungeonRunAggroEstimate (default 0): the glue reads the estimate, the policy decides.
