@@ -2153,6 +2153,21 @@ inline bool DetourPointReachable(bool pathNoPath, bool pathIncomplete, float end
         RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd);
 }
 
+// A candidate of the detour must also lead on by its OWN path toward the step's
+// point (the glue's probe from the candidate to it; RingSpotLeadsOn, as a ring
+// spot of the island escape must). Uldaman r13-19z30 slot 5: the lead stood in
+// a closed 6 x 6 yd pit; the pit's own point 42.1 374.3 (3.2 yd away, its path
+// from the lead complete) was taken as 'the nearest reachable point, 10.0 yd from
+// the plan's' although its probe to 50.8 379.3 ended 1.1 yd from it, in the pit, and
+// step 97's pullback was refused. A candidate within kArriveYd of the point has
+// nothing to lead on to (the first candidate is the point itself): not asked.
+inline bool DetourCandidateLeadsOn(bool probeNoPath, bool probeIncomplete, float probeEndFromCandidateYd,
+    float probeEndFromLeadYd, float candidateFromPointYd)
+{
+    return candidateFromPointYd <= kArriveYd ||
+        RingSpotLeadsOn(probeNoPath, probeIncomplete, probeEndFromCandidateYd, probeEndFromLeadYd);
+}
+
 // The glue probes the path to the last good lead spot (Facts::goodSpotCut)
 // only when that spot is off the lead bot (kArriveYd), within kGoodSpotProbeYd
 // and kEscapeMaxVertical.

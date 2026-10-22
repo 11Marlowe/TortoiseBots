@@ -9312,6 +9312,16 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
                 (type & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(end.x, end.y, end.z, px, py, ground),
                 DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground)))
             return false;
+        // And its OWN path toward the plan's point leads on (r13-19z30 Uldaman: the
+        // pit the tank fell into has a ring point the lead's path reaches, and no way out).
+        PathFinder probe(lead);
+        probe.calculate(Vector3(px, py, ground), Vector3(x, y, z), false);
+        uint32 const probeType = static_cast<uint32>(probe.getPathType());
+        Vector3 const probeEnd = probe.getActualEndPosition();
+        if (!TortoiseBots::DungeonRun::DetourCandidateLeadsOn((probeType & PATHFIND_NOPATH) != 0,
+                (probeType & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(probeEnd.x, probeEnd.y, probeEnd.z, px, py, ground),
+                DistanceTo(lead, probeEnd.x, probeEnd.y, probeEnd.z), ai::PlanDistance(px, py, ground, x, y, z)))
+            return false;
         ox = px;
         oy = py;
         oz = ground;

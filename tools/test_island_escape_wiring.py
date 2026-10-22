@@ -142,6 +142,14 @@ class IslandEscapeWiringTest(unittest.TestCase):
                       "                DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground)))\n            return false;")
         self.assertLess(check, at(f, "ox = px;"))
         self.assertNotIn("> 5.0f)", f)
+        # r13-19z30 Uldaman: the candidate's own probe toward the plan's point leads on too (a closed pit).
+        probe = at(f, "probe.calculate(Vector3(px, py, ground), Vector3(x, y, z), false);")
+        leads = at(f, "if (!TortoiseBots::DungeonRun::DetourCandidateLeadsOn((probeType & PATHFIND_NOPATH) != 0,")
+        self.assertTrue(check < probe < leads < at(f, "ox = px;"))
+        at(f, "DistanceTo(lead, probeEnd.x, probeEnd.y, probeEnd.z), ai::PlanDistance(px, py, ground, x, y, z)))\n            return false;")
+        q = body(POLICY, "inline bool DetourCandidateLeadsOn(", "\n}\n")
+        at(q, "candidateFromPointYd <= kArriveYd ||")
+        at(q, "RingSpotLeadsOn(probeNoPath, probeIncomplete, probeEndFromCandidateYd, probeEndFromLeadYd)")
         p = body(POLICY, "inline bool DetourPointReachable(", "\n}\n")
         at(p, "RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd)")
         # r9-19z26 step 124: a ring point 1.3 yd from the lead bot on its own island was taken.
