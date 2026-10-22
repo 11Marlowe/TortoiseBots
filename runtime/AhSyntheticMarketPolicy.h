@@ -93,6 +93,9 @@ namespace ai
     // price with a buy/sell sanity rule (a buy price more than 5x the sell
     // price is discounted back to the sell-price scale), floored at 1 copper
     // and capped at 0x7fffffff so unit*stack math cannot overflow later.
+    // Can return 0 for a zero-value poor item (no vendor price at all):
+    // the caller must treat that as unpostable and return before drawing
+    // any variance random number.
     inline uint32_t AhSyntheticBasePrice(uint32_t buyPrice, uint32_t sellPrice, uint32_t quality)
     {
         uint32_t qualityMultiplier = AhQualityPriceMultiplier(quality);

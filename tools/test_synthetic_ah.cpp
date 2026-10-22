@@ -324,9 +324,13 @@ struct MockAhMarketService
         if (it != overrides.end() && it->second.value > 0)
             return it->second.value;
 
-        // Quality scaling + buy/sell sanity rule from the policy; the mock
-        // variance draw is deterministic (+variance percent), urand in prod.
-        return ApplyVariance(ai::AhSyntheticBasePrice(proto->BuyPrice, proto->SellPrice, proto->Quality));
+        // Quality scaling + buy/sell sanity rule from the policy. A zero
+        // base price (zero-value poor item) returns before the variance
+        // draw, exactly as in production.
+        uint32 basePrice = ai::AhSyntheticBasePrice(proto->BuyPrice, proto->SellPrice, proto->Quality);
+        if (!basePrice)
+            return 0;
+        return ApplyVariance(basePrice);
     }
 
     uint32 ApplyVariance(uint32 price) const
@@ -595,6 +599,7 @@ int main()
     ItemPrototype protoStaff{ 2042, "Staff of Jordan", ITEM_CLASS_WEAPON, 10, ITEM_QUALITY_EPIC, 200000, 50000, 40, 35, 1, 2, 0 };
     ItemPrototype protoLegend{ 19019, "Thunderfury", ITEM_CLASS_WEAPON, 7, ITEM_QUALITY_LEGENDARY, 1000000, 250000, 80, 60, 1, 1, 0 }; // Bound on pickup & Legendary
     ItemPrototype protoHighLevel{ 16000, "High Level Item", ITEM_CLASS_ARMOR, 1, ITEM_QUALITY_RARE, 100000, 25000, 65, 62, 1, 2, 0 }; // Level 62
+    ItemPrototype protoZero{ 9999, "Worthless Pebble", ITEM_CLASS_TRADE_GOODS, 0, ITEM_QUALITY_POOR, 0, 0, 0, 0, 1, 0, 0 }; // No vendor price at all
 
     // -------------------------------------------------------------
     // Test 1: Item Eligibility, Caps & Blacklisting
@@ -634,6 +639,23 @@ int main()
         service.ResetItemOverride(protoLinen.ItemId);
         CHECK(!service.IsItemBlacklisted(protoLinen.ItemId));
         CHECK(service.IsItemEligible(&protoLinen));
+    }
+
+    // -------------------------------------------------------------
+    // Test 1b: Zero-Value Poor Item Prices At 0 And Is Never Posted
+    // -------------------------------------------------------------
+    std::cout << "  [Test 1b] Zero-value poor item prices at 0, no variance draw\n";
+    {
+        MockAhMarketService service;
+        service.prototypes[protoZero.ItemId] = protoZero;
+
+        // Eligible by caps, but with no vendor price the base price is 0:
+        // production must return 0 before drawing any variance random
+        // number, so the item is never posted (old inlined behaviour).
+        CHECK(service.IsItemEligible(&protoZero));
+        CHECK(ai::AhSyntheticBasePrice(0, 0, ITEM_QUALITY_POOR) == 0);
+        CHECK(service.CalculatePrice(&protoZero) == 0);
+        CHECK(ai::AhStackCount(true, 1, 5, 0, 0, 0) == 0); // zero unit price: no stack
     }
 
     // -------------------------------------------------------------

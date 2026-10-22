@@ -363,7 +363,7 @@ void RandomBotFacade::LoadAuctionPrices()
             // per item template so memory and appraisal sorting stay bounded.
             // The replace-the-dearest rule is the shared AhReadModelPolicy.
             auto& listings = ahMirror[entry->itemTemplate];
-            if (listings.size() < kMaxAuctionsPerItem)
+            if (listings.size() < ai::kMaxAuctionsPerItem)
             {
                 listings.push_back(*entry);
             }
