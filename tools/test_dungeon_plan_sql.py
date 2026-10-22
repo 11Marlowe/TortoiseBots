@@ -324,7 +324,8 @@ class DungeonPlanSql(unittest.TestCase):
 
     def test_gossip_rows_fit_the_loader(self):
         # NormalizePlanStep (DungeonPlanPolicy.h): a gossip row needs its NPC entry, an option of 1-15 (the number `.bot cmd gossip` takes,
-        # counted from 1: it refuses 0) and no flag; the timeout is at most 600. A row the loader refuses is skipped with a log line and the
+        # counted from 1: it refuses 0) and no flag but kPlanFlagDeadNpcIsDone (512; 20261022210000 sets it on Bly's row only, Weegli's
+        # End Door needs him alive); the timeout is at most 600. A row the loader refuses is skipped with a log line and the
         # run then pauses at the step before it, so a migration must never carry one.
         seen = 0
         for name, text in migrations():
@@ -335,7 +336,10 @@ class DungeonPlanSql(unittest.TestCase):
                 where = "%s: gossip %s/%s/%s" % (name, row["plan"], row["leg"], row["seq"])
                 self.assertGreater(int(row["entry"]), 0, where + ": no NPC entry")
                 self.assertTrue(1 <= int(row["param"]) <= 15, where + ": the option is outside 1-15 (counted from 1)")
-                self.assertEqual(int(row["flags"]), 0, where + ": a gossip carries no flag")
+                flags = int(row["flags"])
+                self.assertIn(flags, (0, 512), where + ": a gossip carries no flag but 512 (dead NPC is done)")
+                if flags == 512:
+                    self.assertEqual(row["entry"], "7604", where + ": only Sergeant Bly's gossip counts a dead NPC as done")
                 self.assertLessEqual(int(row["timeout_s"]), 600, where)
         self.assertGreaterEqual(seen, 1)
 
@@ -358,7 +362,9 @@ class DungeonPlanSql(unittest.TestCase):
         # friendly; a boss row would leave the friendly Bly alone at once (DungeonRunPolicy.h FightStep).
         bly = [r for r in zf if r["leg"] == "15"]
         self.assertEqual([r["kind"] for r in bly], ["move", "gossip", "hold"], name)
-        self.assertEqual((bly[1]["entry"], bly[1]["param"], bly[1]["flags"]), ("7604", "1", "0"), name)
+        # flags 512 = kPlanFlagDeadNpcIsDone (20261022210000): his crew dies in the pyramid event's troll waves in some runs (r12, r15-19z33)
+        # and a dead Bly then counts the gossip as done instead of pausing the run; Weegli's gossip (leg 14, above) keeps flags 0.
+        self.assertEqual((bly[1]["entry"], bly[1]["param"], bly[1]["flags"]), ("7604", "1", "512"), name)
         hold = bly[2]
         self.assertEqual((hold["entry"], hold["param"], hold["flags"], hold["radius"], hold["timeout_s"], hold["entries"]),
                          ("0", "0", "0", "25", "300", "7604,7608,7606,7605"), name)
@@ -368,6 +374,24 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(max(int(r["leg"]) for r in zf), 16, name + ": Ukorz is the last leg")
         self.assertEqual([r["kind"] for r in ukorz], ["move", "move", "pull", "pull", "pull", "pull", "pull", "boss"])
         self.assertEqual((ukorz[-1]["entry"], ukorz[-1]["entries"]), ("7267", "7797"))
+
+    def test_zulfarrak_dead_bly_migration_changes_one_flag(self):
+        # 20261022210000 is 20261021174716 with ONE row changed: Sergeant Bly's gossip (leg 15 seq 1) carries flags 512
+        # (kPlanFlagDeadNpcIsDone). Every other step row, the legs and the plan row (but its source text) are equal.
+        texts = dict(migrations())
+        old_name, new_name = "20261021174716_world.sql", "20261022210000_world.sql"
+        self.assertIn(old_name, texts)
+        self.assertIn(new_name, texts)
+        old = [r for r in self.step_rows(texts[old_name]) if r["plan"] == "zulfarrak"]
+        new = [r for r in self.step_rows(texts[new_name]) if r["plan"] == "zulfarrak"]
+        self.assertEqual(len(old), len(new))
+        changed = [(o, n) for o, n in zip(old, new) if o != n]
+        self.assertEqual(len(changed), 1)
+        o, n = changed[0]
+        self.assertEqual((n["leg"], n["seq"], n["kind"], n["entry"]), ("15", "1", "gossip", "7604"))
+        self.assertEqual((o["flags"], n["flags"]), ("0", "512"))
+        self.assertEqual(dict(o, flags="512"), n)
+        self.assertEqual(leg_rows(texts[old_name], "zulfarrak"), leg_rows(texts[new_name], "zulfarrak"))
 
     def test_gossip_kind_is_in_the_policy_tables(self):
         # The kind text the exporter writes is the one the loader parses and the status line prints.

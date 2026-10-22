@@ -142,8 +142,39 @@ static void TestNormalize()
     talk.param = 1;
     talk.flags = kPlanFlagAlliance;
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    // The one flag a gossip reads is kPlanFlagDeadNpcIsDone (512): alone it loads, with another flag it is refused.
+    talk.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::None && (talk.flags & kPlanFlagDeadNpcIsDone));
+    talk.flags = kPlanFlagDeadNpcIsDone | kPlanFlagAlliance;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    talk.flags = kPlanFlagDeadNpcIsDone | kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    talk.flags = 128; // reserved
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
     talk.flags = 0;
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::None && talk.timeoutS == kPlanDefaultTimeoutS);
+    // The flag belongs to a gossip row only: on any other kind it is a row the exporter got wrong, refused, not ignored.
+    CHECK(kPlanFlagDeadNpcIsDone == 512);
+    PlanStep deadMove = Step(0, 20, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    deadMove.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(deadMove) == PlanStepRefusal::BadParam);
+    PlanStep deadPull = Step(0, 21, PlanStepKind::Pull);
+    deadPull.entries = {7286};
+    deadPull.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(deadPull) == PlanStepRefusal::BadParam);
+    PlanStep deadLoot = Step(0, 22, PlanStepKind::Loot);
+    deadLoot.entry = 128403;
+    deadLoot.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(deadLoot) == PlanStepRefusal::BadParam);
+    PlanStep deadHold = Step(0, 23, PlanStepKind::Hold);
+    deadHold.entries = {7604};
+    deadHold.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(deadHold) == PlanStepRefusal::BadParam);
+    PlanStep deadUse = Step(0, 24, PlanStepKind::UseOn, 1650.9f, 1171.9f, 10.9f);
+    deadUse.entry = 141832;
+    deadUse.item = 9240;
+    deadUse.flags = kPlanFlagDeadNpcIsDone;
+    CHECK(NormalizePlanStep(deadUse) == PlanStepRefusal::BadParam);
     talk.param = 15;
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::None);
     talk.timeoutS = 601;

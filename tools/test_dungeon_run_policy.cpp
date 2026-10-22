@@ -3531,6 +3531,275 @@ static void TestUnitsHoldWaitsForAFriendlyBossToTurn()
     CHECK(b.step == 1 && b.note.find("boss is friendly to this party: left alone") != std::string::npos);
 }
 
+// ---- r15-19z33 Zul'Farrak: Bly's crew dead before the Bly leg (kPlanFlagDeadNpcIsDone, the units hold with nothing alive) ----
+
+static const char* const kBlyDeadAnswer =
+    "no-npc: No living NPC of that entry is within 40 yd of the bot: a dead one lies nearby: Sergeant Bly (7604) "
+    "lies dead 3 yd away and respawns in 6 d 23 h (604800 s spawn timer).";
+static const char* const kBlyDoneNote =
+    "gossip 7604: Sergeant Bly lies dead, nothing to talk to: the step is counted done (the plan marks a dead NPC as done)";
+
+// Bly's gossip row as the migration writes it: flag 512.
+static PlanStep BlyGossip(bool flag)
+{
+    PlanStep s;
+    s.kind = PlanStepKind::Gossip;
+    s.entry = 7604;
+    s.param = 1;
+    s.flags = flag ? ai::kPlanFlagDeadNpcIsDone : 0u;
+    CHECK(ai::NormalizePlanStep(s) == ai::PlanStepRefusal::None);
+    return s;
+}
+
+// Bly's crew hold: no done flag, radius 25, 300 s, the four entries.
+static PlanStep CrewHold()
+{
+    PlanStep hold = Step(PlanStepKind::Hold);
+    hold.radius = 25.0f;
+    hold.timeoutS = 300;
+    hold.entries = {7604, 7608, 7606, 7605};
+    CHECK(ai::NormalizePlanStep(hold) == ai::PlanStepRefusal::None);
+    return hold;
+}
+
+// Ticks the run `n` times, returns how many ticks it stayed on `step` (stops when it left or stopped running).
+static int TicksOnStep(Run& r, const Facts& f, std::size_t step, int n)
+{
+    int stayed = 0;
+    for (int i = 0; i < n && r.state == State::Running && r.step == step; ++i)
+    {
+        Tick(r, f);
+        if (r.state == State::Running && r.step == step)
+            ++stayed;
+    }
+    return stayed;
+}
+
+// Step 223 of r15: the order refused with the dead-NPC wording. With the flag the step is done and the next one runs; without it
+// the run pauses plainly as before (Weegli 7607 stays a pause: the End Door cannot be opened without him).
+static void TestGossipDeadIsDoneWithFlag()
+{
+    DungeonPlan plan;
+    plan.steps = {BlyGossip(true), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    std::string const order = Tick(r, f);
+    CHECK(order == "gossip 7604 Tanky 1");
+    OrderRefused(r, order, kBlyDeadAnswer);
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(r.note == kBlyDoneNote);
+    CHECK(!r.orderSent);
+
+    // The later failure (the NPC died on the bot's way, the task's ERR) is the same.
+    Run q = Start(&plan);
+    CHECK(Tick(q, f) == "gossip 7604 Tanky 1");
+    f.taskReply = 2;
+    f.taskText = "no-npc: The NPC died or despawned before the bot reached it: Sergeant Bly (7604) lies dead 3 yd away "
+                 "and respawns in 6 d 23 h (604800 s spawn timer).";
+    Tick(q, f);
+    CHECK(q.state == State::Running && q.step == 1);
+    CHECK(q.note == kBlyDoneNote);
+    f.taskReply = 0;
+
+    // The same refusal without the flag pauses with the plain dead-NPC text.
+    DungeonPlan plain;
+    plain.steps = {BlyGossip(false), Step(PlanStepKind::Rest)};
+    Run p = Start(&plain);
+    f = Party(0);
+    OrderRefused(p, Tick(p, f), kBlyDeadAnswer);
+    CHECK(p.state == State::Paused && p.step == 0);
+    CHECK(p.note.find("gossip 7604 option 1 cannot be done") != std::string::npos);
+    CHECK(p.note.find("counted done") == std::string::npos);
+    Run pt = Start(&plain);
+    Tick(pt, f);
+    f.taskReply = 2;
+    f.taskText = "no-npc: The NPC died or despawned before the bot reached it: Sergeant Bly (7604) lies dead 3 yd away.";
+    Tick(pt, f);
+    CHECK(pt.state == State::Paused && pt.step == 0 && pt.note.find("cannot be done") != std::string::npos);
+}
+
+// The flag counts a DEAD NPC as done, nothing else: every other refusal or failure of the order still pauses.
+static void TestGossipDeadIsDoneOnlyForADeadNpc()
+{
+    DungeonPlan plan;
+    plan.steps = {BlyGossip(true), Step(PlanStepKind::Rest)};
+    for (const char* answer : {"no-npc: No living NPC of that entry is within 40 yd of the bot.",
+             "not-allowed: That NPC is not in AiPlayerbot.BotGossipNpcs, so bots may not talk to it.",
+             "busy: the bot is busy", "no-option: No option 1."})
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        OrderRefused(r, Tick(r, f), answer);
+        CHECK(r.state == State::Paused && r.step == 0);
+        Run t = Start(&plan);
+        Tick(t, f);
+        f.taskReply = 2;
+        f.taskText = answer;
+        Tick(t, f);
+        CHECK(t.state == State::Paused && t.step == 0);
+    }
+    // A flagged gossip step's flag is not read on another order's refusal (a move on the way is a plain refusal).
+    Run m = Start(&plan);
+    Facts f = Party(0);
+    Tick(m, f);
+    OrderRefused(m, "move 5 5 5", kBlyDeadAnswer);
+    CHECK(m.step == 0);
+}
+
+// A units hold whose four units lay dead before the hold (r15: "4 of 4 down" for 300 s): it ends once the spot has been in sight for
+// kHoldAllDeadMs, and not before.
+static void TestUnitsHoldAllDeadOnEntryEndsAfterTenSeconds()
+{
+    CHECK(kHoldAllDeadMs == 10000);
+    DungeonPlan plan;
+    plan.steps = {CrewHold(), Step(PlanStepKind::Move, 500)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.eventDown = 4; // the corpses are in sight, nothing alive
+    // The first tick is the first look; the clock runs from the next one: 9 s later it still holds, at 10 s it is done.
+    int ticks = 1;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 0 && r.eventTotal == 4 && !r.eventStarted);
+    while (r.state == State::Running && r.step == 0 && ticks < 40)
+    {
+        Tick(r, f);
+        ++ticks;
+    }
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(ticks == static_cast<int>(kHoldAllDeadMs / kTickMs) + 1);
+    CHECK(r.note.find("event done: none of its units is alive (they died before the hold)") != std::string::npos);
+    CHECK(r.note.find("4 of 4 down") != std::string::npos);
+}
+
+// The whole r15 step 223-224 replay: the crew is dead, the gossip flagged: no pause at the gossip, the hold ends by itself.
+static void TestBlyCrewDeadBeforeTheLegRunsUnattended()
+{
+    DungeonPlan plan;
+    plan.steps = {BlyGossip(true), CrewHold(), Step(PlanStepKind::Move, 500)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.eventDown = 4;
+    std::string const order = Tick(r, f);
+    CHECK(order == "gossip 7604 Tanky 1");
+    OrderRefused(r, order, kBlyDeadAnswer);
+    CHECK(r.state == State::Running && r.step == 1 && Current(r)->kind == PlanStepKind::Hold);
+    int ticks = 0;
+    while (r.state == State::Running && r.step == 1 && ticks < 60)
+    {
+        Tick(r, f);
+        ++ticks;
+    }
+    CHECK(r.state == State::Running && r.step == 2 && ticks <= 15);
+    CHECK(r.note.find("none of its units is alive") != std::string::npos);
+}
+
+// What the all-dead end must not do: end a hold early where the units are merely not there yet, or alive, or were alive, or where the
+// event already started; and the ceiling stays for every other case.
+static void TestUnitsHoldAllDeadDoesNotEndEarly()
+{
+    DungeonPlan plan;
+    plan.steps = {CrewHold(), Step(PlanStepKind::Move, 500)};
+    // The spot is not in sight: the hold approaches it, never counts the dead.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.seen = false;
+        f.leadX = 80.0f;
+        f.approachKnown = true;
+        f.approachX = 40.0f;
+        f.eventDown = 4;
+        CHECK(Tick(r, f).find("move") == 0); // a hop toward the spot
+        f.leadX = 40.0f;
+        Tick(r, f);
+        CHECK(r.state == State::Running && r.step == 0 && r.note.find("none of its units") == std::string::npos);
+        CHECK(!r.eventOn && r.eventMs == 0); // the event's clock has not started: no look yet
+        // In sight at last: the clock starts then, not before.
+        f.seen = true;
+        f.leadX = 0.0f;
+        Tick(r, f);
+        CHECK(r.step == 0 && r.state == State::Running);
+        CHECK(TicksOnStep(r, f, 0, 8) == 8);
+    }
+    // Nothing alive and nothing dead in sight (the units are not spawned or not visible yet): no end, the old 300 s ceiling.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.eventDown = 0;
+        CHECK(TicksOnStep(r, f, 0, 120) == 120);
+        for (int i = 0; i < 400 && r.state == State::Running; ++i)
+            Tick(r, f);
+        CHECK(r.state == State::Paused && r.note.find("event not done after 300 s") != std::string::npos);
+    }
+    // A unit alive in the radius (friendly, it has not turned): the hold waits, up to the ceiling.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        UnitFact bly = Unit(7604, 7604, 11.0f);
+        bly.hostile = false;
+        f.units = {bly};
+        f.eventDown = 3;
+        CHECK(TicksOnStep(r, f, 0, 60) == 60);
+        for (int i = 0; i < 400 && r.state == State::Running; ++i)
+            Tick(r, f);
+        CHECK(r.state == State::Paused && r.note.find("event not done after 300 s") != std::string::npos);
+    }
+    // A unit was alive in this hold and then died while the event never started (a friendly one killed by something else): not the
+    // all-dead end, which asks for none ever counted alive.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        UnitFact bly = Unit(7604, 7604, 11.0f);
+        bly.hostile = false;
+        f.units = {bly};
+        Tick(r, f);
+        Tick(r, f);
+        f.units.clear();
+        f.eventDown = 4;
+        CHECK(TicksOnStep(r, f, 0, 30) == 30);
+    }
+    // The event started (a unit seen awake): the old rule, every unit dead, ends it at once.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        UnitFact bly = Unit(7604, 7604, 11.0f);
+        f.units = {bly}; // hostile
+        Tick(r, f);
+        CHECK(r.eventStarted && r.step == 0);
+        f.units.clear();
+        f.eventDown = 4;
+        Tick(r, f);
+        CHECK(r.step == 1 && r.note.find("every unit of it is dead") != std::string::npos);
+    }
+}
+
+// Not for a data, object or encounter hold: they end by their own condition, units or no units.
+static void TestAllDeadEndIsForAUnitsHoldOnly()
+{
+    for (std::uint32_t flags : {ai::kPlanFlagDoneData, ai::kPlanFlagDoneObject,
+             ai::kPlanFlagDoneData | ai::kPlanFlagEncounter})
+    {
+        PlanStep hold = Step(PlanStepKind::Hold);
+        hold.radius = 25.0f;
+        hold.timeoutS = 300;
+        hold.entry = 1;
+        hold.param = (flags & ai::kPlanFlagDoneObject) ? 1 : 3;
+        hold.flags = flags;
+        hold.entries = {7604, 7608};
+        CHECK(ai::NormalizePlanStep(hold) == ai::PlanStepRefusal::None);
+        DungeonPlan plan;
+        plan.steps = {hold, Step(PlanStepKind::Move, 500)};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.eventDown = 2;
+        f.eventData = 1; // in progress: not done, not failed
+        f.objectState = 0;
+        for (int i = 0; i < 30 && r.state == State::Running; ++i)
+            Tick(r, f);
+        CHECK(r.step == 0);
+        CHECK(r.note.find("none of its units") == std::string::npos);
+    }
+}
+
 static void TestWaitObjectTimeoutIsBounded()
 {
     DungeonPlan plan;
@@ -10604,6 +10873,12 @@ int main()
     TestGossipStartsAnEvent();
     TestGossipAfterAHoldThenTheDoor();
     TestUnitsHoldWaitsForAFriendlyBossToTurn();
+    TestGossipDeadIsDoneWithFlag();
+    TestGossipDeadIsDoneOnlyForADeadNpc();
+    TestUnitsHoldAllDeadOnEntryEndsAfterTenSeconds();
+    TestBlyCrewDeadBeforeTheLegRunsUnattended();
+    TestUnitsHoldAllDeadDoesNotEndEarly();
+    TestAllDeadEndIsForAUnitsHoldOnly();
     TestUseOnOneTargetedOrderThenAck();
     TestUseOnWithoutTheItemPauses();
     TestUseOnResendsOnceThenPauses();

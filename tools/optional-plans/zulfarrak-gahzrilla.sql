@@ -1,13 +1,13 @@
 -- OPT-IN, FOR TEST RUNS ONLY. NOT A MIGRATION: data/sql/world/ is applied automatically, this folder is not.
--- Zul'Farrak (map 209) with the optional gahzrilla leg: the whole plan of data/sql/world/20261021174716_world.sql plus Gahz'rilla.
+-- Zul'Farrak (map 209) with the optional gahzrilla leg: the whole plan of data/sql/world/20261022210000_world.sql (Bly's gossip row with flag 512) plus Gahz'rilla.
 -- Exported from the same turtle-agent revision with the same options plus --with-optional gahzrilla:
--- `turtle-agent plan-export --drop-companions-loot --carrier-chests --with-optional gahzrilla --mmaps <map 209 mmaps> --rev e8329d1
--- --stamp 20261021174716 zulfarrak`. 18 legs, 245 steps, 264 rows. tools/test_dungeon_plan_sql.py checks that it differs from
+-- `turtle-agent plan-export --drop-companions-loot --carrier-chests --with-optional gahzrilla --mmaps <map 209 mmaps> --rev a93caba
+-- --stamp 20261022210000 zulfarrak`. 18 legs, 245 steps, 264 rows. tools/test_dungeon_plan_sql.py checks that it differs from
 -- that migration only by the gahzrilla leg's rows, the leg numbers after it, and the long-hop 'path' moves at the start of the
 -- courtyard leg (measured from Gahz'rilla's spot instead of velratha_b's).
 --
 -- HOW TO USE IT
---   * Apply it by hand to the world database of a TEST box, after 20261021174716_world.sql, then restart the worldserver (the
+--   * Apply it by hand to the world database of a TEST box, after 20261022210000_world.sql, then restart the worldserver (the
 --     plans are read at startup). It replaces the zulfarrak rows (the same delete-then-insert).
 --   * Needs a module with the use_on step kind (an older one skips the gong row and pauses at the boss row).
 --   * Before `.bot run start zulfarrak`: GM `.additem 9240` (the Mallet of Zul'Farrak) on the lead bot. No bot can get the Mallet
@@ -16,7 +16,7 @@
 --   * The gong is rung once a run: a second ring summons a NEW Gahz'rilla that the instance kills at once
 --     (instance_zulfarrak.cpp:185-190 DisappearAndDie), leaving a dead, invisible 7273 at the pit.
 --   * The rest of the setup is the migration's: AiPlayerbot.BotGossipNpcs lists 7604 and 7607, BotAreaTriggers lists 962.
---   * REVERT: re-apply data/sql/world/20261021174716_world.sql (or the newest zulfarrak migration) and restart.
+--   * REVERT: re-apply data/sql/world/20261022210000_world.sql (or the newest zulfarrak migration) and restart.
 --
 -- THE GAHZRILLA LEG (leg 9; the legs after it are numbered one higher than in the migration):
 --   the move to the gong stand 1652.84 1168.99 10.67, the eight pool-ring pulls, the path back to the stand, then `use_on` object
@@ -36,7 +36,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'zulfarrak';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'zulfarrak';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'zulfarrak';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('zulfarrak', 209, '7246,5648', '7246', '7785,8179,5650,7247,7608,7606,7605', 'turtle-agent e8329d1 dungeons/zulfarrak.json', 'plan v1, live-checked');
+('zulfarrak', 209, '7246,5648', '7246', '7785,8179,5650,7247,7608,7606,7605', 'turtle-agent a93caba dungeons/zulfarrak.json', 'plan v1, live-checked');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('zulfarrak', 0, 'antusul_a', ''),
 ('zulfarrak', 1, 'antusul_a2', ''),
@@ -292,7 +292,7 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('zulfarrak', 15, 2, 'gossip', 7607, 1877.52, 1199.63, 8.87, 0, 0, 1, 0, 0, '', 'talk to 7607, menu index 0 (cmd gossip option 1): Weegli''s menu has no option to blow up the door: the event is not over (PYRAMID_KILLED_ALL_TROLLS), or he is dead.'),
 ('zulfarrak', 15, 3, 'wait_object', 146084, 1854.5, 1142.9, 16.1, 0, 0, 2, 0, 60, '', 'wait for object 146084 active_alt: The End Door (146084) is not open (state active_alt) 60 s after Weegli Blastfuse''s gossip: he opens it only if he reaches it alive and unhurt.'),
 ('zulfarrak', 16, 0, 'move', 0, 1884, 1212, 9, 0, 0, 0, 0, 0, '', 'to'),
-('zulfarrak', 16, 1, 'gossip', 7604, 1883.82, 1200.83, 8.87, 0, 0, 1, 0, 0, '', 'talk to 7604, menu index 0 (cmd gossip option 1): Sergeant Bly''s menu has no option to fight: the event is not over (PYRAMID_KILLED_ALL_TROLLS), or he is dead.'),
+('zulfarrak', 16, 1, 'gossip', 7604, 1883.82, 1200.83, 8.87, 0, 0, 1, 512, 0, '', 'talk to 7604, menu index 0 (cmd gossip option 1): Sergeant Bly''s menu has no option to fight: the event is not over (PYRAMID_KILLED_ALL_TROLLS), or he is dead.'),
 ('zulfarrak', 16, 2, 'hold', 0, 1884, 1212, 9, 25, 0, 0, 0, 300, '7604,7608,7606,7605', 'boss hold: fought on the spot until every unit of it is dead (7604 counts while still friendly)'),
 ('zulfarrak', 17, 0, 'move', 0, 1875.2, 1197.0667, 8.933366, 0, 0, 0, 0, 0, '', 'path'),
 ('zulfarrak', 17, 1, 'move', 0, 1856.4, 1152.6, 14.4, 0, 0, 0, 0, 0, '', 'to'),
