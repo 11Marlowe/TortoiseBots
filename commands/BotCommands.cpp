@@ -6191,7 +6191,12 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
             message = "The point is more than " + std::to_string(static_cast<uint32>(facts.maxDistance)) +
                 " yd (AiPlayerbot.ReactDistance) from the lead bot. Move in shorter legs.";
         else if (verdict == RemoteCommander::MoveVerdict::NoPath)
+        {
             message = "The lead bot has no walkable path to that point (no navmesh route reaches it).";
+            // The source-side evidence the run leader's island escape asks for (Uldaman r16-19z34 step 39).
+            if (RemoteCommander::NoProgressFromLead(facts))
+                message += std::string(" ") + TortoiseBots::DungeonRun::kLeadNoProgressMark + ".";
+        }
         else
             message = "The point is not on walkable ground (the path ends more than 5 yd from it).";
         SendActionError(handler, intent, RemoteCommander::MoveVerdictCode(verdict), message.c_str());
@@ -9503,7 +9508,8 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
     };
     // The line to it (CheckEscapeSegment): the floor and any liquid under each
     // sample, and the hostiles near its end (one grid visit around the lead bot).
-    auto lineFits = [&](float px, float py, float pz) -> bool
+    // A step down past kSegmentRiseYd only to a spot whose own path leads on (dropOk).
+    auto lineFits = [&](float px, float py, float pz, bool dropOk) -> bool
     {
         std::vector<SegmentSample> samples = EscapeSegmentSamples(lx, ly, lz, px, py, pz);
         for (SegmentSample& sample : samples)
@@ -9527,10 +9533,10 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
         HostileCreaturesAround(lead, GroundDistance(lx, ly, px, py) + kEscapeHostileYd, hostiles);
         for (Unit* unit : hostiles)
             hostileNear = hostileNear || (unit->IsAlive() && DistanceTo(unit, px, py, pz) <= kEscapeHostileYd);
-        return CheckEscapeSegment(lz, samples, hostileNear) == SegmentVerdict::Ok;
+        return CheckEscapeSegment(lz, samples, hostileNear, dropOk) == SegmentVerdict::Ok;
     };
     float x = 0.0f, y = 0.0f, ground = INVALID_HEIGHT;
-    bool found = good && GoodSpotFits(lx, ly, lz, gx, gy, gz) && fits(gx, gy, ground) && lineFits(gx, gy, ground);
+    bool found = good && GoodSpotFits(lx, ly, lz, gx, gy, gz) && fits(gx, gy, ground) && lineFits(gx, gy, ground, false);
     if (found)
     {
         x = gx;
@@ -9553,7 +9559,7 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
             if (!RingSpotLeadsOn((probeType & PATHFIND_NOPATH) != 0, (probeType & PATHFIND_INCOMPLETE) != 0,
                     ai::PlanDistance(end.x, end.y, end.z, px, py, pz), ai::PlanDistance(end.x, end.y, end.z, lx, ly, lz)))
                 continue;
-            if (!lineFits(px, py, pz))
+            if (!lineFits(px, py, pz, true)) // RingSpotLeadsOn passed just above
                 continue;
             found = true;
             x = px;

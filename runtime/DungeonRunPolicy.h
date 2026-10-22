@@ -175,7 +175,10 @@ constexpr float kEscapeMovedYd = 2.0f;            // the glue refuses the hop wh
 constexpr float kSegmentStepYd = 2.0f;            // sampled every this far ...
 constexpr std::size_t kSegmentSamples = 8;        // ... at most this many samples (the end point is the last)
 constexpr float kSegmentGroundYd = 4.0f;          // a floor within this far up or down of the line at each sample
-constexpr float kSegmentRiseYd = 2.0f;            // at most this height step from one sample to the next
+constexpr float kSegmentRiseYd = 2.0f;            // at most this height step from one sample to the next (up; down
+                                                  // too, but for a ring spot whose path leads on: ...)
+constexpr float kSegmentDropYd = kSegmentGroundYd; // ... at most this step down (Uldaman r16-19z34: a ramp's tip 2.1-2.5 yd
+                                                  // above the floor it is not linked to)
 constexpr float kEscapeHostileYd = 10.0f;         // no living hostile this close to the hop's end
 // One partial path toward one point does not prove an island (a ledge, a closed
 // door, a point off the mesh): IslandConfirmed wants a second sign as well.
@@ -1954,6 +1957,18 @@ inline std::size_t OwnerFrom(const Run& r)
     return r.walkBack && r.step > 0 ? r.step - 1 : r.step;
 }
 
+// The glue's words on an `unreachable` answer when the refused path was the
+// lead bot's own no-progress path (RemoteCommander::NoProgressFromLead): an
+// incomplete path that ends where the lead bot stands. The source-side evidence
+// RefusedFromIsland needs; a bare `unreachable` (no polygon at the point, a
+// closed door, a point on a patch the path got well toward) does not carry it.
+constexpr const char* kLeadNoProgressMark = "Every path from the lead bot ends where it stands";
+
+inline bool LeadNoProgressRefusal(const std::string& answer)
+{
+    return answer.compare(0, 11, "unreachable") == 0 && answer.find(kLeadNoProgressMark) != std::string::npos;
+}
+
 // A refused move whose point cannot be walked to (the move's own verdicts:
 // no path, off the mesh; a direct step's no ground or no sight line), as
 // opposed to a refusal for the lead bot's state of the moment.
@@ -2574,8 +2589,13 @@ inline const char* SegmentVerdictName(SegmentVerdict v)
 // The straight line may be walked: a floor within kSegmentGroundYd of the line at
 // every sample, no step over kSegmentRiseYd between samples (the lead bot's own
 // height first), never more than kEscapeMaxVertical from where it starts, no
-// liquid, and no hostile within kEscapeHostileYd of the end.
-inline SegmentVerdict CheckEscapeSegment(float startZ, const std::vector<SegmentSample>& samples, bool hostileNearEnd)
+// liquid, and no hostile within kEscapeHostileYd of the end. A step down may be
+// up to kSegmentDropYd when the spot's own path leads on (dropOk: a ring spot that
+// passed RingSpotLeadsOn), so the lead bot is never dropped into a pit with no
+// way out (Uldaman r13-19z30); a rise stays at kSegmentRiseYd, and so does a drop
+// to the last good spot (its path toward this point was not read).
+inline SegmentVerdict CheckEscapeSegment(float startZ, const std::vector<SegmentSample>& samples, bool hostileNearEnd,
+    bool dropOk = false)
 {
     if (hostileNearEnd)
         return SegmentVerdict::Hostile;
@@ -2588,7 +2608,7 @@ inline SegmentVerdict CheckEscapeSegment(float startZ, const std::vector<Segment
             return SegmentVerdict::NoGround;
         if (s.liquid)
             return SegmentVerdict::Liquid;
-        if (std::fabs(s.groundZ - prev) > kSegmentRiseYd)
+        if (s.groundZ - prev > kSegmentRiseYd || prev - s.groundZ > (dropOk ? kSegmentDropYd : kSegmentRiseYd))
             return SegmentVerdict::Step;
         if (std::fabs(s.groundZ - startZ) > kEscapeMaxVertical)
             return SegmentVerdict::Climb;
@@ -2610,6 +2630,7 @@ inline void NoteLeadPath(Run& r, const Facts& f)
     if (!r.leadPathGoodNow)
         return;
     r.islandEvidence = false;
+    r.islandSuspect = false; // a path that gets somewhere: no island here (a refusal's sign included)
     r.noSpotKnown = false;
     r.goodLeadKnown = true;
     r.goodLeadX = f.leadX;
@@ -2845,9 +2866,9 @@ inline bool GossipDeadIsDone(Run& r, const PlanStep* s, const std::string& answe
 // ("going on from here"), then the step's own move to the same point with no ring
 // point either: a pause, and a resume paused again. The one reading said island,
 // but neither refusal was a second sign (IslandConfirmed), so the hop off it
-// never ran. Such a refusal now is one: CheckMove's no-path verdict ("unreachable":
-// no path, or one that ends where the lead bot stands) says the lead bot's own spot
-// leads nowhere. Only for a plain move step's own point (or the walk back to its
+// never ran. Such a refusal now is one, but only with source-side evidence: an
+// `unreachable` whose refused path ended where the lead bot stands
+// (LeadNoProgressRefusal; the glue marks it). Only for a plain move step's own point (or the walk back to its
 // stand), off a walk back and a detour, while the last path read got nowhere,
 // nowhere a hop found no spot (noSpotKnown), within the hop caps (kIslandEscapes,
 // kStepEscapes) and at most kStepEscapes times a step (a hop refused "wait" gives
@@ -2858,7 +2879,7 @@ inline bool PathRefusalIslandSign(const Run& r, const std::string& answer)
     bool const noSpotHere =
         r.noSpotKnown && ai::PlanDistance(r.leadLastX, r.leadLastY, r.leadLastZ, r.noSpotX, r.noSpotY, r.noSpotZ) <= kArriveYd;
     return r.state == State::Running && s && s->kind == PlanStepKind::Move && !r.walkBack && !r.detour &&
-        answer.compare(0, 11, "unreachable") == 0 && !r.leadPathGoodNow && !noSpotHere && !r.islandSuspect &&
+        LeadNoProgressRefusal(answer) && !r.leadPathGoodNow && !noSpotHere && !r.islandSuspect &&
         r.islandEscapes < kIslandEscapes && r.stepEscapes < kStepEscapes && r.islandRefusals < kStepEscapes;
 }
 
@@ -2878,6 +2899,9 @@ inline bool RefusedFromIsland(Run& r, const std::string& order, const std::strin
     if (!s || order != MoveOrder(s->x, s->y, s->z, false) || !PathRefusalIslandSign(r, answer))
         return false;
     TakeIslandSign(r);
+    // The guard's walk back to the step's own point is this same order: it is not sent again.
+    if (r.guardReturn && order == MoveOrder(r.guardX, r.guardY, r.guardZ, false))
+        r.guardReturn = false;
     r.note = "cmd " + order + " refused (" + answer + "), no reachable point near it either: the lead bot may stand on a " +
         "navmesh island: a straight hop off it first";
     return true;

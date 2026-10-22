@@ -59,8 +59,8 @@ class IslandEscapeWiringTest(unittest.TestCase):
     def test_checks_come_before_the_first_change_to_the_lead_bot(self):
         f = self.escape
         moved = at(f, "if (ai::PlanDistance(lx, ly, lz, fx, fy, fz) > kEscapeMovedYd)")
-        good = at(f, "bool found = good && GoodSpotFits(lx, ly, lz, gx, gy, gz) && fits(gx, gy, ground) && lineFits(gx, gy, ground);")
-        ring = at(f, "if (!lineFits(px, py, pz))")
+        good = at(f, "bool found = good && GoodSpotFits(lx, ly, lz, gx, gy, gz) && fits(gx, gy, ground) && lineFits(gx, gy, ground, false);")
+        ring = at(f, "if (!lineFits(px, py, pz, true))")
         none = at(f, 'answer = "no-spot: no spot within "')
         fight = at(f, "bool fight = lead->IsInCombat();")
         supersede = at(f, "SupersedeCommanderTasks(commander->GetObjectGuid().GetRawValue(), 0, RemoteCommander::LaterOrder::Move);")
@@ -90,11 +90,15 @@ class IslandEscapeWiringTest(unittest.TestCase):
         liquid = at(f, "getLiquidStatus(sample.x, sample.y, floor + 0.5f, MAP_ALL_LIQUIDS,")
         at(f, "!= LIQUID_MAP_NO_WATER;")
         hostiles = at(f, "HostileCreaturesAround(lead, GroundDistance(lx, ly, px, py) + kEscapeHostileYd, hostiles);")
-        verdict = at(f, "return CheckEscapeSegment(lz, samples, hostileNear) == SegmentVerdict::Ok;")
+        verdict = at(f, "return CheckEscapeSegment(lz, samples, hostileNear, dropOk) == SegmentVerdict::Ok;")
         self.assertTrue(samples < height < liquid < hostiles < verdict)
 
     def test_ring_spots_lead_on(self):
-        at(self.escape, "if (!RingSpotLeadsOn((probeType & PATHFIND_NOPATH) != 0, (probeType & PATHFIND_INCOMPLETE) != 0,")
+        leads = at(self.escape, "if (!RingSpotLeadsOn((probeType & PATHFIND_NOPATH) != 0, (probeType & PATHFIND_INCOMPLETE) != 0,")
+        # The larger step down (kSegmentDropYd) only for a ring spot past RingSpotLeadsOn; never for the last good spot.
+        self.assertLess(leads, at(self.escape, "if (!lineFits(px, py, pz, true))"))
+        self.assertEqual(self.escape.count("lineFits(px, py, pz, true)"), 1)
+        self.assertEqual(self.escape.count("lineFits("), 2)
 
     def test_island_facts(self):
         f = body(COMMANDS, "bool ApproachOnPath(", "\n}\n")
@@ -180,7 +184,13 @@ class IslandEscapeWiringTest(unittest.TestCase):
         self.assertTrue(detour < use < island < refused)
         self.assertEqual(f.count("OrderRefused("), 1)
         p = body(POLICY, "inline bool PathRefusalIslandSign(", "\n}\n")
-        at(p, 'answer.compare(0, 11, "unreachable") == 0')
+        at(p, "LeadNoProgressRefusal(answer)")
+        # The source-side evidence: CommanderMove marks the no-progress refusal (RemoteCommander::NoProgressFromLead).
+        move = body(COMMANDS, "static bool CommanderMove(", "\n}\n")
+        nopath = at(move, "else if (verdict == RemoteCommander::MoveVerdict::NoPath)")
+        mark = at(move, "if (RemoteCommander::NoProgressFromLead(facts))\n                message += std::string(\" \") + TortoiseBots::DungeonRun::kLeadNoProgressMark + \".\";")
+        self.assertLess(nopath, mark)
+        self.assertLess(mark, at(move, "SendActionError(handler, intent, RemoteCommander::MoveVerdictCode(verdict), message.c_str());"))
         at(p, "r.islandEscapes < kIslandEscapes && r.stepEscapes < kStepEscapes && r.islandRefusals < kStepEscapes;")
         refusal = body(POLICY, "inline void OrderRefused(", "\n}\n")
         guard = at(refusal, "if (r.guardReturn && order == MoveOrder(r.guardX, r.guardY, r.guardZ, false))")
