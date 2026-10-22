@@ -29,14 +29,14 @@ echo "✓ Engine unit tests passed."
 echo ""
 echo "=== 5. Running Standalone Policy Tests ==="
 if command -v g++ >/dev/null 2>&1; then
-    # Special case: needs a writable scratch directory as its argument.
-    g++ -std=c++17 -Wall -Wextra -pedantic tools/test_log_file_rotation.cpp -o "${TMPDIR:-/tmp}/test_log_file_rotation"
-    "${TMPDIR:-/tmp}/test_log_file_rotation" "${TMPDIR:-/tmp}"
-
-    JOBS="$(nproc)"
+    JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
     BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tortoisebots-verify-tests.XXXXXX")"
     trap 'rm -rf "${BUILD_DIR}"' EXIT
     export BUILD_DIR
+
+    # Special case: needs a writable scratch directory as its argument.
+    g++ -std=c++17 -Wall -Wextra -pedantic tools/test_log_file_rotation.cpp -o "${BUILD_DIR}/test_log_file_rotation"
+    "${BUILD_DIR}/test_log_file_rotation" "${TMPDIR:-/tmp}"
 
     # Every other standalone test: discover the sources, compile and run in parallel.
     mapfile -t CPP_TESTS < <(printf '%s\n' tools/test_*.cpp | grep -v '^tools/test_log_file_rotation\.cpp$')
