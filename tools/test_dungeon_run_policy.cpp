@@ -224,10 +224,11 @@ static void TestStandOnALedgeCountsByGroundDistance()
     // The edge of the tolerance counts (6.0 yd on the ground, 4.5 above).
     RunStalledWalk(5.9f, kStandZTolYd, PlanStepKind::Move, arrived, stuck);
     CHECK(arrived && !stuck);
-    // A different floor (more than kStandZTolYd above or below) keeps the 3D rule.
-    RunStalledWalk(5.0f, kStandZTolYd + 0.5f, PlanStepKind::Move, arrived, stuck);
+    // A different floor (more than kStandZTolYd above or below) keeps the 3D rule
+    // (beyond the follow deadband on the ground: TestStalledLeadInFollowRangeCountsAsArrived).
+    RunStalledWalk(5.5f, kStandZTolYd + 0.5f, PlanStepKind::Move, arrived, stuck);
     CHECK(!arrived && stuck);
-    RunStalledWalk(5.0f, 5.0f, PlanStepKind::Move, arrived, stuck); // 7.1 yd in 3D
+    RunStalledWalk(4.0f, 5.5f, PlanStepKind::Move, arrived, stuck); // 6.8 yd in 3D, steeper than the slope bound
     CHECK(!arrived && stuck);
     // Farther than kStalledArriveYd on the ground plane is still stuck.
     RunStalledWalk(6.5f, 3.0f, PlanStepKind::Move, arrived, stuck);
@@ -235,6 +236,77 @@ static void TestStandOnALedgeCountsByGroundDistance()
     // A direct step keeps the 3D rule.
     RunStalledWalk(5.4f, 4.0f, PlanStepKind::MoveDirect, arrived, stuck);
     CHECK(!arrived && stuck);
+}
+
+// Zul'Farrak r16-19z34 slot 2, step 37 (ZF-STEP37-2026-10-22): after a fight the lead
+// bot stood on the ramp 4.84 yd from the point on the ground and 4.6 yd above it (6.6 yd
+// in 3D). A `cmd move` there never moved it: the executor's "return to stay position"
+// (MoveToPositionAction::isUseful) acts only beyond the dungeon follow range on the ground.
+// The guard's walk back to the stand retried three times and paused the run. A stalled
+// plain walk inside kFollowDeadbandYd on the point's floor is arrived.
+static void TestStalledLeadInFollowRangeCountsAsArrived()
+{
+    bool arrived = false, stuck = false;
+    // The step's own walk at the r16 numbers: arrived (it paused before).
+    RunStalledWalk(4.84f, 4.6f, PlanStepKind::Move, arrived, stuck);
+    CHECK(arrived && !stuck);
+    RunStalledWalk(-4.84f, -4.6f, PlanStepKind::Move, arrived, stuck);
+    CHECK(arrived && !stuck);
+    // The edge of the deadband counts: 5.0 yd on the ground, 4.6 above.
+    RunStalledWalk(kFollowDeadbandYd, 4.6f, PlanStepKind::Move, arrived, stuck);
+    CHECK(arrived && !stuck);
+    // A rise a little steeper than the ground distance is still the same floor (4.0 on the
+    // ground, 4.8 above: 6.2 yd in 3D, within kSharedFloorRiseYd).
+    RunStalledWalk(4.0f, 4.8f, PlanStepKind::Move, arrived, stuck);
+    CHECK(arrived && !stuck);
+    // Just beyond the follow range on the ground: the executor moves the bot, so a stall is stuck.
+    RunStalledWalk(5.1f, 4.6f, PlanStepKind::Move, arrived, stuck); // 6.9 yd in 3D
+    CHECK(!arrived && stuck);
+    // A real other floor below or above: stuck.
+    RunStalledWalk(2.0f, 8.0f, PlanStepKind::Move, arrived, stuck);
+    CHECK(!arrived && stuck);
+    RunStalledWalk(4.84f, 4.84f + kSharedFloorRiseYd + 0.2f, PlanStepKind::Move, arrived, stuck);
+    CHECK(!arrived && stuck);
+    // A direct step keeps the 3D rule.
+    RunStalledWalk(4.84f, 4.6f, PlanStepKind::MoveDirect, arrived, stuck);
+    CHECK(!arrived && stuck);
+
+    // The r16 replay: the guard's walk back to the stay anchor (the server-snapped z 17.6).
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 1787.8f, 790.6f, 17.7f), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    r.guardReturn = true;
+    r.guardX = 1787.8f;
+    r.guardY = 790.6f;
+    r.guardZ = 17.6f;
+    Facts f = Party(0);
+    f.leadX = 1783.2f;
+    f.leadY = 792.1f;
+    f.leadZ = 22.2f;
+    CHECK(Tick(r, f) == "move 1787.8 790.6 17.6");
+    int ticks = 1;
+    while (ticks < 60 && r.guardReturn && r.state == State::Running)
+    {
+        Tick(r, f);
+        ++ticks;
+    }
+    CHECK(r.state == State::Running && !r.guardReturn);
+    CHECK(ticks <= static_cast<int>(kShortStallMs / kTickMs) + 2);
+    CHECK(r.anchorKnown && r.anchorX == f.leadX && r.anchorZ == f.leadZ);
+    // The step's own walk to the plan point goes on from there and arrives.
+    for (int i = 0; i < 60 && r.step == 0 && r.state == State::Running; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && r.note == "arrived");
+
+    // A pull step's walk (an ambush walked through) keeps the stand rule: stuck at the same spot.
+    DungeonPlan pull;
+    pull.steps = {PullStep(0, {4850}, ai::kPlanFlagAmbush), Step(PlanStepKind::Rest)};
+    Run p = Start(&pull);
+    Facts g = Party(4.84f);
+    g.leadZ = 4.6f;
+    for (int i = 0; i < 300 && p.step == 0 && p.state == State::Running; ++i)
+        Tick(p, g);
+    CHECK(p.state == State::Paused && p.note.find("stuck") != std::string::npos);
 }
 
 // Live bug: a scorpid in the Sentinel pit was pulled, fought and leashed home
@@ -11131,6 +11203,7 @@ int main()
     TestShortHopThatMovesIsNotCut();
     TestStalledNearPointCountsAsArrived();
     TestStandOnALedgeCountsByGroundDistance();
+    TestStalledLeadInFollowRangeCountsAsArrived();
     TestPullLoopOnOneTargetPauses();
     TestOutOfReachPackIsSkippedNotCleared();
     TestMissingItemPausesOnce();
