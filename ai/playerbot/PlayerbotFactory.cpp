@@ -2095,7 +2095,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         {
                             if (playerUpgrade && displacedStored)
                                 autogearUpgrades.push_back({EQUIPMENT_SLOT_OFFHAND, displacedOldId, 0, displacedMailed});
-                            if (playerUpgrade && oldStoredId)
+                            if (playerUpgrade)
                                 autogearUpgrades.push_back({slot, oldStoredId, newItemId, oldStoredMailed});
                             // Issue #960: EquipNewItem never rolls a suffix; when no suffix
                             // scores for this spec (e.g. resistance-only jewelry groups),
