@@ -455,38 +455,6 @@ bool HandleRoster(ChatHandler* handler, char const* /*args*/)
     handler->PSendSysMessage("TBM:TRANSPORT|%s", AddonCommandChannel(requester));
     return true;
 }
-bool HandleLogout(ChatHandler* handler, char const* args)
-{
-    Player* requester = Requester(handler);
-    Player* bot = nullptr;
-    BotRecord* record = nullptr;
-    std::string name;
-    if (!requester || !ResolveOwnedBot(handler, args, bot, record, name))
-    {
-        handler->PSendSysMessage("Usage: .bot logout <online bot name> (same account only)");
-        return true;
-    }
-
-    if (HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
-    {
-        // A hire is temporary: logging it out ends the hire and deletes its
-        // character instead of keeping a pool character alive with the
-        // master's level and gear.
-        HireLifecycle::Instance().DismissNow(bot->GetObjectGuid(), "logged out by master");
-        handler->PSendSysMessage("Hire ended for %s; its character is being deleted.", name.c_str());
-        return true;
-    }
-
-    if (!BotManager::Instance().RemoveBot(bot->GetObjectGuid(), true))
-    {
-        handler->PSendSysMessage("Bot %s could not be logged out.", name.c_str());
-        return true;
-    }
-
-    // Remove/logout deliberately leaves tortoise_bots_owned_character intact.
-    handler->PSendSysMessage("Bot %s logout requested; durable ownership was retained.", name.c_str());
-    return true;
-}
 
 } // namespace BotCommands
 } // namespace TortoiseBots
