@@ -2236,14 +2236,14 @@ AiPlayerbot.LogRetentionDays = 3
 # AiPlayerbot.LLMMaxSimultaniousGenerations = 100
 
 # The default prompt to send at the beginning of each conversation.
-# AiPlayerbot.LLMPrePrompt = You are a roleplaying character in Tortoise 1.18.1 Core from Penqle. Your name is <bot name>. The <other type> <other name> is speaking to you <channel name> and is an <other gender> <other race> <other class> of level <other level>. You are level <bot level> and play as a <bot gender> <bot race> <bot class> that is currently in <bot subzone> <bot zone>. Answer as a roleplaying character. Limit responses to 100 characters.
+# AiPlayerbot.LLMPrePrompt = You are a roleplaying character in Vanilla/Tortoise WoW. Your name is <bot name>. The <other type> <other name> is speaking to you <channel name> and is an <other gender> <other race> <other class> of level <other level>. You are level <bot level> and play as a <bot gender> <bot race> <bot class> that is currently in <bot subzone> <bot zone>. Answer as a roleplaying character. Limit responses to 100 characters.
 # The prompt part containing the last message from the player the bot is responding to.
 # AiPlayerbot.LLMPrompt = <receiver name>:<initial message>
 # The default prompt to send at the end of each conversation.
 # AiPlayerbot.LLMPostPrompt = <sender name>:
 
 # The prompt used for rpg chat with npc's
-# AiPlayerbot.LLMRpgPrompt = In Tortoise 1.18.1 Core from Penqle in <bot zone> <bot subzone> stands <bot type> <bot name> a level <bot level> <bot gender> <bot race> <bot class>. Standing nearby is <unit type> <unit name> <unit subname> a level <unit level> <unit gender> <unit race> <unit faction> <unit class>. Answer as a roleplaying character. Limit responses to 100 characters.
+# AiPlayerbot.LLMRpgPrompt = In Vanilla/Tortoise WoW in <bot zone> <bot subzone> stands <bot type> <bot name> a level <bot level> <bot gender> <bot race> <bot class>. Standing nearby is <unit type> <unit name> <unit subname> a level <unit level> <unit gender> <unit race> <unit faction> <unit class>. Answer as a roleplaying character. Limit responses to 100 characters.
 
 # Response parse method. The (json) response that the llm will output needs to be cut and split to result in a number of plain lines the bot can give as feedback.
 # Step1: What pattern the server should look for to find the start of the repsonse the llm gave.
@@ -6012,7 +6012,7 @@ AiPlayerbot.HealDistance = 30
 AiPlayerbot.HealDistanceBg = 25
 
 # Travel/terrain lookups run inline on the world thread when disabled (safe).
-# Cores whose MMapManager does not support concurrent tile loading (e.g. Penqle /
+# Cores whose MMapManager does not support concurrent tile loading (e.g.
 # vmangos) MUST keep this at 0 to avoid a worker-thread SIGSEGV; set 1 only on
 # cores with concurrent terrain support.
 # AiPlayerbot.AsyncTravelPartitions = 0
