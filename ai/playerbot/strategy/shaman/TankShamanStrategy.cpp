@@ -16,6 +16,7 @@ public:
         creators["magma totem"] = &magma_totem;
         creators["windfury totem"] = &windfury_totem;
         creators["earthshaker slam"] = &earthshaker_slam;
+        creators["earthshaker slam on attacker"] = &earthshaker_slam_on_attacker;
         creators["totemic slam"] = &totemic_slam;
     }
 
@@ -51,6 +52,17 @@ private:
     static ActionNode* earthshaker_slam(PlayerbotAI* ai)
     {
         return new ActionNode("earthshaker slam",
+            /*P*/ NextAction::array(0, new NextAction("reach melee", ACTION_MOVE), NULL),
+            /*A*/ NextAction::array(0, new NextAction("melee"), NULL),
+            /*C*/ NULL);
+    }
+
+    // Off-target taunt (issue #1156): same melee-first shape as the
+    // lose-aggro taunt, on the mob the "attacker of non-tank target" value
+    // picked (usually out of melee range, on the healer).
+    static ActionNode* earthshaker_slam_on_attacker(PlayerbotAI* ai)
+    {
+        return new ActionNode("earthshaker slam on attacker",
             /*P*/ NextAction::array(0, new NextAction("reach melee", ACTION_MOVE), NULL),
             /*A*/ NextAction::array(0, new NextAction("melee"), NULL),
             /*C*/ NULL);
@@ -103,6 +115,15 @@ void TankShamanStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "lose aggro",
         NextAction::array(0, new NextAction("earthshaker slam", ACTION_INTERRUPT + 1),
                              new NextAction("earth shock", ACTION_INTERRUPT), NULL)));
+
+    // A mob is swinging at a non-tank member (the healer first, issue #1156):
+    // "lose aggro" only sees the shaman's current target, so a mob sitting
+    // on the healer is never taunted. Same priority as "lose aggro"; the
+    // ES fallback line stays lose-aggro-only, the mob is already on someone
+    // else and threat is what the taunt is for.
+    triggers.push_back(new TriggerNode(
+        "party member attacked",
+        NextAction::array(0, new NextAction("earthshaker slam on attacker", ACTION_INTERRUPT + 1), NULL)));
 
     // Earth Shock on fights that need it (boss/elite/raid):
     // about 40% of single-target threat, top of the rotation on cooldown

@@ -159,7 +159,6 @@ namespace ai
                 creators["intercept on enemy healer"] = [](PlayerbotAI* ai) { return new InterceptInterruptEnemyHealerSpellTrigger(ai); };
                 creators["intercept"] = [](PlayerbotAI* ai) { return new InterceptInterruptSpellTrigger(ai); };
                 creators["taunt on snare target"] = [](PlayerbotAI* ai) { return new TauntSnareTrigger(ai); };
-                creators["party member attacked"] = [](PlayerbotAI* ai) { return new PartyMemberAttackedTrigger(ai); };
                 creators["intercept on snare target"] = [](PlayerbotAI* ai) { return new InterceptSnareTrigger(ai); };
                 creators["sudden death"] = [](PlayerbotAI* ai) { return new SuddenDeathTrigger(ai); };
                 creators["instant slam"] = [](PlayerbotAI* ai) { return new SlamInstantTrigger(ai); };

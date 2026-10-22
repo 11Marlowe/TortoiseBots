@@ -588,6 +588,19 @@ namespace ai
 		CastHandOfReckoningAction(PlayerbotAI* ai) : CastSpellAction(ai, "hand of reckoning") {}
 	};
 
+	// Taunt the mob picked by "attacker of non-tank target" (issue #1156):
+	// the value only returns mobs inside the taunt spell range, so the reach
+	// prerequisite below never has to move the paladin.
+	class CastHandOfReckoningOnAttackerAction : public CastHandOfReckoningAction
+	{
+	public:
+		CastHandOfReckoningOnAttackerAction(PlayerbotAI* ai) : CastHandOfReckoningAction(ai) {}
+
+	protected:
+		virtual std::string GetTargetName() override { return "attacker of non-tank target"; }
+		virtual std::string getName() override { return "hand of reckoning on attacker"; }
+	};
+
 	class CastRighteousDefenseAction : public CastSpellAction
 	{
 	public:
