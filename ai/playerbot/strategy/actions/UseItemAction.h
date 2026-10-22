@@ -455,6 +455,24 @@ namespace ai
         }
     };
 
+    // Issue #1168: a hostile within melee reach breaks the bandage channel
+    // with its next swing even when it has not threatened the bot yet (a
+    // tank-held mob parked on the bot, a chaser mid-run), so an own-attacker
+    // gate alone is not enough. Scan the group attacker list with the same
+    // core reach test the flee and incoming-damage paths use.
+    inline bool HasHostileInMeleeReach(PlayerbotAI* ai, Player* bot)
+    {
+        const std::list<ObjectGuid>& attackers =
+            ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("attackers")->Get();
+        for (const ObjectGuid& attackerGuid : attackers)
+        {
+            Unit* attacker = ai->GetUnit(attackerGuid);
+            if (attacker && sServerFacade.IsAlive(attacker) && attacker->CanReachWithMeleeAutoAttack(bot))
+                return true;
+        }
+        return false;
+    }
+
     class UseBandageAction : public UseTargetedItemIdAction
     {
     public:
@@ -465,28 +483,11 @@ namespace ai
             if (!UseTargetedItemIdAction::isUseful())
                 return false;
 
-            // Issue #1168: a hostile within melee reach breaks the channel
-            // with its next swing even when it has not threatened the bot
-            // yet (a tank-held mob parked on the bot, a chaser mid-run), so
-            // the own-attacker gate below is not enough. Scan the group
-            // attacker list with the same core reach test the flee and
-            // incoming-damage paths use. Pure gate order: BandageSafetyPolicy.h.
-            bool hasHostileInMeleeReach = false;
-            const std::list<ObjectGuid>& attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
-            for (const ObjectGuid& attackerGuid : attackers)
-            {
-                Unit* attacker = ai->GetUnit(attackerGuid);
-                if (attacker && sServerFacade.IsAlive(attacker) && attacker->CanReachWithMeleeAutoAttack(bot))
-                {
-                    hasHostileInMeleeReach = true;
-                    break;
-                }
-            }
-
+            // Pure gate order: BandageSafetyPolicy.h.
             if (BandageGateCheck(bot->HasAura(11196),
                                  AI_VALUE(uint8, "my attacker count") > 0,
                                  bot->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE),
-                                 hasHostileInMeleeReach) != BANDAGE_OK)
+                                 HasHostileInMeleeReach(ai, bot)) != BANDAGE_OK)
                 return false;
 
             if (bot->GetSkillValue(129) < 1)
