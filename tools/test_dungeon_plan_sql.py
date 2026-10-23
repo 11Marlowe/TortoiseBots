@@ -34,7 +34,8 @@ BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulf
               "sunken_temple": 109,
               "razorfen_downs": 129,
               "crescent_grove": 802,
-              "dragonmaw_retreat": 816}
+              "dragonmaw_retreat": 816,
+              "dire_maul_north": 429}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -75,6 +76,8 @@ SEEDED_BOSSES = {
     (802, 92107): "Grovetender Engryss", (802, 92109): "Keeper Ranathos", (802, 92108): "High Priestess A'lathea", (802, 92111): "Fenektis the Deceiver", (802, 92110): "Master Raxxieth",
     (816, 62056): "Bogpaw Truthsay", (816, 62057): "Gowlfang", (816, 62072): "Searistrasz",
     (816, 62069): "Halgan Redbrand", (816, 62037): "Zuluhed the Whacked",
+    (429, 14326): "Guard Mol'dar", (429, 14321): "Guard Fengus", (429, 14323): "Guard Slip'kik",
+    (429, 14325): "Captain Kromcrush", (429, 11501): "King Gordok",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
 # Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080,
@@ -83,7 +86,7 @@ SEEDED_BOSSES = {
 # Grubbis 7361: no spawn row in the map 90 export and no boss step names him, Gnomeregan).
 # Shadowfang Keep's extras that are not legs (Sever 14682, Prelate Ironmane 61969, the intro Arugal 10000).
 # the BFD neutrals Argent Guard 4787 and Woji the Toad 62531 (both rank 0).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929}
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929, 14324}
 # Ragglesnout 7354 (rank 2, Razorfen Downs: he is in a pull group).
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
@@ -740,6 +743,43 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertTrue(all(lo < i < hi for i in (pos[id(r)] for r in approach[c])), c)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["razorfen_downs"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
+
+    def test_dire_maul_north_is_the_plan_with_the_census_fixes(self):
+        # 20261024020400 (turtle-agent 45267e3, 2026-10-24): the first plan of Dire Maul North, rebuilt from the map-429 spawn census of
+        # PREP-DIRE-MAUL-NORTH-2026-10-24.md. 5 legs in door order (Mol'dar, the great hall + Fengus, Slip'kik, the Kromcrush tier, the King),
+        # 153 steps (19 + 28 + 9 + 10 + 4 pulls, 78 moves, the 5 bosses), no row hand-set. The skeleton's 13 Gordok Spirit pulls (11446,
+        # non-attackable) are gone, and the 114 Gordok ogres the generator dropped for their gossip flag are pull members. The plan row
+        # carries cc_priority for the three casters; no fleer and no trash healer in the wing, so kill_first is empty. Cho'Rush 14324 is
+        # the King's first, not a pull and not a boss of the table.
+        name, text = newest_plan_text("dire_maul_north")
+        self.assertEqual(name, "20261024020400_world.sql")
+        self.assertIn("('dire_maul_north', 429, '11448,11444,11445', '', '', 'turtle-agent dc64f6b dungeons/dire_maul_north.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "dire_maul_north")
+        self.assertEqual([legs[i][0] for i in range(5)],
+                         ["guard_mol_dar", "guard_fengus", "guard_slip_kik", "captain_kromcrush", "king_gordok"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "dire_maul_north"]
+        self.assertEqual(len(rows), 153)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [19, 28, 9, 10, 4])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["14326", "14321", "14323", "14325", "11501"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(5):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "", "", "14324"])
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertEqual(len(pulls), 70)
+        self.assertFalse([r for r in pulls if {"11446", "14338", "14322"} & set(r["entries"].split(","))])
+        # The courtyard's First Pack (pool-of-pools 4294, one variant live): the four variant entries at one centre, radius 13.6.
+        self.assertEqual((pulls[0]["entries"], float(pulls[0]["radius"])), ("11441,11444,13036", 13.6))
+        self.assertEqual(sorted({e for r in pulls for e in r["entries"].split(",")}),
+                         ["11441", "11444", "11445", "11448", "11450", "13036", "13160"])
+        # Every radius covers its own pack and no more than the wide aggro-together flocks need (the 10 Swarmers span up to 21.9 yd).
+        self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 5.0)
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 22.0)
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["dire_maul_north"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (429) AND `entry` IN (14326, 14321, 14323, 14325, 11501);", text)
+        for entry, boss in ((14326, "Guard Mol'dar"), (14321, "Guard Fengus"), (14323, "Guard Slip'kik"),
+                            (14325, "Captain Kromcrush"), (11501, "King Gordok")):
+            self.assertIn("(429, %d, '%s')" % (entry, boss.replace("'", "''")), text)
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
         # 20261023210000 (turtle-agent cg-fix1 479dc0d) re-exports the 20261023130100 draft (prep/crescent_grove ba00e7c, the census
