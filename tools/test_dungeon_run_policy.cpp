@@ -5280,23 +5280,40 @@ static void TestGatherSummonsAStalledStraggler()
     // A refused summon does not pause: the gather's ceiling does.
     OrderRefused(r, order, "lead-unavailable");
     CHECK(r.state == State::Running);
-    // Next ceiling: Walky still comes (no summon), Stuck stalled since the last sample: summoned.
+    // Next ceiling: Walky still comes (no summon), Stuck stalled since the last sample: summoned. On the way,
+    // at 45 s out of the gather, the straggler ladder walks each bot still out to the lead by path, the
+    // farthest first, one a tick.
     f.members = {Mem("Walky", 50), Mem("Healy", 81), Mem("Nearby", 15), Mem("Stuck", 49)};
     order.clear();
+    std::vector<std::string> walks;
     for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && order.empty(); ++i)
     {
         f.members[0].x += (i % 2 ? 3.0f : -3.0f); // Walky keeps walking (not standing still)
         order = Tick(r, f);
+        if (order.compare(0, 5, "walk ") == 0)
+        {
+            walks.push_back(order);
+            order.clear();
+        }
     }
     CHECK(order == "summon Stuck");
-    // Nobody left to summon (Walky still makes progress): the next ceiling pauses.
+    CHECK(walks.size() == 3 && walks[0] == "walk Healy 0.0 0.0 0.0" && walks[1] == "walk Walky 0.0 0.0 0.0" &&
+        walks[2] == "walk Stuck 0.0 0.0 0.0");
+    // Nobody left to summon by the ceiling's own rules (Walky still makes progress): the ladder walks and
+    // summons every bot still out (one walk and one summon each), and only then does a ceiling pause.
     f.members = {Mem("Walky", 44), Mem("Healy", 81), Mem("Nearby", 15), Mem("Stuck", 49)};
-    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && r.state == State::Running; ++i)
+    std::string orders;
+    for (std::uint32_t i = 0; i < 200 && r.state == State::Running; ++i)
     {
         f.members[0].x += (i % 2 ? 3.0f : -3.0f);
-        CHECK(Tick(r, f).find("summon") == std::string::npos);
+        orders += Tick(r, f) + "|";
     }
     CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
+    CHECK(orders.find("walk ") == std::string::npos); // one walk a bot (above)
+    // The ladder's summon comes after its walk even for a bot the ceiling summoned before it (r26: summoned at
+    // the top, the bot's own formation station walked it down the stair again).
+    for (const char* who : {"Walky", "Healy", "Stuck"})
+        CHECK(orders.find(std::string("summon ") + who + "|") != std::string::npos);
 
     // The summoned bot arrives: the pull goes out.
     Run g = Start(&plan);
@@ -5412,16 +5429,24 @@ static void TestMovingBotThatDoesNotGainIsSummoned()
     CHECK(order == "summon Stoutster");
     CHECK(ticks <= kGatherCapMs / kTickMs + 2); // at the first ceiling, not at 90 s
     CHECK(r.phase == Phase::Gather);
-    // Summoned and still not here at the next ceiling: pause as before.
-    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && r.state == State::Running; ++i)
+    // Summoned and still not here: no second summon by the ceiling; the straggler ladder walks it to the lead
+    // by path at 45 s out of the gather and summons it 45 s after that walk; only then the pause.
+    std::vector<std::string> orders;
+    std::uint32_t pausedAt = 0;
+    for (std::uint32_t i = 0; i < 200 && r.state == State::Running; ++i)
     {
         float const yd = (i % 2) ? 33.7f : 35.0f;
         f.members[1] = Mem("Stoutster", yd);
         f.members[1].x += (i % 2 ? 3.0f : -3.0f);
         f.maxMemberYd = yd;
-        CHECK(Tick(r, f).find("summon") == std::string::npos);
+        std::string const got = Tick(r, f);
+        if (!got.empty())
+            orders.push_back(got);
+        pausedAt = ticks + i + 1;
     }
     CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
+    CHECK(orders.size() == 2 && orders[0] == "walk Stoutster 0.0 0.0 0.0" && orders[1] == "summon Stoutster");
+    CHECK(pausedAt >= (kStragglerWalkMs + kStragglerSummonMs + kStragglerSettleMs) / kTickMs);
 }
 
 // T5: the trace's straggler, 54.9 yd out and walking in at 0.6 yd/s, is waited
@@ -5437,6 +5462,7 @@ static void TestComingStragglerIsWaitedFor()
     f.units = {Unit(7, 1, 50)};
     CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
     bool sawComing = false;
+    bool sawWalk = false;
     std::string order;
     std::uint32_t ticks = 1;
     for (; ticks < 120 && order.empty(); ++ticks)
@@ -5449,8 +5475,14 @@ static void TestComingStragglerIsWaitedFor()
         CHECK(order.find("summon") == std::string::npos);
         if (r.note.find("Walky is coming") != std::string::npos)
             sawComing = true;
+        if (order.compare(0, 5, "walk ") == 0) // the straggler ladder at 45 s out of the gather
+        {
+            CHECK(order == "walk Walky 0.0 0.0 0.0" && ticks >= kStragglerWalkMs / kTickMs);
+            sawWalk = true;
+            order.clear();
+        }
     }
-    CHECK(sawComing);
+    CHECK(sawComing && sawWalk);
     CHECK(order == "pullback 7");
     CHECK(ticks > kGatherCapMs / kTickMs); // it went past the 30 s ceiling
 }
@@ -5521,6 +5553,11 @@ static void TestComingStragglerIsSummonedAfterTheComingLimit()
         f.maxMemberYd = yd;
         order = Tick(r, f);
         CHECK(r.state == State::Running);
+        if (order.compare(0, 5, "walk ") == 0) // the straggler ladder's walk at 45 s; its summon comes 45 s on
+        {
+            CHECK(order == "walk Slowpoke 0.0 0.0 0.0");
+            order.clear();
+        }
     }
     CHECK(order == "summon Slowpoke");
     CHECK(ticks >= kGatherComingMaxMs / kTickMs - 5 && ticks <= kGatherComingMaxMs / kTickMs + 8);
@@ -7037,7 +7074,11 @@ static void TestSapThatNeverLandsLetsThePullGo()
     CHECK(ticks == kSapWaitMs / kTickMs);
     // The rogue is taken off the mark (and the icon cleared) before anything else.
     CHECK(order == "cc clear Roguey moon 2" && r.note.find("sap did not land on 100") == 0);
-    // No second Sap this step: the pull goes, and the unit is not held.
+    // The rogue is walked back to the lead bot's spot (Shadowfang Keep r26 slot 7 step 46: left by its mob, it
+    // went back and forth on the stair below the party), then no second Sap this step: the pull goes, and the
+    // unit is not held.
+    order = Tick(r, f);
+    CHECK(order == "walk Roguey 0.0 0.0 0.0" && r.note.find("Roguey walked to the lead by path") != std::string::npos);
     order = Tick(r, f);
     CHECK(order == "pullback 1");
     CHECK(r.ccSapFailed && !r.ccSent.count(2) && r.ccHolds.empty() && r.ccPending == 0);
@@ -7101,6 +7142,8 @@ static void TestSapTimeoutClearsTheRogueBeforeTheGather()
     order = Tick(r, f);
     CHECK(r.ccIcons.empty());
     CHECK(order.compare(0, 5, "move ") == 0 && r.note.find("gathering before the pull") != std::string::npos);
+    // After the gather (whose follow would undo it), the rogue's own walk back to the lead bot's spot.
+    CHECK(Tick(r, f) == "walk Roguey 0.0 0.0 0.0");
     f.maxMemberYd = 0;
     f.members[1].yd = 5;
     CHECK(Tick(r, f) == "pullback 1");
@@ -7124,9 +7167,10 @@ static void TestSapTargetGoneForATickIsCancelled()
     gone.units.pop_back();
     CHECK(Tick(r, gone) == "cc clear Roguey moon 2");
     CHECK(r.ccSapFailed && !r.ccSent.count(2) && r.ccHolds.empty() && r.ccWatch.empty());
-    // Back: the nearest unit, no longer held, is the pull.
+    // Back: the nearest unit, no longer held, is the pull (after the rogue's walk back to the lead bot).
     const UnitFact* pull = PickPackPull(r, f);
     CHECK(pull && pull->guid == 2);
+    CHECK(Tick(r, f) == "walk Roguey 0.0 0.0 0.0");
     CHECK(Tick(r, f) == "pullback 2");
 }
 
@@ -7238,6 +7282,7 @@ static void TestRefusedCcClearKeepsTheIconForTheRunsEnd()
     gone.units.pop_back();
     CHECK(Tick(r, gone) == "cc clear Roguey moon 2");
     OrderRefused(r, "cc clear Roguey moon 2", "no-bot: That bot is not in your commanded group.");
+    CHECK(Tick(r, f) == "walk Roguey 0.0 0.0 0.0");
     CHECK(Tick(r, f) == "pullback 2"); // the icon is still on it
     CHECK(r.ccIcons.count(4) && r.ccIcons.at(4) == 2);
     auto const clear = CcIconsToClear(r);
@@ -8956,12 +9001,17 @@ static void TestRegroupGatherCapScales()
     OrderRefused(r, "summon Quelinator", "unavailable: in combat");
     CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
     std::uint32_t ms = 0;
-    for (; r.state == State::Running && ms < kRegroupGatherMaxMs; ms += kTickMs)
+    std::vector<std::string> orders;
+    for (; r.state == State::Running && ms < 4 * kRegroupGatherMaxMs; ms += kTickMs)
     {
         f.members[1].x += (ms / kTickMs % 2 ? 3.0f : -3.0f);
-        CHECK(Tick(r, f).find("summon") == std::string::npos);
+        std::string const got = Tick(r, f);
+        if (!got.empty())
+            orders.push_back(got);
     }
     CHECK(r.state == State::Paused && ms > kRegroupGatherMs + 20000 && r.note.find("within 91 s") != std::string::npos);
+    // Before the pause, the straggler ladder: its walk to the lead by path at 45 s, its summon 45 s later.
+    CHECK(orders.size() == 2 && orders[0] == "walk Quelinator 0.0 0.0 0.0" && orders[1] == "summon Quelinator");
     // A bot whose summon is on its way does not count against the ceiling.
     Run p = DeathsInAWalk(plan, f, {"Quelinator"});
     f.dead = 0;
@@ -9009,11 +9059,14 @@ static void TestStuckStragglerThatMovedIsSummoned()
         order = Tick(r, f);
     CHECK(order == "summon Fyran");
     CHECK(r.state == State::Running && r.regroup && r.note.find("has not moved") != std::string::npos);
-    // Bounded: one summon per bot per regroup; the next ceiling pauses.
-    order.clear();
-    for (std::uint32_t i = 0; i < kRegroupGatherMs / kTickMs + 2 && r.state == State::Running; ++i)
-        CHECK(Tick(r, f).find("summon") == std::string::npos);
+    // Bounded: one summon per bot per regroup by the ceiling; then the straggler ladder's walk and summon,
+    // and the pause.
+    std::string orders;
+    for (std::uint32_t i = 0; i < 300 && r.state == State::Running; ++i)
+        orders += Tick(r, f) + "|";
     CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
+    CHECK(orders.find("walk Fyran 0.0 0.0 0.0|") != std::string::npos &&
+        orders.find("walk Fyran 0.0 0.0 0.0|") < orders.find("summon Fyran|"));
     // A bot still on its way (moving every tick) is not summoned.
     Run w = Start(&plan);
     BeginRegroup(w);
@@ -9027,7 +9080,13 @@ static void TestStuckStragglerThatMovedIsSummoned()
         g.members[1].x += (i % 2 ? 3.0f : -3.0f);
         CHECK(Tick(w, g).find("summon") == std::string::npos);
     }
-    CHECK(w.state == State::Paused);
+    // ... until the straggler ladder's rungs (walk at 45 s out of the gather, summon 45 s on); then the pause.
+    for (std::uint32_t i = 0; i < 300 && w.state == State::Running; ++i)
+    {
+        g.members[1].x += (i % 2 ? 3.0f : -3.0f);
+        Tick(w, g);
+    }
+    CHECK(w.state == State::Paused && w.straggle.count("Walky") && w.straggle.at("Walky").rung == 2);
 }
 
 // Zul'Farrak r3-19z20 (PLAN-ZF-ZUMRAH-WALKBACK B-FIX-1/2): after the wipe the
@@ -14582,6 +14641,8 @@ static void TestGatherWaitsForABotHeldByUnattackable()
     n.regroupGatherSent = true;
     n.regroupGatherCapMs = kGatherCapMs;
     n.regroupMs = kGatherCapMs + 1000;
+    n.straggle["Helmina"].rung = 2; // the straggler ladder walked and summoned her already
+    n.straggle["Helmina"].rungMs = kStragglerSettleMs;
     Tick(n, g);
     CHECK(n.state == State::Paused && n.note.find("regroup: the party did not gather within") != std::string::npos);
 }
@@ -15321,6 +15382,473 @@ static void TestPlanBossOnAMoveStepGetsTheBossCeiling()
         ev.note.find("a fight lasted more than 420 s") == 0);
 }
 
+// Shadowfang Keep r26 slot 7 step 46 (tests/r26/slot7): after the wipe and a Sap that did not land, Thunderward
+// went back and forth on the stair between (-263 2304 z 78) and (-290 2307 z 91), 35-38 yd from the lead bot at the
+// top (z 96.8), on its own follow and formation station; a summon to the top was undone by its formation station,
+// and the gather paused the run four times. The straggler ladder: out of the gather 45 s (out of combat), the run
+// leader walks it to the lead by path; 45 s after that walk and still out, it is summoned to the lead; the gather's
+// ceiling pauses only after both (and the summon's settle time).
+static MemberFact StairBot(std::uint32_t tick)
+{
+    // Down the stair and up again: never still, never 5 yd closer for long (the trace's oscillation).
+    MemberFact m = Mem("Thunderward", (tick % 2) ? 35.8f : 38.1f, (tick % 2) ? 14.3f : 6.0f);
+    m.x = (tick % 2) ? -263.0f : -290.0f;
+    return m;
+}
+
+static void TestStragglerLadderWalksThenSummonsBeforeThePause()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(100, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), StairBot(0)};
+    f.maxMemberYd = 38.1f;
+    f.units = {Unit(7, 1, 50)};
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0"); // the gather
+    std::vector<std::pair<std::uint32_t, std::string>> orders;
+    std::vector<std::string> notes;
+    std::uint32_t tick = 1;
+    for (; tick < 400 && r.state == State::Running; ++tick)
+    {
+        f.members[1] = StairBot(tick);
+        std::string const got = Tick(r, f);
+        if (!got.empty())
+        {
+            orders.emplace_back(tick, got);
+            notes.push_back(r.note);
+        }
+    }
+    CHECK(r.state == State::Paused && r.note.find("the party did not gather within 30 s") == 0);
+    // The ceiling's own summon (30 s, "does not come closer") first, then the ladder's walk and summon.
+    std::size_t walk = orders.size(), ladderSummon = orders.size();
+    for (std::size_t i = 0; i < orders.size(); ++i)
+    {
+        if (orders[i].second == "walk Thunderward 0.0 0.0 0.0")
+            walk = i;
+        if (orders[i].second == "summon Thunderward" && walk < i)
+            ladderSummon = i;
+    }
+    CHECK(walk < orders.size() && ladderSummon < orders.size());
+    CHECK(orders[walk].first == kStragglerWalkMs / kTickMs);
+    CHECK(orders[ladderSummon].first == orders[walk].first + kStragglerSummonMs / kTickMs);
+    CHECK(notes[walk].find("Thunderward walked to the lead by path") != std::string::npos);
+    CHECK(notes[ladderSummon].find("Thunderward summoned to the lead") != std::string::npos);
+    // No pause before the summon had its settle time.
+    CHECK(tick - 1 >= orders[ladderSummon].first + kStragglerSettleMs / kTickMs);
+    // Bounded: one walk and one ladder summon, the pause within one more ceiling.
+    std::size_t walks = 0;
+    for (const auto& o : orders)
+        walks += o.second.compare(0, 5, "walk ") == 0;
+    CHECK(walks == 1);
+    CHECK(tick - 1 <= orders[ladderSummon].first + kGatherCapMs / kTickMs + 2);
+    // A gather that waits with the ladder pending says so.
+    Run w = Start(&plan);
+    Facts g = f;
+    Tick(w, g);
+    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 1; ++i)
+    {
+        g.members[1] = StairBot(i);
+        Tick(w, g);
+    }
+    CHECK(w.state == State::Running);
+}
+
+// The ladder's clock stands while the bot fights or has attackers, and while the party fights; a bot back in the
+// gather starts over; no ladder order toward a dead lead bot, and a dead lead bot never holds a pause.
+static void TestStragglerLadderClocks()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(100, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), Mem("Straggly", 30.0f)};
+    f.maxMemberYd = 30.0f;
+    f.units = {Unit(7, 1, 50)};
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    for (std::uint32_t i = 0; i < 10; ++i)
+        Tick(r, f);
+    CHECK(r.straggle.count("Straggly") && r.straggle.at("Straggly").outMs == 10 * kTickMs);
+    f.members[1].attackers = 1;
+    Tick(r, f);
+    f.members[1].attackers = 0;
+    f.members[1].inCombat = true;
+    Tick(r, f);
+    CHECK(r.straggle.at("Straggly").outMs == 10 * kTickMs); // stood
+    f.members[1].inCombat = false;
+    // Back within the gather radius for a tick: off the ladder; out again, from 0.
+    f.members[1].yd = 10.0f;
+    Tick(r, f);
+    CHECK(!r.straggle.count("Straggly"));
+    // Up or down a floor counts as out of the gather (kStragglerDzYd) at any distance.
+    f.members[1].dz = kStragglerDzYd + 1.0f;
+    Tick(r, f);
+    CHECK(r.straggle.count("Straggly") && r.straggle.at("Straggly").outMs == kTickMs);
+    // A dead lead bot: no walk, no summon, and no hold of the pause.
+    Run d = Start(&plan);
+    d.phase = Phase::Gather;
+    d.straggle["Straggly"].outMs = kStragglerWalkMs;
+    Facts dead = f;
+    dead.leadAlive = false;
+    std::string order;
+    CHECK(!StragglerLadderTick(d, dead, order) && order.empty());
+    CHECK(!StragglerLadderPending(d, dead));
+    // Not waiting for a gather (the party walks): the ladder is forgotten.
+    Run m = Start(&plan);
+    m.straggle["Straggly"].outMs = kStragglerWalkMs;
+    m.phase = Phase::Walk;
+    UpdateStraggle(m, f, kTickMs);
+    CHECK(m.straggle.empty());
+    // A bot in a fight is never walked or summoned by the ladder, and never holds the pause.
+    Run c = Start(&plan);
+    c.phase = Phase::Gather;
+    c.straggle["Straggly"].outMs = kStragglerWalkMs;
+    Facts fight = f;
+    fight.members[1].inCombat = true;
+    CHECK(!StragglerLadderTick(c, fight, order) && !StragglerLadderPending(c, fight));
+    // The rogue on its Sap is no straggler (it walks to its mob on the run's order).
+    Run s = Start(&plan);
+    s.phase = Phase::Gather;
+    s.ccHolds[2].bot = "Straggly";
+    Run::CcWatch watch;
+    watch.guid = 2;
+    s.ccWatch.push_back(watch);
+    UpdateStraggle(s, f, kTickMs);
+    CHECK(s.straggle.empty());
+}
+
+// The ladder's walk refused (no navmesh path for the bot): its summon goes out on the next tick, not 45 s later;
+// a refused walk never pauses.
+static void TestStragglerWalkRefusedSummonsNext()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(100, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(4.0f);
+    f.leadY = 2.0f;
+    f.leadZ = 96.8f;
+    f.members = {Mem("Tanky", 0), Mem("Straggly", 30.0f)};
+    f.maxMemberYd = 30.0f;
+    f.units = {Unit(7, 1, 50)};
+    CHECK(Tick(r, f) == "move 4.0 2.0 96.8");
+    std::string order;
+    for (std::uint32_t i = 0; i < 100 && order.compare(0, 5, "walk ") != 0; ++i)
+    {
+        f.members[1].x += (i % 2 ? 3.0f : -3.0f);
+        order = Tick(r, f);
+    }
+    CHECK(order == "walk Straggly 4.0 2.0 96.8"); // to the lead bot's own spot
+    OrderRefused(r, order, "unreachable: Straggly has no navmesh path to the point (it ends 30 yd short)");
+    CHECK(r.state == State::Running && r.note.find("summoned next") != std::string::npos);
+    f.members[1].x += 3.0f;
+    CHECK(Tick(r, f) == "summon Straggly");
+    CHECK(r.straggle.at("Straggly").rung == 2);
+    // Another order's refusal is not the ladder's.
+    Run o = Start(&plan);
+    CHECK(!StragglerWalkRefused(o, "summon Straggly", "busy"));
+}
+
+// The regroup's gather (after a wipe: r26 slot 7 19:18-19:22, "regroup: waiting for Thunderward (running back)")
+// climbs the same ladder, its notes marked as the regroup's, and its ceiling pauses only after it.
+static void TestStragglerLadderInTheRegroup()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    BeginRegroup(r);
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), StairBot(0)};
+    f.maxMemberYd = 38.1f;
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0"); // the regroup's gather
+    std::string orders;
+    std::string walkNote;
+    for (std::uint32_t i = 1; i < 400 && r.state == State::Running; ++i)
+    {
+        f.members[1] = StairBot(i);
+        std::string const got = Tick(r, f);
+        if (got.compare(0, 5, "walk ") == 0)
+            walkNote = r.note;
+        orders += got + (got.empty() ? "" : "|");
+    }
+    CHECK(r.state == State::Paused && r.note.find("regroup: the party did not gather within") == 0);
+    CHECK(orders.find("walk Thunderward 0.0 0.0 0.0|") != std::string::npos);
+    CHECK(orders.find("summon Thunderward|", orders.find("walk Thunderward")) != std::string::npos);
+    CHECK(walkNote.find("regroup: gather: Thunderward") == 0 && walkNote.find("walked to the lead by path") != std::string::npos);
+}
+
+// Shadowfang Keep r26 slot 7 step 46, three times: "sap did not land on 3855 in 15 s: the rogue is taken off it",
+// and the rogue left the party again. Now it is walked back to the lead bot's spot after the clear (and after the
+// gather, whose follow would undo the walk), and stays there; never a dead rogue or one in a fight.
+static void TestFailedSapWalksTheRogueBack()
+{
+    DungeonPlan plan = CcPlan({100, 101});
+    Run r = Start(&plan);
+    Facts f = Party(4.0f);
+    f.leadY = 2.0f;
+    f.leadZ = 96.8f;
+    f.members = {Mem("Tanky", 0), CcMem("Thunderward", CcFamily::Sap)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid),
+        Typed(3, 101, 22, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "cc moon 2 Thunderward");
+    f.maxMemberYd = 36.0f;
+    f.members[1].yd = 36.0f;
+    f.members[1].dz = 14.0f;
+    std::string order;
+    for (std::uint32_t i = 0; i <= kSapWaitMs / kTickMs + 1 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "cc clear Thunderward moon 2" && r.sapWalkDue == "Thunderward");
+    CHECK(Tick(r, f).compare(0, 5, "move ") == 0); // the gather
+    CHECK(Tick(r, f) == "walk Thunderward 4.0 2.0 96.8");
+    CHECK(r.note == "the Sap did not land: Thunderward walked to the lead by path, it stays with the party");
+    CHECK(r.sapWalkDue.empty());
+    // In a fight by then: no walk (the fight comes first).
+    Run c = Start(&plan);
+    Facts g = f;
+    g.members[1].yd = 5.0f;
+    g.members[1].dz = 0.0f;
+    g.maxMemberYd = 5.0f;
+    CHECK(Tick(c, g) == "cc moon 2 Thunderward");
+    order.clear();
+    for (std::uint32_t i = 0; i <= kSapWaitMs / kTickMs + 1 && order.empty(); ++i)
+        order = Tick(c, g);
+    CHECK(order == "cc clear Thunderward moon 2");
+    g.members[1].attackers = 1;
+    std::string const next = Tick(c, g);
+    CHECK(next.compare(0, 5, "walk ") != 0 && c.sapWalkDue.empty());
+    // Dead by then (not among the living members): no walk.
+    Run d = Start(&plan);
+    Facts h = g;
+    h.members[1].attackers = 0;
+    CHECK(Tick(d, h) == "cc moon 2 Thunderward");
+    order.clear();
+    for (std::uint32_t i = 0; i <= kSapWaitMs / kTickMs + 1 && order.empty(); ++i)
+        order = Tick(d, h);
+    h.members.pop_back();
+    CHECK(Tick(d, h).compare(0, 5, "walk ") != 0 && d.sapWalkDue.empty());
+    // A landed Sap: no walk back (the rogue stays by its sapped mob until the pull).
+    Run l = Start(&plan);
+    Facts k = g;
+    k.members[1].attackers = 0;
+    CHECK(Tick(l, k) == "cc moon 2 Thunderward");
+    k.units[1].polymorphed = true;
+    std::string all;
+    for (int i = 0; i < 4; ++i)
+        all += Tick(l, k) + "|";
+    CHECK(all.find("walk ") == std::string::npos && l.sapWalkDue.empty());
+    // The walk order the glue reads.
+    CHECK(WalkOrder("Thunderward", -250.7f, 2332.5f, 96.8f) == "walk Thunderward -250.7 2332.5 96.8");
+}
+
+// Codex adversarial review of 95f66dd8 (FIX FIRST 1): the walk took any path that ended at the point. A path more
+// than kDetourMaxPathYd longer than the straight line, one past a pack not cleared yet, or one within kHopPullYd of
+// a hostile out of combat is refused (BotWalkRefusal), and the ladder's summon goes out on the next tick instead.
+static void TestBotWalkRefusedOnADetourOrAPack()
+{
+    std::vector<PathPoint> straight = {{0, 0, 0}, {30, 0, 0}};
+    std::unordered_set<std::size_t> none;
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, nullptr, 0, 0, none, {}).empty());
+    // The long way round: 30 yd straight, 71 yd along the path (the cap is +40).
+    std::vector<PathPoint> around = {{0, 0, 0}, {0, 20, 0}, {30, 20, 0}, {30, 0, 0}};
+    CHECK(BotWalkRefusal(around, 30.0f, 70.0f, nullptr, 0, 0, none, {}).empty());
+    CHECK(BotWalkRefusal(around, 30.0f, 70.1f, nullptr, 0, 0, none, {}).compare(0, 7, "detour:") == 0);
+    // Codex review of 6c8297ec: never a path longer than the glue's hostile scan reaches (kBotWalkMaxPathYd),
+    // though within the detour cap (110 yd straight, 121 yd along it).
+    std::vector<PathPoint> longWay = {{0, 0, 0}, {110, 0, 0}};
+    CHECK(BotWalkRefusal(longWay, 110.0f, kBotWalkMaxPathYd, nullptr, 0, 0, none, {}).empty());
+    CHECK(BotWalkRefusal(longWay, 110.0f, 121.0f, nullptr, 0, 0, none, {}).compare(0, 9, "too-long:") == 0);
+    // Through a pack not cleared yet (the current step's or a later one), not past one cleared before.
+    DungeonPlan plan;
+    plan.steps = {PullStep(15, {1}), PullStep(500, {2})};
+    plan.steps[0].y = 0;
+    plan.steps[0].radius = 5;
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, &plan, 0, 0, none, {}).compare(0, 5, "pack:") == 0);
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, &plan, 1, 0, none, {}).empty());
+    std::unordered_set<std::size_t> skipped = {0};
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, &plan, 1, 0, skipped, {}).compare(0, 5, "pack:") == 0);
+    // Past a hostile out of combat within kHopPullYd of the path.
+    StandHostile mob;
+    mob.x = 15;
+    mob.y = kHopPullYd - 1.0f;
+    mob.entry = 3855;
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, nullptr, 0, 0, none, {mob}) ==
+        "hostile: the path passes within 15.0 yd of 3855");
+    mob.y = kHopPullYd + 1.0f;
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, nullptr, 0, 0, none, {mob}).empty());
+    // The ladder: its walk refused for a detour (the glue's answer) -> the summon on the next tick, no pause.
+    DungeonPlan one;
+    one.steps = {PullStep(100, {1})};
+    Run r = Start(&one);
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), Mem("Straggly", 30.0f)};
+    f.maxMemberYd = 30.0f;
+    f.units = {Unit(7, 1, 50)};
+    Tick(r, f);
+    std::string order;
+    for (std::uint32_t i = 0; i < 100 && order.compare(0, 5, "walk ") != 0; ++i)
+    {
+        f.members[1].x += (i % 2 ? 3.0f : -3.0f);
+        order = Tick(r, f);
+    }
+    for (const char* why : {"unreachable: Straggly: detour: the path is 90.0 yd for 30.0 yd in a straight line",
+             "unreachable: Straggly: too-long: the path is 121.0 yd, more than 120.0 yd",
+             "unreachable: Straggly: pack: the path passes a pack not cleared yet"})
+    {
+        Run t = r;
+        OrderRefused(t, order, why);
+        CHECK(t.state == State::Running);
+        Facts g = f;
+        g.members[1].x += 3.0f;
+        CHECK(Tick(t, g) == "summon Straggly");
+    }
+}
+
+// FIX FIRST 1 (2): a walker kept on the run's stay only while it is still a commanded member of the lead bot's
+// group, the lead bot (and the binding) there, on the lead bot's map; otherwise its stay is cleared before it
+// leaves the list (WalkerVerdict: Release).
+static void TestWalkerVerdict()
+{
+    // found, onStay, alive, inCombat, running, leadAvailable, inLeadGroup, sameMap
+    CHECK(WalkerVerdict(true, true, true, false, true, true, true, true) == WalkerFate::Keep);
+    CHECK(WalkerVerdict(false, true, true, false, true, true, true, true) == WalkerFate::Drop);
+    CHECK(WalkerVerdict(true, false, true, false, true, true, true, true) == WalkerFate::Drop); // formed up already
+    CHECK(WalkerVerdict(true, true, true, false, true, true, false, true) == WalkerFate::Release); // left the group
+    CHECK(WalkerVerdict(true, true, true, false, true, false, true, true) == WalkerFate::Release); // lead/binding gone
+    CHECK(WalkerVerdict(true, true, true, false, true, true, true, false) == WalkerFate::Release); // another map
+    CHECK(WalkerVerdict(true, true, true, true, true, true, true, true) == WalkerFate::Release);   // in a fight
+    CHECK(WalkerVerdict(true, true, true, false, false, true, true, true) == WalkerFate::Release); // run not running
+    CHECK(WalkerVerdict(true, true, false, false, true, true, true, true) == WalkerFate::Release); // dead
+}
+
+// Opus review of 95f66dd8 + 6c8297ec (1): the rogue whose Sap failed stands at its target, inside the current
+// pull's pack and beside a living hostile out of combat; the walk back from there was refused by the pack and the
+// hostile checks, so it stayed on its own follow (the r26 bug). A pack or hostile already within its threshold at
+// the bot's own spot is exempt while the path moves away from it (Codex review of 5a146681: no blanket 20 yd); any
+// other pack or hostile, and the exempt one once the path turns back toward it, still refuses it.
+static void TestBotWalkLeavesTheStartOutOfThePackChecks()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {3855}), PullStep(500, {2})};
+    plan.steps[0].radius = 8; // reach 18 yd around (0 0 0), where the rogue stands
+    std::unordered_set<std::size_t> none;
+    StandHostile target;
+    target.x = -1.0f; // the Sap target beside the rogue, behind it as it walks back
+    target.entry = 3855;
+    std::vector<PathPoint> back = {{0, 0, 0}, {30, 0, 0}, {36, 2, 10}};
+    CHECK(BotWalkRefusal(back, 37.0f, 37.0f, &plan, 0, 0, none, {target}).empty());
+    // A pack in the middle of the path still refuses it.
+    DungeonPlan mid = plan;
+    mid.steps[1].x = 30.0f;
+    mid.steps[1].radius = 5;
+    CHECK(BotWalkRefusal(back, 37.0f, 37.0f, &mid, 0, 0, none, {target}).compare(0, 5, "pack:") == 0);
+    // ... and so does a hostile beside the path past the start's 20 yd.
+    StandHostile onTheWay;
+    onTheWay.x = 28.0f;
+    onTheWay.y = 10.0f;
+    onTheWay.entry = 3854;
+    CHECK(BotWalkRefusal(back, 37.0f, 37.0f, &plan, 0, 0, none, {target, onTheWay}) ==
+        "hostile: the path passes within 15.0 yd of 3854");
+    // A path that stays within the start's 20 yd: neither check.
+    std::vector<PathPoint> shortWay = {{0, 0, 0}, {12, 0, 0}};
+    CHECK(BotWalkRefusal(shortWay, 12.0f, 12.0f, &plan, 0, 0, none, {target}).empty());
+    // A path that comes back into its start's 20 yd after leaving it: that part is left out too.
+    // Codex review of 5a146681: a hostile 16-20 yd from the start that the walk crosses within 15 yd: refused.
+    for (float x : {16.0f, 18.0f, 20.0f})
+    {
+        StandHostile ahead;
+        ahead.x = x;
+        ahead.y = 3.0f;
+        ahead.entry = 3854;
+        CHECK(BotWalkRefusal(back, 37.0f, 37.0f, &plan, 0, 0, none, {target, ahead}) ==
+            "hostile: the path passes within 15.0 yd of 3854");
+    }
+    // ... and another pack not cleared yet crossed before the path is 20 yd from its start: refused.
+    DungeonPlan near = plan;
+    near.steps[1].x = 15.0f;
+    near.steps[1].radius = 0; // reach 10 yd, 15 yd from the start
+    CHECK(BotWalkRefusal(back, 37.0f, 37.0f, &near, 0, 0, none, {target}).compare(0, 5, "pack:") == 0);
+    // A path that first moves away from its own (exempt) pack and target, then turns back toward them: refused.
+    std::vector<PathPoint> turn = {{0, 0, 0}, {10, 0, 0}, {2, 0, 0}};
+    CHECK(BotWalkRefusal(turn, 2.0f, 18.0f, &plan, 0, 0, none, {}).compare(0, 5, "pack:") == 0);
+    CHECK(BotWalkRefusal(turn, 2.0f, 18.0f, nullptr, 0, 0, none, {target}).compare(0, 8, "hostile:") == 0);
+    // The exemption is for a unit within its threshold at the start only: one just past it (15.02 yd) that the
+    // path dips within 15 yd of, however slightly, is refused.
+    std::vector<PathPoint> dip = {{0, 0, 0}, {0, 0.03f, 0}, {20, 0.03f, 0}};
+    StandHostile edge;
+    edge.y = 15.02f;
+    edge.entry = 7;
+    CHECK(BotWalkRefusal(dip, 20.0f, 20.03f, nullptr, 0, 0, none, {edge}).compare(0, 8, "hostile:") == 0);
+    edge.y = 14.98f; // within it at the start: exempt, and a 0.03 yd dip is within the kBotWalkAwayEpsYd slack
+    CHECK(BotWalkRefusal(dip, 20.0f, 20.03f, nullptr, 0, 0, none, {edge}).empty());
+    // Moving away and then on past it, never nearer: accepted (a sideways step keeps the distance).
+    std::vector<PathPoint> side = {{0, 0, 0}, {0, 20, 0}, {0, 40, 0}};
+    CHECK(BotWalkRefusal(side, 40.0f, 40.0f, &plan, 0, 0, none, {}).empty());
+    std::vector<PathPoint> loop = {{0, 0, 0}, {25, 0, 0}, {5, 0, 0}};
+    StandHostile far;
+    far.x = 25.0f;
+    far.y = 16.0f;
+    far.entry = 1;
+    CHECK(BotWalkRefusal(loop, 5.0f, 45.0f, nullptr, 0, 0, none, {far}).empty());
+    far.y = 14.0f;
+    CHECK(!BotWalkRefusal(loop, 5.0f, 45.0f, nullptr, 0, 0, none, {far}).empty());
+}
+
+// Opus review (2): a bot that is summoned in and walked out again by its own formation station (r26) kept starting
+// the ladder over the first tick it was back in the gather, so StragglerLadderPending held the ceiling off for ever.
+// Its rung now stands for the rest of the step or regroup: walk, summon, settle, then the ceiling pauses.
+static void TestStragglerLadderKeepsItsRungWhenTheBotCycles()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(100, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    // Pinned (25 yd out, in a fight of its own: never on the ladder) keeps the gather open while Thunderward is in.
+    MemberFact pinned = Mem("Pinned", 25.0f);
+    pinned.inCombat = true;
+    f.members = {Mem("Tanky", 0), StairBot(0), pinned};
+    f.maxMemberYd = 38.1f;
+    f.units = {Unit(7, 1, 50)};
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    std::size_t walks = 0, ladderSummons = 0;
+    std::uint32_t tick = 1;
+    for (; tick < 600 && r.state == State::Running; ++tick)
+    {
+        // Down the stair until its walk (45 s); from then on, every 20 s at the top for 3 s (in the gather: the
+        // walk or the summon brought it; never on a ceiling's tick), then down the stair again on its formation
+        // station.
+        bool const in = tick > kStragglerWalkMs / kTickMs && tick % 20 >= 5 && tick % 20 < 8;
+        f.members[1] = in ? Mem("Thunderward", 4.0f) : StairBot(tick);
+        f.maxMemberYd = in ? 25.0f : f.members[1].yd;
+        std::string const got = Tick(r, f);
+        walks += got.compare(0, 5, "walk ") == 0;
+        if (got == "summon Thunderward" && r.note.find("summoned to the lead") != std::string::npos)
+            ++ladderSummons;
+    }
+    CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
+    CHECK(walks == 1 && ladderSummons == 1);
+    CHECK(r.straggle.at("Thunderward").rung == 2);
+    CHECK(tick < 200); // bounded, not held off for ever
+    // A rung-0 bot back in the gather still starts over; a new step clears every rung.
+    Run c = Start(&plan);
+    c.phase = Phase::Gather;
+    c.straggle["A"].outMs = 30000;
+    c.straggle["B"].rung = 1;
+    Facts g = Party(0);
+    g.members = {Mem("Tanky", 0), Mem("A", 5), Mem("B", 5)};
+    UpdateStraggle(c, g, kTickMs);
+    CHECK(!c.straggle.count("A") && c.straggle.count("B") && c.straggle.at("B").rung == 1);
+    // A kept rung due while its bot is back in the gather: no summon of a bot at the lead bot.
+    c.straggle["B"].rungMs = kStragglerSummonMs;
+    std::string none;
+    CHECK(!StragglerLadderTick(c, g, none) && none.empty());
+    c.phase = Phase::Walk;
+    UpdateStraggle(c, g, kTickMs);
+    CHECK(c.straggle.count("B")); // the step goes on: kept
+    ResetStep(c);
+    CHECK(c.straggle.empty());
+    BeginRegroup(c);
+    CHECK(c.straggle.empty());
+}
+
 int main()
 {
     TestPatrollerOutsideTheRadiusIsWaitedForThenPulled();
@@ -15679,6 +16207,15 @@ int main()
     TestSlowSteadyBossFightNeverPausesBeforeTheHardCap();
     TestFightWithNoHpLossPastTheCeilingPauses();
     TestPlanBossOnAMoveStepGetsTheBossCeiling();
+    TestStragglerLadderWalksThenSummonsBeforeThePause();
+    TestStragglerLadderClocks();
+    TestStragglerWalkRefusedSummonsNext();
+    TestStragglerLadderInTheRegroup();
+    TestFailedSapWalksTheRogueBack();
+    TestBotWalkRefusedOnADetourOrAPack();
+    TestWalkerVerdict();
+    TestBotWalkLeavesTheStartOutOfThePackChecks();
+    TestStragglerLadderKeepsItsRungWhenTheBotCycles();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

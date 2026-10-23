@@ -71,6 +71,7 @@ python3 -m unittest tools/test_boss_pair_wiring.py
 python3 -m unittest tools/test_fight_ceiling_progress_wiring.py
 python3 -m unittest tools/test_bot_guid_key_wiring.py
 python3 -m unittest tools/test_island_escape_wiring.py
+python3 -m unittest tools/test_straggler_walk_wiring.py
 python3 -m unittest tools/test_lead_other_part_wiring.py
 python3 -m unittest tools/test_taunt_attacker_wiring.py
 python3 -m unittest tools/test_warrior_rage_wiring.py
