@@ -28,7 +28,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "../runtime/AhSyntheticMarketPolicy.h"
+#include "../runtime/policy/ah/AhSyntheticMarketPolicy.h"
 
 static int checks = 0;
 #define CHECK(cond) do { \

@@ -12,7 +12,7 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/policy/quest/QuestLogPolicy.h"
 #include "../../../../runtime/ClassConsumablePolicy.h"
-#include "../../../../runtime/AhReadModelPolicy.h"
+#include "../../../../runtime/policy/ah/AhReadModelPolicy.h"
 
 using namespace ai;
 

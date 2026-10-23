@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <vector>
-#include "AhSyntheticMarketPolicy.h"
+#include "runtime/policy/ah/AhSyntheticMarketPolicy.h"
 
 class Player;
 class Unit;

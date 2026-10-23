@@ -1,9 +1,9 @@
 #include "AhMarketService.h"
-#include "AhBuyerPolicy.h"
-#include "AhSellerTeleportPolicy.h"
-#include "AhSyntheticMarketPolicy.h"
+#include "runtime/policy/ah/AhBuyerPolicy.h"
+#include "runtime/policy/ah/AhSellerTeleportPolicy.h"
+#include "runtime/policy/ah/AhSyntheticMarketPolicy.h"
 #include "BotActivityLease.h"
-#include "TradingLeasePolicy.h"
+#include "runtime/policy/ah/TradingLeasePolicy.h"
 
 // pi-lens-ignore: clang:pp_file_not_found
 #include "BotManager.h"
