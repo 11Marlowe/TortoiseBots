@@ -34,6 +34,10 @@ static_assert(ai::kLiquidNoWater == LIQUID_MAP_NO_WATER && ai::kLiquidAboveWater
     ai::kLiquidWaterWalk == LIQUID_MAP_WATER_WALK && ai::kLiquidInWater == LIQUID_MAP_IN_WATER &&
     ai::kLiquidUnderWater == LIQUID_MAP_UNDER_WATER,
     "SwimPathPolicy.h liquid states out of step with the core's GridMapDefines.h");
+static_assert(ai::kLiquidTypeMagma == MAP_LIQUID_TYPE_MAGMA && ai::kLiquidTypeOcean == MAP_LIQUID_TYPE_OCEAN &&
+    ai::kLiquidTypeSlime == MAP_LIQUID_TYPE_SLIME && ai::kLiquidTypeWater == MAP_LIQUID_TYPE_WATER &&
+    ai::kSwimLiquidRequest == MAP_ALL_LIQUIDS,
+    "SwimPathPolicy.h liquid types out of step with the core's GridMapDefines.h");
 
 namespace
 {
@@ -49,9 +53,12 @@ namespace
         TerrainInfo const* const terrain = map ? map->GetTerrain() : nullptr;
         if (!terrain)
             return false;
-        auto const liquidAt = [terrain](float x, float y, float z)
+        auto const liquidAt = [terrain](float x, float y, float z, uint32 request, uint32& typeFlags)
         {
-            return static_cast<uint32>(terrain->getLiquidStatus(x, y, z, MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN, nullptr));
+            GridMapLiquidData data{};
+            uint32 const status = static_cast<uint32>(terrain->getLiquidStatus(x, y, z, static_cast<uint8>(request), &data));
+            typeFlags = status != LIQUID_MAP_NO_WATER ? data.type_flags : 0;
+            return status;
         };
         for (size_t i = 1; i < path.size(); ++i)
         {

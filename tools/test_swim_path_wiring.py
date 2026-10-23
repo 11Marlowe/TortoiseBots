@@ -47,8 +47,14 @@ class SwimPathWiringTest(unittest.TestCase):
         self.assertIn("lastPoint.isUnderWater() && end.isUnderWater() && lastPoint.IsInLineOfSight(end)", self.step)
 
     def test_fits_samples_water_only_and_asks_sight(self):
-        self.assertIn("MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN", self.fits)
-        self.assertNotIn("MAP_ALL_LIQUIDS", self.fits)
+        # Blackfathom Deeps r26-19z44e: the request goes to the core as the policy's
+        # kSwimLiquidRequest (all liquids; a water | ocean request found no BFD water,
+        # the vmap ANDs it with the WMO's raw liquid id 1), and the answer's type
+        # flags (magma, slime) are handed back for the policy to refuse.
+        self.assertIn("terrain->getLiquidStatus(x, y, z, static_cast<uint8>(request), &data)", self.fits)
+        self.assertIn("typeFlags = status != LIQUID_MAP_NO_WATER ? data.type_flags : 0;", self.fits)
+        self.assertNotIn("MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN", self.fits)
+        self.assertIn("ai::kSwimLiquidRequest == MAP_ALL_LIQUIDS", WORLDPOS)
         self.assertIn("ai::SwimLineInWater(a.getX(), a.getY(), a.getZ(), b.getX(), b.getY(), b.getZ(), liquidAt)", self.fits)
         self.assertIn("            if (!map->isInLineOfSight(a.getX(), a.getY(), a.getZ() + 0.5f, b.getX(), b.getY(), b.getZ() + 0.5f, true))\n                return false;", self.fits)
         self.assertIn("            if (!ai::SwimLineInWater(", self.fits)
