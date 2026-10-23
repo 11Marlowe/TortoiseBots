@@ -224,6 +224,14 @@ constexpr std::uint32_t kRegroupReviveMs = 240000; // after a resume: the dead m
 constexpr std::uint32_t kRegroupGatherMs = 60000;  // ... and the party gathered within this after that
 constexpr std::uint32_t kFightCapMs = 180000;
 constexpr std::uint32_t kBossFightCapMs = 420000;
+// The two ceilings above were progress-aware from Dragonmaw Retreat r25 slot 7 (2026-10-23) on: step 260 paused
+// four times on "a fight lasted more than 180 s" while the boss Searistrasz (62072) lost hp steadily from 100 % to
+// 7 % over about 20 min with the party fine. Past a ceiling the run pauses only when no engaged unit lost this many
+// tenths of a percent of its hp in the last window (FightProgressTick), or a party member died in it; a fight that
+// keeps losing hp pauses at the hard cap anyway. Event fights keep their own ceiling unchanged.
+constexpr std::uint32_t kFightProgressWindowMs = 60000;
+constexpr std::uint32_t kFightProgressPermille = 20; // 2 percentage points
+constexpr std::uint32_t kFightHardCapMs = 1800000;
 constexpr std::uint32_t kCeilingQuietMs = 5000; // a ceiling pause whose party stays out of combat this long goes on by itself
 constexpr std::uint32_t kStaleCombatGraceMs = 20000; // a combat flag with nothing hostile engaged is waited out this long in all of one fight, then the fight ceiling runs again
 constexpr std::uint32_t kStaleConfirmMs = 3000;      // ... and it must stand this long without a break before a wait_object is finished over it
@@ -1310,6 +1318,19 @@ struct Run
         std::uint32_t ms = 0;
     };
     std::unordered_map<std::uint64_t, HpWatch> hpWatch;
+    // FightProgressTick: per engaged unit (guid) its hp (tenths of a percent of its most) on each fight tick of the
+    // last kFightProgressWindowMs, by the watch's own clock (fight ticks watched); the dead count of the last tick
+    // and when it last rose. Cleared out of combat and by ResetStep (ClearFightProgress).
+    struct HpSample
+    {
+        std::uint32_t at = 0;
+        std::uint32_t permille = 0;
+    };
+    std::unordered_map<std::uint64_t, std::vector<HpSample>> fightHp;
+    std::uint32_t fightHpMs = 0;
+    std::uint32_t fightHpDead = 0;
+    bool fightHpDeath = false;
+    std::uint32_t fightHpDeathAt = 0;
     std::size_t ceilingResumedStep = static_cast<std::size_t>(-1); // the step that has used its one self-resume (ResetStep keeps it)
     std::uint32_t eventIdleMs = 0; // out of a fight with an awake event unit standing
     std::uint32_t eventUp = 0, eventDown = 0, eventTotal = 0; // the event's units now: awake, dead, all seen
@@ -1627,6 +1648,16 @@ inline std::string ExactLaunchBrokenNote(std::size_t idx)
         "its leg: the hop is not sent; export the plan again (.bot run skip passes it)";
 }
 
+// Forgets the fight ceiling's hp watch (FightProgressTick).
+inline void ClearFightProgress(Run& r)
+{
+    r.fightHp.clear();
+    r.fightHpMs = 0;
+    r.fightHpDead = 0;
+    r.fightHpDeath = false;
+    r.fightHpDeathAt = 0;
+}
+
 // Clears what belongs to one step (also on resume, so a resumed step gets
 // fresh tries and ceilings).
 inline void ResetStep(Run& r)
@@ -1668,6 +1699,7 @@ inline void ResetStep(Run& r)
     r.bossSeenAlive = false;
     r.bossSearchWanted = false;
     r.hpWatch.clear();
+    ClearFightProgress(r);
     r.patrolWaitMs = 0;
     r.patrolSeen.clear();
     EndBigWalk(r);
@@ -9020,7 +9052,7 @@ constexpr std::size_t kEngagedNoteMax = 6;
 // The units that keep the party in combat (Facts::engagedUnits), for a note: "entry 7897 (0xF130001ED90075B6)
 // cannot be attacked, entry 6206 (0x...) attackable". Read and none engaged: "nothing hostile engaged". Not
 // read: empty.
-inline std::string EngagedUnitsNote(const Facts& f)
+inline std::string EngagedUnitsNote(const Facts& f, bool withHp = false)
 {
     if (!f.engagedRead)
         return std::string();
@@ -9044,9 +9076,91 @@ inline std::string EngagedUnitsNote(const Facts& f)
         }
         note += (n ? ", entry " : "entry ") + std::to_string(u.entry) + " (" + GuidHex(u.guid) + ") " +
             (u.attackable ? "attackable" : "cannot be attacked");
+        // withHp (the progress-aware ceiling's pauses): its hp in whole percent of its most, when read.
+        if (withHp && u.health && u.maxHealth)
+            note += " at " + std::to_string(static_cast<std::uint64_t>(u.health) * 100u / u.maxHealth) + " %";
         ++n;
     }
     return note;
+}
+
+// What the fight ceiling's hp watch (FightProgressTick) saw over its last kFightProgressWindowMs.
+enum class FightProgress
+{
+    Unread,  // no engaged unit with its hp read: the ceiling pauses as before
+    Young,   // hp read, no loss yet, and the watch is younger than its window: the ceiling waits
+    Losing,  // an engaged unit lost kFightProgressPermille or more in the window: the ceiling waits
+    Stalled, // the watch has a full window and no engaged unit lost that much in it: the ceiling pauses
+    Dying,   // a party member died in the window: the ceiling pauses
+};
+
+// One fight tick of the hp watch behind the progress-aware fight ceiling (kFightProgressWindowMs; Dragonmaw Retreat
+// r25 slot 7: Searistrasz 62072 lost hp from 100 % to 7 % over about 20 min while the 180 s ceiling paused four
+// times). Each engaged unit with its hp read keeps its samples of the last window; it is losing when its highest
+// sample in the window stands kFightProgressPermille or more above its hp now. Per unit, not a sum: a fresh add at
+// full hp or one that died never hides or fakes another's loss. A unit no longer engaged is forgotten. A rise of the
+// party's dead count (not the count the watch began with) is a member lost in the fight.
+inline FightProgress FightProgressTick(Run& r, const Facts& f, std::uint32_t dt)
+{
+    bool const fresh = r.fightHpMs == 0;
+    r.fightHpMs += dt;
+    std::uint32_t const now = r.fightHpMs;
+    if (!fresh && f.dead > r.fightHpDead)
+    {
+        r.fightHpDeath = true;
+        r.fightHpDeathAt = now;
+    }
+    r.fightHpDead = f.dead;
+    std::unordered_map<std::uint64_t, std::vector<Run::HpSample>> next;
+    bool read = false;
+    bool losing = false;
+    if (f.engagedRead)
+        for (const UnitFact& u : f.engagedUnits)
+        {
+            if (!u.health || !u.maxHealth)
+                continue;
+            read = true;
+            std::uint32_t const pm =
+                static_cast<std::uint32_t>(static_cast<std::uint64_t>(u.health) * 1000u / u.maxHealth);
+            std::vector<Run::HpSample> samples;
+            auto const had = r.fightHp.find(u.guid);
+            if (had != r.fightHp.end())
+                samples = std::move(had->second);
+            samples.erase(std::remove_if(samples.begin(), samples.end(),
+                              [now](const Run::HpSample& h) { return h.at + kFightProgressWindowMs < now; }),
+                samples.end());
+            Run::HpSample h;
+            h.at = now;
+            h.permille = pm;
+            samples.push_back(h);
+            std::uint32_t top = 0;
+            for (const Run::HpSample& x : samples)
+                top = std::max(top, x.permille);
+            if (top >= pm + kFightProgressPermille)
+                losing = true;
+            next[u.guid] = std::move(samples);
+        }
+    r.fightHp = std::move(next);
+    if (!read)
+        return FightProgress::Unread;
+    if (r.fightHpDeath && now - r.fightHpDeathAt < kFightProgressWindowMs)
+        return FightProgress::Dying;
+    if (losing)
+        return FightProgress::Losing;
+    return now >= kFightProgressWindowMs ? FightProgress::Stalled : FightProgress::Young;
+}
+
+// One of the engaged units is a boss step's entry, whatever the step: the fight gets the boss ceiling
+// (kBossFightCapMs). Dragonmaw Retreat r25 slot 7 fought Searistrasz 62072 on step 260, a step before his own.
+inline bool EngagedPlanBoss(const Run& r, const Facts& f)
+{
+    if (!r.plan)
+        return false;
+    for (const UnitFact& u : f.engagedUnits)
+        for (const PlanStep& s : r.plan->steps)
+            if (s.kind == PlanStepKind::Boss && s.entry && s.entry == u.entry)
+                return true;
+    return false;
 }
 
 // The facts without the held bots: gathers, the gather and regroup ceilings
@@ -9090,7 +9204,10 @@ inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, con
     std::string const dropNote = CombatDropTick(r, in, dt);
     const Facts& f = unattackable ? quiet : in;
     if (!f.anyInCombat)
+    {
         r.hpWatch.clear(); // HpHeldTick watches one fight
+        ClearFightProgress(r); // ... and so does FightProgressTick
+    }
     bool const firstUnattackable = unattackable && !r.unattackableFight;
     r.unattackableFight = unattackable;
     r.shotGateRan = false;
@@ -9520,8 +9637,10 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         const PlanStep* const event = s->kind == PlanStepKind::Hold ? s : EventHoldAhead(r);
         std::uint32_t const holdCap = event && event->timeoutS * 1000u > kBossFightCapMs ? event->timeoutS * 1000u
                                                                                        : kBossFightCapMs;
+        // A boss step's entry engaged on any step gets the boss ceiling too (EngagedPlanBoss).
         std::uint32_t const cap = event ? holdCap
-                                : s->kind == PlanStepKind::Boss ? kBossFightCapMs : kFightCapMs;
+                                : s->kind == PlanStepKind::Boss || EngagedPlanBoss(r, f) ? kBossFightCapMs : kFightCapMs;
+        FightProgress const progress = FightProgressTick(r, f, dt);
         // A unit the party hits that cannot die now (HpHeldTick) pauses before any ceiling: the ceiling's pause
         // would be resumed into the same fight. Not in a wipe (kWipeDead or more dead): the regroup that follows
         // wins, and the watch starts over after it (Opus cold review of bfd5aa1e).
@@ -9543,11 +9662,26 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                 " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)";
             return order;
         }
-        if (r.fightMs > cap && !staleGrace)
+        // Past the ceiling, outside an event: a fight whose engaged units still lose hp goes on (FightProgressTick)
+        // up to the hard cap (kFightHardCapMs); one with no loss in the window, or a member lost in it, pauses.
+        bool const progressHolds = !event && (progress == FightProgress::Losing || progress == FightProgress::Young);
+        bool const pastCeiling = r.fightMs > cap && !staleGrace;
+        bool const hardCapped = pastCeiling && progressHolds && r.fightMs > std::max(cap, kFightHardCapMs);
+        if (pastCeiling && (!progressHolds || hardCapped))
         {
-            // The units that kept it going, so the pause shows at once what to look at.
-            std::string const kept = EngagedUnitsNote(f);
-            Pause(r, "a fight lasted more than " + std::to_string(cap / 1000) + " s" +
+            // The units that kept it going, so the pause shows at once what to look at; with their hp when the
+            // watch read it (the old note when it did not, and in an event).
+            bool const withHp = !event && progress != FightProgress::Unread;
+            std::string const kept = EngagedUnitsNote(f, withHp);
+            std::uint32_t const over = hardCapped ? std::max(cap, kFightHardCapMs) : cap;
+            std::string why;
+            if (hardCapped)
+                why = ", the hard cap, though an engaged unit still lost hp";
+            else if (withHp && progress == FightProgress::Dying)
+                why = " and a party member died in the last " + std::to_string(kFightProgressWindowMs / 1000) + " s";
+            else if (withHp)
+                why = " and no engaged unit lost hp in " + std::to_string(kFightProgressWindowMs / 1000) + " s";
+            Pause(r, "a fight lasted more than " + std::to_string(over / 1000) + " s" + why +
                 (kept.empty() ? std::string() : " (kept on by " + kept + ")"));
             r.ceilingPaused = true;
             r.ceilingQuietMs = 0;
@@ -9557,6 +9691,11 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                : !f.leadAlive ? std::string("the lead bot is dead: the others fight on") : std::string("fighting");
         if (runBackWait && !autoRegroup)
             r.note = runBackNote;
+        if (pastCeiling)
+            r.note += "; past the " + std::to_string(cap / 1000) + " s ceiling: " +
+                (progress == FightProgress::Losing
+                        ? "an engaged unit lost hp in the last " + std::to_string(kFightProgressWindowMs / 1000) + " s"
+                        : std::string("watching the engaged units' hp"));
         // A hold done by its units whose fight began before any HoldStep tick
         // (its crew hostile at once): the event is on, so it is counted and an
         // awake unit marks it started (CountEvent); else it waited to timeout_s

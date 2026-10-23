@@ -14985,6 +14985,201 @@ static void TestUnitThatCannotDieNowPauses()
     CHECK(EngagedUnitsNote(charmed).find("entry 3977") == 0);
 }
 
+// Dragonmaw Retreat r25 slot 7 (2026-10-23): step 260 paused four times on "a fight lasted more than 180 s (kept on
+// by entry 62072 ... attackable)" while the boss Searistrasz (62072) lost hp steadily from 100 % to 7 % over about
+// 20 min with the party fine; he died on his own after the run was stopped. The ceiling now pauses only when no
+// engaged unit lost kFightProgressPermille in the last kFightProgressWindowMs (FightProgressTick), with a hard cap
+// (kFightHardCapMs), and a plan boss engaged on any step gets the boss ceiling.
+static UnitFact HpUnit(std::uint64_t guid, std::uint32_t entry, std::uint32_t hp, std::uint32_t maxHp)
+{
+    UnitFact u = Engaged(Unit(guid, entry, 5));
+    u.health = hp;
+    u.maxHealth = maxHp;
+    u.partyHits = true;
+    return u;
+}
+
+static Facts FightFacts(std::vector<UnitFact> units)
+{
+    Facts f = Party(0);
+    f.anyInCombat = true;
+    f.leadInCombat = true;
+    f.engagedRead = true;
+    f.engagedUnits = std::move(units);
+    return f;
+}
+
+static void TestSlowSteadyBossFightNeverPausesBeforeTheHardCap()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 80);
+    boss.entry = 62072;
+    plan.steps = {PullStep(10, {1}), boss};
+    Run r = Start(&plan);
+    std::uint32_t const maxHp = 1000000;
+    // One percentage point every 20 s (3 a minute; r25 lost about 4.6 a minute).
+    auto hpAt = [&](std::uint32_t s) { return maxHp - (s / 20) * (maxHp / 100); };
+    std::uint32_t s = 0;
+    bool sawHeldNote = false;
+    for (; s < kFightHardCapMs / kTickMs && r.state == State::Running; ++s)
+    {
+        Tick(r, FightFacts({HpUnit(0xF13000F27800A001ull, 62072, hpAt(s), maxHp)}));
+        if (r.note.find("past the 420 s ceiling: an engaged unit lost hp in the last 60 s") != std::string::npos)
+            sawHeldNote = true;
+    }
+    CHECK(r.state == State::Running && r.step == 0 && r.fightMs == kFightHardCapMs);
+    CHECK(sawHeldNote);
+    // The hard cap pauses anyway, naming the units and their hp.
+    for (int i = 0; i < 3 && r.state == State::Running; ++i, ++s)
+        Tick(r, FightFacts({HpUnit(0xF13000F27800A001ull, 62072, hpAt(s), maxHp)}));
+    CHECK(r.state == State::Paused && r.ceilingPaused);
+    CHECK(r.note == "a fight lasted more than 1800 s, the hard cap, though an engaged unit still lost hp (kept on by "
+        "entry 62072 (0xF13000F27800A001) attackable at 10 %)");
+    // The same on the boss's own step.
+    Run b = Start(&plan);
+    b.step = 1;
+    std::uint32_t t = 0;
+    for (; t < kFightHardCapMs / kTickMs && b.state == State::Running; ++t)
+        Tick(b, FightFacts({HpUnit(0xF13000F27800A001ull, 62072, hpAt(t), maxHp)}));
+    CHECK(b.state == State::Running && b.step == 1);
+    for (int i = 0; i < 3 && b.state == State::Running; ++i, ++t)
+        Tick(b, FightFacts({HpUnit(0xF13000F27800A001ull, 62072, hpAt(t), maxHp)}));
+    CHECK(b.state == State::Paused && b.note.find("a fight lasted more than 1800 s, the hard cap") == 0);
+}
+
+static void TestFightWithNoHpLossPastTheCeilingPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    std::uint32_t const maxHp = 3000;
+    // Down to 50 % in the first 100 s, then flat: paused on the first tick past 180 s with the reason.
+    auto flatFrom = [&](std::uint32_t s, std::uint32_t until) { return s < until ? maxHp - s * 15 : maxHp - until * 15; };
+    Run r = Start(&plan);
+    std::uint32_t s = 0;
+    for (; s < kFightCapMs / kTickMs && r.state == State::Running; ++s)
+        Tick(r, FightFacts({HpUnit(0xF130001836000001ull, 4300, flatFrom(s, 100), maxHp)}));
+    CHECK(r.state == State::Running && r.fightMs == kFightCapMs);
+    Tick(r, FightFacts({HpUnit(0xF130001836000001ull, 4300, flatFrom(s, 100), maxHp)}));
+    CHECK(r.state == State::Paused && r.ceilingPaused);
+    CHECK(r.note == "a fight lasted more than 180 s and no engaged unit lost hp in 60 s (kept on by entry 4300 "
+        "(0xF130001836000001) attackable at 50 %)");
+    // Losing hp past the ceiling until 300 s, then flat: held while it lost, paused once the last 60 s show no loss.
+    Run p = Start(&plan);
+    std::uint32_t at = 0;
+    for (std::uint32_t i = 0; i < 600 && p.state == State::Running; ++i)
+    {
+        Tick(p, FightFacts({HpUnit(0xF130001836000001ull, 4300, maxHp - std::min<std::uint32_t>(i, 300) * 5, maxHp)}));
+        at = i;
+    }
+    CHECK(p.state == State::Paused && p.note.find("no engaged unit lost hp in 60 s") != std::string::npos);
+    CHECK(at >= 340 && at <= 360);
+    // Too slow is a stall: 1 point every 70 s is at most 1 point in a window, under kFightProgressPermille.
+    Run slow = Start(&plan);
+    std::uint32_t sl = 0;
+    for (; sl < 600 && slow.state == State::Running; ++sl)
+        Tick(slow, FightFacts({HpUnit(0xF130001836000001ull, 4300, maxHp - (sl / 70) * 30, maxHp)}));
+    CHECK(slow.state == State::Paused && sl == kFightCapMs / kTickMs + 1);
+    // Exactly 2 points in the window is progress: 1 point every 30 s.
+    Run two = Start(&plan);
+    for (std::uint32_t i = 0; i < 600 && two.state == State::Running; ++i)
+        Tick(two, FightFacts({HpUnit(0xF130001836000001ull, 4300, maxHp - (i / 30) * 30, maxHp)}));
+    CHECK(two.state == State::Running);
+    // A party member dying in the last 60 s pauses at the ceiling though the unit loses hp.
+    Run d = Start(&plan);
+    std::uint32_t ds = 0;
+    for (; ds < 400 && d.state == State::Running; ++ds)
+    {
+        Facts g = FightFacts({HpUnit(0xF130001836000001ull, 4300, maxHp - ds * 5, maxHp)});
+        if (ds >= 170)
+        {
+            g.dead = 1;
+            g.alive = 4;
+            g.deadNames = {"Healy"};
+        }
+        Tick(d, g);
+    }
+    CHECK(d.state == State::Paused && ds == kFightCapMs / kTickMs + 1);
+    CHECK(d.note.find("a fight lasted more than 180 s and a party member died in the last 60 s") == 0);
+    // ... but one dead before the fight began is no loss in it (the watch's first tick takes the count as it is).
+    Run first = Start(&plan);
+    Facts g1 = FightFacts({HpUnit(0xF130001836000001ull, 4300, 100, maxHp)});
+    g1.dead = 1;
+    CHECK(FightProgressTick(first, g1, kTickMs) == FightProgress::Young && !first.fightHpDeath);
+    g1.dead = 2;
+    CHECK(FightProgressTick(first, g1, kTickMs) == FightProgress::Dying && first.fightHpDeath);
+    Run e = Start(&plan);
+    for (std::uint32_t i = 0; i < 400 && e.state == State::Running; ++i)
+    {
+        Facts g = FightFacts({HpUnit(0xF130001836000001ull, 4300, maxHp - i * 5, maxHp)});
+        g.dead = 1;
+        g.alive = 4;
+        g.deadNames = {"Healy"};
+        Tick(e, g);
+    }
+    CHECK(e.state == State::Running);
+    // A wipe (kWipeDead or more dead) regroups at the ceiling as before, whatever the hp do.
+    Run w = Start(&plan);
+    for (std::uint32_t i = 0; i <= kFightCapMs / kTickMs + 1 && !w.regroup; ++i)
+    {
+        Facts g = FightFacts({HpUnit(0xF130001836000001ull, 4300, maxHp - i * 5, maxHp)});
+        g.dead = 4;
+        g.alive = 1;
+        Tick(w, g);
+    }
+    CHECK(w.regroup && w.note.find("went past 180 s") != std::string::npos);
+    // Hp not read (0): the old rule and the old note at once.
+    Run u = Start(&plan);
+    for (std::uint32_t i = 0; i <= kFightCapMs / kTickMs + 1 && u.state == State::Running; ++i)
+        Tick(u, FightFacts({HpUnit(0xF130001836000001ull, 4300, 0, 0)}));
+    CHECK(u.state == State::Paused && u.fightMs == kFightCapMs + kTickMs &&
+        u.note == "a fight lasted more than 180 s (kept on by entry 4300 (0xF130001836000001) attackable)");
+    // Out of combat the watch is forgotten (a far move, so the step does not end with the fight).
+    DungeonPlan far;
+    far.steps = {Step(PlanStepKind::Move, 500)};
+    Run c = Start(&far);
+    Tick(c, FightFacts({HpUnit(0xF130001836000001ull, 4300, 100, maxHp)}));
+    CHECK(c.fightHp.size() == 1 && c.fightHpMs == kTickMs);
+    Facts quiet = Party(0);
+    Tick(c, quiet);
+    CHECK(c.fightHp.empty() && c.fightHpMs == 0);
+}
+
+static void TestPlanBossOnAMoveStepGetsTheBossCeiling()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 80);
+    boss.entry = 62072;
+    PlanStep hold = Step(PlanStepKind::Hold, 90);
+    hold.entries = {9999};
+    plan.steps = {Step(PlanStepKind::Move, 60), boss, hold};
+    auto pausedAt = [&](std::uint32_t entry)
+    {
+        Run r = Start(&plan);
+        std::uint32_t i = 0;
+        for (; i < 1000 && r.state == State::Running; ++i)
+            Tick(r, FightFacts({HpUnit(0xF13000F27800A001ull, entry, 0, 0)}));
+        CHECK(r.state == State::Paused && r.step == 0);
+        return std::make_pair(i, r.note);
+    };
+    auto const bossOne = pausedAt(62072);
+    CHECK(bossOne.first == kBossFightCapMs / kTickMs + 1);
+    CHECK(bossOne.second == "a fight lasted more than 420 s (kept on by entry 62072 (0xF13000F27800A001) attackable)");
+    // Not a plan boss: the 180 s ceiling; a hold's unit is no boss step's entry.
+    CHECK(pausedAt(4300).first == kFightCapMs / kTickMs + 1);
+    CHECK(pausedAt(9999).first == kFightCapMs / kTickMs + 1);
+    // An event's fight keeps its own ceiling: hp loss does not hold it.
+    DungeonPlan holdPlan;
+    PlanStep h = Step(PlanStepKind::Hold);
+    h.radius = 30;
+    holdPlan.steps = {h};
+    Run ev = Start(&holdPlan);
+    std::uint32_t i = 0;
+    for (; i < 1000 && ev.state == State::Running; ++i)
+        Tick(ev, FightFacts({HpUnit(0xF130001836000001ull, 4300, 1000000 - i * 500, 1000000)}));
+    CHECK(ev.state == State::Paused && i == kBossFightCapMs / kTickMs + 1 &&
+        ev.note.find("a fight lasted more than 420 s") == 0);
+}
+
 int main()
 {
     TestPatrollerOutsideTheRadiusIsWaitedForThenPulled();
@@ -15340,6 +15535,9 @@ int main()
     TestBossNotAtHisSpotIsSearchedForInTheInstance();
     TestSpawnEventsOffReadsEveryAssociation();
     TestUnitThatCannotDieNowPauses();
+    TestSlowSteadyBossFightNeverPausesBeforeTheHardCap();
+    TestFightWithNoHpLossPastTheCeilingPauses();
+    TestPlanBossOnAMoveStepGetsTheBossCeiling();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }
