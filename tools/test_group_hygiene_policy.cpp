@@ -1,4 +1,4 @@
-#include "../ai/playerbot/GroupHygienePolicy.h"
+#include "../ai/playerbot/policy/rpg/GroupHygienePolicy.h"
 
 #include <cstdlib>
 #include <iostream>
