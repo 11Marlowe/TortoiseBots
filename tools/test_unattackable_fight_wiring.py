@@ -53,8 +53,8 @@ class UnattackableFightWiringTest(unittest.TestCase):
         # Both a bot's and its pet's attackers and victims, as the stale test read them.
         self.assertIn("for (Unit* attacker : unit->GetAttackers())", read)
         self.assertIn("add(unit->GetVictim());", read)
-        self.assertIn("ReadEngagedWith(lead, judge, bot, seen, f.engagedUnits);", party)
-        self.assertIn("ReadEngagedWith(lead, judge, pet, seen, f.engagedUnits);", party)
+        self.assertIn("ReadEngagedWith(lead, judge, bot, seen, f.engagedUnits, &ep);", party)
+        self.assertIn("ReadEngagedWith(lead, judge, pet, seen, f.engagedUnits, &ep);", party)
         self.assertIn("sServerFacade.IsFriendlyTo(other, lead)", read)
         facts = body(CODE, "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead,")
         self.assertIn("ReadEngagedUnits(lead, bots, f);\n        f.staleCombat = f.engagedUnits.empty();", facts)
@@ -79,8 +79,8 @@ class UnattackableFightWiringTest(unittest.TestCase):
     def test_member_engaged_read_includes_threat_lists(self):
         member = body(CODE, "void ReadMemberEngaged(Player* lead, Player* judge, Player* bot,")
         self.assertIn("if (!MemberInCombat(bot))\n        return;", member)
-        self.assertIn("ReadEngagedWith(lead, judge, bot, seen, member.engaged, true);", member)
-        self.assertIn("ReadEngagedWith(lead, judge, pet, seen, member.engaged, true);", member)
+        self.assertIn("ReadEngagedWith(lead, judge, bot, seen, member.engaged, nullptr, true);", member)
+        self.assertIn("ReadEngagedWith(lead, judge, pet, seen, member.engaged, nullptr, true);", member)
         self.assertIn("member.engagedRead = true;", member)
         read = body(CODE, "void ReadEngagedWith(Player* lead, Player* judge, Unit* unit,")
         self.assertIn("if (threatRefs)", read)

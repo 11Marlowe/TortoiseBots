@@ -34,23 +34,28 @@ class BossPairWiringTest(unittest.TestCase):
         self.assertNotIn("lead->IsAlive()", judge)
 
     def test_party_members_and_pets_are_never_engaged_units(self):
-        read = body(CODE, "void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots,")
-        self.assertIn("party.insert(bot->GetObjectGuid().GetRawValue());", read)
-        self.assertIn("party.insert(pet->GetObjectGuid().GetRawValue());", read)
-        self.assertIn("party.count(other->GetObjectGuid().GetRawValue())", read)
+        # Merged with the member read (integ/19z42): ReadEngagedParty fills the party and victim sets, ReadEngagedWith
+        # applies them (the party read of ReadEngagedUnits passes them, the member read passes none).
+        party = body(CODE, "EngagedParty ReadEngagedParty(std::vector<Player*> const& bots,")
+        self.assertIn("ep.party.insert(bot->GetObjectGuid().GetRawValue());", party)
+        self.assertIn("ep.party.insert(pet->GetObjectGuid().GetRawValue());", party)
+        read = body(CODE, "void ReadEngagedWith(Player* lead, Player* judge, Unit* unit,")
+        self.assertIn("ep->party.count(other->GetObjectGuid().GetRawValue())", read)
         # A charmed party bot fighting the party is named for the note, never engaged.
-        self.assertIn("f.charmedFighting.push_back(other->GetName());", read)
-        self.assertLess(read.index("f.charmedFighting.push_back"), read.index("f.engagedUnits.push_back(fact);"))
-        # The party set is filled before any unit is added.
-        self.assertLess(read.index("party.insert(bot->"), read.index("for (Unit* attacker : unit->GetAttackers())"))
+        self.assertIn("ep->charmedFighting->push_back(other->GetName());", read)
+        self.assertLess(read.index("charmedFighting->push_back"), read.index("out.push_back(fact);"))
+        units = body(CODE, "void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots,")
+        self.assertIn("ReadEngagedParty(bots, &f.charmedFighting);", units)
+        self.assertLess(units.index("ReadEngagedParty("), units.index("ReadEngagedWith("))
 
     def test_engaged_units_carry_hp_and_party_hits(self):
-        read = body(CODE, "void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots,")
+        party = body(CODE, "EngagedParty ReadEngagedParty(std::vector<Player*> const& bots,")
+        self.assertIn("ep.victims.insert(victim->GetObjectGuid().GetRawValue());", party)
+        self.assertIn("if (Unit* victim = pet->GetVictim())", party)
+        read = body(CODE, "void ReadEngagedWith(Player* lead, Player* judge, Unit* unit,")
         self.assertIn("fact.health = other->GetHealth();", read)
         self.assertIn("fact.maxHealth = other->GetMaxHealth();", read)
-        self.assertIn("fact.partyHits = victims.count(fact.guid) != 0;", read)
-        self.assertIn("victims.insert(victim->GetObjectGuid().GetRawValue());", read)
-        self.assertIn("if (Unit* victim = pet->GetVictim())", read)
+        self.assertIn("fact.partyHits = ep && ep->victims.count(fact.guid) != 0;", read)
         self.assertIn("fact.evading = other->IsCreature() && static_cast<Creature*>(other)->IsInEvadeMode();", read)
 
     def test_boss_search_reads_the_instance_when_asked(self):
