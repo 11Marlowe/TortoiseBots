@@ -756,7 +756,7 @@ class DungeonPlanSql(unittest.TestCase):
         # Galford hall packs are leg 0's last pulls, before the boss.
         name, text = newest_plan_text("stratholme_live")
         self.assertEqual(name, "20261024020100_world.sql")
-        self.assertIn("('stratholme_live', 329, '10419,10425,10426,10422', '', '10423,10421,10420,11032', 'turtle-agent a5309ee dungeons/stratholme_live.json', 'plan v1, draft (census-fixed, not mapped, not live-checked)');", text)
+        self.assertIn("('stratholme_live', 329, '10419,10425,10426,10422', '', '10423,10421,10420,11032', 'turtle-agent cd375ad dungeons/stratholme_live.json', 'plan v1, draft (census-fixed, not mapped, not live-checked)');", text)
         legs = leg_rows(text, "stratholme_live")
         self.assertEqual([legs[i][0] for i in range(3)],
                          ["archivist_galford", "grand_crusader_dathrohan", "cannon_master_willey"])

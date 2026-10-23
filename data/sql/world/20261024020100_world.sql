@@ -1,7 +1,7 @@
 -- Stratholme, live side (map 329): the plan of the 2026-10-24 census, exported with the options of the header of
 -- 20261022210900_world.sql:
 --   turtle-agent plan-export --mmaps <map 329 mmaps> --allow-draft --gm-cross-direct --approach-hops \
---     --rev a5309ee --stamp 20261024020100 --out <dir> stratholme_live
+--     --rev cd375ad --stamp 20261024020100 --out <dir> stratholme_live
 -- (dungeons/stratholme_live.json, status 'draft (census-fixed, not mapped, not live-checked)'; the plan is marked
 -- handwritten in tools/dungeongen/plans.json, so the generator no longer rewrites it). NO ROW IS HAND-SET.
 -- What the census changed in the generator draft (PREP-STRATHOLME-LIVE-2026-10-24.md, "Fixes applied"):
@@ -25,7 +25,7 @@
 -- The boss block at the end (ai_dungeon_boss, the pattern of 20261021114931_world.sql) is added by hand: the exporter
 -- does not write that table. Its DELETE is scoped to this plan's own three entries, so another map-329 plan's rows
 -- (stratholme_undead: Barthilas, Anastari, Nerub'enkan, Maleki, Rivendare) survive when it is applied.
--- Untracked adds the rows cannot name (no spawn row): Willey's Crimson Riflemen 11054 (one every 10 s from nine fixed
+-- Untracked adds the rows cannot name (no spawn row): Willey's Crimson Riflemen 11054 (three every 10 s from nine fixed
 -- points) and his gate 175969 (closed on aggro, opened on death); Dathrohan turning into Balnazzar below 40 % and his
 -- 32 skeletons on death; the Eye of Naxxramas's gargoyles on aggro; an Initiate's Gallant 10424 at 3593.44 -3086.3 and a
 -- Gallant's/Battle Mage's Monk 11043 at 3434.52 -3064.54 on group death; the rat trap's thirty plagued critters; and the
@@ -42,7 +42,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'stratholme_live';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'stratholme_live';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'stratholme_live';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('stratholme_live', 329, '10419,10425,10426,10422', '', '10423,10421,10420,11032', 'turtle-agent a5309ee dungeons/stratholme_live.json', 'plan v1, draft (census-fixed, not mapped, not live-checked)');
+('stratholme_live', 329, '10419,10425,10426,10422', '', '10423,10421,10420,11032', 'turtle-agent cd375ad dungeons/stratholme_live.json', 'plan v1, draft (census-fixed, not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('stratholme_live', 0, 'archivist_galford', ''),
 ('stratholme_live', 1, 'grand_crusader_dathrohan', ''),
