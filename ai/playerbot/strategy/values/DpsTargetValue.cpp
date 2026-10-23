@@ -371,6 +371,7 @@ namespace
             facts.inPartyFight = true;
             facts.running = AttackersValue::IsRunningMob(unit);
             facts.dropYd = AttackersValue::RunnerDropYd(unit, bot);
+            facts.letGo = AttackersValue::RunnerLetGoAtLedge(unit, bot);
             facts.feared = unit->HasAuraType(SPELL_AURA_MOD_FEAR);
             facts.healthPct = unit->GetHealthPercent();
             facts.distance = bot->GetDistance(unit);

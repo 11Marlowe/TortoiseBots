@@ -40,13 +40,16 @@ namespace ai
         // How far `target`, or the end of its run (its spline's last point),
         // lies below `bot`'s floor (RunnerFinishPolicy RunnerDropYd).
         static float RunnerDropYd(Unit* target, Player* bot);
-        // Chases stop at ledges (RunnerFinishPolicy kRunnerLedgeDropYd, owner
-        // decision 2026-10-23): true while `bot` lets `target` go, a running
-        // unit more than 6 yd below its floor (or running there). Such a unit
-        // is written to the bot's own "runners let go" book and stays refused
-        // while it is still below (RunnerStaysLetGo). Asked by IgnoreTarget
-        // (the attackers list) and PossibleAttackTargetsValue::IsValid (every
-        // pick path that bypasses that list, and the current target's check).
+        // Chases stop at ledges (RunnerFinishPolicy LetRunnerGoAtLedge, owner
+        // decision 2026-10-23, scoped by the review of 565751aa): true while
+        // `bot`, bound to an active dungeon run, lets `target` go: a running
+        // unit more than 6 yd below its floor (or running there) whose navmesh
+        // way has a cliff or is incomplete; never the bot's explicit attack
+        // target (that clears the entry). Kept in the bot's own "runners let
+        // go" book (purged and capped on every access) while it stays below.
+        // Asked by IgnoreTarget (the attackers list) and
+        // PossibleAttackTargetsValue::IsValid (every pick path that bypasses
+        // that list, and the current target's check).
         static bool RunnerLetGoAtLedge(Unit* target, Player* bot);
         virtual std::string Format() override;
 

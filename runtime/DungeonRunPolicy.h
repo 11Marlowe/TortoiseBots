@@ -199,6 +199,8 @@ constexpr float kEscapeMaxYd = 10.0f;             // the straight hop off it goe
 constexpr float kEscapeMaxVertical = 8.0f;        // ... and this far up or down (RemoteCommander::kDirectMaxVertical)
 constexpr std::uint32_t kIslandEscapes = 2;       // hops off one island, then pause
 constexpr std::uint32_t kStrandSettleMs = 2000;   // the stranded lead bot's teleport (StrandedTeleportTick) settles this long
+constexpr std::uint32_t kStrandTries = 3;         // ... failed teleports (refused, or the lead bot not there after it) a step
+constexpr std::uint32_t kStrandWaits = 10;        // ... "wait" answers a step, then a pause
 constexpr std::uint32_t kEscapeSettleMs = 2000;   // the hop is over once the lead bot stands still this long ...
 constexpr std::uint32_t kEscapeCapMs = 6000;      // ... or after this long
 constexpr float kEscapeMovedYd = 2.0f;            // the glue refuses the hop when the lead bot moved this far since the read
@@ -1256,15 +1258,22 @@ struct Run
     std::uint32_t stepEscapes = 0; // hops off an island this step (kStepEscapes)
     std::uint32_t islandRefusals = 0; // path refusals taken as the island's second sign this step (RefusedFromIsland)
     // The stranded lead bot's teleport (StrandedLead, owner decision 2026-10-23): due (the next walk-back tick out
-    // of combat sends it), the plan step whose point it goes to, where the lead bot stood, the plan step it was
-    // used on (at most once a step: ResetStep leaves it, so a resume on the same step gets none), and the teleport
-    // under way with its settle time.
+    // of combat sends it), the plan step whose point it goes to, where the lead bot stood at the last send (read
+    // afresh from the facts on each send), the plan step it succeeded on (at most once a step: ResetStep leaves
+    // it, so a resume on the same step gets none), the teleport under way with its settle time, the summons of
+    // the party left behind after it, and this step's failed tries and "wait" answers (strandCountStep: the step
+    // they count for; ResetStep leaves them too).
     bool strandDue = false;
     std::size_t strandIdx = 0;
     float strandX = 0.0f, strandY = 0.0f, strandZ = 0.0f;
     std::size_t strandStep = static_cast<std::size_t>(-1);
     bool strandOn = false;
     std::uint32_t strandMs = 0;
+    bool strandSummon = false;
+    std::set<std::string> strandSummoned;
+    std::size_t strandCountStep = static_cast<std::size_t>(-1);
+    std::uint32_t strandTries = 0;
+    std::uint32_t strandWaits = 0;
     // The walk-back point last sent, from where, and how often (kWalkBackResends).
     std::size_t resendIdx = static_cast<std::size_t>(-1);
     float resendX = 0.0f, resendY = 0.0f, resendZ = 0.0f;
@@ -1736,6 +1745,8 @@ inline void ResetStep(Run& r)
     r.strandDue = false;
     r.strandOn = false;
     r.strandMs = 0;
+    r.strandSummon = false;
+    r.strandSummoned.clear();
     r.escapeFromMove = false;
     r.resendIdx = static_cast<std::size_t>(-1);
     r.resends = 0;
@@ -3527,13 +3538,14 @@ inline std::size_t LastReachedBefore(const Run& r, std::size_t idx);
 // the walk back to the last point the lead bot reached on the plan (the route
 // checkpoint, LastReachedBefore) is refused unreachable from the spot where
 // the hop off the island found no spot (noSpotKnown), the run teleports the
-// lead bot to that point: out of combat only, at most once a step
-// (Run::strandStep), the module's own teleport (the glue's RunStrandedTeleport).
-// The rest of the party then comes to it by the walk back's own rules.
+// lead bot to that point: out of combat only, at most once a step (Run::strandStep,
+// set when the lead bot stands at the point after it), at most kStrandTries
+// failed tries a step, the module's own teleport (the glue's RunStrandedTeleport).
+// The party left behind is then summoned to it (StrandedTeleportTick).
 inline bool StrandedLead(const Run& r, const std::string& answer)
 {
     if (r.state != State::Running || !r.plan || !r.walkBack || r.walkBackIdx >= r.step || r.strandDue ||
-        r.strandOn || r.strandStep == r.step)
+        r.strandOn || r.strandStep == r.step || (r.strandCountStep == r.step && r.strandTries >= kStrandTries))
         return false;
     if (answer.compare(0, 11, "unreachable") != 0)
         return false;
@@ -3543,11 +3555,40 @@ inline bool StrandedLead(const Run& r, const std::string& answer)
         ai::PlanDistance(r.leadLastX, r.leadLastY, r.leadLastZ, r.noSpotX, r.noSpotY, r.noSpotZ) <= kArriveYd;
 }
 
+// This step's tries and waits of the stranded lead bot's teleport (Run::strandCountStep).
+inline void StrandCountsForStep(Run& r)
+{
+    if (r.strandCountStep == r.step)
+        return;
+    r.strandCountStep = r.step;
+    r.strandTries = 0;
+    r.strandWaits = 0;
+}
+
+// A failed teleport of the stranded lead bot (refused, or the lead bot not at the
+// point after it): due again on the next tick, kStrandTries times a step; then the
+// walk back goes on as before (the point is passed when refused again).
+inline void StrandFailed(Run& r, const std::string& why)
+{
+    StrandCountsForStep(r);
+    ++r.strandTries;
+    if (r.strandTries < kStrandTries)
+    {
+        r.strandDue = true;
+        r.note = "the teleport of the stranded lead bot failed (" + why + "): trying again (" +
+            std::to_string(r.strandTries + 1) + " of " + std::to_string(kStrandTries) + ")";
+        return;
+    }
+    r.note = "the teleport of the stranded lead bot failed " + std::to_string(kStrandTries) + " times (" + why +
+        "): the walk back goes on as before";
+}
+
 inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)
 {
-    // The stranded lead bot's teleport (StrandedTeleportTick): "wait" (a fight,
-    // the lead bot moved) keeps it due; any other refusal ends it for this step,
-    // and the walk back goes on as before (the point is passed when refused again).
+    // The stranded lead bot's teleport (StrandedTeleportTick): nothing changed on
+    // the lead bot. "wait" (a fight, the lead bot moved since the facts were read)
+    // keeps it due, kStrandWaits times a step, then pauses; any other refusal is a
+    // failed try (StrandFailed). The step is marked done only on arrival.
     if (order.compare(0, 7, "rescue ") == 0)
     {
         r.strandOn = false;
@@ -3555,12 +3596,22 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         EnterPhase(r, Phase::Begin);
         if (answer.compare(0, 4, "wait") == 0)
         {
+            StrandCountsForStep(r);
+            ++r.strandWaits;
+            if (r.strandWaits >= kStrandWaits)
+            {
+                Pause(r, "the stranded lead bot at " + Num(r.strandX) + " " + Num(r.strandY) + " " + Num(r.strandZ) +
+                    " could not be teleported: the teleport waited " + std::to_string(kStrandWaits) +
+                    " times this step (" + answer + "); bring it to the last reached point (step " +
+                    std::to_string(r.strandIdx + 1) + "), then .bot run resume");
+                return;
+            }
             r.strandDue = true;
-            r.strandStep = static_cast<std::size_t>(-1);
-            r.note = "the teleport of the stranded lead bot waits (" + answer + ")";
+            r.note = "the teleport of the stranded lead bot waits (" + answer + ") (" + std::to_string(r.strandWaits) +
+                " of " + std::to_string(kStrandWaits) + ")";
             return;
         }
-        r.note = "the teleport of the stranded lead bot was refused (" + answer + "): the walk back goes on as before";
+        StrandFailed(r, "refused: " + answer);
         return;
     }
     // The hop off a navmesh island (IslandEscape) found no spot: counted; the
@@ -3765,6 +3816,7 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
             if (IsPathRefusal(answer) && StrandedLead(r, answer))
             {
                 // No hop off and no way back: the teleport, the next walk-back tick out of combat.
+                StrandCountsForStep(r);
                 r.strandDue = true;
                 r.strandIdx = r.walkBackIdx;
                 r.strandX = r.leadLastX;
@@ -5954,10 +6006,19 @@ inline bool FallenFirst(Run& r, const Facts& f)
 
 // The stranded lead bot's teleport (StrandedLead): sent on the first walk-back tick
 // with the party out of combat ("rescue from lx ly lz to x y z", the glue's own
-// RunStrandedTeleport, not a `cmd`), then nothing else for kStrandSettleMs. True
-// while it holds the walk back.
+// RunStrandedTeleport, not a `cmd`; the spot read afresh from this tick's facts),
+// then nothing else for kStrandSettleMs. Then the lead bot standing at the point
+// (kArriveYd) is the success: the step's teleport is used (Run::strandStep) and
+// the bots left behind (on another floor, kStragglerDzYd, or beyond kGatherYd)
+// are summoned to it, one a tick, out of combat; else a failed try (StrandFailed).
+// True while it holds the walk back.
 inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
 {
+    if (!r.plan || r.strandIdx >= r.plan->steps.size())
+        return false;
+    const PlanStep& p = r.plan->steps[r.strandIdx];
+    std::string const target = "the last reached point (step " + std::to_string(r.strandIdx + 1) + ")";
+    std::string const spot = Num(r.strandX) + " " + Num(r.strandY) + " " + Num(r.strandZ);
     if (r.strandOn)
     {
         r.strandMs += dt;
@@ -5966,21 +6027,51 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
         r.strandOn = false;
         r.strandMs = 0;
         EnterPhase(r, Phase::Begin);
-        return false;
-    }
-    if (!r.strandDue || !r.plan || r.strandIdx >= r.plan->steps.size())
-        return false;
-    std::string const spot = Num(r.strandX) + " " + Num(r.strandY) + " " + Num(r.strandZ);
-    std::string const target = "the last reached point (step " + std::to_string(r.strandIdx + 1) + ")";
-    if (f.anyInCombat || f.leadInCombat)
-    {
-        r.note = "the lead bot is stranded at " + spot + " with no way back: the teleport to " + target +
-            " waits for the fight to end";
+        float const away = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
+        if (away > kArriveYd)
+        {
+            StrandFailed(r, "the lead bot stands " + Num(away) + " yd from the point after it");
+            return true;
+        }
+        r.strandStep = r.step;
+        r.strandSummon = true;
+        r.strandSummoned.clear();
+        r.note = "the lead bot was stranded at " + spot + " with no way back: teleported to " + target;
         return true;
     }
-    const PlanStep& p = r.plan->steps[r.strandIdx];
+    if (r.strandSummon)
+    {
+        for (const MemberFact& m : f.members)
+        {
+            if (m.name.empty() || m.name == f.carrier || r.strandSummoned.count(m.name) || m.inCombat ||
+                m.attackers > 0)
+                continue;
+            if (std::fabs(m.dz) <= kStragglerDzYd && m.yd <= kGatherYd)
+                continue;
+            r.strandSummoned.insert(m.name);
+            MarkSummoned(r, m.name);
+            order = "summon " + m.name;
+            r.note = "the lead bot was teleported to " + target + ": " + m.name + " was left behind (" + Num(m.yd) +
+                " yd from it): summoned";
+            return true;
+        }
+        r.strandSummon = false;
+        return false;
+    }
+    if (!r.strandDue)
+        return false;
+    if (f.anyInCombat || f.leadInCombat)
+    {
+        r.note = "the lead bot is stranded at " + Num(f.leadX) + " " + Num(f.leadY) + " " + Num(f.leadZ) +
+            " with no way back: the teleport to " + target + " waits for the fight to end";
+        return true;
+    }
+    // The spot as the facts read it now (the lead bot may have moved on the island).
+    r.strandX = f.leadX;
+    r.strandY = f.leadY;
+    r.strandZ = f.leadZ;
+    std::string const now = Num(r.strandX) + " " + Num(r.strandY) + " " + Num(r.strandZ);
     r.strandDue = false;
-    r.strandStep = r.step;
     r.strandOn = true;
     r.strandMs = 0;
     // The lead bot leaves the island: its readings there say nothing any more.
@@ -5990,8 +6081,8 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
     r.passSpotKnown = false;
     r.approachHops = 0;
     r.walkBackRefusals = 0;
-    order = "rescue from " + spot + " to " + Num(p.x) + " " + Num(p.y) + " " + Num(p.z);
-    r.note = "the lead bot was stranded at " + spot + " with no way back: teleported to " + target;
+    order = "rescue from " + now + " to " + Num(p.x) + " " + Num(p.y) + " " + Num(p.z);
+    r.note = "the lead bot is stranded at " + now + " with no way back: teleporting it to " + target;
     return true;
 }
 

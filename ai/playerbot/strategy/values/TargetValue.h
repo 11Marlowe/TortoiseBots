@@ -5,6 +5,7 @@
 #include "playerbot/strategy//AiObject.h"
 #include "playerbot/strategy/Value.h"
 #include "playerbot/TravelMgr.h"
+#include "playerbot/RunnerFinishPolicy.h"
 #include <map>
 
 namespace ai
@@ -205,18 +206,20 @@ namespace ai
         std::map<ObjectGuid, uint32> data;
     };
 
-    // Runners a bot let go at a ledge (AttackersValue::RunnerLetGoAtLedge,
-    // RunnerFinishPolicy kRunnerLedgeDropYd), mapped to the time (ms) until
-    // which they stay let go while they are still below the bot's floor.
-    // A book of its own, apart from "unreachable targets": that one is lifted
-    // when the mob hits the bot in sight, which a mob below the ledge can do.
-    class RunnersLetGoValue : public ManualSetValue<std::map<ObjectGuid, uint32>& >
+    // Runners a bot of a dungeon run let go at a ledge, and its last navmesh
+    // read of the way to each (AttackersValue::RunnerLetGoAtLedge,
+    // RunnerFinishPolicy RunnerLedgeEntry): purged on every access and capped
+    // (PurgeRunnerBook). A book of its own, apart from "unreachable targets":
+    // that one is lifted when the mob hits the bot in sight, which a mob below
+    // the ledge can do. An explicit attack order erases the entry
+    // (CommitExplicitAttackTarget).
+    class RunnersLetGoValue : public ManualSetValue<std::map<ObjectGuid, RunnerLedgeEntry>& >
     {
     public:
-        RunnersLetGoValue(PlayerbotAI* ai) : ManualSetValue<std::map<ObjectGuid, uint32>& >(ai, data, "runners let go") {}
+        RunnersLetGoValue(PlayerbotAI* ai) : ManualSetValue<std::map<ObjectGuid, RunnerLedgeEntry>& >(ai, data, "runners let go") {}
 
     private:
-        std::map<ObjectGuid, uint32> data;
+        std::map<ObjectGuid, RunnerLedgeEntry> data;
     };
 
     // The kinds (creature entries) a reach action gave up on, mapped to the time (ms) until

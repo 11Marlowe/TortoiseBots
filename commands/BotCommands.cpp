@@ -9791,8 +9791,9 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
 // alone is put on stay at that point and moved there with the core's near
 // teleport (Unit::NearTeleportTo, as the module's own position fixes do). False
 // with "wait: ..." (a fight, or the lead bot moved more than kEscapeMovedYd from
-// lx ly lz since the run read it: kept due) or another refusal (ends it for the
-// step). Nothing is touched before every check passed.
+// lx ly lz since the run read it: kept due, 10 times a step) or another refusal
+// (a failed try: the run tries again, 3 times a step). Nothing is touched before
+// every check passed and the teleport itself was accepted.
 bool RunStrandedTeleport(Player* commander, std::string const& order, std::string& answer)
 {
     using namespace TortoiseBots::DungeonRun;
@@ -9839,6 +9840,14 @@ bool RunStrandedTeleport(Player* commander, std::string const& order, std::strin
     // The plan's point was reached by walking: its floor, read just above it.
     float const floor = map->GetHeight(x, y, z + 2.0f, true, 4.0f);
     float const ground = floor > INVALID_HEIGHT ? floor : z;
+    // The teleport first: a refused one leaves the lead bot exactly as it was
+    // (its AI, movement, tasks and stay anchor untouched), and the run tries again.
+    if (!lead->NearTeleportTo(x, y, ground + 0.5f, lead->GetOrientation()))
+    {
+        answer = "failed: the near teleport was refused";
+        return false;
+    }
+    // Only then the lead bot alone, as CommanderMoveDirect leaves it: on stay at the point.
     SupersedeCommanderTasks(commander->GetObjectGuid().GetRawValue(), 0, RemoteCommander::LaterOrder::Move);
     leadAi->DropQueuedMovementOrders();
     PlayerConvenience::Instance().NoteHoldOrder(lead->GetObjectGuid());
@@ -9846,11 +9855,6 @@ bool RunStrandedTeleport(Player* commander, std::string const& order, std::strin
     leadAi->SetMovementStrategy("stay");
     SetStayAnchor(leadAi, x, y, ground, lead->GetMapId());
     lead->GetMotionMaster()->Clear();
-    if (!lead->NearTeleportTo(x, y, ground + 0.5f, lead->GetOrientation()))
-    {
-        answer = "failed: the near teleport was refused";
-        return false;
-    }
     answer = "teleported to " + Num(x) + " " + Num(y) + " " + Num(ground);
     return true;
 }

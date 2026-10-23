@@ -5,6 +5,8 @@
 #include "EnemyPlayerValue.h"
 #include "Movement/spline/MoveSpline.h"
 #include "playerbot/RunnerFinishPolicy.h"
+#include "Maps/PathFinder.h"
+#include "runtime/RunReleaseHold.h"
 
 using namespace ai;
 using namespace MaNGOS;
@@ -616,36 +618,101 @@ float AttackersValue::RunnerDropYd(Unit* target, Player* bot)
     return ai::RunnerDropYd(bot->GetPositionZ(), target->GetPositionZ(), runEndKnown, runEndZ);
 }
 
+// The way from `bot` to the lower of `target` and the end of its run: complete
+// (PATHFIND_NORMAL) or not, and a cliff on it (ai::PathHasCliff). One navmesh
+// path; the caller holds the verdict for kRunnerLedgeReadMs.
+static void ReadRunnerWay(Unit* target, Player* bot, bool& complete, bool& cliff)
+{
+    float tx = target->GetPositionX(), ty = target->GetPositionY(), tz = target->GetPositionZ();
+    if (target->movespline->Initialized() && !target->movespline->Finalized())
+    {
+        Vector3 const end = target->movespline->FinalDestination();
+        if (end.z < tz)
+        {
+            tx = end.x;
+            ty = end.y;
+            tz = end.z;
+        }
+    }
+    PathFinder path(bot);
+    path.calculate(tx, ty, tz, false);
+    complete = path.getPathType() == PATHFIND_NORMAL;
+    std::vector<ai::RunnerPathPoint> points;
+    ai::RunnerPathPoint front;
+    front.x = bot->GetPositionX();
+    front.y = bot->GetPositionY();
+    front.z = bot->GetPositionZ();
+    points.push_back(front);
+    for (Vector3 const& v : path.getPath())
+    {
+        ai::RunnerPathPoint point;
+        point.x = v.x;
+        point.y = v.y;
+        point.z = v.z;
+        points.push_back(point);
+    }
+    cliff = ai::PathHasCliff(points);
+}
+
 bool AttackersValue::RunnerLetGoAtLedge(Unit* target, Player* bot)
 {
-    if (!target || !bot || target->IsPlayer() || !target->IsInWorld() || !bot->IsInWorld() ||
-        target->GetMapId() != bot->GetMapId())
-        return false;
-    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    PlayerbotAI* ai = bot ? PlayerbotAIStorage::Instance().GetAI(bot) : nullptr;
     if (!ai)
         return false;
-    std::map<ObjectGuid, uint32>& letGo =
-        ai->GetAiObjectContext()->GetValue<std::map<ObjectGuid, uint32>&>("runners let go")->Get();
+    AiObjectContext* context = ai->GetAiObjectContext();
+    std::map<ObjectGuid, ai::RunnerLedgeEntry>& book =
+        context->GetValue<std::map<ObjectGuid, ai::RunnerLedgeEntry>&>("runners let go")->Get();
+    uint32 const now = WorldTimer::getMSTime();
+    // Every access: what ran out goes, and the book never grows past its cap.
+    ai::PurgeRunnerBook(book, now);
+    if (!target || target->IsPlayer() || !target->IsInWorld() || !bot->IsInWorld() ||
+        target->GetMapId() != bot->GetMapId())
+        return false;
     bool const running = IsRunningMob(target);
-    if (!running && letGo.empty())
+    if (!running && book.empty())
         return false; // the common case: nothing to read
+    ObjectGuid const guid = target->getObjectGuid();
+    // An explicit attack order (the player's or the commander's) is chased:
+    // it clears any let-go of that target too.
+    if (context->GetValue<ObjectGuid>("explicit attack target")->Get() == guid)
+    {
+        book.erase(guid);
+        return false;
+    }
     ai::RunnerFacts facts;
     facts.alive = target->IsAlive();
     facts.running = running;
     facts.dropYd = RunnerDropYd(target, bot);
-    uint32 const now = WorldTimer::getMSTime();
-    if (ai::RunnerOverLedge(facts))
+    auto entry = book.find(guid);
+    if (entry != book.end() && entry->second.letGoUntil > now)
     {
-        letGo[target->getObjectGuid()] = now + ai::kRunnerLetGoMs;
-        return true;
+        if (facts.alive && ai::RunnerStaysLetGo(true, now, entry->second.letGoUntil, facts.dropYd))
+            return true;
+        entry->second.letGoUntil = 0; // back up on the bot's floor (or dead): a target again
     }
-    auto entry = letGo.find(target->getObjectGuid());
-    if (entry == letGo.end())
+    // The cheap filters first: a ledge candidate of a bot bound to an active
+    // dungeon run (random bots and normal groups are never touched).
+    if (!ai::RunnerOverLedge(facts) || !TortoiseBots::RunReleaseHold::HeldByRun(bot))
         return false;
-    if (facts.alive && ai::RunnerStaysLetGo(true, now, entry->second, facts.dropYd))
-        return true;
-    letGo.erase(entry);
-    return false;
+    bool complete = true, cliff = false;
+    if (entry != book.end() && entry->second.readUntil > now)
+    {
+        cliff = entry->second.cliff; // the verdict below: an incomplete way is stored as a cliff
+    }
+    else
+    {
+        ReadRunnerWay(target, bot, complete, cliff);
+        cliff = cliff || !complete;
+        ai::RunnerLedgeEntry& read = book[guid];
+        read.readUntil = now + ai::kRunnerLedgeReadMs;
+        read.cliff = cliff;
+        entry = book.find(guid);
+    }
+    if (!ai::LetRunnerGoAtLedge(true, false, facts, true, cliff))
+        return false;
+    entry->second.letGoUntil = now + ai::kRunnerLetGoMs;
+    ai::PurgeRunnerBook(book, now);
+    return true;
 }
 
 bool AttackersValue::IgnoreTarget(Unit* target, Player* playerToCheckAgainst)

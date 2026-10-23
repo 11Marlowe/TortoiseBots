@@ -27,6 +27,7 @@ POSSIBLE = (ROOT / "ai/playerbot/strategy/values/PossibleAttackTargetsValue.cpp"
 DPS = (ROOT / "ai/playerbot/strategy/values/DpsTargetValue.cpp").read_text()
 CONTEXT = (ROOT / "ai/playerbot/strategy/values/ValueContext.h").read_text()
 TARGETS = (ROOT / "ai/playerbot/strategy/values/TargetValue.h").read_text()
+ATTACK_ACTION = (ROOT / "ai/playerbot/strategy/actions/AttackAction.cpp").read_text()
 
 
 def body(text, start, end="\n}\n"):
@@ -44,21 +45,41 @@ def at(text, needle):
 class BotsLetRunnersGoAtLedgesTest(unittest.TestCase):
     def test_the_book_is_registered_with_its_type(self):
         at(CONTEXT, 'creators["runners let go"] = [](PlayerbotAI* ai) { return new RunnersLetGoValue(ai); };')
-        at(TARGETS, 'ManualSetValue<std::map<ObjectGuid, uint32>& >(ai, data, "runners let go")')
-        reads = re.findall(r'GetValue<([^>]+>&?)>\("runners let go"\)', ATTACKERS)
-        self.assertTrue(reads)
+        at(TARGETS, 'ManualSetValue<std::map<ObjectGuid, RunnerLedgeEntry>& >(ai, data, "runners let go")')
+        reads = re.findall(r'GetValue<(std::map<[^>]+>&)>\("runners let go"\)', ATTACKERS + ATTACK_ACTION)
+        self.assertEqual(len(reads), 2)
         for typ in reads:
-            self.assertEqual(typ.replace(" ", ""), "std::map<ObjectGuid,uint32>&")
+            self.assertIn(typ.replace(" ", ""), ("std::map<ObjectGuid,ai::RunnerLedgeEntry>&",
+                                                 "std::map<ObjectGuid,RunnerLedgeEntry>&"))
 
-    def test_let_go_marks_and_reads_the_book(self):
+    def test_let_go_scope_and_order(self):
         f = body(ATTACKERS, "bool AttackersValue::RunnerLetGoAtLedge(Unit* target, Player* bot)\n{")
-        over = at(f, "if (ai::RunnerOverLedge(facts))")
-        mark = at(f, "letGo[target->getObjectGuid()] = now + ai::kRunnerLetGoMs;")
-        stays = at(f, "ai::RunnerStaysLetGo(true, now, entry->second, facts.dropYd)")
-        erase = at(f, "letGo.erase(entry);")
-        self.assertTrue(over < mark < stays < erase)
-        at(f, "facts.running = running;")
-        at(f, "facts.dropYd = RunnerDropYd(target, bot);")
+        purge = at(f, "ai::PurgeRunnerBook(book, now);")
+        target = at(f, "if (!target || target->IsPlayer()")
+        explicit = at(f, 'context->GetValue<ObjectGuid>("explicit attack target")->Get() == guid')
+        clear = at(f, "book.erase(guid);\n        return false;")
+        stays = at(f, "ai::RunnerStaysLetGo(true, now, entry->second.letGoUntil, facts.dropYd)")
+        filters = at(f, "if (!ai::RunnerOverLedge(facts) || !TortoiseBots::RunReleaseHold::HeldByRun(bot))")
+        read = at(f, "ReadRunnerWay(target, bot, complete, cliff);")
+        verdict = at(f, "if (!ai::LetRunnerGoAtLedge(true, false, facts, true, cliff))")
+        mark = at(f, "entry->second.letGoUntil = now + ai::kRunnerLetGoMs;")
+        # Purge on every access before any target-specific return; the explicit order before any refusal;
+        # the cheap filters (height, run binding) before the one navmesh path.
+        self.assertTrue(purge < target < explicit < clear < stays < filters < read < verdict < mark)
+        at(f, "cliff = cliff || !complete;")
+        at(f, "read.readUntil = now + ai::kRunnerLedgeReadMs;")
+        self.assertEqual(f.count("ReadRunnerWay("), 1)
+
+    def test_the_way_is_read_from_the_navmesh(self):
+        f = body(ATTACKERS, "static void ReadRunnerWay(Unit* target, Player* bot, bool& complete, bool& cliff)\n{")
+        at(f, "path.calculate(tx, ty, tz, false);")
+        at(f, "complete = path.getPathType() == PATHFIND_NORMAL;")
+        at(f, "cliff = ai::PathHasCliff(points);")
+        at(f, "points.push_back(front);")
+
+    def test_an_explicit_order_clears_the_let_go(self):
+        f = body(ATTACK_ACTION, "void CommitExplicitAttackTarget(PlayerbotAI* ai, ObjectGuid guid)\n{")
+        at(f, 'GetValue<std::map<ObjectGuid, RunnerLedgeEntry>&>("runners let go")->Get().erase(guid);')
 
     def test_the_run_end_is_read_only_from_a_live_spline(self):
         f = body(ATTACKERS, "float AttackersValue::RunnerDropYd(Unit* target, Player* bot)\n{")
@@ -79,8 +100,9 @@ class BotsLetRunnersGoAtLedgesTest(unittest.TestCase):
         f = body(DPS, "Unit* FinishRunnerTarget(")
         running = at(f, "facts.running = AttackersValue::IsRunningMob(unit);")
         drop = at(f, "facts.dropYd = AttackersValue::RunnerDropYd(unit, bot);")
+        letgo = at(f, "facts.letGo = AttackersValue::RunnerLetGoAtLedge(unit, bot);")
         should = at(f, "ai::ShouldFinishRunner(facts, mobChaser)")
-        self.assertTrue(running < drop < should)
+        self.assertTrue(running < drop < letgo < should)
         self.assertNotIn("bool IsRunningMob(Unit* unit)", DPS)  # one definition, AttackersValue's
 
 
@@ -96,8 +118,11 @@ class StrandedLeadTeleportWiringTest(unittest.TestCase):
     def test_order_text_matches_the_policy(self):
         at(self.glue, '"rescue from %f %f %f to %f %f %f"')
         p = body(POLICY, "inline bool StrandedTeleportTick(")
-        at(p, 'order = "rescue from " + spot + " to " + Num(p.x) + " " + Num(p.y) + " " + Num(p.z);')
-        at(p, 'std::string const spot = Num(r.strandX) + " " + Num(r.strandY) + " " + Num(r.strandZ);')
+        send = at(p, 'order = "rescue from " + now + " to " + Num(p.x) + " " + Num(p.y) + " " + Num(p.z);')
+        # The spot is this tick's facts, read right before the send (a lead bot that moved on the island).
+        fresh = at(p, "r.strandX = f.leadX;\n    r.strandY = f.leadY;\n    r.strandZ = f.leadZ;")
+        self.assertLess(fresh, at(p, 'std::string const now = Num(r.strandX) + " " + Num(r.strandY) + " " + Num(r.strandZ);'))
+        self.assertLess(fresh, send)
         # The policy's refusal handling reads the same verb.
         refused = body(POLICY, "inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)\n{")
         at(refused, 'if (order.compare(0, 7, "rescue ") == 0)')
@@ -108,12 +133,18 @@ class StrandedLeadTeleportWiringTest(unittest.TestCase):
         moved = at(f, "> kEscapeMovedYd)")
         fight = at(f, "bool fight = lead->IsInCombat();")
         wait = at(f, 'answer = "wait: a party bot is in combat";')
+        teleport = at(f, "if (!lead->NearTeleportTo(x, y, ground + 0.5f, lead->GetOrientation()))")
+        failed = at(f, 'answer = "failed: the near teleport was refused";\n        return false;')
         supersede = at(f, "SupersedeCommanderTasks(commander->GetObjectGuid().GetRawValue(), 0, RemoteCommander::LaterOrder::Move);")
+        drop = at(f, "leadAi->DropQueuedMovementOrders();")
+        hold = at(f, "PlayerConvenience::Instance().NoteHoldOrder(lead->GetObjectGuid());")
         reset = at(f, "leadAi->Reset();")
         stay = at(f, 'leadAi->SetMovementStrategy("stay");')
         anchor = at(f, "SetStayAnchor(leadAi, x, y, ground, lead->GetMapId());")
-        teleport = at(f, "lead->NearTeleportTo(x, y, ground + 0.5f, lead->GetOrientation())")
-        self.assertTrue(alive < moved < fight < wait < supersede < reset < stay < anchor < teleport)
+        clear = at(f, "lead->GetMotionMaster()->Clear();")
+        # Every check, then the teleport; nothing on the lead bot changes before it was accepted.
+        self.assertTrue(alive < moved < fight < wait < teleport < failed < supersede < drop < hold < reset < stay <
+                        anchor < clear)
         self.assertEqual(f.count("NearTeleportTo("), 1)
         self.assertEqual(f.count("leadAi->Reset()"), 1)
         self.assertRegex(f, r"> kEscapeMovedYd\)\s*\{\s*answer = \"wait: ")

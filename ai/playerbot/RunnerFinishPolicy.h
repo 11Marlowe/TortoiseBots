@@ -21,6 +21,10 @@
 // Unit* glue lives in DpsTargetValue.cpp; everything here is plain data so it
 // is tested on its own (tools/test_runner_finish_policy.cpp).
 
+#include <algorithm>
+#include <cstddef>
+#include <vector>
+
 namespace ai
 {
     // Below this health a running mob is finished rather than left to fetch help.
@@ -39,13 +43,80 @@ namespace ai
     // Chases stop at ledges (owner decision 2026-10-23, Sunken Temple r26
     // slot 6b step 233: the lead bot went 13 yd down off the z -172.9 floor
     // onto an island with no navmesh route back, and the run stopped there).
-    // A running unit more than this far below the bot's floor, or whose run
-    // ends more than this far below it, is let go: the bot stays on its floor.
+    // Scoped by the review of 565751aa: only a bot bound to an active dungeon
+    // run lets a runner go, never on an explicit attack order, and only on
+    // evidence of a drop (LetRunnerGoAtLedge): the runner, or the end of its
+    // run, more than kRunnerLedgeDropYd below the bot's floor, AND the bot's
+    // navmesh path there either incomplete or with a cliff on it (a segment
+    // that falls more than kRunnerLedgeDropYd over less than kRunnerCliffRunYd
+    // across: PathHasCliff). A staircase or a slope down is chased as before.
     constexpr float kRunnerLedgeDropYd = 6.0f;
+    constexpr float kRunnerCliffRunYd = 5.0f;
 
     // How long a runner let go at a ledge stays let go while it is still
     // below the bot (it may stop running down there): RunnerStaysLetGo.
     constexpr unsigned kRunnerLetGoMs = 30000;
+    // How long one navmesh read of the way to a runner holds (one path a
+    // second per bot and runner, not one per validity check).
+    constexpr unsigned kRunnerLedgeReadMs = 1000;
+    // The most runners one bot's book keeps (PurgeRunnerBook).
+    constexpr std::size_t kRunnerBookCap = 32;
+
+    struct RunnerPathPoint
+    {
+        float x = 0.0f, y = 0.0f, z = 0.0f;
+    };
+
+    // A cliff on the way: some segment of the path falls more than
+    // kRunnerLedgeDropYd while crossing less than kRunnerCliffRunYd.
+    inline bool PathHasCliff(std::vector<RunnerPathPoint> const& path)
+    {
+        for (std::size_t i = 1; i < path.size(); ++i)
+        {
+            float const drop = path[i - 1].z - path[i].z;
+            float const dx = path[i].x - path[i - 1].x;
+            float const dy = path[i].y - path[i - 1].y;
+            if (drop > kRunnerLedgeDropYd && dx * dx + dy * dy < kRunnerCliffRunYd * kRunnerCliffRunYd)
+                return true;
+        }
+        return false;
+    }
+
+    // One bot's book of runners (the glue's "runners let go" value): let go
+    // until letGoUntil, and the last navmesh read with its verdict, valid
+    // until readUntil.
+    struct RunnerLedgeEntry
+    {
+        unsigned letGoUntil = 0;
+        unsigned readUntil = 0;
+        bool cliff = false;
+    };
+
+    // Every access first drops the entries whose let-go and read both ran
+    // out, then, past kRunnerBookCap, the ones that run out soonest.
+    template <typename Book>
+    inline void PurgeRunnerBook(Book& book, unsigned nowMs)
+    {
+        for (auto it = book.begin(); it != book.end();)
+        {
+            if (it->second.letGoUntil <= nowMs && it->second.readUntil <= nowMs)
+                it = book.erase(it);
+            else
+                ++it;
+        }
+        while (book.size() > kRunnerBookCap)
+        {
+            auto soonest = book.begin();
+            for (auto it = book.begin(); it != book.end(); ++it)
+            {
+                unsigned const a = std::max(it->second.letGoUntil, it->second.readUntil);
+                unsigned const b = std::max(soonest->second.letGoUntil, soonest->second.readUntil);
+                if (a < b)
+                    soonest = it;
+            }
+            book.erase(soonest);
+        }
+    }
 
     struct RunnerFacts
     {
@@ -60,6 +131,9 @@ namespace ai
         // when it has one), lies below the bot's floor, whichever is lower;
         // 0 or less: not below.
         float dropYd = 0.0f;
+        // The bot lets this runner go at a ledge (the glue's
+        // LetRunnerGoAtLedge verdict, run bots only): not finished.
+        bool letGo = false;
     };
 
     struct RunnerChaser
@@ -89,12 +163,20 @@ namespace ai
         return botZ - low;
     }
 
-    // A running unit over a ledge (more than kRunnerLedgeDropYd below the
-    // bot's floor, or running there): the bot lets it go, whoever it is (the
-    // tank, a DPS, an explicit target too) and whatever its health.
+    // A running unit more than kRunnerLedgeDropYd below the bot's floor, or
+    // running there: a ledge candidate (the cheap filter before any path).
     inline bool RunnerOverLedge(RunnerFacts const& mob)
     {
         return mob.alive && mob.running && mob.dropYd > kRunnerLedgeDropYd;
+    }
+
+    // The bot lets the runner go at a ledge: it is bound to an active dungeon
+    // run, the runner is no explicit attack order of its, it is a ledge
+    // candidate, and its navmesh way there is incomplete or has a cliff.
+    inline bool LetRunnerGoAtLedge(bool runBound, bool explicitOrder, RunnerFacts const& mob, bool completePath,
+        bool cliffOnPath)
+    {
+        return runBound && !explicitOrder && RunnerOverLedge(mob) && (!completePath || cliffOnPath);
     }
 
     // A runner let go at a ledge stays let go while the mark holds and it is
@@ -122,7 +204,7 @@ namespace ai
     // This bot should go after this runner now.
     inline bool ShouldFinishRunner(RunnerFacts const& mob, RunnerChaser const& bot)
     {
-        if (!IsFinishableRunner(mob) || RunnerOverLedge(mob))
+        if (!IsFinishableRunner(mob) || mob.letGo)
             return false;
         float const leash = RunnerLeash(bot);
         return leash > 0.0f && mob.distance <= leash;
