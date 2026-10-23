@@ -273,7 +273,13 @@ class DungeonPlanSql(unittest.TestCase):
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
-        # 20261023230100 (turtle-agent rfk-fix7 788c2ea5, 2026-10-23, after live run r26 slot8 run 6 stopped at step 618 in the
+        # 20261024040000 (turtle-agent rfk-fix8 41172e39, 2026-10-24, after live run r27 slot8 run 7 stopped at step 657 in the
+        # charlga leg): 20261023230100's plan again, except leg 6. Pull groups 6, 7 and 8 (steps 655-657, the z49 pit packs the
+        # run fired at from the z74-81 ledge, group 8 refused 4x) each have an approach stand on the pit floor (2095 1845,
+        # 2100 1855, 2120 1840), and pull group 17 (the z80 ledge pack, 32 yd above its anchor) has the route's own corner
+        # 2093.1 1767.5 as its approach; four more rows, 706 steps. Groups 3 and 9 (anchor dz 8.0 and 8.2) keep no approach:
+        # each anchor-to-pack path is complete at a ratio of ~1.0, and no clean 15-25 yd stand exists.
+        # before it: 20261023230100 (turtle-agent rfk-fix7 788c2ea5, 2026-10-23, after live run r26 slot8 run 6 stopped at step 618 in the
         # agathelos leg): 20261023160000's plan again, except leg 5. The leg's 'to' (step 612, where the walk back returns to) is the
         # den entry 2090.7 1922.9 66.3 on the route's last corner (was 2056.44 1920.13 69.47, under the z 99 ledge the lead bot
         # idled on), and pull groups 0, 1, 3, 4 and 5 have an approach stand on the den's own floor (group 2 shares group 1's);
@@ -292,11 +298,11 @@ class DungeonPlanSql(unittest.TestCase):
         # packs that stand with a boss are that boss row's entries, not pulls; Halmgar 4842 and the Blind Hunter 4425 are pull
         # members.
         name, text = newest_plan_text("razorfen_kraul")
-        self.assertEqual(name, "20261023230100_world.sql")
-        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent 788c2ea5 dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024040000_world.sql")
+        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent 41172e39 dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "razorfen_kraul")), 7)
         rows = [r for r in self.step_rows(text) if r["plan"] == "razorfen_kraul"]
-        self.assertEqual(len(rows), 702)
+        self.assertEqual(len(rows), 706)
         # The opening stand is the lower-floor pocket 1994 1615 (the old 1987.53 1600.03 has the upper walkway overhead); the five
         # corridor groups all have radius 10 (group 0 was 25 and owned the next group's Quilguards; group 5's default was 19.3), and
         # seq 5 is the explicit corridor regroup move before pull group 4 (r19-19z37: the two ranged bots climbed the west ramp while
@@ -372,6 +378,17 @@ class DungeonPlanSql(unittest.TestCase):
         # No pull of leg 6 holds a Death's Head Priest under the den (the boss is 2 yd 2-D from the old priest pull): the boss row is
         # the fight; the one priest pull left stands 40 yd from her, with the Warden (leg 6 old group 13).
         self.assertEqual([(r["entries"], round(float(r["x"])), round(float(r["y"]))) for r in pulls if r["leg"] == "6" and "4517" in r["entries"].split(",")], [("4517,4437", 2189, 1832)])
+        # Step 657 (r27 slot8 run 7: 4x "the tank could not start moving to a firing position for the pull", lead on the z74.1
+        # ledge 25 yd above the pack): groups 6, 7 and 8 are pulled from approach stands on the z49 pit floor, and group 17
+        # (anchor 32 yd below its z80 pack) from the route's own ledge corner.
+        charlga = leg_steps(rows, 6)
+        stands6 = [(r["x"], r["y"], r["z"], r["comment"]) for r in charlga if r["comment"].endswith(" approach")]
+        self.assertEqual(stands6, [("2095", "1845", "50.8", "pull group 6 approach"),
+                                   ("2100", "1855", "49.7", "pull group 7 approach"),
+                                   ("2120", "1840", "48.8", "pull group 8 approach"),
+                                   ("2093.1", "1767.5", "79.8", "pull group 17 approach")])
+        self.assertTrue(all(float(r["z"]) < 74 for r in charlga if r["comment"].endswith(" approach") and float(r["z"]) < 70),
+                        "a pit stand sits on a ledge")
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["razorfen_kraul"])
         # The ai_dungeon_boss rows stay in 20261022210300 (the boss seed is per map and a repeat would trip test_boss_table_is_the_seed);
         # this file replaces the plan rows only.
