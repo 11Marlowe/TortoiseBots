@@ -4,6 +4,7 @@
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "PositionAction.h"
+#include "playerbot/strategy/values/LastMovementValue.h"
 
 using namespace ai;
 
@@ -103,7 +104,11 @@ bool MoveToPositionAction::Execute(Event& event)
         return false;
     }
 
-    return MoveTo(bot->GetMapId(), pos.x, pos.y, pos.z, idle);
+    bool const moved = MoveTo(bot->GetMapId(), pos.x, pos.y, pos.z, idle);
+    // The run leader reads a lead bot whose anchor walk keeps failing (MoveFailNotePolicy.h PositionMoveFailing);
+    // the low bit keeps a failure at ms 0 apart from "none".
+    AI_VALUE(LastMovement&, "last movement").positionMoveFailMs = moved ? 0 : (WorldTimer::getMSTime() | 1u);
+    return moved;
 }
 
 bool MoveToPositionAction::isUseful()

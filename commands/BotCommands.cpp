@@ -40,6 +40,7 @@
 #include "../ai/playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "../ai/playerbot/strategy/values/PositionValue.h"
 #include "../ai/playerbot/strategy/values/LastMovementValue.h"
+#include "../ai/playerbot/MoveFailNotePolicy.h"
 #include "../ai/playerbot/strategy/values/ItemUsageValue.h"
 #include "../ai/playerbot/strategy/actions/EquipAction.h"
 #include "../ai/playerbot/strategy/actions/UnequipAction.h"
@@ -2049,6 +2050,10 @@ struct RunOrderCapture
     bool answered = false;
     bool ok = false;
     std::string text;
+    // A plain `cmd move`: the path type its check saw (CommanderMove), for the
+    // run leader's stuck note (DungeonRun::NoteMovePathType).
+    bool movePathRead = false;
+    uint32 movePathType = 0;
 };
 static RunOrderCapture s_runOrderCapture;
 
@@ -6114,6 +6119,10 @@ static void NoteRunMagma(Player* lead, float x, float y, float z, RunMagmaNote k
         lead->GetMapId(), lead->GetName());
 }
 
+static_assert(TortoiseBots::DungeonRun::kStallDirectMaxYd == RemoteCommander::kDirectMaxDistance &&
+    TortoiseBots::DungeonRun::kStallDirectMaxVertical == RemoteCommander::kDirectMaxVertical,
+    "a stalled walk's direct move keeps the direct step's limits");
+
 static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std::string const& args,
     std::string const& intent)
 {
@@ -6181,6 +6190,11 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
         PathFinder path(lead);
         path.calculate(point.x, point.y, point.z, false);
         facts.pathType = static_cast<uint32>(path.getPathType());
+        if (s_runOrderCapture.active)
+        {
+            s_runOrderCapture.movePathRead = true;
+            s_runOrderCapture.movePathType = facts.pathType;
+        }
         Vector3 const end = path.getActualEndPosition();
         float const ex = end.x - point.x;
         float const ey = end.y - point.y;
@@ -7312,7 +7326,7 @@ void NudgeTaskWalk(CommanderTask& task, Player* bot, uint32 diff)
     {
         bool const guard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());
         ai::LastMovement& lastMove = ai->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get();
-        if (ai::MagmaNudgeBlocked(guard, lastMove.moveFailReason == ai::MOVE_FAIL_MAGMA, lastMove.magmaRefusal,
+        if (ai::MagmaNudgeBlocked(guard, lastMove.magmaRefusal, bot->GetMapId(),
                 static_cast<std::int64_t>(time(nullptr)),
                 guard && ai::WorldPosition(bot->GetMapId(), task.stand.x, task.stand.y, task.stand.z).isInMagma(
                     bot->GetMap()->GetTerrain())))
@@ -9336,7 +9350,8 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
 // Sends one order as the commander's own `.bot cmd <text>`. False with the
 // module's answer when it was refused (ERR). A pending task answers later.
 // The hop off a navmesh island (DungeonRun::IslandEscape) is the run's own, not a `cmd`.
-bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer, bool gather = false)
+bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer, bool gather = false,
+    RunOrderCapture* captured = nullptr)
 {
     if (text.compare(0, 7, "escape ") == 0)
         return RunIslandEscape(commander, text, answer);
@@ -9350,6 +9365,8 @@ bool IssueRunOrder(Player* commander, std::string const& text, std::string& answ
     s_runGather = false;
     RunOrderCapture const got = s_runOrderCapture;
     s_runOrderCapture = RunOrderCapture();
+    if (captured)
+        *captured = got;
     answer = got.text;
     return !got.answered || got.ok;
 }
@@ -9457,7 +9474,11 @@ bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& o
 // plain move, 15 for a direct step): the point itself on the ground first, then
 // rings of 3, 6, 10, 15, 20 and 25 yd around it, those within maxYd (12
 // directions, each put on the ground). Only run when a move was refused, never per tick.
-bool NearestReachablePoint(Player* lead, float x, float y, float z, float maxYd, float& ox, float& oy, float& oz)
+// dryOnly (a stalled walk's stand-in, DungeonRun::StallFallback): only a point with no
+// liquid at it, reached by a navmesh path (no swim line: the lead bot's own move had
+// failed in the water).
+bool NearestReachablePoint(Player* lead, float x, float y, float z, float maxYd, float& ox, float& oy, float& oz,
+    bool dryOnly = false)
 {
     Map* map = lead->GetMap();
     if (!map)
@@ -9467,9 +9488,13 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float maxYd,
         float const ground = map->GetHeight(px, py, pz + 5.0f);
         if (ground <= INVALID_HEIGHT || std::fabs(ground - pz) > 10.0f)
             return false;
+        if (dryOnly && map->GetTerrain()->getLiquidStatus(px, py, ground + 0.5f, MAP_ALL_LIQUIDS, nullptr) != LIQUID_MAP_NO_WATER)
+            return false;
         PathFinder path(lead);
         path.calculate(px, py, ground, false);
         uint32 const type = static_cast<uint32>(path.getPathType());
+        if (dryOnly && (type & (PATHFIND_UNDERWATER | PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT)))
+            return false;
         Vector3 const end = path.getActualEndPosition();
         // Near the point AND, when partial, leading on (r6-19z24: two ring points
         // whose partial paths ended on the lead bot's island were taken, and refused),
@@ -10741,6 +10766,37 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.leadY = lead->GetPositionY();
     f.leadZ = lead->GetPositionZ();
     f.leadMoving = lead->IsMoving(); // an exact waypoint's stand-still proof (DungeonRunPolicy.h ExactWalkTo)
+    // The stuck note and the stall's fallback (DungeonRun::StuckNote, StallFallback): the lead bot in water, and
+    // its own "move to position" failing now (stamped by MoveToPositionAction::Execute).
+    f.leadInWater = lead->IsInWater() || lead->IsUnderwater();
+    if (PlayerbotAI* const moveAi = PlayerbotAIStorage::Instance().GetAI(lead))
+    {
+        ai::LastMovement& lastMove = moveAi->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get();
+        f.leadMoveFailed = ai::PositionMoveFailing(lastMove.positionMoveFailMs, WorldTimer::getMSTime());
+        f.leadMoveFailReason = ai::MoveFailReasonName(lastMove.moveFailReason);
+    }
+    // A stall's direct move (DungeonRun::StallFallback) only on a clear swim line: read near a
+    // stall only, for the walk's point (one line test and one hostile search per walk).
+    if (StallDirectProbeWanted(slot.run) && f.leadInWater && f.leadMoveFailed && StallPathFailure(f.leadMoveFailReason) &&
+        lead->IsAlive() && !lead->GetTransport())
+    {
+        TortoiseBots::DungeonRun::Run const& r = slot.run;
+        std::vector<ai::WorldPosition> const line = { ai::WorldPosition(lead),
+            ai::WorldPosition(lead->GetMapId(), r.walkX, r.walkY, r.walkZ) };
+        bool const swimLine = ai::WorldPosition::IsSwimLine(line, lead);
+        std::vector<HostileSpot> hostiles;
+        if (swimLine)
+        {
+            std::list<Unit*> around;
+            HostileCreaturesAround(lead, DistanceTo(lead, r.walkX, r.walkY, r.walkZ) + kStallDirectHostileYd, around);
+            for (Unit* unit : around)
+                if (unit->IsAlive())
+                    hostiles.push_back(HostileSpot{ unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ() });
+        }
+        f.stallDirectRead = true;
+        f.stallDirectClear = StallDirectLineClear(f.leadInWater, swimLine, hostiles, f.leadX, f.leadY, f.leadZ,
+            r.walkX, r.walkY, r.walkZ);
+    }
     // The group's raid icons now: a cc order takes only a free mark or one the run set (DungeonRun::PickCcOrder).
     if (Group* const iconGroup = lead->GetGroup())
     {
@@ -11679,6 +11735,17 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
     // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
     DropUnattackableCombat(lead, bots, slot.run.combatDrops);
+    // A stalled walk whose lead bot's own move failed asked for a stand-in on dry ground
+    // (DungeonRun::StallFallback): searched once, here, never per tick.
+    if (slot.run.stallStandInWanted)
+    {
+        float dx = 0.0f, dy = 0.0f, dz = 0.0f;
+        ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(slot.run);
+        bool const found = step && lead->IsAlive() && lead->IsInWorld() &&
+            NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::MoveFallbackYd(*step),
+                dx, dy, dz, true);
+        TortoiseBots::DungeonRun::StallStandIn(slot.run, found, dx, dy, dz);
+    }
     // While the party rests the lead bot holds where it stands
     // (DungeonRun::LeadStayDueWhileResting, RFC r3-19z20). Before the rest
     // order below, so its own drink or meal follows the stay's reset.
@@ -11712,14 +11779,20 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             slot.taskObjectReacted = false;
         }
         std::string answer;
+        RunOrderCapture captured;
         bool const accepted = IssueRunOrder(commander, order, answer,
-            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order));
+            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order), &captured);
         // The order may have released the binding (and the run with it): `slot`
         // is not to be touched before the run is looked up again.
         it = DungeonRuns().find(commanderRaw);
         if (it == DungeonRuns().end())
             return;
-        if (!accepted)
+        if (accepted && captured.movePathRead)
+            TortoiseBots::DungeonRun::NoteMovePathType(it->second.run, order, captured.movePathType);
+        // A stalled walk's `direct` move refused: the walk goes on without it (DungeonRun::StallDirectRefused).
+        bool const stallDirectRefused = !accepted &&
+            TortoiseBots::DungeonRun::StallDirectRefused(it->second.run, order, answer);
+        if (!accepted && !stallDirectRefused)
         {
             // A move point the navmesh cannot reach (the step's own move or its
             // detour's): DungeonRun::MoveRefusedUnreachable walks to the nearest

@@ -238,6 +238,252 @@ static void TestStandOnALedgeCountsByGroundDistance()
     CHECK(!arrived && stuck);
 }
 
+// Blackfathom Deeps 2026-10-23 (BFD-STUCK-POINTS-2026-10-23): every "lead bot is stuck"
+// pause began with the lead bot in a deep pool and its own move failing every 2 s, and
+// the note could not say so. It names the lead bot's water state, the path type the
+// acked `cmd move` saw, and whether its own move is failing and why.
+static void TestStuckPauseNamesTheLeadsWaterState()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0, 0, 0), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(16.0f);
+    f.leadInWater = true;
+    std::string const order = Tick(r, f);
+    CHECK(order == "move 0.0 0.0 0.0");
+    NoteMovePathType(r, order, 0x81);
+    for (int i = 0; i < 300 && r.state == State::Running; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Paused);
+    CHECK(r.note == "the lead bot is stuck 16.0 yd from 0.0 0.0 0.0 (lead in water: yes; cmd move path type 0x81; "
+        "its own move not failing)");
+
+    // The note's other words.
+    Run q = Start(&plan);
+    Facts g = Party(16.0f);
+    CHECK(StuckNote(q, g) == " (lead in water: no; cmd move path type not read; its own move not failing)");
+    g.leadMoveFailed = true;
+    g.leadMoveFailReason = "dispatch-short";
+    NoteMovePathType(q, "move 1.0 2.0 3.0", 0x11);
+    CHECK(StuckNote(q, g) == " (lead in water: no; cmd move path type 0x11; its own move failing: dispatch-short)");
+    // A direct move and other orders do not change it.
+    NoteMovePathType(q, "move 1.0 2.0 3.0 direct", 0x8);
+    NoteMovePathType(q, "attack 0x0000000000000001", 0x8);
+    CHECK(q.movePathType == 0x11);
+    g.leadMoveFailReason.clear();
+    CHECK(StuckNote(q, g) == " (lead in water: no; cmd move path type 0x11; its own move failing: none)");
+}
+
+// Ticks until the run sends an order (or stops running); at most `max` ticks.
+static std::string NextOrder(Run& r, const Facts& f, int max = 400)
+{
+    for (int i = 0; i < max && r.state == State::Running; ++i)
+    {
+        std::string const order = Tick(r, f);
+        if (!order.empty() || r.stallStandInWanted)
+            return order;
+    }
+    return std::string();
+}
+
+// Blackfathom Deeps 2026-10-22/23: the lead bot in a deep pool, its own move failing
+// every 2 s; the walk re-sent the same `cmd move` and paused, and the refusal path's
+// stand-in never ran. A stall with the lead bot's move failing, out of combat, first
+// sends the straight `direct` move, then asks the glue for a dry stand-in, then the
+// old retries and pause.
+static void TestStalledWalkWithAFailingMoveTriesDirectThenADryStandIn()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0, 0, 0), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(16.0f);
+    f.leadInWater = true;
+    f.leadMoveFailed = true;
+    f.leadMoveFailReason = "dispatch-short";
+    // The glue read the line: a clear swim line (the BFD pool case).
+    f.stallDirectRead = true;
+    f.stallDirectClear = true;
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    // The first stall: the direct move, not the same plain move again.
+    CHECK(NextOrder(r, f) == "move 0.0 0.0 0.0 direct");
+    CHECK(r.state == State::Running && r.walkTries == 1 && r.stallFallback == 1);
+    CHECK(r.note == "the lead bot's own move to 0.0 0.0 0.0 failed (dispatch-short, in water): the straight move (direct) instead");
+    // It did not help either: the stand-in search goes to the glue (no order this tick).
+    CHECK(NextOrder(r, f).empty());
+    CHECK(r.stallStandInWanted && r.stallFallback == 2 && r.state == State::Running);
+    // The glue found a dry point 8 yd off: the step walks there.
+    CHECK(StallStandIn(r, true, 8.0f, 0.0f, 0.0f));
+    CHECK(!r.stallStandInWanted && r.detour);
+    CHECK(r.note == "step 1: the lead bot's own move to 0.0 0.0 0.0 kept failing: walking to the stand-in on dry ground "
+        "8.0 0.0 0.0, 8.0 yd from it, and going on from there");
+    CHECK(NextOrder(r, f) == "move 8.0 0.0 0.0");
+    // The stand-in's own walk stalls too: its direct move, then no second stand-in
+    // (the old retries go on).
+    CHECK(NextOrder(r, f) == "move 8.0 0.0 0.0 direct");
+    CHECK(NextOrder(r, f) == "move 8.0 0.0 0.0");
+    CHECK(!r.stallStandInWanted && r.stallFallback == 3 && r.walkTries == 2);
+    f.leadX = 8.0f;
+    for (int i = 0; i < 10 && r.step == 0; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1);
+
+    // No stand-in found: the walk's own retries go on, then the stuck pause with the note.
+    Run q = Start(&plan);
+    Facts g = f;
+    g.leadX = 16.0f;
+    CHECK(Tick(q, g) == "move 0.0 0.0 0.0");
+    CHECK(NextOrder(q, g) == "move 0.0 0.0 0.0 direct");
+    CHECK(NextOrder(q, g).empty() && q.stallStandInWanted);
+    CHECK(!StallStandIn(q, false, 0, 0, 0));
+    CHECK(q.note == "the lead bot's own move to 0.0 0.0 0.0 kept failing: no stand-in on dry ground within 25 yd of it");
+    CHECK(Tick(q, g) == "move 0.0 0.0 0.0");
+    CHECK(q.walkTries == 2);
+    CHECK(NextOrder(q, g) == "move 0.0 0.0 0.0");
+    CHECK(q.walkTries == 3);
+    CHECK(NextOrder(q, g).empty());
+    CHECK(q.state == State::Paused);
+    CHECK(q.note == "the lead bot is stuck 16.0 yd from 0.0 0.0 0.0 (lead in water: yes; cmd move path type not read; "
+        "its own move failing: dispatch-short)");
+
+    // The direct move refused: no pause, the stand-in next.
+    Run d = Start(&plan);
+    CHECK(Tick(d, g) == "move 0.0 0.0 0.0");
+    std::string const direct = NextOrder(d, g);
+    CHECK(direct == "move 0.0 0.0 0.0 direct");
+    CHECK(!StallDirectRefused(d, "move 0.0 0.0 0.0", "too-far"));
+    CHECK(StallDirectRefused(d, direct, "too-far: Healy is not with Tanky"));
+    CHECK(d.state == State::Running);
+    CHECK(d.note == "the straight move (direct) to 0.0 0.0 0.0 was refused (too-far: Healy is not with Tanky): going on without it");
+    CHECK(Tick(d, g).empty() && d.stallStandInWanted);
+    // Past the direct stage a refusal of that order is no longer the stall's.
+    CHECK(!StallDirectRefused(d, direct, "too-far"));
+
+    // Beyond the direct step's limits (30 yd, or 9 yd up): straight to the stand-in.
+    Run far = Start(&plan);
+    Facts h = g;
+    h.leadX = 30.0f;
+    CHECK(Tick(far, h) == "move 0.0 0.0 0.0");
+    CHECK(NextOrder(far, h).empty() && far.stallStandInWanted && far.stallFallback == 2);
+    CHECK(StallDirectFits(g, 0.0f, 0.0f, 0.0f));
+    h.leadX = 10.0f;
+    h.leadZ = kStallDirectMaxVertical + 1.0f;
+    CHECK(!StallDirectFits(h, 0.0f, 0.0f, 0.0f));
+    h.leadZ = 0.0f;
+    h.leadX = kStallDirectMaxYd + 0.1f;
+    CHECK(!StallDirectFits(h, 0.0f, 0.0f, 0.0f));
+
+    // Its own move not failing, or the party in a fight: the old retries, no fallback.
+    Run ok = Start(&plan);
+    Facts n = g;
+    n.leadMoveFailed = false;
+    CHECK(Tick(ok, n) == "move 0.0 0.0 0.0");
+    CHECK(NextOrder(ok, n) == "move 0.0 0.0 0.0");
+    CHECK(ok.walkTries == 2 && ok.stallFallback == 0);
+    Run fight = Start(&plan);
+    std::string unused;
+    fight.phase = Phase::Walk;
+    Facts c = g;
+    c.anyInCombat = true;
+    CHECK(!StallFallback(fight, c, 0.0f, 0.0f, 0.0f, false, unused));
+    CHECK(fight.stallFallback == 0 && unused.empty());
+    // A direct walk keeps its own rule.
+    CHECK(!StallFallback(fight, g, 0.0f, 0.0f, 0.0f, true, unused));
+
+    // The stand-in only replaces the current move step's own walk (not a pull's, a hop's,
+    // a walk back's), and never twice.
+    Run own = Start(&plan);
+    CHECK(StallStandInFits(own, 0.0f, 0.0f, 0.0f));
+    CHECK(!StallStandInFits(own, 1.0f, 0.0f, 0.0f));
+    own.detour = true;
+    CHECK(!StallStandInFits(own, 0.0f, 0.0f, 0.0f));
+    DungeonPlan pull;
+    pull.steps = {PullStep(0, {4850}), Step(PlanStepKind::Rest)};
+    Run p = Start(&pull);
+    CHECK(!StallStandInFits(p, 0.0f, 0.0f, 0.0f));
+
+    // Opus review 2026-10-23: the fallback only for a path failure. clipped-empty (the path
+    // cut at a hostile or a hazard), magma, cantmove: the old retries and pause, no direct
+    // move and no stand-in; dispatch-short and empty-path: the fallback. shortcut-empty
+    // is never recorded by MoveTo2 (Codex review 2026-10-23), so it is not counted either.
+    for (const char* reason : {"clipped-empty", "magma", "cantmove", "hazard-short", "shortcut-empty", "none", ""})
+    {
+        Run cut = Start(&plan);
+        Facts k = g;
+        k.leadMoveFailReason = reason;
+        CHECK(Tick(cut, k) == "move 0.0 0.0 0.0");
+        CHECK(NextOrder(cut, k) == "move 0.0 0.0 0.0");
+        CHECK(!cut.stallStandInWanted && cut.stallFallback == 0 && cut.walkTries == 2);
+        CHECK(NextOrder(cut, k) == "move 0.0 0.0 0.0");
+        CHECK(NextOrder(cut, k).empty() && cut.state == State::Paused && !cut.stallStandInWanted);
+    }
+    for (const char* reason : {"dispatch-short", "empty-path"})
+    {
+        Run path = Start(&plan);
+        Facts k = g;
+        k.leadMoveFailReason = reason;
+        CHECK(StallPathFailure(reason));
+        CHECK(Tick(path, k) == "move 0.0 0.0 0.0");
+        CHECK(NextOrder(path, k) == "move 0.0 0.0 0.0 direct");
+    }
+    CHECK(!StallPathFailure("clipped-empty") && !StallPathFailure("magma"));
+
+    // Codex review 2026-10-23: the direct move only in the diagnosed case. On land beside a
+    // ledge (the line not a clear swim line), with the line not read, or with the lead bot
+    // out of the water: no direct move, the dry stand-in at once.
+    for (int c = 0; c < 3; ++c)
+    {
+        Run land = Start(&plan);
+        Facts l = g;
+        if (c == 0)
+            l.stallDirectClear = false; // read: not a swim line, or a hostile near it
+        else if (c == 1)
+            l.stallDirectRead = false;  // not read
+        else
+            l.leadInWater = false;      // on land
+        CHECK(Tick(land, l) == "move 0.0 0.0 0.0");
+        CHECK(NextOrder(land, l).empty());
+        CHECK(land.stallStandInWanted && land.stallFallback == 2);
+        CHECK(!StallStandIn(land, false, 0, 0, 0));
+        CHECK(Tick(land, l) == "move 0.0 0.0 0.0"); // the old retries, never a direct move
+        CHECK(NextOrder(land, l) == "move 0.0 0.0 0.0");
+        CHECK(NextOrder(land, l).empty() && land.state == State::Paused);
+    }
+    // The glue's verdict: in water, a swim line, no hostile within 15 yd of the line.
+    std::vector<HostileSpot> none;
+    CHECK(StallDirectLineClear(true, true, none, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    CHECK(!StallDirectLineClear(false, true, none, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    CHECK(!StallDirectLineClear(true, false, none, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    std::vector<HostileSpot> nearLine = {HostileSpot{8.0f, 14.0f, 0.0f}};   // 14 yd off the middle of the line
+    CHECK(!StallDirectLineClear(true, true, nearLine, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    std::vector<HostileSpot> farOff = {HostileSpot{8.0f, 16.0f, 0.0f}, HostileSpot{-16.0f, 0.0f, 0.0f}};
+    CHECK(StallDirectLineClear(true, true, farOff, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    std::vector<HostileSpot> pastEnd = {HostileSpot{-14.0f, 0.0f, 0.0f}};    // 14 yd beyond the point
+    CHECK(!StallDirectLineClear(true, true, pastEnd, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    CHECK(std::fabs(PointToSegmentYd(8.0f, 3.0f, 0.0f, 0.0f, 0.0f, 0.0f, 16.0f, 0.0f, 0.0f) - 3.0f) < 0.01f);
+    CHECK(std::fabs(PointToSegmentYd(20.0f, 3.0f, 0.0f, 0.0f, 0.0f, 0.0f, 16.0f, 0.0f, 0.0f) - 5.0f) < 0.01f);
+    CHECK(std::fabs(PointToSegmentYd(1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f) - std::sqrt(3.0f)) < 0.01f);
+    // The glue reads the line only near a stall of a walk whose fallback is untried.
+    Run probe = Start(&plan);
+    CHECK(Tick(probe, n) == "move 0.0 0.0 0.0");
+    CHECK(!StallDirectProbeWanted(probe));
+    probe.walkStillMs = kWalkRetryMs - 3 * kTickMs;
+    CHECK(StallDirectProbeWanted(probe));
+    probe.walkStillMs = kWalkRetryMs - 3 * kTickMs - 1;
+    CHECK(!StallDirectProbeWanted(probe));
+    probe.walkStillMs = kWalkRetryMs;
+    probe.stallFallback = 1;
+    CHECK(!StallDirectProbeWanted(probe));
+
+    // A fresh walk starts the fallback over.
+    Run fresh = Start(&plan);
+    CHECK(Tick(fresh, g) == "move 0.0 0.0 0.0");
+    CHECK(NextOrder(fresh, g) == "move 0.0 0.0 0.0 direct");
+    fresh.stallFallback = 3;
+    fresh.walkX = 99.0f; // another point: a fresh walk
+    CHECK(Tick(fresh, g) == "move 0.0 0.0 0.0");
+    CHECK(fresh.stallFallback == 0);
+}
+
 // Zul'Farrak r16-19z34 slot 2, step 37 (ZF-STEP37-2026-10-22): after a fight the lead
 // bot stood on the ramp 4.84 yd from the point on the ground and 4.6 yd above it (6.6 yd
 // in 3D). A `cmd move` there never moved it: the executor's "return to stay position"
@@ -14060,6 +14306,8 @@ int main()
     TestStalledNearPointCountsAsArrived();
     TestStandOnALedgeCountsByGroundDistance();
     TestStalledLeadInFollowRangeCountsAsArrived();
+    TestStuckPauseNamesTheLeadsWaterState();
+    TestStalledWalkWithAFailingMoveTriesDirectThenADryStandIn();
     TestPullLoopOnOneTargetPauses();
     TestOutOfReachPackIsSkippedNotCleared();
     TestMissingItemPausesOnce();

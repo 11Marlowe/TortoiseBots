@@ -146,17 +146,20 @@ namespace ai
 
     // A commander task's walk nudge (a plain core MovePoint to its standing
     // point, BotCommands NudgeTaskWalk) on an instance map waits while the
-    // bot's last MoveTo2 was a magma refusal still in its window, or when the
+    // bot's magma refusal memory on this map is still in its window, or when the
     // standing point itself is in magma: otherwise the nudge walks the bot
-    // where MoveTo2 refused to.
-    inline bool MagmaNudgeBlocked(bool guardApplies, bool lastMoveRefusedMagma, MagmaRefusal const& r,
+    // where MoveTo2 refused to. The memory alone decides, not the last try's
+    // fail reason: MoveTo2 resets that reason on every try (the action log's
+    // note), so a later try that failed otherwise cleared it, and the nudge then
+    // walked across the magma (Codex review 2026-10-23).
+    inline bool MagmaNudgeBlocked(bool guardApplies, MagmaRefusal const& r, std::uint32_t mapId,
         std::int64_t now, bool standInMagma)
     {
         if (!guardApplies)
             return false;
         if (standInMagma)
             return true;
-        return lastMoveRefusedMagma && r.set && now < r.until;
+        return r.set && r.mapId == mapId && now < r.until;
     }
 
     struct MagmaPoint

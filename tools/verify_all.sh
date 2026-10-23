@@ -77,6 +77,9 @@ python3 -m unittest tools/test_hunter_manners_wiring.py
 python3 -m unittest tools/test_dash_bosses_wiring.py
 python3 -m unittest tools/test_reload_plans_wiring.py
 python3 -m unittest tools/test_run_release_hold_wiring.py
+python3 -m unittest tools/test_swim_path_wiring.py
+python3 -m unittest tools/test_move_fail_note_wiring.py
+python3 -m unittest tools/test_stall_fallback_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -197,6 +200,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_loatheb_spores_policy
         test_local_pick_policy
         test_long_stuck_rescue_policy
+        test_move_fail_note_policy
         test_loot_roll_policy
         test_loot_window_policy
         test_lowbie_graveyard_policy
@@ -292,6 +296,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_starter_kit_policy
         test_summon_restore_policy
         test_survive_policy
+        test_swim_path_policy
         test_taker_reachability_cache
         test_taunt_attacker_policy
         test_tank_add_pickup_policy

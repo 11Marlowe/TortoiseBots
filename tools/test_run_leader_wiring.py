@@ -33,7 +33,7 @@ class RunLeaderWiringTest(unittest.TestCase):
     def test_refusal_reports_the_order_as_sent(self):
         self.assertIn("std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);", COMMANDS)
         self.assertIn("bool const accepted = IssueRunOrder(commander, order, answer,\n"
-                      "            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order));", COMMANDS)
+                      "            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order), &captured);", COMMANDS)
         self.assertIn("TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer", COMMANDS)
 
     def test_ghost_lead_tolerated_during_a_regroup(self):
@@ -765,7 +765,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         # with the stand-in NearestReachablePoint found within MoveFallbackYd (25 yd for a plain move),
         # searched only while MoveFallbackWanted; anything it does not handle pauses as before.
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
-        f = body(COMMANDS, "        if (!accepted)\n        {", "\n        }\n")
+        f = body(COMMANDS, "        if (!accepted && !stallDirectRefused)\n        {", "\n        }\n")
         code = strip_comments(f)
         own = code.index("TortoiseBots::DungeonRun::OwnMoveOrder(it->second.run, order) &&")
         verdict = code.index("TortoiseBots::DungeonRun::UnreachableAnswer(answer);")
@@ -789,7 +789,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertNotIn("15 yd of it either", code)
         # The ring search reaches the radius it is given and no farther.
         near = strip_comments(body(COMMANDS, "bool NearestReachablePoint(", "\n}\n"))
-        self.assertIn("float maxYd, float& ox, float& oy, float& oz)", near)
+        self.assertIn("float maxYd, float& ox, float& oy, float& oz,\n    bool dryOnly = false)", near)
         self.assertIn("float const rings[] = {3.0f, 6.0f, 10.0f, 15.0f, 20.0f, 25.0f};", near)
         self.assertIn("for (int i = 0; ring <= maxYd && i < 12; ++i)", near)
         self.assertIn("constexpr float kMoveFallbackYd = 25.0f;", policy)

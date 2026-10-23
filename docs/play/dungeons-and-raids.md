@@ -129,6 +129,10 @@ Dungeon navmeshes sometimes contain raised platforms or dais platforms (such as 
 
 When following out of combat inside instances, navmesh paths can occasionally stop responding if a bot is stuck on complex geometry. A bot that is more than 3 yards beyond its follow distance and has remained stationary for 2 seconds automatically attempts a local rescue walk to rejoin the leader.
 
+### Bots in Deep Water
+
+A bot in deep water gets a straight swim line from the core's pathfinder instead of a navmesh path (type `NORMAL|UNDERWATER`, or `NORMAL|NOT_USING_PATH` where there is no navmesh polygon). The bot's own route (`WorldPosition::getPathStepFrom`) kept only plain navmesh paths, so it threw that answer away and the move failed every 2 s (`dispatch-short`) while the core's own follow swam the same line: in Blackfathom Deeps (2026-10-22/23) all six "lead bot is stuck" pauses began with the lead bot in a deep pool. From then on the route kept such a swim line when every sample along it, at most 2 yd apart, was in water or ocean at or below the surface and the line was in sight (vmaps and doors); a swim line longer than 80 yd was refused rather than sampled more sparsely (the Codex review of 2026-10-23: a capped sample count had let a dry strip hide between samples past 78 yd). The same bits on land (a map or tile without mmaps, a no-movement area: a straight line through walls) stayed refused, as did a line over land, over a ridge out of the water, into magma or slime, a shortcut, a fly path or a partial swim. (`ai/playerbot/SwimPathPolicy.h`, `tools/test_swim_path_policy.cpp`, `tools/test_swim_path_wiring.py`).
+
 ### Running Ahead Past Packs
 
 Bots that are far behind follow the navmesh route to you. If your party skipped a pack in a narrow hallway, trailing bots can aggro it. When [`AiPlayerbot.DungeonFollowHoldBeforePacks`](../server/settings/party.md#aiplayerbotdungeonfollowholdbeforepacks) is enabled, any follower more than 30 yards behind stops outside the aggro range of unpulled packs and whispers `Pack in the way: <name>`. You can then clear the pack or walk back within 25 yards to resume follow.

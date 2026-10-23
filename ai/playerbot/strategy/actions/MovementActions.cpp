@@ -25,6 +25,7 @@
 #include "playerbot/CastKeepsRunningPolicy.h"
 #include "playerbot/JumpPolicy.h"
 #include "playerbot/MagmaHazardPolicy.h"
+#include "playerbot/MoveFailNotePolicy.h"
 #include "host/ModuleLog.h"
 #include "playerbot/BotActionLog.h"
 #include "Database/DBCStores.h"
@@ -646,6 +647,19 @@ bool MovementAction::WaitForTransport()
     return false;
 }
 
+void MovementAction::BeforeExecute()
+{
+    failNoteMark = AI_VALUE(LastMovement&, "last movement").moveTries;
+}
+
+std::string MovementAction::GetFailNote()
+{
+    LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+    bool const tried = lastMove.moveTries != failNoteMark;
+    return MoveFailNote(MoveFailNoteReason(failNoteMark, lastMove.moveTries, MoveFailReasonName(lastMove.moveFailReason)),
+        bot->IsInWater(), bot->IsUnderwater(), bot->HasMovementFlag(MOVEFLAG_SWIMMING), tried ? lastMove.movePathType : 0);
+}
+
 std::atomic<uint32_t> MovementAction::routeReuseCount{ 0 };
 std::atomic<uint32_t> MovementAction::routeRebuildCount{ 0 };
 
@@ -1040,6 +1054,10 @@ Unit* MovementAction::GetMover(Player* bot)
 bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react, bool noPath, bool ignoreEnemyTargets, PackHoldResult* packHold)
 {
     LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+    // A new try: its own fail reason and path type only (the FAILED line's note).
+    ++lastMove.moveTries;
+    lastMove.moveFailReason = MOVE_FAIL_NONE;
+    lastMove.movePathType = 0;
 
     if (!endPos.isValid())
     {
@@ -1118,7 +1136,9 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
 
     bool isWalking = false;
 
+    WorldPosition::LastPathStepType() = 0;
     TravelPath movePath = ResolveMovePath(startPos, endPos, mover, lastMove);
+    lastMove.movePathType = WorldPosition::LastPathStepType();
 
     lastMove.setPath(movePath);
 
@@ -1368,6 +1388,8 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
 bool MovementAction::MoveTo(Unit* target, float distance)
 {
     LastMovement& unitMove = AI_VALUE(LastMovement&, "last movement");
+    ++unitMove.moveTries;
+    unitMove.moveFailReason = MOVE_FAIL_NONE;
 
     if (!target || !target->IsInWorld())
     {
