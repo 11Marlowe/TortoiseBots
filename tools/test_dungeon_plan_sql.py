@@ -272,18 +272,32 @@ class DungeonPlanSql(unittest.TestCase):
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
     def test_gnomeregan_is_the_plan_with_the_pack_fixes(self):
-        # 20261023020000 (turtle-agent 19adc51, 2026-10-23): the Gnomeregan draft of 20261022211100 with the four pull groups of the unattackable
-        # event NPCs 7897 and 7849 removed (first live run r21-19z40e slot 4, step 180), everything else carried over, no row hand-set, with the
-        # boss rows of map 90. 5 legs, 621 steps (87 + 37 + 17 + 24 + 4 pulls), bosses in leg order, no door or event step. The plan row has the unit lists
-        # (6223 is kill_first now, not cc_priority); the Agent at the Ambassador's own spot is that boss row's entries, not a pull. Leg 0's cave
-        # chain (groups 23-29: the merged 6223/6233 pairs and the 6223/6233 camps) is radius 8 and each has an approach move on its own floor.
+        # 20261023070000 (turtle-agent 0fb7bfc, 2026-10-23): 20261023020000 (the draft of 20261022211100 with the four pull groups of the unattackable
+        # event NPCs 7897 and 7849 removed) carried over unchanged except one move row: leg 0 pull group 66 gets the approach stand -572 58 -198.75,
+        # 16 yd south of the Alarm-a-bomb's patrol corridor (r23 slot 4, stopped at step 181 of 621: the run leader's own approach hop ended at
+        # -566.8 78.8, inside the corridor, and the gather paused four times). 5 legs, 622 steps (87 + 37 + 17 + 24 + 4 pulls), bosses in leg order,
+        # no door or event step. The plan row has the unit lists (6223 is kill_first now, not cc_priority); the Agent at the Ambassador's own spot is
+        # that boss row's entries, not a pull. Leg 0's cave chain (groups 23-29: the merged 6223/6233 pairs and the 6223/6233 camps) is radius 8 and
+        # each has an approach move on its own floor.
         name, text = newest_plan_text("gnomeregan")
-        self.assertEqual(name, "20261023020000_world.sql")
-        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent 19adc51 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261023070000_world.sql")
+        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent 0fb7bfc dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "gnomeregan")), 5)
         rows = [r for r in self.step_rows(text) if r["plan"] == "gnomeregan"]
-        self.assertEqual(len(rows), 621)
+        self.assertEqual(len(rows), 622)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [87, 37, 17, 24, 4])
+        # Step 181 (1-based) is the stand before pull group 66's pull, and it is not in the bomb's corridor (x -573..-557, y 74..126).
+        steps = leg_steps(rows, 0)
+        i = [k for k, r in enumerate(steps) if r["kind"] == "pull" and r["comment"] == "pull group 66"][0]
+        stand = steps[i - 1]
+        self.assertEqual((int(stand["seq"]), stand["kind"], stand["x"], stand["y"], stand["z"], stand["comment"]),
+                         (180, "move", "-572", "58", "-198.75", "pull group 66 approach"))
+        self.assertEqual((steps[i]["entries"], float(steps[i]["radius"])), ("6329,6211", 17.5))
+        dx = max(0.0, -573 - float(stand["x"]), float(stand["x"]) + 557)
+        dy = max(0.0, 74 - float(stand["y"]), float(stand["y"]) - 126)
+        self.assertGreaterEqual(math.hypot(dx, dy), 15, "the stand is inside the bomb's corridor")
+        self.assertEqual([(r["kind"], int(r["seq"])) for r in steps[i:i + 3]],
+                         [("pull", 181), ("pull", 182), ("pull", 183)])
         # The east-end-first cave chain: 7 pulls, radius 8, each with its approach move (E-427 239 ... W-514 263).
         chain = [r for r in leg_steps(rows, 0) if r["kind"] == "pull" and 23 <= int(r["comment"].rsplit(" ", 1)[1]) <= 29]
         self.assertEqual([(float(r["radius"]), r["entries"]) for r in chain],
