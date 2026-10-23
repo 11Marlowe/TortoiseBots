@@ -2720,8 +2720,10 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
                     BotCommandFirstWordLower(filtered) + "|denied|Not authorized for this bot command.");
             return;
         }
-        // A player's order to a bot of a party a run leader drives pauses the run.
-        TortoiseBots::BotCommands::NoteHumanChatOrder(bot, filtered);
+        // A player's order to a bot of a party a run leader drives: the commander's whisper pauses the run;
+        // party chat is chatting (dropped as an order while the run runs); another player's whisper is refused.
+        if (!TortoiseBots::BotCommands::NoteHumanChatOrder(bot, fromPlayer, filtered, type == CHAT_MSG_WHISPER))
+            return;
     }
     if (!IsAllowedCommand(filtered) && !GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, type != CHAT_MSG_WHISPER, &fromPlayer))
         return;
@@ -3521,7 +3523,10 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
     if (!dungeonCrew && group && !IsRealPlayer())
     {
         // If this bot is group leader and there is a real player in the group, yield leadership to the real player.
-        if (group->IsLeader(bot->GetObjectGuid()))
+        // Not in a commanded group: its lead bot leads it with the players in it (`.bot commander bind ... inparty`),
+        // and handing the lead over would end the binding (RemoteCommander::ReleaseReason::LeaderChanged).
+        if (group->IsLeader(bot->GetObjectGuid()) &&
+            !TortoiseBots::BotCommands::IsInCommandedGroup(bot))
         {
             // Resolve the new leader through the Group's member slots before any
             // change: the GroupReference list can hand out a Player* that is

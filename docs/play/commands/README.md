@@ -104,7 +104,7 @@ The table below lists all primary commands and links to their authoritative docu
 | [`.bot repair`](party-actions.md#bot-repair) | Direct Party | Orders targeted bot or party to repair gear. |
 | [`.bot sell`](party-actions.md#bot-sell) | Direct Party | Orders targeted bot or party to sell gray junk. |
 | [`.bot rest`](party-actions.md#bot-rest) | Direct Party | Orders bots to sit and consume food and drink. |
-| [`.bot commander bind`](commander.md#bot-commander-bind) | Remote Commander | Binds a bot-only party to remote leadership. |
+| [`.bot commander bind`](commander.md#bot-commander-bind) | Remote Commander | Binds a bot-only party to remote leadership (with `inparty`: you and up to three other players stay in the party). |
 | [`.bot commander unbind`](commander.md#bot-commander-unbind) | Remote Commander | Releases your current remote commander binding. |
 | [`.bot commander status`](commander.md#bot-commander-status) | Remote Commander | Displays commanded party status and roster. |
 | [`.bot commander view`](commander.md#bot-commander-view) | Remote Commander | Toggles live perception data feed frames. |

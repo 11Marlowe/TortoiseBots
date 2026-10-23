@@ -59,6 +59,11 @@ struct Binding
     // Followers whose follow target the binding set to the lead bot. Only
     // these are put back on release.
     std::vector<uint64_t> followers;
+    // `.bot commander bind ... inparty` (2026-10-23): the commander stayed in
+    // the party, with any other real players of it (1 to 4 players, the rest
+    // bots, the lead bot always a bot). Real players in the group do not end
+    // this binding; the lead bot still leads it.
+    bool inParty = false;
 };
 
 enum class BindResult : uint8_t
@@ -192,7 +197,7 @@ struct BindingState
     uint32_t leadGroupId = 0;     // the lead bot's current group, 0 = none
     bool leadIsLeader = false;    // the lead bot still leads that group
     bool leadGroupIsRaidOrBg = false; // the group converted to a raid (or is a battleground group)
-    bool realPlayerInGroup = false; // a human joined the bound group
+    bool realPlayerInGroup = false; // a human other than the commander is in the bound group
     size_t memberCount = 0;
 };
 
@@ -229,7 +234,10 @@ inline ReleaseReason CheckBinding(Binding const& binding, BindingState const& st
     // A bound party is never a raid, even one of five: a conversion ends the binding.
     if (state.leadGroupIsRaidOrBg)
         return ReleaseReason::GroupRaid;
-    if (state.realPlayerInGroup)
+    // An in-party binding holds real players by design; a classic one (the
+    // commander outside) ends when another player joins. The commander coming
+    // back into his own bound group is no join (the glue does not count him).
+    if (state.realPlayerInGroup && !binding.inParty)
         return ReleaseReason::PlayerJoined;
     if (state.memberCount > kMaxGroupSize)
         return ReleaseReason::GroupTooLarge;
@@ -322,6 +330,12 @@ struct BindFacts
     // Every bot the group would contain besides the lead: current members of
     // the lead's group plus the named bots not yet in it.
     std::vector<BindMember> members;
+    // `inparty`: the commander and the other real players of his party stay in
+    // it. The lead bot must be in that party (leadInCommanderParty), and
+    // partyPlayers counts the real players in it, the commander too.
+    bool inParty = false;
+    bool leadInCommanderParty = false;
+    std::size_t partyPlayers = 0;
 };
 
 enum class BindRefusal : uint8_t
@@ -343,6 +357,7 @@ enum class BindRefusal : uint8_t
     BotInOtherBinding,
     PartyUnnamed,
     LeadBound,
+    NotInParty,
 };
 
 // The bind is refused (fail closed) unless the commander controls every bot,
@@ -363,13 +378,16 @@ inline BindRefusal CheckBind(BindFacts const& facts)
         return BindRefusal::LeadHired;
     if (facts.lead.inOtherBinding)
         return BindRefusal::BotInOtherBinding;
+    if (facts.inParty && !facts.leadInCommanderParty)
+        return BindRefusal::NotInParty;
     if (facts.lead.inOtherGroup)
         return BindRefusal::GroupHasPlayer;
     if (facts.leadGrouped)
     {
         if (facts.leadGroupIsRaidOrBg)
             return BindRefusal::LeadGroupRaid;
-        if (facts.leadGroupHasRealPlayer)
+        // In-party: the party's real players are members by design.
+        if (facts.leadGroupHasRealPlayer && !facts.inParty)
             return BindRefusal::GroupHasPlayer;
         if (facts.leadGroupBound)
             return BindRefusal::GroupBound;
@@ -378,9 +396,11 @@ inline BindRefusal CheckBind(BindFacts const& facts)
         if (facts.leadBindWouldReplaceGroupBind)
             return BindRefusal::LeadBound;
     }
-    if (facts.members.empty())
+    // In-party the lead bot alone is enough (4 players + 1 bot); the players
+    // count toward the party's five.
+    if (facts.members.empty() && !facts.inParty)
         return BindRefusal::NoMembers;
-    if (facts.members.size() + 1 > kMaxGroupSize)
+    if (facts.members.size() + 1 + (facts.inParty ? facts.partyPlayers : 0) > kMaxGroupSize)
         return BindRefusal::GroupTooLarge;
     for (BindMember const& member : facts.members)
     {
@@ -417,6 +437,7 @@ inline char const* BindRefusalCode(BindRefusal refusal)
         case BindRefusal::BotInOtherBinding: return "bot-bound";
         case BindRefusal::PartyUnnamed: return "party-unnamed";
         case BindRefusal::LeadBound: return "lead-bound";
+        case BindRefusal::NotInParty: return "not-in-party";
     }
     return "rejected";
 }
@@ -442,6 +463,7 @@ inline char const* BindRefusalText(BindRefusal refusal)
         case BindRefusal::BotInOtherBinding: return "A named bot is still in another commander's group. That commander must unbind first.";
         case BindRefusal::PartyUnnamed: return "Your party holds a bot you did not name. Name every bot in your party in the bind (or take the others out of it first).";
         case BindRefusal::LeadBound: return "The lead bot has its own saved instance that would replace the group's. Reset it first (.instance unbind for the lead bot) or pick another lead.";
+        case BindRefusal::NotInParty: return "With inparty the lead bot must be in your party: invite it first.";
     }
     return "Request rejected.";
 }
@@ -483,6 +505,50 @@ struct BindPlanFacts
     bool partyIsRaidOrBg = false;       // the commander's party (when shared)
     bool partyHasOtherPlayer = false;   // a human other than the commander (when shared)
 };
+
+// `.bot commander bind <LeadBot> [<Bot>...] inparty`: the last word (any case)
+// asks for the in-party binding; it is taken off the names. True when it was there.
+inline bool TakeBindInParty(std::vector<std::string>& names)
+{
+    if (names.empty())
+        return false;
+    std::string last = names.back();
+    for (char& c : last)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (last != "inparty")
+        return false;
+    names.pop_back();
+    return true;
+}
+
+// A real player's order to a bot of a bound party (2026-10-23, players in the
+// party). runExists: a run (`.bot run`, running or paused) drives the party;
+// runRunning: it is running; fromCommander: the order is the bound commander's;
+// explicitOrder: a whisper to the bot or a `.bot action` (party chat is not).
+enum class RunOrderVerdict : uint8_t
+{
+    Obey,       // handled as before
+    PauseRun,   // the commander's explicit order: the run pauses, the order runs (today's rule)
+    IgnoreChat, // party chat while the run runs: chatting, not a bot order; no pause
+    Refuse,     // another player's explicit order to a run-bound bot: refused with a reply
+};
+
+inline RunOrderVerdict ClassifyRunBoundOrder(bool runExists, bool runRunning, bool fromCommander, bool explicitOrder)
+{
+    if (!runExists)
+        return RunOrderVerdict::Obey;
+    if (!fromCommander)
+        return explicitOrder ? RunOrderVerdict::Refuse : RunOrderVerdict::IgnoreChat;
+    if (explicitOrder)
+        return RunOrderVerdict::PauseRun;
+    return runRunning ? RunOrderVerdict::IgnoreChat : RunOrderVerdict::Obey;
+}
+
+inline std::string RunBoundRefusalText(std::string const& commanderName)
+{
+    return "A run leader drives this party's bots for " + commanderName +
+        ": only " + commanderName + " may give them orders while the run lasts (.bot run status).";
+}
 
 inline BindGroupPlan DecideBindGroup(BindPlanFacts const& facts)
 {

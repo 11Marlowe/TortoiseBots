@@ -84,6 +84,7 @@ python3 -m unittest tools/test_move_fail_note_wiring.py
 python3 -m unittest tools/test_stall_fallback_wiring.py
 python3 -m unittest tools/test_approach_walkback_wiring.py
 python3 -m unittest tools/test_ledge_chase_wiring.py
+python3 -m unittest tools/test_player_in_party_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -231,6 +232,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_pet_upkeep_policy
         test_player_bot_classification
         test_player_lag_window
+        test_player_in_party_policy
         test_point_danger_policy
         test_pool_bot_trade_policy
         test_pool_flee_policy

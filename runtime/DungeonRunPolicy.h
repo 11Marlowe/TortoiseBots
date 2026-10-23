@@ -78,6 +78,9 @@ using ai::PlanStepKind;
 
 constexpr std::uint32_t kTickMs = 1000;           // the glue ticks every run this often
 constexpr std::uint32_t kWipeDead = 3;            // this many dead bots stop the step for a regroup
+// Real players in the bound party (2026-10-23, `.bot commander bind ... inparty`; Facts::players):
+constexpr float kPlayerPullYd = 60.0f;              // no pull or boss while a player is farther than this from the lead bot
+constexpr std::uint32_t kPlayerGatherWaitMs = 60000; // a regroup waits this long for a living player to come within kGatherYd
 constexpr std::uint32_t kAutoRegroupsPerStep = 2; // regroups the run does by itself per step, then it pauses
 constexpr std::uint32_t kGatherTries = 2;         // a gather refused this often: the run goes on without it
 constexpr std::uint32_t kWalkBackRetries = 3;     // a walk-back point refused for a passing reason is sent again this often
@@ -621,9 +624,29 @@ inline std::uint32_t MemberCc(const MemberFact& m)
     return m.cc | (m.polymorph ? CcBit(CcFamily::Polymorph) : 0u);
 }
 
+// A real player in the bound group (2026-10-23: 1 to 4 players, the rest bots, one of them the bound commander).
+// Never a MemberFact: no order of the run (walk, summon, revive, crowd control, loot, gather) names a player. The run
+// counts him for the party's deaths and health, waits for him in a regroup (RegroupPlayerWait) and holds its steps for
+// him (PlayerHoldNote).
+struct PlayerFact
+{
+    std::string name;
+    bool commander = false;      // the bound commander
+    bool alive = true;           // not dead (a body or a ghost)
+    bool ghost = false;          // ... released: a ghost on its way back
+    bool onMap = true;           // in the world on the plan's map (in the instance)
+    float yd = 0.0f;             // from the lead bot (1000 off its map)
+    std::uint32_t healthPct = 100;
+};
+
 // What the glue reads once a tick for the run's current step.
 struct Facts
 {
+    // The real players of the bound group (empty: a bot-only party, every rule below as before).
+    std::vector<PlayerFact> players;
+    // loot: a player carries the step's item (his name), and the remembered corpse is a player's round-robin turn.
+    std::string itemPlayer;
+    std::string lootTurnPlayer;
     // The party (the commander's bound bots, the lead bot included).
     std::uint32_t total = 0, alive = 0, dead = 0;
     bool leadAlive = true;
@@ -878,6 +901,7 @@ struct Run
 
     std::uint32_t phaseMs = 0;
     std::uint32_t stepIdleMs = 0;
+    std::uint32_t playerGatherMs = 0; // a regroup's wait for a living player (RegroupPlayerWait)
     bool restDue = true;     // check the rest lines before the step
     int regroupDead = -1;    // the dead when the regroup was first read (-1 not yet): more than that is a new wipe
     std::uint32_t eatWaitMs = 0; // meal wait used since the last fight (kRestCapMs per fight: it cannot loop)
@@ -2706,6 +2730,7 @@ inline void BeginRegroup(Run& r)
     r.patrolGaveUp.clear(); // ... and the patrollers
     r.anchorKnown = false; // the party comes back to life elsewhere
     r.regroup = true;
+    r.playerGatherMs = 0;
     r.reviveSent = false;
     r.regroupGatherSent = false;
     r.RestartRegroupClock();
@@ -7564,7 +7589,10 @@ inline std::string NextLootBot(const Run& r, const Facts& f)
 inline void LootGivenUp(Run& r, const Facts& f, const PlanStep& s)
 {
     std::string text = r.lootRefusal;
-    if (s.item && f.corpseChecked && !f.corpseHasItem)
+    if (!f.lootTurnPlayer.empty())
+        text = "loot: it is " + f.lootTurnPlayer + "'s turn to loot the corpse (round robin): take " +
+            (s.item ? "item " + std::to_string(s.item) : std::string("the loot")) + ", then .bot run resume (" + text + ")";
+    else if (s.item && f.corpseChecked && !f.corpseHasItem)
         text = "loot: item " + std::to_string(s.item) + " not on corpse and not in any bag (" + text + ")";
     else if (r.lootRights && r.lootTried.size() > 1)
     {
@@ -7596,7 +7624,8 @@ inline std::string LootOrderText(Run& r, const PlanStep& s, const std::string& b
 // goes back. Once per step; the lead bot must lead the group and the method must be one to restore.
 inline bool LootFfaWanted(const Run& r, const Facts& f, const PlanStep& s)
 {
-    return f.lootFfaOn && f.leadLeadsGroup && s.item && !r.lootFfaUsed && r.lootFfa == LootFfa::Idle &&
+    // With a real player in the party the group's loot method is the players': never switched (2026-10-23).
+    return f.players.empty() && f.lootFfaOn && f.leadLeadsGroup && s.item && !r.lootFfaUsed && r.lootFfa == LootFfa::Idle &&
         f.lootMethod > RemoteCommander::kLootFfa && f.lootMethod <= RemoteCommander::kLootNeedBeforeGreed;
 }
 
@@ -7757,6 +7786,12 @@ inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& ord
         {
             NextStep(r, kind + ": " + (f.itemHolder.empty() ? f.carrier : f.itemHolder) + " already carries item " +
                 std::to_string(s.item));
+            return;
+        }
+        // ... or a player of the party took it (his round-robin turn, his quest item).
+        if (s.kind == PlanStepKind::Loot && s.item && !f.itemPlayer.empty())
+        {
+            NextStep(r, kind + ": " + f.itemPlayer + " (a player) carries item " + std::to_string(s.item));
             return;
         }
         if (s.kind == PlanStepKind::Loot && !r.lootRefusal.empty())
@@ -9785,6 +9820,90 @@ inline Facts HoldView(const Run& r, const Facts& f)
     return g;
 }
 
+// The party's dead: the bots and the real players (2026-10-23). A wipe is every member dead, the players too.
+inline std::uint32_t PartyDead(const Facts& f)
+{
+    std::uint32_t dead = f.dead;
+    for (const PlayerFact& p : f.players)
+        dead += p.alive ? 0u : 1u;
+    return dead;
+}
+
+inline bool PartyAllDead(const Facts& f)
+{
+    if (f.total == 0 || f.alive > 0)
+        return false;
+    for (const PlayerFact& p : f.players)
+        if (p.alive)
+            return false;
+    return true;
+}
+
+// The party's health for the rest gate counts the living players (their mana does not: a player drinks on his own).
+inline void ApplyPlayerHealth(Facts& f)
+{
+    for (const PlayerFact& p : f.players)
+        if (p.alive)
+            f.minHealthPct = std::min(f.minHealthPct, p.healthPct);
+}
+
+// Why the run holds the step for a real player, or "" (2026-10-23). Out of combat, outside an event, before an order
+// of the step goes out (Begin, Gather, Walk; never mid-pull, mid-task, in a rest or a wait):
+//   - a dead player (a body or a ghost) holds every step: the party stays where he fell, as it does for a fallen bot,
+//     so a bot of the party can raise him; nothing is ordered to him (he releases himself);
+//   - a player off the plan's map, or more than kPlayerPullYd from the lead bot, holds a pull or a boss only: plain
+//     walks go on (the lead bot never waits for a player on a walk).
+// No pause: the run goes on by itself once the player is back.
+inline std::string PlayerHoldNote(const Run& r, const Facts& f, const PlanStep& s)
+{
+    if (f.players.empty() || f.anyInCombat || InEvent(r))
+        return std::string();
+    if (r.phase != Phase::Begin && r.phase != Phase::Gather && r.phase != Phase::Walk)
+        return std::string();
+    for (const PlayerFact& p : f.players)
+        if (!p.alive)
+            return "holding: " + p.name + (p.ghost ? " is a ghost: back to the body (or a resurrection) first"
+                                                   : " is dead: a resurrection in the party or a release first");
+    // A walk whose next point has hostiles near it pulls them first (Facts::hopUnits): that is a pull too.
+    bool const hopPull = (s.kind == PlanStepKind::Move || s.kind == PlanStepKind::MoveDirect) && !f.hopUnits.empty();
+    if (s.kind != PlanStepKind::Pull && s.kind != PlanStepKind::Boss && !hopPull)
+        return std::string();
+    for (const PlayerFact& p : f.players)
+        if (!p.onMap)
+            return "holding the pull: " + p.name + " is not in the instance";
+    for (const PlayerFact& p : f.players)
+        if (p.yd > kPlayerPullYd)
+            return "holding the pull: " + p.name + " is " + Num(p.yd) + " yd from the lead bot (the pull goes out within " +
+                Num(kPlayerPullYd) + " yd)";
+    return std::string();
+}
+
+// The end of a regroup (the bots up and gathered): every living player on the plan's map comes within kGatherYd of the
+// lead bot first, waited for at most kPlayerGatherWaitMs, then the run pauses naming who and how far. A dead or absent
+// player is not waited for here (PlayerHoldNote holds the steps for him). True when the tick is spent.
+inline bool RegroupPlayerWait(Run& r, const Facts& f, std::uint32_t dt)
+{
+    const PlayerFact* far = nullptr;
+    for (const PlayerFact& p : f.players)
+        if (p.alive && p.onMap && p.yd > kGatherYd && (!far || p.yd > far->yd))
+            far = &p;
+    if (!far)
+    {
+        r.playerGatherMs = 0;
+        return false;
+    }
+    r.playerGatherMs += dt;
+    if (r.playerGatherMs >= kPlayerGatherWaitMs)
+    {
+        r.playerGatherMs = 0;
+        Pause(r, "regroup: waited " + std::to_string(kPlayerGatherWaitMs / 1000) + " s for " + far->name + " (" +
+            Num(far->yd) + " yd from the lead bot): come to the party, then .bot run resume");
+        return true;
+    }
+    r.note = "regroup: waiting for " + far->name + " (" + Num(far->yd) + " yd from the lead bot)";
+    return true;
+}
+
 inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines);
 
 inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, const RestLines& lines = RestLines())
@@ -9918,21 +10037,24 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         }
     }
 
-    // A wipe (the whole party dead) counts once, however long it lasts.
+    // A wipe (the whole party dead: every bot and every real player) counts once, however long it lasts.
+    // allDead below is the bots' (the regroup's trigger: a dead player cannot be revived by the run).
     bool const allDead = f.total > 0 && f.alive == 0;
-    if (allDead && !r.wiped)
+    bool const partyWiped = PartyAllDead(f);
+    if (partyWiped && !r.wiped)
         ++r.wipes;
-    r.wiped = allDead;
-    // A near wipe (kWipeDead or more dead, someone still alive) counts once
+    r.wiped = partyWiped;
+    // A near wipe (kWipeDead or more dead, the players counted, someone still alive) counts once
     // too; one that ends in a wipe counts as both.
-    bool const nearWipe = f.dead >= kWipeDead && f.alive > 0;
+    std::uint32_t const partyDead = PartyDead(f);
+    bool const nearWipe = partyDead >= kWipeDead && !partyWiped;
     // The latch holds until fewer than kWipeDead are dead: a near wipe that
     // turns into a wipe, and the revive one by one after it, is one event.
     if (nearWipe && !r.nearWiped)
         ++r.nearWipes;
     if (nearWipe)
         r.nearWiped = true;
-    else if (f.dead < kWipeDead)
+    else if (partyDead < kWipeDead)
         r.nearWiped = false;
 
     // A party member coming back with attackers runs on to the party; the run
@@ -10120,6 +10242,9 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             }
             return order;
         }
+        // ... and every living real player of the party with it (bounded, then a pause naming him).
+        if (RegroupPlayerWait(r, f, dt))
+            return order;
         r.regroup = false;
         r.reviveSummons.clear();
         r.gatherWaived = false;
@@ -10414,7 +10539,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     // A walk back is bounded point by point (WalkTo), not by the step's ceiling.
     // The joiner rest (aggro estimate) is bounded by kRestCapMs and kMaxJoinerRests a step, and does not count
     // toward the step's idle ceiling: several loud packs in one pull step must not pause the run.
-    if (!r.walkBack && !(r.phase == Phase::Rest && r.restForJoiners))
+    // A hold for a real player (PlayerHoldNote) is not idle time either: it ends by itself when he is back.
+    if (!r.walkBack && !(r.phase == Phase::Rest && r.restForJoiners) && PlayerHoldNote(r, f, *s).empty())
         r.stepIdleMs += dt;
     if (r.stepIdleMs > StepIdleCapMs(*s))
     {
@@ -10562,6 +10688,20 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.directWaitFor.clear();
         r.directWaitMs = 0;
         EnterPhase(r, Phase::Begin);
+    }
+
+    // A real player dead, a ghost, out of the instance or too far for a pull: the step waits for him (no order, no
+    // pause). A gather or a walk under way starts again from the beginning once he is back.
+    if (!r.walkBack)
+    {
+        std::string const playerHold = PlayerHoldNote(r, f, *s);
+        if (!playerHold.empty())
+        {
+            if (r.phase != Phase::Begin)
+                EnterPhase(r, Phase::Begin);
+            r.note = playerHold;
+            return order;
+        }
     }
 
     if (WalkBack(r, f, dt, order))
