@@ -273,18 +273,19 @@ class DungeonPlanSql(unittest.TestCase):
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
     def test_blackfathom_deeps_is_the_plan_with_the_pack_fixes(self):
-        # 20261022210800 (turtle-agent 9c9631a, 2026-10-22): the Blackfathom Deeps draft with the pack fixes of PREP-BFD-MUSE-2026-10-22.md, no row
-        # hand-set, with the boss rows of map 48. 7 legs, 622 steps (44 + 8 + 47 + 11 + 17 + 28 + 3 pulls), bosses in leg order, no door or event step. The plan row
+        # 20261022211000 (turtle-agent a4acf1e, 2026-10-23): the Blackfathom Deeps draft with the pack fixes of PREP-BFD-MUSE-2026-10-22.md and
+        # the leg `to` points of Ghamoo-ra and Lady Sarevess moved out of the deep-water pools (BFD-STEP1-2026-10-22.md, "Water points"), no row
+        # hand-set, with the boss rows of map 48. 7 legs, 626 steps (44 + 8 + 47 + 11 + 17 + 28 + 3 pulls), bosses in leg order, no door or event step. The plan row
         # has the unit lists; the packs that stand with a boss are that boss row's entries; the priestess-darkweaver block is geographic packs;
         # radii are cut to the groups' members (the overlap test is clean) and 12 groups carry patrol blocks.
         name, text = newest_plan_text("blackfathom_deeps")
-        self.assertEqual(name, "20261022210800_world.sql")
-        self.assertIn("('blackfathom_deeps', 48, '4820,4809,4813,4811,4799', '4820,4809', '4809', 'turtle-agent 9c9631a dungeons/blackfathom_deeps.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261022211000_world.sql")
+        self.assertIn("('blackfathom_deeps', 48, '4820,4809,4813,4811,4799', '4820,4809', '4809', 'turtle-agent a4acf1e dungeons/blackfathom_deeps.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         # leg_rows() matches [A-Za-z0-9_] leg names only; ghamoo-ra, old_serra'kis and aku'mai are not
         # words, so the legs are counted from the step rows (each leg's boss step proves its rows are there).
         rows = [r for r in self.step_rows(text) if r["plan"] == "blackfathom_deeps"]
         self.assertEqual(len({r["leg"] for r in rows}), 7)
-        self.assertEqual(len(rows), 622)
+        self.assertEqual(len(rows), 626)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [44, 8, 47, 11, 17, 28, 3])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["4887", "4831", "6243", "62530", "4830", "4832", "4829"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -293,7 +294,7 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "4807", "4819,4820", "", "", "", ""])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["blackfathom_deeps"])
-        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (48);", text)
+        # The map 48 ai_dungeon_boss rows stay in 20261022210800 (the seed test holds them to one seeding).
 
     def test_zulfarrak_and_uldaman_final_counts(self):
         # Each plan's newest INSERT follows the DELETE of its old steps and legs, so its rows are the plan after all migrations.
