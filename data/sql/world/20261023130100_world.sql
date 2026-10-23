@@ -1,6 +1,6 @@
--- Crescent Grove (map 802): the plan for the run leader (.bot run), exported from turtle-agent prep/crescent_grove c8f589c
+-- Crescent Grove (map 802): the plan for the run leader (.bot run), exported from turtle-agent prep/crescent_grove ba00e7c
 -- (dungeons/crescent_grove.json, status 'draft (not mapped, not live-checked)') with the options of the header of 20261017130000:
---   turtle-agent plan-export --mmaps <map 802 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev c8f589c \
+--   turtle-agent plan-export --mmaps <map 802 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev ba00e7c \
 --     --stamp 20261023130100 --out <dir> crescent_grove
 -- Stacks on 20261023120000. NO ROW IS HAND-SET. The census and the fixes this file carries over the draft as the world export
 -- gave it are in ~/TortoiseBots-audit/PREP-CRESCENT-GROVE-2026-10-23.md ("Fixes applied"), from the world export of map 802
@@ -56,7 +56,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'crescent_grove';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'crescent_grove';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'crescent_grove';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('crescent_grove', 802, '92101', '92101', '92124,92123,92119,92125,92126,92114,92121', 'turtle-agent c8f589c dungeons/crescent_grove.json', 'plan v1, draft (not mapped, not live-checked)');
+('crescent_grove', 802, '92101', '92101', '92124,92123,92119,92125,92126,92114,92121', 'turtle-agent ba00e7c dungeons/crescent_grove.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('crescent_grove', 0, 'grovetender_engryss', ''),
 ('crescent_grove', 1, 'keeper_ranathos', ''),

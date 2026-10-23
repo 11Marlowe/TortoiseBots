@@ -473,14 +473,14 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
-        # 20261023130100 (turtle-agent prep/crescent_grove c8f589c, 2026-10-23): the Crescent Grove draft (map 802) with the census
+        # 20261023130100 (turtle-agent prep/crescent_grove ba00e7c, 2026-10-23): the Crescent Grove draft (map 802) with the census
         # fixes of PREP-CRESCENT-GROVE-2026-10-23.md, no row hand-set, with the boss rows of map 802. 5 legs, 561 steps (59 + 101 + 53 +
         # 59 + 27 pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the 14 Deer 883 (critters) are out
         # of every group, the Elders 92105/92106 are Grovetender Engryss' first (they stood 11 yd from him), and the two pulls at the
         # patrolling Roaming Felguard 2566320 are one group of four. No pull row stands within 25 yd of a boss.
         name, text = newest_plan_text("crescent_grove")
         self.assertEqual(name, "20261023130100_world.sql")
-        self.assertIn("('crescent_grove', 802, '92101', '92101', '92124,92123,92119,92125,92126,92114,92121', 'turtle-agent c8f589c dungeons/crescent_grove.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('crescent_grove', 802, '92101', '92101', '92124,92123,92119,92125,92126,92114,92121', 'turtle-agent ba00e7c dungeons/crescent_grove.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "crescent_grove"),
                          {0: ("grovetender_engryss", ""), 1: ("keeper_ranathos", ""), 2: ("high_priestess_a'lathea", ""),
                           3: ("fenektis_the_deceiver", ""), 4: ("master_raxxieth", "")})
