@@ -38,7 +38,7 @@
 #include "playerbot/SurvivePolicy.h"
 #include "../../runtime/CommandedGroupQuery.h"
 #include "../../runtime/RemoteCommanderPolicy.h"
-#include "../../runtime/WorldPvpSeekPolicy.h"
+#include "../../runtime/policy/pvp/WorldPvpSeekPolicy.h"
 #include "playerbot/strategy/values/WorldPvpSeekLog.h"
 #include "Battlegrounds/BattleGroundMgr.h"
 

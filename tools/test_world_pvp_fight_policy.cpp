@@ -6,7 +6,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_world_pvp_fight_policy.cpp -o /tmp/test_world_pvp_fight_policy
 //   /tmp/test_world_pvp_fight_policy
 
-#include "../runtime/WorldPvpFightPolicy.h"
+#include "../runtime/policy/pvp/WorldPvpFightPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

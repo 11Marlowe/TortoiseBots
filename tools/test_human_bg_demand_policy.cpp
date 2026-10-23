@@ -2,7 +2,7 @@
 // Ported donor behaviour: mod-playerbots BGJoinAction::shouldJoinBg
 // (src/Ai/Base/Actions/BattleGroundJoinAction.cpp:290-305) fills both teams.
 
-#include "../runtime/HumanBgDemandPolicy.h"
+#include "../runtime/policy/pvp/HumanBgDemandPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

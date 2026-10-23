@@ -2,7 +2,7 @@
 // Ported donor behaviour: mod-playerbots RandomPlayerbotMgr::CheckBgQueue
 // autonomous seeder (src/Bot/RandomPlayerbotMgr.cpp:1162-1217).
 
-#include "../runtime/AutonomousBgPolicy.h"
+#include "../runtime/policy/pvp/AutonomousBgPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

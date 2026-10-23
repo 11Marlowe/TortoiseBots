@@ -11,7 +11,7 @@
 #include "playerbot/strategy/values/GrindTargetValue.h"
 #include "playerbot/strategy/values/WorldPvpSeekChecks.h"
 #include "playerbot/strategy/values/WorldPvpSeekLog.h"
-#include "../../../../runtime/WorldPvpFightPolicy.h"
+#include "../../../../runtime/policy/pvp/WorldPvpFightPolicy.h"
 #include <map>
 
 bool DpsAssistAction::isUseful()
