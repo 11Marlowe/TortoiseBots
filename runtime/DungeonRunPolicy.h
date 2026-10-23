@@ -619,6 +619,10 @@ struct Facts
     std::vector<std::string> charmedFighting;
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     bool leadMoving = false;           // the lead bot is moving now (Unit::IsMoving): an exact point's proof waits
+    // The walk after a rest (Run::restWalkDue): the lead bot is in a rest state (a meal or drink aura up, or not
+    // standing), or casting a spell (a heal, a buff: never cut, the walk waits for the cast to end).
+    bool leadResting = false;
+    bool leadCasting = false;
     // The lead bot's water and own-move state, for the stuck note (StuckNote) and the
     // stall's fallback (StallFallback): in water or under water (Player::IsInWater /
     // IsUnderwater); its "move to position" failed within the last 5 s
@@ -850,14 +854,15 @@ struct Run
     int regroupDead = -1;    // the dead when the regroup was first read (-1 not yet): more than that is a new wipe
     std::uint32_t eatWaitMs = 0; // meal wait used since the last fight (kRestCapMs per fight: it cannot loop)
     bool restForEating = false; // the rest phase is the meal wait: it also ends when nobody eats any more
-    // A rest phase ended (the rest gate): the next walk (WalkTo) the lead bot does not start within
-    // kRestWalkResendMs is sent again, once, with leadWalkReset. Kept over the step change (a pull step's rest is
-    // followed by the next step's walk), dropped when the lead bot gains ground, a fight starts or the run pauses.
-    // Blackfathom Deeps r22 step 85 and r23 slot 6b step 8: after a rest the lead bot stood on "stay" (act "food",
-    // then "stay") and never took the walk; its retries every 12 s did not move it, and a resume did.
+    // A rest phase ended (the rest gate): the next walk (WalkTo) the lead bot has not started within
+    // kRestWalkResendMs is sent again, once, with leadWalkReset (RestWalkResendDue says when). Kept over the step
+    // change (a pull step's rest is followed by the next step's walk), dropped when the lead bot gains ground or
+    // arrives, a fight starts or the run pauses. Blackfathom Deeps r22 step 85 and r23 slot 6b step 8: after a rest
+    // the lead bot stood on "stay" (act "food", then "stay") and never took the walk; its retries every 12 s did not
+    // move it, and a resume did.
     bool restWalkDue = false;
-    // ... the order of this tick is that second walk: the glue first stands the lead bot up, ends its meal or cast
-    // and clears its follow and stay (the order puts its stay on the point again). The glue clears it.
+    // ... the order of this tick is that second walk: the glue first stands the lead bot up (a seated bot is not
+    // moved; standing ends its meal or drink). The glue clears it.
     bool leadWalkReset = false;
     bool stepRested = false; // a `rest` step has had its gate
     bool orderSent = false;  // task steps: the order went out
@@ -3831,6 +3836,18 @@ inline bool StallStandInFits(const Run& r, float x, float y, float z)
         ExactLaunch(r.plan, r.step) == static_cast<std::size_t>(-1);
 }
 
+// Whether the walk under way is sent again for a lead bot left idle by a rest (Run::restWalkDue): the walk has
+// gained nothing for kRestWalkResendMs, the lead bot is not moving (a slow walk is left alone), nobody is in combat
+// (the lead bot itself included: a fight against units the group cannot attack leaves Run::fighting false), the
+// lead bot casts nothing (a heal or buff is never cut: the walk waits for the cast to end), and its stall is
+// confirmed: it is in a rest state (a meal or drink aura, or not standing) or its own last move failed
+// (Facts::leadMoveFailed). Otherwise the old retry after kWalkRetryMs stands (Codex and Opus review round 1).
+inline bool RestWalkResendDue(const Run& r, const Facts& f)
+{
+    return r.restWalkDue && r.walkStillMs >= kRestWalkResendMs && !f.leadMoving && !f.anyInCombat &&
+        !f.leadInCombat && !f.leadCasting && (f.leadResting || f.leadMoveFailed);
+}
+
 // Blackfathom Deeps 2026-10-22/23 (BFD-STUCK-POINTS-2026-10-23): the lead bot stood in
 // a deep pool, its own move FAILED every 2 s, and the walk re-sent the same `cmd move`
 // three times and paused; a resume sent it again. The refusal path's stand-in (UseDetour)
@@ -3891,6 +3908,7 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
     // or, for a stalled arrival short of it (a point off the mesh), its own spot.
     auto arrived = [&](float ax, float ay, float az)
     {
+        r.restWalkDue = false; // the walk after the rest is done: no later stall is taken for it
         r.anchorKnown = true;
         r.anchorX = ax;
         r.anchorY = ay;
@@ -3938,15 +3956,15 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         return arrived(f.leadX, f.leadY, f.leadZ);
     if (r.walkStillMs >= kWalkRetryMs && stallYd <= kStalledArriveYd)
         return arrived(f.leadX, f.leadY, f.leadZ);
-    // The first walk after a rest that the lead bot has not started within kRestWalkResendMs (Run::restWalkDue):
-    // sent again once, the glue clearing the lead bot's meal, follow and stay first (Run::leadWalkReset). Not a try.
-    if (r.restWalkDue && r.walkStillMs >= kRestWalkResendMs)
+    // The first walk after a rest that the lead bot has not started (Run::restWalkDue, RestWalkResendDue): sent
+    // again once, the glue standing the lead bot up first (Run::leadWalkReset). Not a try.
+    if (RestWalkResendDue(r, f))
     {
         r.restWalkDue = false;
         r.leadWalkReset = true;
         r.walkStillMs = 0;
         order = MoveOrder(x, y, z, direct);
-        r.note = "the lead bot did not take the walk after the rest: the walk again, its follow and stay cleared";
+        r.note = "the lead bot did not take the walk after the rest: the walk again, the lead bot stood up";
         return false;
     }
     if (r.walkStillMs >= kWalkRetryMs)
@@ -5772,6 +5790,36 @@ inline std::string BossEventOffNote(std::uint32_t eventId, const std::string& ev
 {
     return "boss skipped: spawn is in inactive game event " + std::to_string(eventId) +
         (eventName.empty() ? std::string() : " (" + eventName + ")");
+}
+
+// Whether a boss's spawn rows are all gated by game events that are not active (Facts::bossSearchEventOff), from
+// every event association of each row (`events[i]`: > 0 the row spawns while that event runs, < 0 it is removed
+// while it runs; a row may sit in several game_event_creature rows, Codex review round 1). Off only when there is a
+// row, every row has at least one association, every association is a spawn event, and none of them is active
+// (`active(id)`). `eventId`: the first event of row `own` (the step's own spawn), else of the first row.
+struct SpawnEventGate
+{
+    bool off = false;
+    std::uint32_t eventId = 0;
+};
+
+template <typename IsActive>
+inline SpawnEventGate SpawnEventsOff(const std::vector<std::vector<int>>& events, std::size_t own, IsActive active)
+{
+    SpawnEventGate gate;
+    if (events.empty())
+        return gate;
+    for (const std::vector<int>& row : events)
+    {
+        if (row.empty())
+            return gate;
+        for (int id : row)
+            if (id <= 0 || active(static_cast<std::uint32_t>(id)))
+                return gate;
+    }
+    gate.off = true;
+    gate.eventId = static_cast<std::uint32_t>(own < events.size() ? events[own].front() : events.front().front());
+    return gate;
 }
 
 // pull and boss steps: approach until seen, then pull in order until nothing

@@ -826,24 +826,29 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
         self.assertIn("slot.run.state = TortoiseBots::DungeonRun::State::Done;", limit)
         self.assertIn("DungeonRuns().erase(it);", limit)
 
-    def test_walk_after_rest_clears_the_lead_before_the_order(self):
-        # Blackfathom Deeps r22 step 85, r23 slot 6b step 8: the lead bot stood on "stay" after eating. The walk sent
-        # again (DungeonRun::Run::leadWalkReset) first stands it up, ends its meal or cast, and clears follow and stay.
+    def test_walk_after_rest_stands_the_lead_up_before_the_order(self):
+        # Blackfathom Deeps r22 step 85, r23 slot 6b step 8: the lead bot stood idle after eating. The walk sent again
+        # (DungeonRun::Run::leadWalkReset) first stands a seated lead bot up. Codex and Opus review round 1: no cast is
+        # cut, and follow, stay and the stay point are left to the walk's cmd move (a refused move must not leave the
+        # lead bot without them); nothing in combat.
         code = strip_comments(COMMANDS)
-        clear = body(code, "void ClearLeadForWalk(Player* lead)", "\n}\n")
-        self.assertIn("lead->InterruptNonMeleeSpells(false);", clear)
-        self.assertIn("lead->SetStandState(UNIT_STAND_STATE_STAND);", clear)
-        self.assertIn("ai->DropQueuedMovementOrders();", clear)
-        self.assertIn('ai->ChangeStrategy("-follow,-stay", BotState::BOT_STATE_NON_COMBAT);', clear)
-        self.assertIn('ai->ChangeStrategy("-stay", BotState::BOT_STATE_COMBAT);', clear)
-        self.assertIn('Get().erase("stay");', clear)
+        stand = body(code, "void StandLeadForWalk(Player* lead)", "\n}\n")
+        self.assertIn("if (!lead->IsAlive() || !lead->IsInWorld() || lead->IsInCombat())\n        return;", stand)
+        self.assertIn("if (lead->GetStandState() != UNIT_STAND_STATE_STAND)\n"
+                      "        lead->SetStandState(UNIT_STAND_STATE_STAND);", stand)
+        for gone in ("InterruptNonMeleeSpells", "ChangeStrategy", "DropQueuedMovementOrders", "erase(", "Reset("):
+            self.assertNotIn(gone, stand)
         tick = body(code, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
         self.assertIn("if (slot.run.leadWalkReset)\n    {\n        slot.run.leadWalkReset = false;\n"
-                      "        ClearLeadForWalk(lead);\n    }", tick)
+                      "        StandLeadForWalk(lead);\n    }", tick)
         # After the policy's tick that set it, before the order goes out.
-        self.assertLess(tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"), tick.index("ClearLeadForWalk(lead);"))
-        self.assertLess(tick.index("ClearLeadForWalk(lead);"), tick.index("IssueRunOrder(commander, order, answer,"))
-
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"), tick.index("StandLeadForWalk(lead);"))
+        self.assertLess(tick.index("StandLeadForWalk(lead);"), tick.index("IssueRunOrder(commander, order, answer,"))
+        # The facts that gate it (DungeonRun::RestWalkResendDue): a rest state confirms the stall, a cast defers it.
+        facts = body(code, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("f.leadResting = HasMealAura(lead) || lead->GetStandState() != UNIT_STAND_STATE_STAND;", facts)
+        self.assertIn("f.leadCasting = lead->IsNonMeleeSpellCasted(true, false, true);", facts)
+        self.assertIn("f.leadInCombat = member.inCombat;", facts)
 
 if __name__ == "__main__":
     unittest.main()
