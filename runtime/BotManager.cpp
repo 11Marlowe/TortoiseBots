@@ -1196,6 +1196,18 @@ void BotManager::OnPlayerLogin(::Player* player)
     // Must run AFTER gear seeding and skills so the bot is fully initialized before any map transfer.
     TryRandomTeleport(player, record);
 
+    // Pool bots opt into PvP everywhere: the /pvp preference survives the
+    // server's PvP flag timer, a plain SetPvP does not. Re-applied on every
+    // login because relog clears the preference. Owned and hired bots stay
+    // untouched. War Mode is not used, so no XP bonus rides along.
+    if (record.random && ::sPlayerbotAIConfig.randomBotForcePvp &&
+        !HireLifecycle::Instance().IsHired(player->GetObjectGuid()) &&
+        !player->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_PVP_DESIRED))
+    {
+        player->SetFlag(PLAYER_FLAGS, PLAYER_FLAGS_PVP_DESIRED);
+        player->UpdatePvP(true);
+    }
+
     TB_LOG_DETAIL("TortoiseBots: bot %s entered world through native PlayerScript", player->GetName());
 }
 

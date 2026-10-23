@@ -483,6 +483,18 @@ func main() {
 		writeJSON(w, store.QuestFeed(f))
 	}))
 
+	mux.HandleFunc("/api/v1/activity/pvp", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		f := state.PvpFilter{Bot: q.Get("bot"), Limit: int(qUint(q.Get("limit")))}
+		if f.Limit <= 0 {
+			f.Limit = 200
+		}
+		if f.Limit > 2000 {
+			f.Limit = 2000
+		}
+		writeJSON(w, store.PvpFeed(f))
+	}))
+
 	// Commanders: the standing remote-commander bindings the module reports
 	// (COMMANDERS datagrams), plus the embedded external dashboard's URL when
 	// the operator set one. Memory only; nothing here reads a database.

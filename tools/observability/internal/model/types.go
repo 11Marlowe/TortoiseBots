@@ -82,6 +82,12 @@ type BotSnapshot struct {
 	Pvp string `json:"pvp,omitempty"`
 	// PvpBg names the battleground (or the queued ones, comma separated).
 	PvpBg string `json:"pvp_bg,omitempty"`
+	// WorldPvpSeeker marks a bot holding the open-world PvP seek role.
+	WorldPvpSeeker bool `json:"world_pvp_seeker,omitempty"`
+	// WorldPvpFighting names the enemy the bot is fighting right now in the
+	// open world (empty when none): the target of its last engage event,
+	// cleared on kill/death or after a minute without a new event.
+	WorldPvpFighting string `json:"world_pvp_fighting,omitempty"`
 
 	// XpPerHour is daemon-derived from successive XP samples (level-up
 	// aware), not on the wire. XpGainAgeSec is seconds since the last
@@ -169,6 +175,9 @@ type BotEvent struct {
 	Buy     uint32 `json:"buy,omitempty"`
 	// Money is the bot's copper at event time (0 = unknown).
 	Money uint64 `json:"money,omitempty"`
+	// TargetLevel is the other side's level for world PvP events
+	// (0 = unknown, e.g. from an older module build).
+	TargetLevel uint32 `json:"target_level,omitempty"`
 }
 
 // BotEventsPayload delivers the activity events emitted during one snapshot
@@ -203,6 +212,9 @@ type BotActivity struct {
 	MoneySpent      uint64   `json:"money_spent"`
 	Kills           int      `json:"kills"`
 	Deaths          int      `json:"deaths"`
+	PvpEngagements  int      `json:"pvp_engagements"`
+	PvpKills        int      `json:"pvp_kills"`
+	PvpDeaths       int      `json:"pvp_deaths"`
 	GhostSeconds    float64  `json:"ghost_seconds"`
 	TrainerVisits   int      `json:"trainer_visits"`
 	SpellsLearned   int      `json:"spells_learned"`
@@ -264,6 +276,25 @@ type QuestFeedItem struct {
 	Event   string `json:"event"`
 	Quest   string `json:"quest"`
 	QuestID uint32 `json:"quest_id"`
+}
+
+// PvpFeedItem is one row of the pool-wide world PvP feed: who fought whom,
+// when and where. Event is engage, kill or death (from the bot's view);
+// TargetKind is "bot" or "player" for engages (empty on rows from older
+// module builds, which carry only the name and level).
+type PvpFeedItem struct {
+	At          int64  `json:"at"`
+	TimeStr     string `json:"time_str,omitempty"`
+	Bot         string `json:"bot"`
+	GUID        uint32 `json:"guid"`
+	Class       string `json:"class"`
+	Level       uint32 `json:"level"`
+	MapID       uint32 `json:"map"`
+	ZoneID      uint32 `json:"zone"`
+	Event       string `json:"event"`
+	Target      string `json:"target"`
+	TargetKind  string `json:"target_kind,omitempty"`
+	TargetLevel uint32 `json:"target_level,omitempty"`
 }
 
 // ActivityLevelItem is one level-up observed across the pool, used for the
@@ -405,6 +436,7 @@ type GrindingSummary struct {
 	TotalXpHour   float64        `json:"total_xp_hour"`
 	DeathsPerMin  float64        `json:"deaths_per_min"`
 	PctDied5Min   float64        `json:"pct_died_5min"`
+	WorldPvpSeekers int          `json:"world_pvp_seekers"`
 	// StateCounts is the single authoritative per-state census (roster
 	// states, not the 3-min rolling ratios): combat/moving/busy/stalled/
 	// resting/dead/idle counts. The dashboard Activity block renders counts

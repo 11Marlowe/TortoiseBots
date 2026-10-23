@@ -69,6 +69,7 @@ struct BotTelemetrySnapshot
     uint32 aiAgeMs = 0;        // ms since the last AI update
     std::string pvp;           // "bg" inside a battleground, "queue" when queued, else empty
     std::string pvpWhere;      // battleground name, or the queued battleground names
+    bool worldPvpSeeker = false; // holds the open-world PvP seek role
 };
 
 // ObservabilityEmitter sends non-blocking loopback UDP telemetry to the
@@ -160,7 +161,8 @@ public:
     void EmitBotActivity(std::string const& event,
                          std::string const& info1,
                          std::string const& info2,
-                         Player* bot);
+                         Player* bot,
+                         uint32 targetLevel = 0);
 
     // turtle: let another module (e.g. mod-turtlebots residents) contribute its
     // own Player* roster to every telemetry cycle. Called on the world thread.

@@ -39,7 +39,10 @@ These settings configure health and mana trigger percentages, engagement ranges,
 | [`AiPlayerbot.PullBackMaxReturnTime`](#aiplayerbotpullbackmaxreturntime) | `15` | Maximum seconds a tank has to return to group before pullback aborts. |
 | [`AiPlayerbot.MinRandomBotChangeStrategyTime`](#aiplayerbotminrandombotchangestrategytime) | `1800` (built in) | Minimum seconds a pool bot retains its strategy set before periodic refresh. |
 | [`AiPlayerbot.MaxRandomBotChangeStrategyTime`](#aiplayerbotmaxrandombotchangestrategytime) | `7200` (built in) | Maximum seconds a pool bot retains its strategy set before periodic refresh. |
-
+| [`AiPlayerbot.RandomBotForcePvp`](#aiplayerbotrandombotforcepvp) | `1` | Pool bots turn on the `/pvp` preference at every login so players can attack them anywhere. |
+| [`AiPlayerbot.WorldPvpSeek`](#aiplayerbotworldpvpseek) | `2` | Free pool bots seek flagged enemy players (`1`) or players and bots (`2`); `0` off. |
+| [`AiPlayerbot.WorldPvpSeekBotPercent`](#aiplayerbotworldpvpseekbotpercent) | `25` | Share of free pool bots holding the `world pvp` seek role. |
+| [`AiPlayerbot.WorldPvpSeekRerollMinutes`](#aiplayerbotworldpvpseekrerollminutes) | `30` | Minutes between seek-role re-rolls, never while the bot is in combat. |
 ## Settings
 
 ### `AiPlayerbot.AlmostFullHealth`
@@ -326,5 +329,57 @@ Maximum duration in seconds a pool bot retains its active strategy configuration
 Sets the upper bound for periodic pool bot strategy updates.
 
 Together with the minimum timer, each bot picks a randomized refresh time between these two bounds.
+
+</details>
+
+### `AiPlayerbot.RandomBotForcePvp`
+Pool bots turn on the same PvP preference `/pvp` sets at every login, so players can attack them anywhere.
+**Default:** `1` · **Values:** `0` off, `1` on · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+On its own this does not make bots hunt anyone: it only flags them. Owned and hired bots are never affected. With `0`, no bot sets `/pvp` and behaviour matches a realm without open-world PvP.
+
+Turtle's War Mode is not used, so bots get no XP bonus from this.
+
+</details>
+
+### `AiPlayerbot.WorldPvpSeek`
+A share of free pool bots actively look for PvP-flagged enemy players nearby and attack them.
+**Default:** `2` · **Values:** `0` off, `1` real players only, `2` players and enemy bots · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+A seeking bot attacks an enemy player only when all of these are true: the bot is not in a battleground, the target is an enemy-faction player who is PvP flagged, the target is not in a zone from `AiPlayerbot.PvpProhibitedZoneIds`, the target is within 20 yards (or within sight range when the bot has more health), the height difference is under 30 yards, and the level-gap odds allow it (never 5+ levels above; closer targets always).
+
+Unflagged players, challenge-mode characters (except War Mode) and GMs with visibility off are never attacked. Owned and hired bots and bots grouped with a real player never seek. Battlegrounds keep their own logic.
+
+A seeker chases a fleeing target for up to 60 seconds, camps a player it killed for up to 5 minutes and then ignores that player for 10 minutes, and joins a PvP fight within 30 yards that someone from its own faction is in.
+
+One bot can be switched on or off with `nc +world pvp` / `nc -world pvp`.
+
+</details>
+
+### `AiPlayerbot.WorldPvpSeekBotPercent`
+Share of free pool bots that get the `world pvp` seek strategy.
+**Default:** `25` · **Values:** `0` to `100` percent · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+The role is handed out when a bot logs in or resets its strategies, and rolled again about every `AiPlayerbot.WorldPvpSeekRerollMinutes`. Ignored while seeking is off. `0` gives it to none.
+
+</details>
+
+### `AiPlayerbot.WorldPvpSeekRerollMinutes`
+Minutes between re-rolls of the `world pvp` seek role.
+**Default:** `30` · **Values:** minutes · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Each re-roll carries a few minutes of jitter so the pool does not swap roles in lockstep, and a bot in combat keeps its role until the fight ends.
 
 </details>

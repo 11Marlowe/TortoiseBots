@@ -3,6 +3,7 @@
 #include "AttackersValue.h"
 #include "PossibleTargetsValue.h"
 #include "EnemyPlayerValue.h"
+#include "WorldPvpSeekChecks.h"
 #include "playerbot/AttackersAoeDensityPolicy.h"
 
 using namespace ai;
@@ -408,10 +409,15 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
     Player* enemyPlayer = dynamic_cast<Player*>(target);
     if (enemyPlayer)
     {
-        // Don't consider enemy players if pvp strategy is not set
-        if (PlayerbotAIStorage::Instance().GetAI(playerToCheckAgainst) && !PlayerbotAIStorage::Instance().GetAI(playerToCheckAgainst)->HasStrategy("pvp", BotState::BOT_STATE_COMBAT))
+        // Don't consider enemy players if neither the battleground pvp
+        // strategy nor the open-world seek role is set.
+        if (PlayerbotAI* targetAi = PlayerbotAIStorage::Instance().GetAI(playerToCheckAgainst))
         {
-            return false;
+            if (!targetAi->HasStrategy("pvp", BotState::BOT_STATE_COMBAT) &&
+                !WorldPvpSeekChecks::IsSeeking(targetAi, playerToCheckAgainst))
+            {
+                return false;
+            }
         }
 
         // A masterless random bot that died to this named player recently does not

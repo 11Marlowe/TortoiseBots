@@ -105,12 +105,13 @@
     profile: null,
     profileTab: 'overview',
     profileRecent: null,
+    profilePvp: null,
     armorySpellFilter: '',
     activity: null,
     lootFeed: [],
-    questFeed: []
+    questFeed: [],
+    pvpFeed: []
   };
-
   // Equipment slot IDs mirror core Player.h EquipmentSlots (0-18).
   const EQUIP_SLOT_NAMES = {
     0: 'Head', 1: 'Neck', 2: 'Shoulders', 3: 'Shirt', 4: 'Chest',
@@ -154,6 +155,18 @@
     return live.pvp === 'bg'
       ? `<span class="badge badge-pvp" title="In battleground: ${esc(name)}">PvP · ${esc(short)}</span>`
       : `<span class="badge badge-info" title="Queued for: ${esc(name)}">Queue · ${esc(short)}</span>`;
+  }
+
+  // World PvP badges: the seeker role, and the live fight while one lasts.
+  function worldPvpBadge(live) {
+    if (!live) return '';
+    if (live.world_pvp_fighting) return `<span class="badge badge-error" title="Fighting in the open world right now">Fighting ${esc(live.world_pvp_fighting)}</span>`;
+    if (live.world_pvp_seeker) return `<span class="badge badge-pvp" title="Holds the open-world PvP seeker role">PvP · world</span>`;
+    return '';
+  }
+
+  function inWorldPvp(live) {
+    return !!(live && (live.world_pvp_seeker || live.world_pvp_fighting));
   }
 
   const STATE_COLORS = {
@@ -549,6 +562,8 @@
     lootBotSearch: document.getElementById('loot-bot-search'),
     questsTable: document.getElementById('quests-table-body'),
     questBotSearch: document.getElementById('quest-bot-search'),
+    pvpTable: document.getElementById('pvp-table-body'),
+    pvpBotSearch: document.getElementById('pvp-bot-search'),
 
     // Bot profile slide-over
     profileDrawer: document.getElementById('profile-drawer'),
@@ -2419,7 +2434,7 @@
         const badge = issue
           ? ` <span class="badge ${issue.severity === 'persistent' ? 'badge-error' : 'badge-warn'}" title="${esc(ISSUE_LABELS[issue.type] || issue.type)}">${esc(fmtDuration(issue.duration_sec))}</span>`
           : '';
-        const pvp = pvpBadge(r.live);
+        const pvp = pvpBadge(r.live) || worldPvpBadge(r.live);
         const kind = kindBadge(r.kind);
         return `<a class="bot-name bot-link" style="color: ${classColor(r.cls)};" href="${esc(routeHash({ tab: 'roster', bot: r.guid, ptab: state.profileTab }))}">${esc(r.name)}</a>${kind}${pvp ? ` ${pvp}` : ''}${badge}`;
       }
@@ -2538,7 +2553,7 @@
     const stateCount = {};
     forStates.forEach(r => { if (r.live) { const k = r.live.state || 'idle'; stateCount[k] = (stateCount[k] || 0) + 1; } });
     const withIssues = base.filter(r => issues[r.guid]).length;
-    const inPvp = base.filter(r => r.live && r.live.pvp).length;
+    const inPvp = base.filter(r => (r.live && r.live.pvp) || inWorldPvp(r.live)).length;
     el.stateChips.innerHTML =
       chip('state', 'all', 'Any state', forStates.length, '', state.botsState === 'all') +
       STATE_ORDER.filter(k => stateCount[k] || state.botsState === k)
@@ -2638,7 +2653,7 @@
     const classOk = r => state.botsClass === 'all' || r.cls === state.botsClass;
     const specOk = r => state.botsClass === 'all' || state.botsSpec === 'all' || r.spec === state.botsSpec;
     const issueOk = r => !state.botsIssueOnly || !!issues[r.guid];
-    const pvpOk = r => !state.botsPvpOnly || !!(r.live && r.live.pvp);
+    const pvpOk = r => !state.botsPvpOnly || !!(r.live && r.live.pvp) || inWorldPvp(r.live);
 
     const base = rows.filter(r => presenceOk(r) && segOk(r) && queryOk(r));
     renderBotChips(base, issues, stateOk, classOk);
@@ -3007,6 +3022,12 @@
         ['Ghost time', esc(fmtDuration(c.ghost_seconds))],
         ['Give-ups', num(c.giveups)]
       ]) +
+      statGroup('World PvP', [
+        ['Seekers now', num((state.grinding || {}).world_pvp_seekers)],
+        ['Engagements', num(c.pvp_engagements)],
+        ['PvP kills', num(c.pvp_kills)],
+        ['PvP deaths', num(c.pvp_deaths)]
+      ]) +
       statGroup('Loot & gathering', [
         ['Loot items', num(c.loot_items)],
         ['Notable loot', num(c.notable_loot), 'Green or better'],
@@ -3040,7 +3061,7 @@
     return `${esc(capClass(cls))} <span class="cell-muted">L${esc(level)}</span>`;
   }
 
-  // Feeds: one panel, three views (quests / loot / live console).
+  // Feeds: one panel, four views (quests / loot / world PvP / live console).
   function showFeed(view) {
     state.feedView = view;
     paintSeg(el.feedSeg, view);
@@ -3051,6 +3072,7 @@
   function fetchFeed() {
     if (state.feedView === 'quests') fetchQuestFeed();
     else if (state.feedView === 'loot') fetchLootFeed();
+    else if (state.feedView === 'pvp') fetchPvpFeed();
   }
 
   function lootFeedParams() {
@@ -3125,6 +3147,45 @@
     </tr>`).join('');
   }
 
+  const PVP_EVENT_LABELS = { engage: 'Engaged', kill: 'Killed', death: 'Died to' };
+  const pvpEventLabel = e => PVP_EVENT_LABELS[e] || e || 'pvp';
+
+  function pvpTargetCell(r) {
+    const kind = r.target_kind ? ` <span class="badge ${r.target_kind === 'bot' ? 'badge-info' : 'badge-warn'}">${esc(r.target_kind)}</span>` : '';
+    const lvl = r.target_level ? ` <span class="mono cell-muted">L${esc(r.target_level)}</span>` : '';
+    return `${esc(r.target || '-')}${lvl}${kind}`;
+  }
+
+  function fetchPvpFeed() {
+    if (!el.pvpTable || state.activeTab !== 'activity' || state.feedView !== 'pvp') return;
+    const parts = ['limit=200'];
+    if (el.pvpBotSearch && el.pvpBotSearch.value.trim()) parts.push(`bot=${encodeURIComponent(el.pvpBotSearch.value.trim())}`);
+    fetch(`/api/v1/activity/pvp?${parts.join('&')}`)
+      .then(jsonOrThrow)
+      .then(rows => {
+        state.pvpFeed = Array.isArray(rows) ? rows : [];
+        renderPvpFeed();
+      })
+      .catch(() => {});
+  }
+
+  function renderPvpFeed() {
+    if (!el.pvpTable) return;
+    const rows = state.pvpFeed || [];
+    if (!rows.length) {
+      el.pvpTable.innerHTML = '<tr><td colspan="6" class="table-empty">No world PvP events match.</td></tr>';
+      return;
+    }
+    el.pvpTable.innerHTML = rows.map(r => `<tr>
+      <td class="mono cell-time">${esc(feedClock(r))}</td>
+      <td>${botLink(r.guid, r.bot, r.class)}</td>
+      <td>${classLevelCell(r.class, r.level)}</td>
+      <td><span class="badge ${r.event === 'kill' ? 'badge-success' : (r.event === 'death' ? 'badge-error' : 'badge-pvp')}">${esc(pvpEventLabel(r.event))}</span></td>
+      <td>${pvpTargetCell(r)}</td>
+      <td class="mono">${esc(getZoneName(r.zone, r.map))}</td>
+    </tr>`).join('');
+  }
+
   // Level-up timeline (Progress tab), newest first, capped so the DOM stays small.
   function renderLevelTimeline() {
     if (!el.levelTimeline) return;
@@ -3146,6 +3207,7 @@
     renderActivityMetrics();
     renderQuestFeed();
     renderLootFeed();
+    renderPvpFeed();
   }
 
   function fetchActivity() {
@@ -3176,6 +3238,7 @@
 
   let lootFilterTimer = null;
   let questFilterTimer = null;
+  let pvpFilterTimer = null;
 
   function initActivity() {
     bindSeg(el.feedSeg, showFeed);
@@ -3189,6 +3252,10 @@
     if (el.questBotSearch) el.questBotSearch.addEventListener('input', () => {
       clearTimeout(questFilterTimer);
       questFilterTimer = setTimeout(fetchQuestFeed, 300);
+    });
+    if (el.pvpBotSearch) el.pvpBotSearch.addEventListener('input', () => {
+      clearTimeout(pvpFilterTimer);
+      pvpFilterTimer = setTimeout(fetchPvpFeed, 300);
     });
   }
 
@@ -3377,6 +3444,7 @@
     if (changed) {
       state.profile = null;
       state.profileRecent = null;
+      state.profilePvp = null;
       const body = el.profileDrawer.querySelector('.profile-body');
       if (body) body.scrollTop = 0;
       if (el.armoryError) el.armoryError.style.display = 'none';
@@ -3385,6 +3453,7 @@
     renderProfileHeader();
     renderArmoryPanel(state.profile, state.profileTab);
     ensureProfileRecent();
+    ensureProfilePvp();
     if (changed) refreshSelection();
   }
 
@@ -3393,6 +3462,7 @@
     state.profileGuid = null;
     state.profile = null;
     state.profileRecent = null;
+    state.profilePvp = null;
     el.profileDrawer.classList.remove('open');
     el.profileDrawer.setAttribute('aria-hidden', 'true');
     el.profileBackdrop.classList.remove('active');
@@ -3449,6 +3519,24 @@
       state.profileRecent = { guid, rows };
       renderProfileOverview();
     });
+  }
+
+  // The bot's recent world PvP fights (same bounded in-memory feed), plus
+  // its session totals from the activity rollup.
+  function ensureProfilePvp() {
+    const guid = state.profileGuid;
+    if (guid === null || (state.profilePvp && state.profilePvp.guid === guid)) return;
+    const name = knownBotName(guid);
+    if (!name) return;
+    state.profilePvp = { guid, rows: null };
+    fetch(`/api/v1/activity/pvp?bot=${encodeURIComponent(name)}&limit=50`)
+      .then(jsonOrThrow)
+      .then(rows => {
+        if (state.profileGuid !== guid) return;
+        state.profilePvp = { guid, rows: (Array.isArray(rows) ? rows : []).filter(r => r.guid === guid).slice(0, 50) };
+        renderProfileOverview();
+      })
+      .catch(() => {});
   }
 
   function profileBars(p, live) {
@@ -3581,7 +3669,7 @@
           ${live.player ? '' : kv('Last action', kvMono(live.last_action))}
           ${live.player ? '' : kv('Trigger', kvMono(live.last_trigger))}
           ${live.player ? '' : kv('Strategy', kvMono(live.strategy || 'default'))}
-          ${live.pvp ? kv('PvP', pvpBadge(live)) : ''}
+          ${(live.pvp || inWorldPvp(live)) ? kv('PvP', pvpBadge(live) || worldPvpBadge(live)) : ''}
           ${dgnRunLink(guid)}
           ${live.player ? '' : kv('Combat role', `<span class="badge badge-info" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${esc(roleLabel(live))}</span>`)}
         </div>
@@ -3610,6 +3698,16 @@
       recent === null ? '<div class="empty-hint">Loading…</div>'
         : recent.length ? recent.map(r => `<div class="recent-row"><span class="recent-time mono">${esc(r.time)}</span>${r.html}</div>`).join('')
           : '<div class="empty-hint">No quest or loot events recorded this session.</div>'
+    }</div>`;
+
+    const pvp = state.profilePvp && state.profilePvp.guid === guid ? state.profilePvp.rows : null;
+    const pact = live && live.activity ? live.activity : ((state.profile && state.profile.activity) || null);
+    const pvpTotals = pact && (pact.pvp_engagements || pact.pvp_kills || pact.pvp_deaths)
+      ? ` <span class="cell-muted mono">${esc(pact.pvp_engagements || 0)} fights · ${esc(pact.pvp_kills || 0)} kills · ${esc(pact.pvp_deaths || 0)} deaths</span>` : '';
+    html += `<div class="profile-section"><div class="section-label">World PvP${pvpTotals}</div>${
+      pvp === null ? '<div class="empty-hint">Loading…</div>'
+        : pvp.length ? pvp.map(r => `<div class="recent-row"><span class="recent-time mono">${esc(feedClock(r))}</span><span class="badge ${r.event === 'kill' ? 'badge-success' : (r.event === 'death' ? 'badge-error' : 'badge-pvp')} recent-kind">${esc(pvpEventLabel(r.event))}</span><span>${pvpTargetCell(r)} <span class="cell-muted mono">${esc(getZoneName(r.zone, r.map))}</span></span></div>`).join('')
+          : '<div class="empty-hint">No world PvP fights recorded this session.</div>'
     }</div>`;
     host.innerHTML = html;
   }

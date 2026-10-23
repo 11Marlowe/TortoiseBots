@@ -146,6 +146,7 @@ type Store struct {
 	lootFeed  []model.LootFeedItem
 	questFeed []model.QuestFeedItem
 	levelFeed []model.ActivityLevelItem
+	pvpFeed   []model.PvpFeedItem
 
 	// gear is the daemon's periodic equipped-gear sweep, keyed by GUID.
 	// Replaced wholesale by SetGear on every sweep (it is DB truth, not
@@ -379,6 +380,7 @@ func (s *Store) Snapshot() model.SnapshotPayload {
 		}
 		snap.Activity = s.activityForLocked(snap.GUID)
 		snap.Gear = s.gearForLocked(snap.GUID)
+		snap.WorldPvpFighting = s.worldPvpFightingLocked(snap.GUID, now)
 		bots = append(bots, snap)
 	}
 	sort.Slice(bots, func(i, j int) bool { return bots[i].Name < bots[j].Name })
@@ -590,6 +592,9 @@ func (s *Store) grindingLocked(bots []model.BotSnapshot, now time.Time) model.Gr
 	rates := make([]float64, 0, n)
 	for _, b := range bots {
 		rates = append(rates, b.XpPerHour)
+		if b.WorldPvpSeeker {
+			out.WorldPvpSeekers++
+		}
 		if b.XpGainAgeSec >= 0 && now.Sub(s.lastSnapshotAt) <= 10*time.Minute {
 			// Counted as gaining when the last positive delta is recent.
 			// 10 min matches the "died in last 5 min" scale below.
