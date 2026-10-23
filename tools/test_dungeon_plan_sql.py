@@ -273,26 +273,35 @@ class DungeonPlanSql(unittest.TestCase):
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
-        # 20261022210400 (turtle-agent prep/rfk 48d6ea0, 2026-10-22, after live run r19-19z37 stopped at step 4): the Razorfen Kraul
-        # draft with the pack fixes of PREP-RFK-2026-10-22.md and the opening-stand fix, no row hand-set, with the boss rows of map 47.
-        # 7 legs, 634 steps (one move more than 633: leg 0 seq 5, the corridor regroup before pull group 4), 32 + 20 + 8 + 14 + 17
-        # + 10 + 22 pulls, bosses in leg order, no door or event step. The plan row has the unit lists; the packs that stand with a
-        # boss are that boss row's entries, not pulls; Halmgar 4842 and the Blind Hunter 4425 are pull members.
+        # 20261022211300 (turtle-agent prep/rfk 82bf678, 2026-10-23, after live run r20-19z39 stopped at step 42): the Razorfen Kraul
+        # plan of 20261022210400 again, with the run-2 fix (the corridor groups at radius 10, the stands before pulls 39 and 42), no
+        # row hand-set, with the boss rows of map 47 left in 20261022210300. 7 legs, 678 steps (44 moves more: the two approach stands
+        # and the cut walk to the first of them), 32 + 20 + 8 + 14 + 17 + 10 + 22 pulls, bosses in leg order, no door or event step.
+        # The plan row has the unit lists; the packs that stand with a boss are that boss row's entries, not pulls; Halmgar 4842 and
+        # the Blind Hunter 4425 are pull members.
         name, text = newest_plan_text("razorfen_kraul")
-        self.assertEqual(name, "20261022210400_world.sql")
-        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent 48d6ea0 dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261022211300_world.sql")
+        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent 82bf678 dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "razorfen_kraul")), 7)
         rows = [r for r in self.step_rows(text) if r["plan"] == "razorfen_kraul"]
-        self.assertEqual(len(rows), 634)
-        # The opening stand is the lower-floor pocket 1994 1615 (the old 1987.53 1600.03 has the upper walkway overhead); the Handler
-        # pull owns its 22 yd wander with radius 25, the two Quilguard pairs and the Geomancer have radius 10, and seq 5 is the explicit
-        # corridor regroup move before pull group 4 (r19-19z37: the two ranged bots climbed the west ramp while idle).
+        self.assertEqual(len(rows), 678)
+        # The opening stand is the lower-floor pocket 1994 1615 (the old 1987.53 1600.03 has the upper walkway overhead); the five
+        # corridor groups all have radius 10 (group 0 was 25 and owned the next group's Quilguards; group 5's default was 19.3), and
+        # seq 5 is the explicit corridor regroup move before pull group 4 (r19-19z37: the two ranged bots climbed the west ramp while
+        # idle).
         first = leg_steps(rows, 0)
         self.assertEqual((first[0]["kind"], first[0]["x"], first[0]["y"], first[0]["z"]), ("move", "1994", "1615", "83.2"))
-        self.assertEqual((first[1]["kind"], first[1]["entries"], first[1]["radius"]), ("pull", "4530", "25"))
+        self.assertEqual((first[1]["kind"], first[1]["entries"], first[1]["radius"]), ("pull", "4530", "10"))
         self.assertEqual([r["radius"] for r in first[2:5]], ["10", "10", "10"])
         self.assertEqual((first[5]["kind"], first[5]["x"], first[5]["y"], first[5]["z"], first[5]["comment"]),
                          ("move", "2000", "1635", "81", "pull group 4 approach"))
+        # The two stands the run-2 fix adds (r20-19z39: pulls 39 and 42 walked the long way at 61.0-107.3 yd): 2110 1600 82.1 before
+        # the 4532 pull and 2180 1610 81.3 before the 4440 pull, whose radius is the explicit 10.
+        stands = [(r["x"], r["y"], r["z"], r["comment"]) for r in leg_steps(rows, 0)
+                  if r["kind"] == "move" and r["comment"] in ("pull group 21 approach", "pull group 24 approach")]
+        self.assertEqual(stands, [("2110", "1600", "82.1", "pull group 21 approach"),
+                                  ("2180", "1610", "81.3", "pull group 24 approach")])
+        self.assertEqual([r["radius"] for r in leg_steps(rows, 0) if r["kind"] == "pull" and r["entries"] == "4440"], ["10"])
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [32, 20, 8, 14, 17, 10, 22])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["6168", "4424", "4428", "4420", "62503", "4422", "4421"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
