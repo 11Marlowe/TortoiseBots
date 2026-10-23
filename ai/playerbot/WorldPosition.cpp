@@ -4,6 +4,7 @@
 #include "playerbot/TravelMgr.h"
 #include "TravelNode.h"
 #include "playerbot/MagmaHazardPolicy.h"
+#include "playerbot/SwimPathPolicy.h"
 
 #include "Maps/Map.h"
 
@@ -22,6 +23,50 @@
 
 using namespace ai;
 using namespace MaNGOS;
+
+// SwimPathPolicy.h mirrors the core's path types and liquid states.
+static_assert(ai::kPathTypeNormal == PATHFIND_NORMAL && ai::kPathTypeShortcut == PATHFIND_SHORTCUT &&
+    ai::kPathTypeIncomplete == PATHFIND_INCOMPLETE && ai::kPathTypeNoPath == PATHFIND_NOPATH &&
+    ai::kPathTypeNotUsingPath == PATHFIND_NOT_USING_PATH && ai::kPathTypeDestForced == PATHFIND_DEST_FORCED &&
+    ai::kPathTypeFlyPath == PATHFIND_FLYPATH && ai::kPathTypeUnderwater == PATHFIND_UNDERWATER,
+    "SwimPathPolicy.h path types out of step with the core's PathFinder.h");
+static_assert(ai::kLiquidNoWater == LIQUID_MAP_NO_WATER && ai::kLiquidAboveWater == LIQUID_MAP_ABOVE_WATER &&
+    ai::kLiquidWaterWalk == LIQUID_MAP_WATER_WALK && ai::kLiquidInWater == LIQUID_MAP_IN_WATER &&
+    ai::kLiquidUnderWater == LIQUID_MAP_UNDER_WATER,
+    "SwimPathPolicy.h liquid states out of step with the core's GridMapDefines.h");
+
+namespace
+{
+    // The core's straight swim answer (SwimPathPolicy.h) for `bot`: every leg of
+    // the path in water or ocean (no magma, no slime) at every sample, and in the
+    // bot's sight (vmaps and dynamic objects, half a yard up). False for a bot on
+    // a transport, out of the world, or on another map than the path.
+    bool SwimPathFits(const std::vector<WorldPosition>& path, const Unit* bot)
+    {
+        if (!bot || bot->GetTransport() || path.size() < 2)
+            return false;
+        Map* const map = bot->FindMap();
+        TerrainInfo const* const terrain = map ? map->GetTerrain() : nullptr;
+        if (!terrain)
+            return false;
+        auto const liquidAt = [terrain](float x, float y, float z)
+        {
+            return static_cast<uint32>(terrain->getLiquidStatus(x, y, z, MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN, nullptr));
+        };
+        for (size_t i = 1; i < path.size(); ++i)
+        {
+            WorldPosition const& a = path[i - 1];
+            WorldPosition const& b = path[i];
+            if (a.GetMapId() != map->GetId() || b.GetMapId() != map->GetId())
+                return false;
+            if (!ai::SwimLineInWater(a.getX(), a.getY(), a.getZ(), b.getX(), b.getY(), b.getZ(), liquidAt))
+                return false;
+            if (!map->isInLineOfSight(a.getX(), a.getY(), a.getZ() + 0.5f, b.getX(), b.getY(), b.getZ() + 0.5f, true))
+                return false;
+        }
+        return true;
+    }
+}
 
 WorldPosition::WorldPosition(const uint32 mapId, const GuidPosition& guidP, uint32 instanceId)
 {
@@ -1289,7 +1334,13 @@ std::vector<WorldPosition> WorldPosition::getPathStepFrom(const WorldPosition& s
         }
     }
 
-    if ((!forceNormalPath && type == PATHFIND_INCOMPLETE) || type == PATHFIND_NORMAL)
+    // A navmesh path (NORMAL, or INCOMPLETE unless a complete one is wanted), or
+    // the core's straight swim answer (NORMAL|UNDERWATER, NORMAL|NOT_USING_PATH)
+    // when its whole line lies in water and in sight (SwimPathPolicy.h). The
+    // same answer on land (no mmaps, a no-movement area) stays refused.
+    PathStepVerdict const verdict = ClassifyPathStepType(static_cast<uint32>(type), forceNormalPath);
+    bool const swimLine = verdict == PathStepVerdict::KeepIfSwimLine && SwimPathFits(retvec, bot);
+    if (KeepPathStep(static_cast<uint32>(type), forceNormalPath, swimLine, swimLine))
         return retvec;
 
     return {};
