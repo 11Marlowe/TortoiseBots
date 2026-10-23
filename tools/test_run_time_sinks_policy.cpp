@@ -4,6 +4,7 @@
 //       live pack's reach, a target moved back when the straight path passes an uncleared pack, and the replay
 //       leaving out a stretch of the route that comes back by the point just reached;
 //   (B) the rest gate rests to what the next fight needs;
+//   (C) after a won fight the next pack close by is pulled from where the tank stands;
 //   g++ -std=c++17 -Wall -Wextra tools/test_run_time_sinks_policy.cpp -o /tmp/t && /tmp/t
 #include "../runtime/DungeonRunPolicy.h"
 
@@ -716,6 +717,110 @@ static void TestMealWaitUnderTheLightLines()
     CHECK(Tick(b, bf).empty() && b.phase == Phase::Rest && b.restForEating);
 }
 
+// (C) Fight forward (WASTED-TIME sink 2). Step 0's pack is cleared with the tank at 5 0; the plan's next rows walk
+// back to the stand at -20 0 and pull the next pack at 20 0. The pull goes out from where the tank stands.
+struct ForwardCase
+{
+    DungeonPlan plan;
+    float leadX = 5.0f, leadZ = 0.0f;
+    bool walkBackKey = false;
+    std::uint32_t pulls = 1;
+};
+
+// The first order after the cleared step, and the step the run stands on then.
+static std::string AfterClear(ForwardCase& c, Run& r)
+{
+    r = Start(&c.plan);
+    r.pulls = c.pulls;
+    Facts f = Party(c.leadX, 0.0f, c.leadZ);
+    f.seen = true;
+    f.walkBackAfterWonFight = c.walkBackKey;
+    Tick(r, f); // "pack cleared"
+    CHECK(r.step == 1 && r.note.find("pack cleared") == 0);
+    std::string order;
+    for (int i = 0; i < 3 && order.empty(); ++i)
+    {
+        const PlanStep* s = Current(r);
+        if (s && s->kind == PlanStepKind::Pull)
+        {
+            UnitFact u;
+            u.guid = 61;
+            u.entry = s->entries.front();
+            u.distLead = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s->x, s->y, s->z);
+            f.units = {u};
+        }
+        order = Tick(r, f);
+    }
+    return order;
+}
+
+static ForwardCase Forward()
+{
+    ForwardCase c;
+    c.plan.steps = {Pull(0, 0, 1), Move(-20, 0), Pull(20, 0, 2, 10.0f), Move(60, 0)};
+    return c;
+}
+
+static void TestFightForwardPullsFromWhereTheTankStands()
+{
+    ForwardCase c = Forward();
+    Run r;
+    CHECK(AfterClear(c, r) == "pullback 61");
+    CHECK(r.step == 2 && r.anchorKnown && r.anchorX == 5.0f);
+    // The old way: the key at 1 walks back to the stand first.
+    ForwardCase old = Forward();
+    old.walkBackKey = true;
+    Run o;
+    CHECK(AfterClear(old, o) == "move -20.0 0.0 0.0");
+    // A pack farther than kFightForwardYd: the plan's rows.
+    ForwardCase far = Forward();
+    far.plan.steps[2] = Pull(40, 0, 2, 10.0f);
+    Run fr;
+    CHECK(AfterClear(far, fr) == "move -20.0 0.0 0.0");
+    // On another floor (more than kStragglerDzYd up or down): the plan's rows.
+    ForwardCase up = Forward();
+    up.leadZ = 9.0f;
+    Run u;
+    AfterClear(up, u);
+    CHECK(u.step == 1);
+    // Another live pack on the straight line: the plan's rows.
+    ForwardCase cross = Forward();
+    cross.plan.steps.push_back(Pull(12, 3, 3, 5.0f));
+    Run x;
+    AfterClear(cross, x);
+    CHECK(x.step == 1);
+    // An exact point (a stand requirement) between: the plan's rows.
+    ForwardCase exact = Forward();
+    exact.plan.steps[1].flags = ai::kPlanFlagExact;
+    Run e;
+    AfterClear(exact, e);
+    CHECK(e.step == 1);
+    // An ambush pack, or one the party never fought for (no pull went out on the cleared step): the plan's rows.
+    ForwardCase ambush = Forward();
+    ambush.plan.steps[2].flags = ai::kPlanFlagAmbush;
+    Run a;
+    AfterClear(ambush, a);
+    CHECK(a.step == 1);
+    ForwardCase quiet = Forward();
+    quiet.pulls = 0;
+    Run q;
+    CHECK(AfterClear(quiet, q) == "move -20.0 0.0 0.0");
+    // More than kFightForwardMoves moves to the pull: the plan's rows.
+    ForwardCase many = Forward();
+    many.plan.steps = {Pull(0, 0, 1)};
+    for (std::size_t i = 0; i <= kFightForwardMoves; ++i)
+        many.plan.steps.push_back(Move(-2.0f * (i + 1), 0));
+    many.plan.steps.push_back(Pull(20, 0, 2, 10.0f));
+    Run m;
+    AfterClear(many, m);
+    CHECK(m.step == 1);
+    // Two moves, within the bound: both left out.
+    ForwardCase two = Forward();
+    two.plan.steps = {Pull(0, 0, 1), Move(-20, 0), Move(-10, 5), Pull(20, 0, 2, 10.0f)};
+    Run t;
+    CHECK(AfterClear(two, t) == "pullback 61" && t.step == 3);
+}
+
 int main()
 {
     TestWipeWalkBackOnAGnomereganShapedPlan();
@@ -728,6 +833,7 @@ int main()
     TestRetreatAtTwoDead();
     TestRestLinesFollowTheNextFight();
     TestMealWaitUnderTheLightLines();
+    TestFightForwardPullsFromWhereTheTankStands();
     std::cout << "test_run_time_sinks_policy: ok\n";
     return 0;
 }

@@ -1281,6 +1281,9 @@ struct Run
     bool retreatDone = false;
     // The rest under way ends at the light lines (RestLinesFor: the next fight is a small pull, or there is none ahead).
     bool restLight = false;
+    // The step before was a pull or boss whose fight the party won (FightStep: "pack cleared", "boss down" after a
+    // pull went out): the next tick may pull the next pack from where the tank stands (FightForwardTick).
+    bool fightForwardDue = false;
     // The route checkpoint (run-wide: kept across steps, wipes and regroups):
     // the plan index of the move or direct step point the lead bot reached
     // last, its step done or a walk back's point (npos: none yet). The lead
@@ -7680,7 +7683,9 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         std::string timedOut;
         if (WaitForPatroller(r, f, s, dt, timedOut))
             return;
+        bool const fought = r.pulls > 0;
         NextStep(r, "pack cleared" + timedOut);
+        r.fightForwardDue = fought; // FightForwardTick
     }
     else if (end == FightEnd::BossDown)
     {
@@ -7688,7 +7693,9 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         // corpse by its guid (TaskStep), not to the plan's spawn point.
         if (f.bossCorpseGuid)
             r.corpses[s.entry] = CorpseMark{f.bossCorpseGuid, f.bossCorpseX, f.bossCorpseY, f.bossCorpseZ};
+        bool const fought = r.pulls > 0;
         NextStep(r, "boss down");
+        r.fightForwardDue = fought; // FightForwardTick
     }
     else
     {
@@ -10475,6 +10482,94 @@ inline void ForgetUnitsThatCame(Run& r, const Facts& f)
 }
 
 // ---------------------------------------------------------------------------
+// Fight forward (WASTED-TIME 2026-10-23 sink 2: 1,909 pulls walked 28.2 yd each beyond the farthest new ground, the
+// tank going back to the plan's stand and forward again; r24 slot 7 step 3: the pack at -194 2131, back to the stand
+// at -231 2144, 33 yd, then step 4 walked forward again). After a won fight (Run::fightForwardDue), when the steps
+// ahead are plain moves (no exact point, no launch, no direct step), at most kFightForwardMoves of them, up to a
+// pull of the party's team whose point lies within kFightForwardYd of the lead bot (and kStragglerDzYd up or down),
+// not an ambush, not left uncleared, and the straight line to it passes no other live pack (its radius plus
+// kPackClearanceYd), those moves are left out: the pull goes out from where the tank stands (the run's anchor is
+// set there, so the gather and the pullback's return are here). AiPlayerbot.DungeonRunWalkBackAfterWonFight = 1
+// keeps the old way. The pull's own rules stay: its gather, the firing stand (AiPlayerbot.DungeonRunPullStand: a
+// tank that cannot shoot from here still walks to one), crowd control and the aggro estimate. Never in an event or a
+// walk back.
+constexpr float kFightForwardYd = 30.0f;
+constexpr std::size_t kFightForwardMoves = 4;
+
+// The pull step the moves from the current step lead to, if fight forward may take it (npos for none).
+inline std::size_t FightForwardTarget(const Run& r, const Facts& f)
+{
+    if (!r.plan)
+        return static_cast<std::size_t>(-1);
+    std::size_t moves = 0;
+    for (std::size_t i = r.step; i < r.plan->steps.size(); ++i)
+    {
+        const PlanStep& p = r.plan->steps[i];
+        if (p.kind == PlanStepKind::Move)
+        {
+            if (++moves > kFightForwardMoves || IsExactPoint(r.plan, i) || ExactLaunch(r.plan, i) != static_cast<std::size_t>(-1))
+                return static_cast<std::size_t>(-1);
+            continue;
+        }
+        if (p.kind != PlanStepKind::Pull || !moves || !ai::StepForTeam(p, f.team) || (p.flags & ai::kPlanFlagAmbush) ||
+            r.notCleared.count(i))
+            return static_cast<std::size_t>(-1);
+        if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) > kFightForwardYd ||
+            std::fabs(f.leadZ - p.z) > kStragglerDzYd)
+            return static_cast<std::size_t>(-1);
+        PathPoint a, b;
+        a.x = f.leadX;
+        a.y = f.leadY;
+        a.z = f.leadZ;
+        b.x = p.x;
+        b.y = p.y;
+        b.z = p.z;
+        for (std::size_t k = 0; k < r.plan->steps.size(); ++k)
+        {
+            const PlanStep& g = r.plan->steps[k];
+            if (k == i || (g.kind != PlanStepKind::Pull && g.kind != PlanStepKind::Boss) || !ai::StepForTeam(g, f.team) ||
+                (k < r.step && !r.notCleared.count(k)))
+                continue;
+            if (SegmentDistance(a, b, g.x, g.y, g.z) <= g.radius + kPackClearanceYd)
+                return static_cast<std::size_t>(-1);
+        }
+        return i;
+    }
+    return static_cast<std::size_t>(-1);
+}
+
+// On the first tick of the step after a won fight: the moves to the next pull left out when it may (see above).
+// True when it did (the next tick reads the facts for the pull).
+inline bool FightForwardTick(Run& r, const Facts& f)
+{
+    if (!r.fightForwardDue || r.phase == Phase::Rest)
+        return false; // a rest or meal wait first: judged when it is over
+    r.fightForwardDue = false;
+    if (f.walkBackAfterWonFight || r.walkBack || r.regroup || InEvent(r) || r.phase != Phase::Begin || f.anyInCombat ||
+        f.dead > 0)
+        return false;
+    std::size_t const target = FightForwardTarget(r, f);
+    if (target == static_cast<std::size_t>(-1))
+        return false;
+    std::size_t const first = r.step;
+    const PlanStep& p = r.plan->steps[target];
+    float const yd = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
+    while (r.step < target && Current(r) && Current(r)->kind == PlanStepKind::Move)
+        NextStep(r, "fight forward");
+    if (r.step != target)
+        return true; // StepAfter went another way (a step for the other team): its own rules from here
+    r.anchorKnown = true;
+    r.anchorX = f.leadX;
+    r.anchorY = f.leadY;
+    r.anchorZ = f.leadZ;
+    r.note = "fight forward: the pack of step " + std::to_string(target + 1) + " is " + Num(yd) +
+        " yd from the tank: pulled from here (" +
+        (target - first == 1 ? "step " + std::to_string(first + 1) : "steps " + std::to_string(first + 1) + "-" +
+            std::to_string(target)) + " left out)";
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // The retreat at two dead (AiPlayerbot.DungeonRunRetreatAt2Dead, default 0; WASTED-TIME 2026-10-23 sink 5: 30 notes
 // "3 dead: fighting on, a regroup follows", each a wipe and a corpse walk back of 4-28 min). On: in a fight with
 // exactly kWipeDead - 1 members dead (two in a party of five), the lead bot alive and the fight being lost (the
@@ -11304,6 +11399,11 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     if (WalkBack(r, f, dt, order))
         return order;
 
+    // After a won fight: the next pack pulled from where the tank stands (FightForwardTick), else the step's rules.
+    if (s->kind != PlanStepKind::Move)
+        r.fightForwardDue = false;
+    else if (FightForwardTick(r, f))
+        return order;
     switch (s->kind)
     {
         case PlanStepKind::Move:
