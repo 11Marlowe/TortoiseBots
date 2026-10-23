@@ -1,5 +1,7 @@
 #include "playerbot/playerbot.h"
 #include "PlayerbotAI.h"
+#include "strategy/ItemVisitors.h"
+#include "RandomItemMgr.h"
 
 using namespace ai;
 

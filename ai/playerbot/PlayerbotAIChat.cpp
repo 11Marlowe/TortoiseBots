@@ -1,5 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "PlayerbotAI.h"
+#include "Chat/ChannelMgr.h"
 
 using namespace ai;
 

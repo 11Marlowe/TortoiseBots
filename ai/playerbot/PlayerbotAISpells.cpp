@@ -1,5 +1,14 @@
 #include "playerbot/playerbot.h"
 #include "PlayerbotAI.h"
+#include "playerbot/GroupMembers.h"
+#include "../../runtime/RemoteCommanderTasks.h"
+#include "playerbot/InterruptCastingPolicy.h"
+#include "strategy/values/LastMovementValue.h"
+#include "strategy/values/LastSpellCastValue.h"
+#include "strategy/values/PositionValue.h"
+#include "LootObjectStack.h"
+#include "BotActionLog.h"
+#include "Spells/SpellMgr.h"
 
 using namespace ai;
 

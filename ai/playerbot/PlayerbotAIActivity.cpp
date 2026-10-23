@@ -1,5 +1,9 @@
 #include "playerbot/playerbot.h"
 #include "PlayerbotAI.h"
+#include "playerbot/GroupMembers.h"
+#include "strategy/values/LastMovementValue.h"
+#include "strategy/values/GuildValues.h"
+#include "SocialMgr.h"
 
 using namespace ai;
 

@@ -1,6 +1,16 @@
 #include "playerbot/playerbot.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIPackets.h"
+#include "../../runtime/HireLifecycle.h"
+#include "../../runtime/PoolBotTradePolicy.h"
+#include "../../runtime/RemoteCommanderTasks.h"
+#include "strategy/actions/MovementActions.h"
+#include "strategy/values/LastSpellCastValue.h"
+#include "strategy/values/TargetValue.h"
+#include "BotActionLog.h"
+#include "PlayerbotLLMInterface.h"
+
+bool istarts_with(std::string_view text, std::string_view prefix); // Helpers.cpp
 
 using namespace ai;
 
