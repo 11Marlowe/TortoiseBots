@@ -104,7 +104,10 @@ constexpr float kRouteSpotYd = 10.0f;             // a lead bot this close to wh
 constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point may be stood in for by a
                                                   // reachable one at most this far from it ...
 constexpr float kMoveFallbackYd = 25.0f;          // ... a plain move's point, this far (r22-19z40 Razorfen Kraul step 85)
-constexpr float kApproachStandYd = 25.0f;         // a pack the approach hops did not reach: a stand this near it (ApproachStand)
+constexpr float kApproachStandYd = 25.0f;         // a pack the approach hops did not reach: a stand this near it (ApproachStand) ...
+constexpr float kApproachStandMinYd = 15.0f;      // ... and at least this far from its point (a ring, never the pack's centre) ...
+constexpr float kApproachStandPullMarginYd = 5.0f; // ... and the pull radius plus this from every unit of the target
+constexpr float kApproachStandHostileYd = 20.0f;  // ... with no other hostile this close to it
 constexpr std::size_t kUnreachableSkipsInARow = 3; // moves skipped for want of a path in a row, then pause
 constexpr float kDetourCloseMaxDz = 4.0f;         // a stand-in within kArriveYd of the point: at most this far above or below it
 constexpr float kDetourMaxPathYd = 40.0f;         // ... and the lead bot's navmesh path to it at most this much longer than the straight line
@@ -5041,6 +5044,18 @@ inline void AwaitPull(Run& r)
     EnterPhase(r, Phase::Begin);
 }
 
+// The innermost ring of the stand search: kApproachStandMinYd, or the step's pull radius
+// plus kApproachStandPullMarginYd when that is more (none when that is past kApproachStandYd).
+inline float ApproachStandMinRing(const PlanStep& s)
+{
+    return std::max(kApproachStandMinYd, s.radius + kApproachStandPullMarginYd);
+}
+
+inline bool IsStepTarget(const PlanStep& s, std::uint32_t entry)
+{
+    return entry && (entry == s.entry || std::find(s.entries.begin(), s.entries.end(), entry) != s.entries.end());
+}
+
 // Whether a step whose approach hops got no nearer asks the glue for a stand
 // (ApproachStand): a pull or boss step, its stand not tried yet this step.
 inline bool ApproachStandWanted(const Run& r, const PlanStep& s)
@@ -5120,12 +5135,13 @@ inline bool ApproachStandFound(Run& r, const Facts& f, bool found, float x, floa
         return false;
     std::string const what = s->kind == PlanStepKind::Boss ? "boss" : "pack";
     std::string const pack = "the " + what + " at " + Num(s->x) + " " + Num(s->y) + " " + Num(s->z);
-    if (!found || ai::PlanDistance(x, y, z, s->x, s->y, s->z) > kApproachStandYd)
+    float const ring = found ? ai::PlanDistance(x, y, z, s->x, s->y, s->z) : 0.0f;
+    if (!found || ring > kApproachStandYd + 0.5f || ring < ApproachStandMinRing(*s) - 0.5f)
     {
         r.approachStand = 3;
         Pause(r, (r.approachStandWhy.empty() ? std::string() : r.approachStandWhy + "; ") + pack +
-            " is not reachable from this floor: no stand within " + Num(kApproachStandYd) +
-            " yd of it the lead bot has a path to (the lead bot " +
+            " is not reachable from this floor: no safe stand " + Num(ApproachStandMinRing(*s)) + "-" +
+            Num(kApproachStandYd) + " yd from it the lead bot has a path to (the lead bot " +
             Num(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s->x, s->y, s->z)) + " yd from it" +
             (r.approachBestYd > 0.0f ? ", the approach hops got no nearer than " + Num(r.approachBestYd) + " yd" : "") +
             ")");
@@ -5356,6 +5372,69 @@ inline bool PathCrossesUnclearedPack(const DungeonPlan& plan, std::size_t from, 
                 return true;
     }
     return false;
+}
+
+// The approach stand's search (ApproachStand; the glue's ApproachStandSearch), after
+// the Codex review of f1fdeb67: the refused move's stand-in search took the plan point
+// itself (the pack's centre) first and looked at no hostile near the stand or on its
+// path, so the walk to it could body-pull the target and more packs. Its own search:
+// candidates on rings of kApproachStandMinYd..kApproachStandYd around the step's point
+// (never inside the target's pull radius plus kApproachStandPullMarginYd), each with the
+// lead bot's navmesh path to it and a sight line to the pack's point. A hostile seen
+// near the pack (the glue's scan): its position and entry.
+struct StandHostile
+{
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    std::uint32_t entry = 0;
+};
+
+struct StandCandidate
+{
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    bool reachable = false;    // the lead bot's path ends at it (DetourPointReachable, its length capped)
+    bool los = false;          // it sees the pack's point
+    float pathYd = 0.0f;       // that path's length
+    std::vector<PathPoint> path;
+};
+
+// Why a candidate is no approach stand ("" when it is one): off the ring, no path, no
+// sight of the pack, within the target's pull radius plus the margin of one of its units,
+// another hostile within kApproachStandHostileYd, or its path from the lead bot passing a
+// pull group not cleared yet other than the target's own (PathCrossesUnclearedPack).
+inline std::string ApproachStandReject(const Run& r, const PlanStep& s, const StandCandidate& c,
+    const std::vector<StandHostile>& hostiles, std::uint32_t team)
+{
+    float const ring = ai::PlanDistance(c.x, c.y, c.z, s.x, s.y, s.z);
+    if (ring < ApproachStandMinRing(s) - 0.5f || ring > kApproachStandYd + 0.5f)
+        return "off the ring";
+    if (!c.reachable)
+        return "no path";
+    if (!c.los)
+        return "no sight of the pack";
+    for (const StandHostile& h : hostiles)
+    {
+        float const d = ai::PlanDistance(c.x, c.y, c.z, h.x, h.y, h.z);
+        if (IsStepTarget(s, h.entry) ? d < s.radius + kApproachStandPullMarginYd : d < kApproachStandHostileYd)
+            return IsStepTarget(s, h.entry) ? "inside the target's pull radius" : "another hostile close by";
+    }
+    std::unordered_set<std::size_t> notCleared = r.notCleared;
+    notCleared.erase(r.step);
+    if (r.plan && PathCrossesUnclearedPack(*r.plan, r.step + 1, c.path, team, notCleared))
+        return "its path passes an uncleared pack";
+    return std::string();
+}
+
+// The approach stand: the candidate that passes ApproachStandReject with the shortest
+// path from the lead bot (-1 for none: the pause).
+inline int PickApproachStand(const Run& r, const PlanStep& s, const std::vector<StandCandidate>& candidates,
+    const std::vector<StandHostile>& hostiles, std::uint32_t team)
+{
+    int best = -1;
+    for (std::size_t i = 0; i < candidates.size(); ++i)
+        if (ApproachStandReject(r, s, candidates[i], hostiles, team).empty() &&
+            (best < 0 || candidates[i].pathYd < candidates[static_cast<std::size_t>(best)].pathYd))
+            best = static_cast<int>(i);
+    return best;
 }
 
 // The lowest plan index a walk back may start at: the checkpoint when it is

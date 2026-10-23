@@ -1658,7 +1658,7 @@ static void TestApproachHopCapCountsHopsWithoutProgress()
     CHECK(s.note.find("nearest it got: 1000.0 yd") != std::string::npos);
     // Before that pause the glue was asked for a stand near the pack, and found none.
     CHECK(s.approachStand == 3 && s.note.find("; the pack at 1000.0 0.0 0.0 is not reachable from this floor: "
-        "no stand within 25.0 yd of it the lead bot has a path to") != std::string::npos);
+        "no safe stand 20.0-25.0 yd from it the lead bot has a path to") != std::string::npos);
 }
 
 // Gnomeregan r24 slot 4 step 412, Sunken Temple r25 slot 4 step 5, Razorfen Kraul r24
@@ -1737,13 +1737,13 @@ static void TestApproachCapTriesAStandNearThePackBeforeThePause()
     for (int i = 0; i < 60 && q.state == State::Running; ++i)
         hopped = hopped || StandTick(q, m) == "move 40.0 0.0 0.0";
     CHECK(!hopped && q.state == State::Paused);
-    CHECK(q.note.find("the pack at 1000.0 0.0 0.0 is not reachable from this floor: no stand within 25.0 yd of it") == 0);
+    CHECK(q.note.find("the pack at 1000.0 0.0 0.0 is not reachable from this floor: no safe stand 20.0-25.0 yd from it") == 0);
     // Resumed from a spot that has a stand now (a player moved the party): straight to it, no hop.
     CHECK(Resume(q));
     std::string first;
     for (int i = 0; i < 60 && q.state == State::Running && first.empty(); ++i)
-        first = StandTick(q, m, true, 990, 0, 0);
-    CHECK(first == "move 990.0 0.0 0.0" && q.approachStand == 4);
+        first = StandTick(q, m, true, 978, 0, 0);
+    CHECK(first == "move 978.0 0.0 0.0" && q.approachStand == 4);
     // Another step kind (an NPC, the next point) keeps the old pause: no stand asked.
     DungeonPlan moves;
     moves.steps = {Step(PlanStepKind::Move, 1000)};
@@ -1759,6 +1759,75 @@ static void TestApproachCapTriesAStandNearThePackBeforeThePause()
     d.approachStand = 3;
     NextStep(d, "done");
     CHECK(d.approachStandStep == static_cast<std::size_t>(-1) && d.approachStand == 0);
+}
+
+// Codex review of f1fdeb67: the approach stand came from the refused move's stand-in
+// search, which takes the plan point itself (the pack's centre) first and looks at no
+// hostile near the stand or on its path. The approach's own search: a ring 15-25 yd out
+// (never inside the target's pull radius + 5), in sight of the pack, no other hostile
+// within 20 yd, its path passing no other uncleared pack; the shortest path wins.
+static void TestApproachStandIsASafeRingSpot()
+{
+    DungeonPlan plan;
+    PlanStep other = PullStep(1000, {9});
+    other.y = 60; // another pack, 60 yd north of the target
+    ai::NormalizePlanStep(other);
+    plan.steps = {PullStep(1000, {1}), other};
+    Run r = Start(&plan);
+    const PlanStep& s = plan.steps[0];
+    CHECK(s.radius == 15.0f && ApproachStandMinRing(s) == 20.0f);
+    auto cand = [](float x, float y, float pathYd, std::vector<PathPoint> path)
+    {
+        StandCandidate c;
+        c.x = x;
+        c.y = y;
+        c.reachable = true;
+        c.los = true;
+        c.pathYd = pathYd;
+        c.path = path;
+        return c;
+    };
+    std::vector<StandHostile> hostiles = {{1000, 0, 0, 1}, {1003, 2, 0, 1}};
+    // The pack's centre (reachable, the shortest path) is never the stand; a ring spot is.
+    std::vector<StandCandidate> c = {cand(1000, 0, 60, {{940, 0, 0}, {1000, 0, 0}}),
+        cand(978, 0, 40, {{940, 0, 0}, {978, 0, 0}})};
+    CHECK(ApproachStandReject(r, s, c[0], hostiles, 0) == "off the ring");
+    CHECK(PickApproachStand(r, s, c, hostiles, 0) == 1);
+    // The shortest path passes the other pack: that candidate is left out for a longer one.
+    std::vector<StandCandidate> d = {cand(1000, 22, 50, {{940, 40, 0}, {1000, 60, 0}, {1000, 22, 0}}),
+        cand(978, -5, 70, {{940, 0, 0}, {978, -5, 0}})};
+    CHECK(ApproachStandReject(r, s, d[0], hostiles, 0) == "its path passes an uncleared pack");
+    CHECK(PickApproachStand(r, s, d, hostiles, 0) == 1);
+    // Two safe ones: the shorter path wins, whatever the order.
+    std::vector<StandCandidate> two = {cand(978, -5, 70, {{940, 0, 0}, {978, -5, 0}}),
+        cand(978, 0, 40, {{940, 0, 0}, {978, 0, 0}})};
+    CHECK(PickApproachStand(r, s, two, hostiles, 0) == 1);
+    // The target's own pack does not count as crossed (the stand is beside it).
+    CHECK(ApproachStandReject(r, s, d[1], hostiles, 0).empty());
+    // A target unit within its pull radius + 5, another hostile within 20 yd, no sight, no path: left out.
+    std::vector<StandHostile> near = {{1000, 0, 0, 1}, {990, 0, 0, 1}};
+    CHECK(ApproachStandReject(r, s, c[1], near, 0) == "inside the target's pull radius");
+    std::vector<StandHostile> stray = {{1000, 0, 0, 1}, {965, 5, 0, 77}};
+    CHECK(ApproachStandReject(r, s, c[1], stray, 0) == "another hostile close by");
+    StandCandidate blind = c[1];
+    blind.los = false;
+    CHECK(ApproachStandReject(r, s, blind, hostiles, 0) == "no sight of the pack");
+    StandCandidate nopath = c[1];
+    nopath.reachable = false;
+    CHECK(ApproachStandReject(r, s, nopath, hostiles, 0) == "no path");
+    // None safe: -1, and the glue's 'none found' is the pause (TestApproachCapTriesAStandNearThePackBeforeThePause).
+    std::vector<StandCandidate> unsafe = {c[0], blind, nopath};
+    CHECK(PickApproachStand(r, s, unsafe, hostiles, 0) == -1);
+    // A wide pack (radius 22): the ring starts past 25 yd, no stand at all.
+    PlanStep wide = s;
+    wide.radius = 22;
+    CHECK(!ApproachStandReject(r, wide, c[1], hostiles, 0).empty());
+    // The policy refuses a point inside the ring from the glue too.
+    Run g = Start(&plan);
+    g.approachStandStep = 0;
+    g.approachStand = 1;
+    Facts f = Party(900);
+    CHECK(!ApproachStandFound(g, f, true, 1000, 0, 0) && g.state == State::Paused);
 }
 
 // Sunken Temple r25 slot 4 step 5: `cmd move -449.5 25.9 -148.0` from 157 yd away was
@@ -14706,6 +14775,7 @@ int main()
     TestFarPackHopIsNotUndoneByTheGatherBack();
     TestApproachHopCapCountsHopsWithoutProgress();
     TestApproachCapTriesAStandNearThePackBeforeThePause();
+    TestApproachStandIsASafeRingSpot();
     TestMoveRefusedTooFarGoesInLegsAlongThePath();
     TestResumeWalksBackNoFartherThanTheLastClearedFight();
     TestItemCarrierIsPickedFromTheStepsOwnInputs();

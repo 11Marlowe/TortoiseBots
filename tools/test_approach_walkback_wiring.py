@@ -35,10 +35,21 @@ class ApproachStandWiringTest(unittest.TestCase):
         self.assertLess(tick.index("std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"), i)
         self.assertLess(i, tick.index("if (!order.empty())"))
         block = tick[i:tick.index("if (!order.empty())", i)]
-        self.assertIn("NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::kApproachStandYd,\n"
-                      "                sx, sy, sz);", block)
+        self.assertIn("ApproachStandSearch(lead, slot.run, *step, facts.team, sx, sy, sz);", block)
+        self.assertNotIn("NearestReachablePoint", block)
         self.assertIn("TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);", block)
         self.assertIn("lead->IsAlive() && lead->IsInWorld()", block)
+
+    def test_stand_search_is_a_safe_ring(self):
+        # Codex review of f1fdeb67: never the pack's centre, hostiles and the path checked.
+        fn = body(COMMANDS, "bool ApproachStandSearch(Player* lead,", "\n}\n")
+        self.assertIn("for (float ring = minRing; ring <= kApproachStandYd + 0.01f; ring += 5.0f)", fn)
+        self.assertIn("float const minRing = ApproachStandMinRing(step);", fn)
+        self.assertIn("HostileCreaturesAround(lead, DistanceTo(lead, step.x, step.y, step.z) + reach, around);", fn)
+        self.assertIn("c.los = map->isInLineOfSight(px, py, ground + 2.0f, step.x, step.y, step.z + 2.0f, true);", fn)
+        self.assertIn("DistanceTo(lead, px, py, ground), path.Length());", fn)
+        self.assertIn("c.path.push_back(PathPoint{v.x, v.y, v.z});", fn)
+        self.assertIn("int const best = PickApproachStand(run, step, candidates, hostiles, team);", fn)
 
     def test_hop_cap_asks_the_stand_before_its_pause(self):
         fn = body(POLICY, "inline void ApproachHop(Run& r, const Facts& f, const PlanStep& s,", "\n}\n")
