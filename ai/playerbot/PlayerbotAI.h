@@ -976,13 +976,10 @@ public:
     // up after WorldPvpPursuitSeconds or when the target leaves sight range.
     uint32 worldPvpPursuitGuidLow_ = 0;
     uint32 worldPvpPursuitStartMs_ = 0;
-    // Camp after a kill: where the victim fell, when, and who is ignored for
-    // WorldPvpCampIgnoreSeconds after the camp ends (0 = none).
+    // Camp after a kill: who was killed and when; after WorldPvpCampSeconds
+    // the victim is ignored for WorldPvpCampIgnoreSeconds (0 = none).
     uint32 worldPvpCampGuidLow_ = 0;
     uint32 worldPvpCampStartMs_ = 0;
-    float worldPvpCampX_ = 0.0f;
-    float worldPvpCampY_ = 0.0f;
-    uint32 worldPvpCampMapId_ = 0;
     uint32 worldPvpIgnoreGuidLow_ = 0;
     uint32 worldPvpIgnoreStartMs_ = 0;
     // Last seek-role roll (world-thread ms, 0 = never) and its next deadline

@@ -40,6 +40,21 @@ inline bool WorldPvpPursuitExpired(std::uint64_t pursuitStartMs, std::uint64_t n
     return nowMs - pursuitStartMs >= std::uint64_t(WorldPvpPursuitSeconds()) * 1000;
 }
 
+// True when an established pursuit of a target stays valid: the 60 s limit
+// has not passed and the target is still inside sight range. The 20 yd/LOS
+// acquisition rule does not apply anymore: a chase would end at once
+// otherwise.
+inline bool WorldPvpPursuitHolds(std::uint64_t pursuitStartMs, std::uint64_t nowMs, bool withinSight)
+{
+    if (pursuitStartMs == 0)
+        return false;
+    if (nowMs < pursuitStartMs)
+        return false;
+    if (!withinSight)
+        return false;
+    return !WorldPvpPursuitExpired(pursuitStartMs, nowMs);
+}
+
 // True when a camp that started at `campStartMs` has run past its limit at
 // `nowMs`.
 inline bool WorldPvpCampExpired(std::uint64_t campStartMs, std::uint64_t nowMs)

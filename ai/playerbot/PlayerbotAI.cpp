@@ -1713,9 +1713,6 @@ void PlayerbotAI::NotePvpKill(Player* victim)
     uint32 const nowMs = WorldTimer::getMSTime();
     worldPvpCampGuidLow_ = victim->GetGUIDLow();
     worldPvpCampStartMs_ = nowMs;
-    worldPvpCampX_ = victim->GetPositionX();
-    worldPvpCampY_ = victim->GetPositionY();
-    worldPvpCampMapId_ = victim->GetMapId();
     worldPvpPursuitGuidLow_ = 0;
     worldPvpPursuitStartMs_ = 0;
 

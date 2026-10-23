@@ -402,19 +402,31 @@ bool AttackEnemyPlayerAction::isUseful()
     {
         Unit* target = GetTarget();
         Player* enemy = dynamic_cast<Player*>(target);
-        if (!enemy || !WorldPvpSeekChecks::IsSeekTarget(ai, bot, enemy))
+        if (!enemy)
+        {
+            ai->worldPvpPursuitGuidLow_ = 0;
+            ai->worldPvpPursuitStartMs_ = 0;
             return false;
+        }
 
         uint32 const nowMs = WorldTimer::getMSTime();
         if (ai->worldPvpPursuitGuidLow_ == enemy->GetGUIDLow() && ai->worldPvpPursuitStartMs_)
         {
-            if (TortoiseBots::WorldPvpPursuitExpired(ai->worldPvpPursuitStartMs_, nowMs) ||
-                !bot->IsWithinDist(enemy, sPlayerbotAIConfig.sightDistance))
+            if (!TortoiseBots::WorldPvpPursuitHolds(ai->worldPvpPursuitStartMs_, nowMs,
+                bot->IsWithinDist(enemy, sPlayerbotAIConfig.sightDistance)))
             {
                 ai->worldPvpPursuitGuidLow_ = 0;
                 ai->worldPvpPursuitStartMs_ = 0;
                 return false;
             }
+            return true;
+        }
+
+        if (!WorldPvpSeekChecks::IsSeekTarget(ai, bot, enemy))
+        {
+            ai->worldPvpPursuitGuidLow_ = 0;
+            ai->worldPvpPursuitStartMs_ = 0;
+            return false;
         }
     }
 

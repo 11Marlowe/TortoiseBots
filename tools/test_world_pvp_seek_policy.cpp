@@ -72,6 +72,14 @@ int main()
         CHECK(!WorldPvpSeekEligible(in));
     }
 
+    // A holder that turns ineligible loses the role at once; non-holders and
+    // eligible holders are untouched.
+    CHECK(WorldPvpSeekMustStrip(true, []{ WorldPvpSeekInputs in = Eligible(); in.groupedWithRealPlayer = true; return in; }()));
+    CHECK(WorldPvpSeekMustStrip(true, []{ WorldPvpSeekInputs in = Eligible(); in.hiredBot = true; return in; }()));
+    CHECK(WorldPvpSeekMustStrip(true, []{ WorldPvpSeekInputs in = Eligible(); in.seekEnabled = false; return in; }()));
+    CHECK(!WorldPvpSeekMustStrip(true, Eligible()));
+    CHECK(!WorldPvpSeekMustStrip(false, []{ WorldPvpSeekInputs in = Eligible(); in.groupedWithRealPlayer = true; return in; }()));
+
     // Re-rolled on the interval, never mid-fight.
     std::uint64_t const minute = 60 * 1000;
     CHECK(WorldPvpSeekRerollDue(0, 30 * minute, 30, false));
@@ -80,7 +88,10 @@ int main()
     CHECK(!WorldPvpSeekRerollDue(1000, 1000 + 60 * minute, 30, true));
     CHECK(!WorldPvpSeekRerollDue(1000, 1000, 30, false));
     CHECK(!WorldPvpSeekRerollDue(2000, 1000, 30, false));
+    // Zero means never re-roll, however much time passed: no reroll storm.
     CHECK(!WorldPvpSeekRerollDue(0, 100 * minute, 0, false));
+    CHECK(!WorldPvpSeekRerollDue(1000, 1000, 0, false));
+    CHECK(!WorldPvpSeekRerollDue(0, 1000 * minute, 0, false));
 
     std::printf("test_world_pvp_seek_policy: %d checks passed\n", checks);
     return 0;

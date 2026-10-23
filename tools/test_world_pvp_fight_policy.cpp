@@ -35,6 +35,14 @@ int main()
     CHECK(WorldPvpPursuitExpired(1000, 1000 + 600000));
     CHECK(!WorldPvpPursuitExpired(2000, 1000));
 
+    // An established pursuit holds on the 60 s limit plus sight range only.
+    CHECK(WorldPvpPursuitHolds(1000, 1000, true));
+    CHECK(WorldPvpPursuitHolds(1000, 1000 + 59999, true));
+    CHECK(!WorldPvpPursuitHolds(1000, 1000 + 60000, true));
+    CHECK(!WorldPvpPursuitHolds(1000, 1000, false));
+    CHECK(!WorldPvpPursuitHolds(0, 1000, true));
+    CHECK(!WorldPvpPursuitHolds(2000, 1000, true));
+
     // Camp ends after 5 min.
     CHECK(!WorldPvpCampExpired(1000, 1000));
     CHECK(!WorldPvpCampExpired(1000, 1000 + 5 * 60 * 1000 - 1));

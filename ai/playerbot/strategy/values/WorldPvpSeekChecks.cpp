@@ -82,6 +82,11 @@ bool WorldPvpSeekChecks::IsSeekTarget(PlayerbotAI* ai, Player* bot, Player* targ
         return true;
     if (known)
         return false;
+    if (ai->worldPvpPursuitGuidLow_ == targetLow && ai->worldPvpPursuitStartMs_)
+    {
+        ai->WorldPvpNoteGapDecision(targetLow, nowSec, true);
+        return true;
+    }
     bool const accept = urand(0, 99) < odds;
     ai->WorldPvpNoteGapDecision(targetLow, nowSec, accept);
     return accept;
@@ -104,20 +109,25 @@ Unit* WorldPvpSeekChecks::FindAssistTarget(PlayerbotAI* ai, Player* bot)
         if (!bot->IsWithinDist(victim, 30.0f))
             continue;
 
-        Unit* attacker = victim->GetVictim();
-        if (!attacker)
+        if (Unit* victimTarget = victim->GetVictim())
         {
-            Unit::AttackerSet const& attackers = victim->GetAttackers();
-            if (!attackers.empty())
-                attacker = *attackers.begin();
+            if (Player* enemy = dynamic_cast<Player*>(victimTarget))
+            {
+                if (!sServerFacade.IsFriendlyTo(enemy, bot) &&
+                    EnemyPlayersValue::IsValid(enemy, bot) && IsSeekTarget(ai, bot, enemy))
+                    return enemy;
+            }
         }
-        Player* enemy = dynamic_cast<Player*>(attacker);
-        if (!enemy)
-            continue;
-        if (sServerFacade.IsFriendlyTo(enemy, bot))
-            continue;
-        if (EnemyPlayersValue::IsValid(enemy, bot) && IsSeekTarget(ai, bot, enemy))
-            return enemy;
+        for (Unit* attacker : victim->GetAttackers())
+        {
+            Player* enemy = dynamic_cast<Player*>(attacker);
+            if (!enemy)
+                continue;
+            if (sServerFacade.IsFriendlyTo(enemy, bot))
+                continue;
+            if (EnemyPlayersValue::IsValid(enemy, bot) && IsSeekTarget(ai, bot, enemy))
+                return enemy;
+        }
     }
 
     return nullptr;

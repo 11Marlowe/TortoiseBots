@@ -39,6 +39,14 @@ inline bool WorldPvpSeekEligible(WorldPvpSeekInputs const& in)
     return true;
 }
 
+// True when a bot holding the role must lose it right away: eligibility is
+// re-checked every service pass, not only at the next re-roll, so grouping
+// with a real player (or becoming owned/hired) strips the role promptly.
+inline bool WorldPvpSeekMustStrip(bool holdsRole, WorldPvpSeekInputs const& in)
+{
+    return holdsRole && !WorldPvpSeekEligible(in);
+}
+
 // True when the role may be rolled again: the interval (minutes, with the
 // caller applying jitter to the next deadline) has passed and the bot is not
 // in combat.
