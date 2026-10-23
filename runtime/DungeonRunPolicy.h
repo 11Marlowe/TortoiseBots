@@ -2182,17 +2182,24 @@ inline bool OnCcWait(const Run& r, const std::string& name)
     return false;
 }
 
-// One tick of the ladder's clocks (TickBody, every tick): a bot back in the gather, or any bot while the run does
-// not wait for a gather, starts over; a bot in a fight or with attackers keeps its rung but its clock stands.
+// One tick of the ladder's clocks (TickBody, every tick): a bot still on rung 0 starts over once it is back in the
+// gather or the run does not wait for a gather; a bot past rung 0 keeps its rung until the step or regroup ends;
+// a bot in a fight or with attackers keeps its rung but its clock stands.
 inline void UpdateStraggle(Run& r, const Facts& f, std::uint32_t dt)
 {
+    // A bot that reached a rung keeps it for the rest of the step or regroup (only those start the ladder over:
+    // ResetStep, BeginRegroup), back in the gather or not, so a bot summoned in and walked out again by its own
+    // formation station does not climb it again and hold the ceiling off for ever (Opus review of 95f66dd8).
+    std::unordered_map<std::string, Run::Straggle> next;
+    for (const auto& entry : r.straggle)
+        if (entry.second.rung > 0)
+            next.insert(entry);
     if (!GatherWaiting(r) || f.anyInCombat)
     {
         if (!GatherWaiting(r))
-            r.straggle.clear();
+            r.straggle.swap(next);
         return;
     }
-    std::unordered_map<std::string, Run::Straggle> next;
     for (const MemberFact& m : f.members)
     {
         if (m.name.empty() || m.name == f.carrier || !OutOfGather(m) || OnCcWait(r, m.name))
@@ -2226,7 +2233,7 @@ inline bool StragglerLadderTick(Run& r, const Facts& f, std::string& order)
     for (const MemberFact& m : f.members)
     {
         auto const it = r.straggle.find(m.name);
-        if (it == r.straggle.end() || m.inCombat || m.attackers)
+        if (it == r.straggle.end() || m.inCombat || m.attackers || !OutOfGather(m))
             continue;
         bool const due = (it->second.rung == 0 && it->second.outMs >= kStragglerWalkMs) ||
             (it->second.rung == 1 && it->second.rungMs >= kStragglerSummonMs);
@@ -5680,6 +5687,12 @@ struct StandHostile
 // The longest path such a walk takes: the glue's hostile scan around the bot reaches this far plus kHopPullYd, so
 // a longer path could pass a hostile it never saw (Codex review of 6c8297ec).
 constexpr float kBotWalkMaxPathYd = 120.0f;
+// The part of such a path within this far of its start (the bot's own spot) is left out of the pack and hostile
+// checks: the bot stands there already, and walking away from it is no pull (Opus review of 95f66dd8 and 6c8297ec:
+// a rogue whose Sap failed stands at its target, a member of the current pull's pack, and every walk back from
+// there was refused, so the rogue stayed on its own follow, the r26 bug). The rest of the path keeps both checks.
+constexpr float kBotWalkStartFreeYd = 20.0f;
+constexpr float kBotWalkSampleYd = 0.5f; // the path is checked at points this far apart (and at every corner)
 
 inline std::string BotWalkRefusal(const std::vector<PathPoint>& path, float straightYd, float pathYd,
     const DungeonPlan* plan, std::size_t from, std::uint32_t team, const std::unordered_set<std::size_t>& notCleared,
@@ -5689,16 +5702,36 @@ inline std::string BotWalkRefusal(const std::vector<PathPoint>& path, float stra
         return "too-long: the path is " + Num(pathYd) + " yd, more than " + Num(kBotWalkMaxPathYd) + " yd";
     if (pathYd > straightYd + kDetourMaxPathYd)
         return "detour: the path is " + Num(pathYd) + " yd for " + Num(straightYd) + " yd in a straight line";
-    if (plan && PathCrossesUnclearedPack(*plan, from, path, team, notCleared))
-        return "pack: the path passes a pack not cleared yet";
-    for (const StandHostile& h : hostiles)
+    if (path.empty())
+        return std::string();
+    // The points of the path farther than kBotWalkStartFreeYd from its start, kBotWalkSampleYd apart.
+    PathPoint const start = path.front();
+    std::vector<PathPoint> checked;
+    auto keep = [&](const PathPoint& q)
     {
-        bool near = path.size() == 1 && ai::PlanDistance(path[0].x, path[0].y, path[0].z, h.x, h.y, h.z) <= kHopPullYd;
-        for (std::size_t k = 1; k < path.size() && !near; ++k)
-            near = SegmentDistance(path[k - 1], path[k], h.x, h.y, h.z) <= kHopPullYd;
-        if (near)
-            return "hostile: the path passes within " + Num(kHopPullYd) + " yd of " + std::to_string(h.entry);
+        if (ai::PlanDistance(q.x, q.y, q.z, start.x, start.y, start.z) > kBotWalkStartFreeYd)
+            checked.push_back(q);
+    };
+    keep(start);
+    for (std::size_t k = 1; k < path.size(); ++k)
+    {
+        const PathPoint& a = path[k - 1];
+        const PathPoint& b = path[k];
+        float const len = ai::PlanDistance(a.x, a.y, a.z, b.x, b.y, b.z);
+        int const n = static_cast<int>(len / kBotWalkSampleYd) + 1;
+        for (int i = 1; i <= n; ++i)
+        {
+            float const t = static_cast<float>(i) / static_cast<float>(n);
+            keep(PathPoint{a.x + t * (b.x - a.x), a.y + t * (b.y - a.y), a.z + t * (b.z - a.z)});
+        }
     }
+    for (const PathPoint& q : checked)
+        if (plan && PathCrossesUnclearedPack(*plan, from, std::vector<PathPoint>{q}, team, notCleared))
+            return "pack: the path passes a pack not cleared yet";
+    for (const StandHostile& h : hostiles)
+        for (const PathPoint& q : checked)
+            if (ai::PlanDistance(q.x, q.y, q.z, h.x, h.y, h.z) <= kHopPullYd)
+                return "hostile: the path passes within " + Num(kHopPullYd) + " yd of " + std::to_string(h.entry);
     return std::string();
 }
 
