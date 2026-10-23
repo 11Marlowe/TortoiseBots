@@ -9718,7 +9718,8 @@ bool RunBotWalk(Player* commander, std::string const& order, std::string& answer
         bool const hasRun = run != DungeonRuns().end() && run->second.run.plan;
         std::vector<TortoiseBots::DungeonRun::StandHostile> hostiles;
         std::list<Unit*> around;
-        HostileCreaturesAround(bot, std::min(pathYd, 120.0f) + TortoiseBots::DungeonRun::kHopPullYd, around);
+        HostileCreaturesAround(bot, std::min(pathYd, TortoiseBots::DungeonRun::kBotWalkMaxPathYd) +
+            TortoiseBots::DungeonRun::kHopPullYd, around);
         for (Unit* unit : around)
             if (unit->IsAlive() && !unit->IsInCombat())
                 hostiles.push_back(TortoiseBots::DungeonRun::StandHostile{unit->GetPositionX(), unit->GetPositionY(),

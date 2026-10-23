@@ -15315,6 +15315,11 @@ static void TestBotWalkRefusedOnADetourOrAPack()
     std::vector<PathPoint> around = {{0, 0, 0}, {0, 20, 0}, {30, 20, 0}, {30, 0, 0}};
     CHECK(BotWalkRefusal(around, 30.0f, 70.0f, nullptr, 0, 0, none, {}).empty());
     CHECK(BotWalkRefusal(around, 30.0f, 70.1f, nullptr, 0, 0, none, {}).compare(0, 7, "detour:") == 0);
+    // Codex review of 6c8297ec: never a path longer than the glue's hostile scan reaches (kBotWalkMaxPathYd),
+    // though within the detour cap (110 yd straight, 121 yd along it).
+    std::vector<PathPoint> longWay = {{0, 0, 0}, {110, 0, 0}};
+    CHECK(BotWalkRefusal(longWay, 110.0f, kBotWalkMaxPathYd, nullptr, 0, 0, none, {}).empty());
+    CHECK(BotWalkRefusal(longWay, 110.0f, 121.0f, nullptr, 0, 0, none, {}).compare(0, 9, "too-long:") == 0);
     // Through a pack not cleared yet (the current step's or a later one), not past one cleared before.
     DungeonPlan plan;
     plan.steps = {PullStep(15, {1}), PullStep(500, {2})};
@@ -15349,6 +15354,7 @@ static void TestBotWalkRefusedOnADetourOrAPack()
         order = Tick(r, f);
     }
     for (const char* why : {"unreachable: Straggly: detour: the path is 90.0 yd for 30.0 yd in a straight line",
+             "unreachable: Straggly: too-long: the path is 121.0 yd, more than 120.0 yd",
              "unreachable: Straggly: pack: the path passes a pack not cleared yet"})
     {
         Run t = r;

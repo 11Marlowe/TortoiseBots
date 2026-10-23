@@ -71,7 +71,7 @@ class StragglerWalkWiringTest(unittest.TestCase):
         self.assertIn("float const pathYd = path.Length();", walk)
         self.assertIn("for (Vector3 const& v : path.getPath())", walk)
         self.assertIn("if (unit->IsAlive() && !unit->IsInCombat())", walk)
-        self.assertIn("HostileCreaturesAround(bot,", walk)
+        self.assertIn("HostileCreaturesAround(bot, std::min(pathYd, TortoiseBots::DungeonRun::kBotWalkMaxPathYd) +", walk)
         self.assertIn('answer = "unreachable: " + std::string(name) + ": " + refusal;\n            return false;', walk)
         self.assertLess(walk.index("BotWalkRefusal("), walk.index('ai->SetMovementStrategy("stay");'))
 

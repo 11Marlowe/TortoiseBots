@@ -5677,10 +5677,16 @@ struct StandHostile
 // within kHopPullYd of a living hostile out of combat (`hostiles`, the glue's scan around the bot). Codex
 // adversarial review of 95f66dd8: the path check only asked that it ended at the point. A refused ladder walk
 // goes on to the summon (StragglerWalkRefused).
+// The longest path such a walk takes: the glue's hostile scan around the bot reaches this far plus kHopPullYd, so
+// a longer path could pass a hostile it never saw (Codex review of 6c8297ec).
+constexpr float kBotWalkMaxPathYd = 120.0f;
+
 inline std::string BotWalkRefusal(const std::vector<PathPoint>& path, float straightYd, float pathYd,
     const DungeonPlan* plan, std::size_t from, std::uint32_t team, const std::unordered_set<std::size_t>& notCleared,
     const std::vector<StandHostile>& hostiles)
 {
+    if (pathYd > kBotWalkMaxPathYd)
+        return "too-long: the path is " + Num(pathYd) + " yd, more than " + Num(kBotWalkMaxPathYd) + " yd";
     if (pathYd > straightYd + kDetourMaxPathYd)
         return "detour: the path is " + Num(pathYd) + " yd for " + Num(straightYd) + " yd in a straight line";
     if (plan && PathCrossesUnclearedPack(*plan, from, path, team, notCleared))
