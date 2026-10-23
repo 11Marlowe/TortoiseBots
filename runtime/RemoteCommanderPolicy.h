@@ -283,7 +283,38 @@ struct ReleaseCommanderFacts
     bool inWorld = false;
     bool hasSession = false; // a session with its network transport (a live client)
     bool isMember = false;   // his guid is in the bound group's member slots
+    bool leadFound = false;  // the lead bot's character exists and is still in the bound group (review round 3)
+    bool playerLed = false;  // a player-led binding (the commander's own party)
 };
+
+// Which group the release works on (review round 3): the lead bot's own group when it is the bound one; else the
+// bound group id through the group store; else the group of any surviving bound bot or of the commander, when it
+// is the bound one. None: nothing to clean up (the glue logs it).
+enum class ReleaseGroupSource : uint8_t
+{
+    None,
+    Lead,
+    ById,
+    Member,
+};
+
+struct ReleaseGroupFacts
+{
+    bool leadGroupMatches = false; // the lead bot was found and its group is the bound one
+    bool groupById = false;        // the group store has the bound group id
+    bool groupViaMember = false;   // a surviving follower or the commander is in the bound group
+};
+
+inline ReleaseGroupSource PickReleaseGroup(ReleaseGroupFacts const& facts)
+{
+    if (facts.leadGroupMatches)
+        return ReleaseGroupSource::Lead;
+    if (facts.groupById)
+        return ReleaseGroupSource::ById;
+    if (facts.groupViaMember)
+        return ReleaseGroupSource::Member;
+    return ReleaseGroupSource::None;
+}
 
 inline ReleasePartyAction DecideReleaseParty(ReleaseCommanderFacts const& facts)
 {
@@ -291,10 +322,15 @@ inline ReleasePartyAction DecideReleaseParty(ReleaseCommanderFacts const& facts)
         return ReleasePartyAction::None;
     if (facts.reason == ReleaseReason::CommanderLeft || facts.reason == ReleaseReason::CommanderLeftParty)
         return ReleasePartyAction::BotsLeave;
-    // A player-led binding released because the commander gave the party's lead away: his choice stands (the lead
-    // is not handed back to him), the party stays as it is.
-    if (facts.reason == ReleaseReason::CommanderNotLeader)
+    // A player-led binding (PlayerLedPolicy.h) was made of the commander's own party: with him there its end changes
+    // nothing in the party, whatever ended it (he gave the lead away, the tank logged out, a stop): no bot leaves and
+    // the lead is not handed back to him.
+    if (facts.playerLed && facts.found && facts.inWorld && facts.hasSession && facts.isMember)
         return ReleasePartyAction::None;
+    // The lead bot gone (logged out, removed): its followers lose the binding's protections with it, so they leave
+    // the players' party too (review round 3).
+    if (facts.reason == ReleaseReason::LeadLeft || !facts.leadFound)
+        return ReleasePartyAction::BotsLeave;
     if (!facts.found || !facts.inWorld || !facts.hasSession || !facts.isMember)
         return ReleasePartyAction::BotsLeave;
     return ReleasePartyAction::LeadToCommander;

@@ -214,13 +214,30 @@ static void TestPlayerLedBindingRule()
     // takes the bots out of the party (the in-party rule).
     RC::ReleaseCommanderFacts rf;
     rf.inParty = true;
-    rf.found = rf.inWorld = rf.hasSession = rf.isMember = true;
+    rf.playerLed = true;
+    rf.found = rf.inWorld = rf.hasSession = rf.isMember = rf.leadFound = true;
     rf.reason = RC::ReleaseReason::CommanderNotLeader;
     CHECK(RC::DecideReleaseParty(rf) == RC::ReleasePartyAction::None);
     rf.reason = RC::ReleaseReason::Unbound;
-    CHECK(RC::DecideReleaseParty(rf) == RC::ReleasePartyAction::LeadToCommander);
+    CHECK(RC::DecideReleaseParty(rf) == RC::ReleasePartyAction::None);
+    // The tank logged out: his party keeps its bots (round 3's bots-leave rule is for a bot-led in-party binding).
+    rf.reason = RC::ReleaseReason::LeadLeft;
+    rf.leadFound = false;
+    CHECK(RC::DecideReleaseParty(rf) == RC::ReleasePartyAction::None);
+    // He is gone: the in-party rule (the bots leave the party) stands.
     rf.reason = RC::ReleaseReason::CommanderLeft;
     CHECK(RC::DecideReleaseParty(rf) == RC::ReleasePartyAction::BotsLeave);
+    rf.reason = RC::ReleaseReason::Unbound;
+    rf.hasSession = false;
+    CHECK(RC::DecideReleaseParty(rf) == RC::ReleasePartyAction::BotsLeave);
+    // A bot-led in-party binding keeps its rules.
+    RC::ReleaseCommanderFacts bl = rf;
+    bl.playerLed = false;
+    bl.hasSession = true;
+    bl.leadFound = true;
+    CHECK(RC::DecideReleaseParty(bl) == RC::ReleasePartyAction::LeadToCommander);
+    bl.reason = RC::ReleaseReason::LeadLeft;
+    CHECK(RC::DecideReleaseParty(bl) == RC::ReleasePartyAction::BotsLeave);
 }
 
 static void TestModeText()
