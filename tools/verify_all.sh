@@ -50,6 +50,10 @@ python3 -m unittest tools/test_magma_guard_wiring.py
 python3 -m unittest tools/test_attack_order_wiring.py
 python3 -m unittest tools/test_bot_area_trigger_wiring.py
 python3 -m unittest tools/test_corpse_entrance_wiring.py
+python3 -m unittest tools/test_bot_revive_door_wiring.py
+if [[ -z "${TORTOISE_CORE:-}" ]]; then
+    echo "SKIPPED: core-side repop door checks (set TORTOISE_CORE=<core checkout>; the VM build gate runs them)"
+fi
 python3 -m unittest tools/test_gossip_order_wiring.py
 python3 -m unittest tools/test_keepout_set_aside_wiring.py
 python3 -m unittest tools/test_pull_end_engaged.py

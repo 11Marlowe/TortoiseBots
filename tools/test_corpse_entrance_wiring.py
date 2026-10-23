@@ -32,7 +32,9 @@ def body(text, start, end):
 
 class CorpseEntranceWiringTest(unittest.TestCase):
     def setUp(self):
-        self.find = body(ACTION, "static bool FindInstanceEntranceTrigger(", "bool ReviveFromCorpseAction::Execute(")
+        # The candidate builder (FindEntranceTriggerByRules) and the corpse run's rules
+        # (FindInstanceEntranceTrigger), up to the repop hook's answer.
+        self.find = body(ACTION, "static bool FindEntranceTriggerByRules(", "uint32 ai::PickRepopEntrance(")
         self.corpse = body(ACTION, "bool FindCorpseAction::Execute(", "bool FindCorpseAction::isUseful()")
 
     def test_the_policy_header_is_included(self):
@@ -45,6 +47,7 @@ class CorpseEntranceWiringTest(unittest.TestCase):
         for field in ("c.destX = at->destination.x;", "c.destY = at->destination.y;", "c.destZ = at->destination.z;"):
             self.assertIn(field, self.find)
         self.assertRegex(self.find, r"c\.ghostSqYd = onGhostMap \? botPos\.sqDistance2d\(")
+        self.assertIn("bool const onGhostMap = atEntry->mapid == rules.ghostMap;", self.find)
         # No nearest-to-the-ghost pick of its own any more.
         self.assertNotIn("bestDist", self.find)
 
