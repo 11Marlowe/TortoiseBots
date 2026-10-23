@@ -1823,6 +1823,16 @@ static void TestApproachStandIsASafeRingSpot()
     CHECK(ApproachStandReject(r, s, c[1], near, 0) == "inside the target's pull radius");
     std::vector<StandHostile> stray = {{1000, 0, 0, 1}, {965, 5, 0, 77}};
     CHECK(ApproachStandReject(r, s, c[1], stray, 0) == "another hostile close by");
+    // Codex review of 8b81efa3: a mob of the target's entry from a neighbouring pack (40 yd
+    // from the step's point, past its 15 yd radius) is no member: it needs the 20 yd too.
+    // A tight pack (radius 10: members keep 15 yd, every other hostile 20 yd).
+    PlanStep tight = s;
+    tight.radius = 10;
+    StandCandidate near17 = cand(983, 0, 40, {{940, 0, 0}, {983, 0, 0}});
+    std::vector<StandHostile> neighbour = {{1000, 0, 0, 1}, {967, 0, 0, 1}}; // same entry, 33 yd from the point, 16 from the stand
+    CHECK(ApproachStandReject(r, tight, near17, neighbour, 0) == "another hostile close by");
+    std::vector<StandHostile> member = {{999, 0, 0, 1}}; // in the pack, 16 yd from the stand
+    CHECK(ApproachStandReject(r, tight, near17, member, 0).empty());
     StandCandidate blind = c[1];
     blind.los = false;
     CHECK(ApproachStandReject(r, s, blind, hostiles, 0) == "no sight of the pack");

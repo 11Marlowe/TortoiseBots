@@ -5466,8 +5466,13 @@ inline std::string ApproachStandReject(const Run& r, const PlanStep& s, const St
     for (const StandHostile& h : hostiles)
     {
         float const d = ai::PlanDistance(c.x, c.y, c.z, h.x, h.y, h.z);
-        if (IsStepTarget(s, h.entry) ? d < s.radius + kApproachStandPullMarginYd : d < kApproachStandHostileYd)
-            return IsStepTarget(s, h.entry) ? "inside the target's pull radius" : "another hostile close by";
+        // A member of the target's pack by place, not by entry alone (the Codex review of
+        // 8b81efa3: a same-entry mob of a neighbouring pack got only the pull radius + 5):
+        // the step's entry within its pull radius of the step's point. Any other hostile,
+        // same entry or not, keeps kApproachStandHostileYd.
+        bool const member = IsStepTarget(s, h.entry) && ai::PlanDistance(h.x, h.y, h.z, s.x, s.y, s.z) <= s.radius;
+        if (member ? d < s.radius + kApproachStandPullMarginYd : d < kApproachStandHostileYd)
+            return member ? "inside the target's pull radius" : "another hostile close by";
     }
     std::unordered_set<std::size_t> notCleared = r.notCleared;
     notCleared.erase(r.step);
