@@ -33,65 +33,172 @@ static bool Reached(float ground, float dz, float range = kRange)
     return StayPointReached(dx, dy, dz, range);
 }
 
-// The stay walk's back-off: three failed walks in a row rest it 10 s, a failure right after
-// rests it 20 s, then 40 s, then 60 s at most; a walk that sets off, reaching the point or a
-// new stay point starts it over.
-static void TestBackoff()
+static constexpr float kFar = 8.7f; // the Crescent Grove distance: short of the point
+
+// A refused dispatch (MoveTo false) out of combat: a failed walk at once.
+static void Refused(StayWalkBackoff& b, std::uint32_t now)
+{
+    StayWalkDispatched(b, false, kFar, false, now);
+}
+
+// A dispatch MoveTo accepted that leaves the bot standing short of the point: the attempt
+// fails once the grace is over.
+static void StopsShort(StayWalkBackoff& b, std::uint32_t& now)
+{
+    StayWalkDispatched(b, true, kFar, false, now);
+    CHECK(b.attemptOn);
+    now += kStayAttemptGraceMs;
+    StayWalkDue(b, false, kFar, false, false, now);
+    CHECK(!b.attemptOn);
+}
+
+// Refused walks: three in a row rest the walk 10 s, a failure right after rests it 20 s,
+// then up to 60 s; the WorldTimer wrap is safe.
+static void TestBackoffOnRefusedWalks()
 {
     StayWalkBackoff b;
     StayWalkTrack(b, 1.0f, 2.0f, 3.0f, 33);
     std::uint32_t now = 1000;
-    CHECK(StayWalkDue(b, false, now));
-    StayWalkResult(b, false, now);
-    StayWalkResult(b, false, now);
-    CHECK(StayWalkDue(b, false, now) && !StayWalkBackingOff(b, now)); // two failures: still walks
-    StayWalkResult(b, false, now);                                     // the third: rests
-    CHECK(StayWalkBackingOff(b, now) && !StayWalkDue(b, false, now));
+    CHECK(StayWalkDue(b, false, kFar, false, false, now));
+    Refused(b, now);
+    Refused(b, now);
+    CHECK(StayWalkDue(b, false, kFar, false, false, now) && !StayWalkBackingOff(b, now)); // two: still walks
+    Refused(b, now);                                                                         // the third: rests
+    CHECK(StayWalkBackingOff(b, now) && !StayWalkDue(b, false, kFar, false, false, now));
     CHECK(StayWalkBackingOff(b, now + kStayWalkBackoffFirstMs - 2));
     CHECK(!StayWalkBackingOff(b, now + kStayWalkBackoffFirstMs + 1));
-    // The rest is over: it walks again; a failure rests it twice as long.
     now += kStayWalkBackoffFirstMs + 1;
-    CHECK(StayWalkDue(b, false, now));
-    StayWalkResult(b, false, now);
+    CHECK(StayWalkDue(b, false, kFar, false, false, now));
+    Refused(b, now);
     CHECK(StayWalkBackingOff(b, now + 2 * kStayWalkBackoffFirstMs - 2));
     CHECK(!StayWalkBackingOff(b, now + 2 * kStayWalkBackoffFirstMs + 1));
-    // Doubling stops at the cap.
     for (int i = 0; i < 6; ++i)
     {
         now += kStayWalkBackoffMaxMs + 1;
-        StayWalkResult(b, false, now);
+        Refused(b, now);
     }
     CHECK(b.lengthMs == kStayWalkBackoffMaxMs);
     CHECK(StayWalkBackingOff(b, now + kStayWalkBackoffMaxMs - 2) && !StayWalkBackingOff(b, now + kStayWalkBackoffMaxMs + 1));
-    // A walk that sets off starts it over: three failures again before a rest.
-    StayWalkResult(b, true, now);
-    CHECK(StayWalkDue(b, false, now));
-    StayWalkResult(b, false, now);
-    StayWalkResult(b, false, now);
-    CHECK(StayWalkDue(b, false, now));
-    StayWalkResult(b, false, now);
-    CHECK(!StayWalkDue(b, false, now) && b.lengthMs == kStayWalkBackoffFirstMs);
-    // Reaching the point clears it (the walk is not due there anyway).
-    CHECK(!StayWalkDue(b, true, now));
-    CHECK(!StayWalkBackingOff(b, now) && b.fails == 0 && b.lengthMs == 0);
-    // A new stay point clears it; the same point keeps it.
-    for (int i = 0; i < 3; ++i)
-        StayWalkResult(b, false, now);
-    StayWalkTrack(b, 1.0f, 2.0f, 3.0f, 33);
-    CHECK(StayWalkBackingOff(b, now));
-    StayWalkTrack(b, 1.0f, 2.0f, 3.5f, 33);
-    CHECK(!StayWalkBackingOff(b, now) && b.fails == 0 && StayWalkDue(b, false, now));
-    for (int i = 0; i < 3; ++i)
-        StayWalkResult(b, false, now);
-    StayWalkTrack(b, 1.0f, 2.0f, 3.5f, 34); // another map
-    CHECK(StayWalkDue(b, false, now));
-    // The WorldTimer wraps: a back-off across the wrap still ends on time.
+
     StayWalkBackoff w;
     std::uint32_t const late = 0xFFFFFFFFu - 1000u;
     for (int i = 0; i < 3; ++i)
-        StayWalkResult(w, false, late);
+        Refused(w, late);
     CHECK(StayWalkBackingOff(w, late) && StayWalkBackingOff(w, late + 5000u));
     CHECK(!StayWalkBackingOff(w, late + kStayWalkBackoffFirstMs + 2));
+}
+
+// Round 2 of the review: a dispatch MoveTo accepted is not a success. Three that leave the
+// bot short (a path makeShortCut emptied, a wait for a transport, a one-point MovePoint)
+// rest the walk; a walk that stalls while "moving" fails the same way.
+static void TestAcceptedDispatchThatStopsShortFails()
+{
+    StayWalkBackoff b;
+    StayWalkTrack(b, 1.0f, 2.0f, 3.0f, 33);
+    std::uint32_t now = 1000;
+    // Inside the grace a bot not yet moving is not judged.
+    StayWalkDispatched(b, true, kFar, false, now);
+    CHECK(StayWalkDue(b, false, kFar, false, false, now + kStayAttemptGraceMs - 1) && b.attemptOn && b.fails == 0);
+    now += kStayAttemptGraceMs;
+    CHECK(StayWalkDue(b, false, kFar, false, false, now) && !b.attemptOn && b.fails == 1);
+    StopsShort(b, now);
+    CHECK(StayWalkDue(b, false, kFar, false, false, now) && b.fails == 2);
+    StopsShort(b, now);
+    CHECK(b.fails == 3 && StayWalkBackingOff(b, now) && !StayWalkDue(b, false, kFar, false, false, now));
+
+    // A walk that moves but gains less than 1 yd in 3 s (re-sent every tick: the attempt
+    // keeps its start) fails; one that gains 1 yd every 2 s goes on.
+    StayWalkBackoff m;
+    StayWalkTrack(m, 1.0f, 2.0f, 3.0f, 33);
+    now = 1000;
+    StayWalkDispatched(m, true, kFar, false, now);
+    float d = kFar;
+    for (int i = 0; i < 2; ++i)
+    {
+        now += 2000;
+        d -= 1.1f;
+        StayWalkDue(m, false, d, true, false, now);
+        StayWalkDispatched(m, true, d, false, now); // the action re-sends: no new attempt
+        CHECK(m.attemptOn && m.fails == 0 && m.attemptStartYd == kFar);
+    }
+    now += kStayAttemptStallMs - 1;
+    StayWalkDue(m, false, d - 0.5f, true, false, now);
+    CHECK(m.attemptOn && m.fails == 0);
+    now += 1;
+    StayWalkDue(m, false, d - 0.5f, true, false, now);
+    CHECK(!m.attemptOn && m.fails == 1);
+}
+
+// A dispatch that brings the bot 3 yd nearer, or to the point, starts it all over.
+static void TestProgressOrArrivalResets()
+{
+    StayWalkBackoff b;
+    StayWalkTrack(b, 1.0f, 2.0f, 3.0f, 33);
+    std::uint32_t now = 1000;
+    StopsShort(b, now);
+    StopsShort(b, now);
+    CHECK(b.fails == 2);
+    StayWalkDispatched(b, true, kFar, false, now);
+    now += 500;
+    StayWalkDue(b, false, kFar - kStayAttemptGainYd + 0.1f, true, false, now);
+    CHECK(b.attemptOn && b.fails == 2); // not yet 3 yd
+    StayWalkDue(b, false, kFar - kStayAttemptGainYd, true, false, now);
+    CHECK(!b.attemptOn && b.fails == 0);
+
+    StopsShort(b, now);
+    StopsShort(b, now);
+    StayWalkDispatched(b, true, kFar, false, now);
+    CHECK(!StayWalkDue(b, true, 4.9f, true, false, now + 300)); // reached: not due, all clear
+    CHECK(!b.attemptOn && b.fails == 0 && b.lengthMs == 0 && !StayWalkBackingOff(b, now));
+
+    // Reaching the point ends a rest too.
+    for (int i = 0; i < 3; ++i)
+        Refused(b, now);
+    CHECK(StayWalkBackingOff(b, now));
+    CHECK(!StayWalkDue(b, true, 1.0f, false, false, now) && !StayWalkBackingOff(b, now));
+}
+
+// Round 2: failures in combat do not count (a path clipped at a hostile in reach).
+static void TestCombatFailuresDoNotCount()
+{
+    StayWalkBackoff b;
+    StayWalkTrack(b, 1.0f, 2.0f, 3.0f, 33);
+    std::uint32_t now = 1000;
+    for (int i = 0; i < 5; ++i)
+        StayWalkDispatched(b, false, kFar, true, now);
+    CHECK(b.fails == 0 && !StayWalkBackingOff(b, now));
+    StayWalkDispatched(b, true, kFar, true, now);
+    now += kStayAttemptGraceMs;
+    StayWalkDue(b, false, kFar, false, true, now);
+    CHECK(!b.attemptOn && b.fails == 0);
+    StayWalkDue(b, false, kFar, false, false, now);
+    CHECK(b.fails == 0); // no attempt was on: nothing to judge
+}
+
+// A new stay point or an explicit order (even to the same spot) starts it over; the same
+// point by itself keeps it.
+static void TestNewPointOrOrderResets()
+{
+    StayWalkBackoff b;
+    StayWalkTrack(b, 1.0f, 2.0f, 3.0f, 33);
+    std::uint32_t now = 1000;
+    for (int i = 0; i < 3; ++i)
+        Refused(b, now);
+    StayWalkTrack(b, 1.0f, 2.0f, 3.0f, 33);
+    CHECK(StayWalkBackingOff(b, now));
+    StayWalkTrack(b, 1.0f, 2.0f, 3.5f, 33);
+    CHECK(!StayWalkBackingOff(b, now) && b.fails == 0 && StayWalkDue(b, false, kFar, false, false, now));
+    for (int i = 0; i < 3; ++i)
+        Refused(b, now);
+    StayWalkTrack(b, 1.0f, 2.0f, 3.5f, 34); // another map
+    CHECK(!StayWalkBackingOff(b, now) && b.fails == 0);
+    for (int i = 0; i < 3; ++i)
+        Refused(b, now);
+    StayWalkDispatched(b, true, kFar, false, now);
+    StayWalkOrdered(b);                      // `cmd move` to the same spot
+    CHECK(!StayWalkBackingOff(b, now) && b.fails == 0 && !b.attemptOn && !b.keyed);
+    StayWalkTrack(b, 1.0f, 2.0f, 3.5f, 34);
+    CHECK(StayWalkDue(b, false, kFar, false, false, now));
 }
 
 int main()
@@ -129,7 +236,11 @@ int main()
     CHECK(!Reached(5.67f, 6.6f, 8.0f));
     CHECK(Reached(5.67f, 6.6f, 9.0f));
 
-    TestBackoff();
+    TestBackoffOnRefusedWalks();
+    TestAcceptedDispatchThatStopsShortFails();
+    TestProgressOrArrivalResets();
+    TestCombatFailuresDoNotCount();
+    TestNewPointOrOrderResets();
 
     std::printf("test_stay_arrival_policy: %d checks passed\n", checks);
     return 0;

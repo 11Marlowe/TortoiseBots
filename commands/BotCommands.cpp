@@ -672,6 +672,8 @@ static void SetStayAnchor(PlayerbotAI* ai, float x, float y, float z, uint32 map
     ai::PositionEntry stayPos = posMap["stay"];
     stayPos.Set(x, y, z, mapId);
     posMap["stay"] = stayPos;
+    // An explicit order is a fresh stay walk, even to the same spot (StayWalkOrdered).
+    TortoiseBots::StayWalkOrdered(ai->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get().stayWalk);
     ai::PositionEntry returnPos = posMap["return"];
     returnPos.Set(x, y, z, mapId);
     posMap["return"] = returnPos;
@@ -11123,8 +11125,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         ai::LastMovement& lastMove = moveAi->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get();
         // A stay walk resting after failed walks (StayArrivalPolicy.h StayWalkBackingOff) is failing too:
         // its last failure may be older than kPositionMoveFailFreshMs, and the stall's fallback must see it.
-        f.leadMoveFailed = ai::PositionMoveFailing(lastMove.positionMoveFailMs, WorldTimer::getMSTime()) ||
-            TortoiseBots::StayWalkBackingOff(lastMove.stayWalk, WorldTimer::getMSTime());
+        f.leadStayWalkResting = TortoiseBots::StayWalkBackingOff(lastMove.stayWalk, WorldTimer::getMSTime());
+        f.leadStayWalkFails = lastMove.stayWalk.fails;
+        f.leadMoveFailed = ai::PositionMoveFailing(lastMove.positionMoveFailMs, WorldTimer::getMSTime()) || f.leadStayWalkResting;
         f.leadMoveFailReason = ai::MoveFailReasonName(lastMove.moveFailReason);
     }
     // A stall's direct move (DungeonRun::StallFallback) only on a clear swim line: read near a

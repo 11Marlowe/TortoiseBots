@@ -658,6 +658,10 @@ struct Facts
     bool leadInWater = false;
     bool leadMoveFailed = false;
     std::string leadMoveFailReason;
+    // Its stay walk rests after failed walks (StayArrivalPolicy.h StayWalkBackingOff), and
+    // how many failed in a row: the stuck note names that rather than an older fail reason.
+    bool leadStayWalkResting = false;
+    std::uint32_t leadStayWalkFails = 0;
     // The stall's direct move (StallFallback): read by the glue only near a stall
     // (StallDirectProbeWanted), for the walk's point: the line from the lead bot is
     // clear for a straight swim (StallDirectLineClear). Not read: no direct move.
@@ -4162,8 +4166,9 @@ inline std::string StuckNote(const Run& r, const Facts& f)
     std::snprintf(type, sizeof(type), "0x%x", static_cast<unsigned>(r.movePathType));
     return std::string(" (lead in water: ") + (f.leadInWater ? "yes" : "no") + "; cmd move path type " +
         (r.movePathKnown ? std::string(type) : std::string("not read")) + "; its own move " +
-        (f.leadMoveFailed ? "failing: " + (f.leadMoveFailReason.empty() ? std::string("none") : f.leadMoveFailReason)
-                          : std::string("not failing")) + ")";
+        (f.leadStayWalkResting ? "failing: stay walk resting after " + std::to_string(f.leadStayWalkFails) + " failed walks"
+         : f.leadMoveFailed ? "failing: " + (f.leadMoveFailReason.empty() ? std::string("none") : f.leadMoveFailReason)
+                            : std::string("not failing")) + ")";
 }
 
 // Whether the lead bot's own move failed for want of a path (MoveFailReasonName):

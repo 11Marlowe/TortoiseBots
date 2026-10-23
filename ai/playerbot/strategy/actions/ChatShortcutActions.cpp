@@ -5,6 +5,7 @@
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/Formations.h"
 #include "../../../../behavior/PlayerConvenience.h"
+#include "playerbot/strategy/values/LastMovementValue.h"
 
 using namespace ai;
 
@@ -128,6 +129,8 @@ bool StayChatShortcutAction::Execute(Event& event)
 
     SetPosition(bot);
     SetPosition(bot, "stay");
+    // An explicit order is a fresh stay walk (StayWalkOrdered).
+    TortoiseBots::StayWalkOrdered(AI_VALUE(LastMovement&, "last movement").stayWalk);
     MEM_AI_VALUE(WorldPosition, "master position")->Reset();
 
     PrintStrategies(ai, event);

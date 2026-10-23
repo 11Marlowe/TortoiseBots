@@ -285,6 +285,23 @@ static void TestStuckPauseNamesTheLeadsWaterState()
     CHECK(q.movePathType == 0x11);
     g.leadMoveFailReason.clear();
     CHECK(StuckNote(q, g) == " (lead in water: no; cmd move path type 0x11; its own move failing: none)");
+    // A stay walk resting after failed walks is named, not an older fail reason
+    // (Opus review round 2 of 442a2bdf).
+    g.leadMoveFailReason = "empty-path";
+    g.leadStayWalkResting = true;
+    g.leadStayWalkFails = 4;
+    CHECK(StuckNote(q, g) == " (lead in water: no; cmd move path type 0x11; its own move failing: stay walk resting "
+        "after 4 failed walks)");
+    // The stuck pause carries it.
+    Run rest = Start(&plan);
+    Facts h = Party(16.0f);
+    h.leadMoveFailed = true;
+    h.leadStayWalkResting = true;
+    h.leadStayWalkFails = 3;
+    for (int i = 0; i < 400 && rest.state == State::Running; ++i)
+        Tick(rest, h);
+    CHECK(rest.state == State::Paused && rest.note.find("stuck") != std::string::npos &&
+        rest.note.find("stay walk resting after 3 failed walks") != std::string::npos);
 }
 
 // Ticks until the run sends an order (or stops running); at most `max` ticks.

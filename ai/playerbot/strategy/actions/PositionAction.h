@@ -2,9 +2,14 @@
 #include "playerbot/PlayerbotAI.h"
 #include "MovementActions.h"
 #include "GenericActions.h"
+#include "playerbot/strategy/values/PositionValue.h"
 
 namespace ai
 {
+    // The stay walk is due now (runtime/StayArrivalPolicy.h StayWalkDue): its action's
+    // isUseful and its trigger both ask this.
+    bool StayWalkDueNow(PlayerbotAI* ai, Player* bot, PositionEntry const& stayPosition);
+
     class PositionAction : public ChatCommandAction
     {
     public:
