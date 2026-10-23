@@ -9471,19 +9471,28 @@ bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& o
 
 // A leg toward (x,y,z) for a move refused too-far (DungeonRun::TooFarLegWanted): the
 // point maxYd along the lead bot's own navmesh path to it (the path `cmd move` reads,
-// DungeonRun::PointAlongPath on its segments), never a straight line. False when the
-// navmesh gives no path built on it (no path, a shortcut, a path not using the mesh).
+// DungeonRun::PointAlongPath on its segments), never a straight line, and never ending
+// within kHopPullYd of a hostile (DungeonRun::PickSafeLeg: a shorter leg then). False
+// when the navmesh gives no full path built on it (no path, a partial path that may end
+// at a dead end, a shortcut, a path not using the mesh) or every leg ends beside a hostile.
 bool LegOnPath(Player* lead, float x, float y, float z, float maxYd, float& ox, float& oy, float& oz)
 {
     PathFinder path(lead);
     path.calculate(x, y, z, false);
     uint32 const type = static_cast<uint32>(path.getPathType());
-    if (type & (PATHFIND_NOPATH | PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT))
+    if (type & (PATHFIND_NOPATH | PATHFIND_INCOMPLETE | PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT))
         return false;
     std::vector<TortoiseBots::DungeonRun::PathPoint> points;
     for (Vector3 const& p : path.getPath())
         points.push_back(TortoiseBots::DungeonRun::PathPoint{p.x, p.y, p.z});
-    return TortoiseBots::DungeonRun::PointAlongPath(points, maxYd, ox, oy, oz);
+    std::vector<TortoiseBots::DungeonRun::StandHostile> hostiles;
+    std::list<Unit*> around;
+    HostileCreaturesAround(lead, maxYd + TortoiseBots::DungeonRun::kHopPullYd, around);
+    for (Unit* unit : around)
+        if (unit->IsAlive())
+            hostiles.push_back(TortoiseBots::DungeonRun::StandHostile{unit->GetPositionX(), unit->GetPositionY(),
+                unit->GetPositionZ(), unit->GetEntry()});
+    return TortoiseBots::DungeonRun::PickSafeLeg(points, maxYd, hostiles, ox, oy, oz);
 }
 
 // The approach stand of a pull or boss step the hops did not reach (DungeonRun::ApproachStand):

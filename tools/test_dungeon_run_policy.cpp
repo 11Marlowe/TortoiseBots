@@ -1724,7 +1724,9 @@ static void TestApproachCapTriesAStandNearThePackBeforeThePause()
     Facts k = far();
     capped(w, k);
     CHECK(!ApproachStandFound(w, k, true, 970, 0, 0) && w.state == State::Paused);
-    // Resumed with no stand reachable: no hop at all, the pause at once with the floor note.
+    // Resumed with no stand reachable from the new spot: the search first (no hop before
+    // it), then the hops again with a fresh cap (the Opus review of f1fdeb67: a player who
+    // moved the party behind a winding ramp had no way out), and that cap pauses.
     Run q = Start(&plan);
     q.restDue = false;
     Facts m = far();
@@ -1733,11 +1735,23 @@ static void TestApproachCapTriesAStandNearThePackBeforeThePause()
     CHECK(Resume(q) && q.approachStandResumed);
     m.leadX = 0;
     m.approachX = 40;
-    bool hopped = false;
-    for (int i = 0; i < 60 && q.state == State::Running; ++i)
-        hopped = hopped || StandTick(q, m) == "move 40.0 0.0 0.0";
-    CHECK(!hopped && q.state == State::Paused);
-    CHECK(q.note.find("the pack at 1000.0 0.0 0.0 is not reachable from this floor: no safe stand 20.0-25.0 yd from it") == 0);
+    bool searched = false, hopBeforeSearch = false, hopped = false;
+    for (int i = 0; i < 200 && q.state == State::Running; ++i)
+    {
+        std::string const o = StandTick(q, m);
+        searched = searched || q.note.find("approach (resumed): no safe stand near the pack at 1000.0 0.0 0.0 from here: "
+            "approach hops again") == 0;
+        if (o == "move 40.0 0.0 0.0")
+        {
+            hopBeforeSearch = hopBeforeSearch || !searched;
+            hopped = true;
+            m.leadX = 40;
+            StandTick(q, m);
+            m.leadX = 0; // dragged back again
+        }
+    }
+    CHECK(searched && hopped && !hopBeforeSearch && q.state == State::Paused && q.approachStand == 3);
+    CHECK(q.note.find("8 approach hops did not bring the party within 60.0 yd of the pack") == 0);
     // Resumed from a spot that has a stand now (a player moved the party): straight to it, no hop.
     CHECK(Resume(q));
     std::string first;
@@ -1828,6 +1842,72 @@ static void TestApproachStandIsASafeRingSpot()
     g.approachStand = 1;
     Facts f = Party(900);
     CHECK(!ApproachStandFound(g, f, true, 1000, 0, 0) && g.state == State::Paused);
+}
+
+// The Opus review of f1fdeb67: the walk to the approach stand was no hop, so crossing
+// the 60 yd line handed it to the pull with the anchor still the last looping hop's end;
+// that anchor read Off (another floor) and the gather walked the lead bot back out of
+// sight, and the next tick paused 'the stand did not bring it within 60 yd'. The stand is
+// walked like a hop (its end the anchor), the stand is spent once the pack is seen, a
+// later tick out of sight hops again; rewinds forget it, and legs never end by a hostile.
+static void TestApproachStandWalkIsAHopAndRewindsForgetIt()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(1000, {1})};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts g = Party(0);
+    g.seen = false;
+    g.approachKnown = true;
+    for (int i = 0; i < 100 && r.state == State::Running && !r.approachStandWanted; ++i)
+    {
+        g.approachX = 40;
+        Tick(r, g);
+        if (r.approachStandWanted)
+            break;
+        g.leadX = 40;
+        Tick(r, g);
+        g.leadX = 0;
+    }
+    CHECK(r.anchorKnown && r.anchorX == 40.0f); // the last hop's end
+    CHECK(ApproachStandFound(r, g, true, 978, 0, 0));
+    CHECK(Tick(r, g) == "move 978.0 0.0 0.0");
+    // In sight at 945, the anchor's way back read Off: the walk to the stand goes on, no gather back.
+    Facts in = g;
+    in.leadX = 945;
+    in.seen = true;
+    in.units = {Unit(7, 1, 33)};
+    in.anchorPathRead = true;
+    in.anchorReachable = false;
+    std::string const o = Tick(r, in);
+    CHECK(o != "move 40.0 0.0 0.0" && r.state == State::Running && r.approachStand == 3);
+    in.leadX = 978;
+    Tick(r, in);
+    CHECK(r.anchorX == 978.0f && r.state == State::Running);
+    // A later tick out of sight: the hops, never the stand's pause.
+    Facts out = in;
+    out.seen = false;
+    out.units.clear();
+    out.approachX = 990;
+    for (int i = 0; i < 3; ++i)
+        Tick(r, out);
+    CHECK(r.state == State::Running && r.note.find("did not bring it") == std::string::npos);
+    // An event rewind forgets the stand and the no-path pause's moves.
+    Run w = Start(&plan);
+    w.approachStandStep = 0;
+    w.approachStand = 3;
+    w.approachStandResumed = true;
+    w.noPathSkips = {1, 2, 3};
+    ForgetRewoundRoute(w);
+    CHECK(w.approachStandStep == static_cast<std::size_t>(-1) && w.approachStand == 0 && !w.approachStandResumed &&
+        w.noPathSkips.empty());
+    // A leg never ends within 15 yd of a hostile: a shorter one; none clear: no leg.
+    std::vector<PathPoint> path = {{0, 0, 0}, {200, 0, 0}};
+    float x = 0, y = 0, z = 0;
+    CHECK(PickSafeLeg(path, 120, {}, x, y, z) && std::fabs(x - 120) < 0.01f);
+    CHECK(PickSafeLeg(path, 120, {{125, 0, 0, 5}}, x, y, z) && std::fabs(x - 90) < 0.01f);
+    CHECK(PickSafeLeg(path, 120, {{125, 0, 0, 5}, {80, 5, 0, 6}}, x, y, z) && std::fabs(x - 60) < 0.01f);
+    CHECK(!PickSafeLeg(path, 120, {{120, 0, 0, 5}, {90, 0, 0, 5}, {60, 0, 0, 5}, {30, 0, 0, 5}}, x, y, z));
 }
 
 // Sunken Temple r25 slot 4 step 5: `cmd move -449.5 25.9 -148.0` from 157 yd away was
@@ -14776,6 +14856,7 @@ int main()
     TestApproachHopCapCountsHopsWithoutProgress();
     TestApproachCapTriesAStandNearThePackBeforeThePause();
     TestApproachStandIsASafeRingSpot();
+    TestApproachStandWalkIsAHopAndRewindsForgetIt();
     TestMoveRefusedTooFarGoesInLegsAlongThePath();
     TestResumeWalksBackNoFartherThanTheLastClearedFight();
     TestItemCarrierIsPickedFromTheStepsOwnInputs();

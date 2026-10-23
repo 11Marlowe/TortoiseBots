@@ -876,6 +876,7 @@ struct Run
     std::uint8_t approachStand = 0;
     bool approachStandWanted = false;
     bool approachStandResumed = false; // a resume of this step's approach pause: no hops, the stand first
+    bool approachStandResumedSearch = false; // the search under way is that resume's (none found: hops again)
     std::string approachStandWhy;      // the hops' note the stand's pause starts with (empty after a resume)
     float approachStandX = 0.0f, approachStandY = 0.0f, approachStandZ = 0.0f;
     // A move whose point the navmesh cannot reach walks to the nearest
@@ -2457,7 +2458,18 @@ inline void ClearApproachStand(Run& r)
     r.approachStand = 0;
     r.approachStandWanted = false;
     r.approachStandResumed = false;
+    r.approachStandResumedSearch = false;
     r.approachStandWhy.clear();
+}
+
+// A rewind of the run to an earlier step (EventFailed, RearmEventOnWipe): the approach
+// stand and the moves of the last no-path pause (Run::noPathSkips) belong to the way the
+// run came before; the party comes forward again from elsewhere (the Opus review of
+// f1fdeb67). Not on a resume (it keeps both on purpose: ApproachStand, MoveRefusedUnreachable).
+inline void ForgetRewoundRoute(Run& r)
+{
+    ClearApproachStand(r);
+    r.noPathSkips.clear();
 }
 
 inline void NextStep(Run& r, const std::string& note)
@@ -5090,8 +5102,15 @@ inline bool ApproachStand(Run& r, const PlanStep& s, std::uint32_t dt, const Fac
     }
     if (r.approachStand == 2)
     {
+        // Walked like a hop (FinishHopInSight): in sight of the pack the walk to the stand
+        // is finished first and its end is the anchor, not the last looping hop's end (the
+        // Opus review of f1fdeb67: a gather back to that anchor, on the other floor, walked
+        // the lead bot out of sight and paused 'the stand did not bring it within 60 yd').
         r.approachStand = 4;
-        r.hopWalk = false;
+        r.hopWalk = true;
+        r.hopX = r.approachStandX;
+        r.hopY = r.approachStandY;
+        r.hopZ = r.approachStandZ;
         r.note = "approach: walking to the stand " + Num(r.approachStandX) + " " + Num(r.approachStandY) + " " +
             Num(r.approachStandZ) + ", " +
             Num(ai::PlanDistance(r.approachStandX, r.approachStandY, r.approachStandZ, s.x, s.y, s.z)) + " yd from " +
@@ -5113,6 +5132,7 @@ inline bool ApproachStand(Run& r, const PlanStep& s, std::uint32_t dt, const Fac
     {
         // A resume of the approach pause: the stand first, from where the party stands now.
         r.approachStandResumed = false;
+        r.approachStandResumedSearch = true;
         r.approachStand = 1;
         r.approachStandWanted = true;
         r.approachStandWhy.clear();
@@ -5136,6 +5156,18 @@ inline bool ApproachStandFound(Run& r, const Facts& f, bool found, float x, floa
     std::string const what = s->kind == PlanStepKind::Boss ? "boss" : "pack";
     std::string const pack = "the " + what + " at " + Num(s->x) + " " + Num(s->y) + " " + Num(s->z);
     float const ring = found ? ai::PlanDistance(x, y, z, s->x, s->y, s->z) : 0.0f;
+    bool const resumedSearch = r.approachStandResumedSearch;
+    r.approachStandResumedSearch = false;
+    if ((!found || ring > kApproachStandYd + 0.5f || ring < ApproachStandMinRing(*s) - 0.5f) && resumedSearch)
+    {
+        // A resume's search from where the party stands now found none (the Opus review of
+        // f1fdeb67: a player who moved the party behind a winding ramp had no way out but
+        // the pause): the hops again, with a fresh cap; that cap then pauses (no stand again).
+        r.approachStand = 3; // the cap is fresh: the resume's ResetStep cleared the hops
+        EnterPhase(r, Phase::Begin);
+        r.note = "approach (resumed): no safe stand near " + pack + " from here: approach hops again";
+        return false;
+    }
     if (!found || ring > kApproachStandYd + 0.5f || ring < ApproachStandMinRing(*s) - 0.5f)
     {
         r.approachStand = 3;
@@ -5387,6 +5419,26 @@ struct StandHostile
     float x = 0.0f, y = 0.0f, z = 0.0f;
     std::uint32_t entry = 0;
 };
+
+// A leg of a move refused too-far (TooFarLegWanted) never ends beside a hostile: the
+// hop point's check (kHopPullYd) for its end too (the Opus review of f1fdeb67). The
+// longest of maxYd, 3/4, 1/2 and 1/4 of it along the path whose end has no hostile
+// within kHopPullYd; false when every one has (the refusal pauses, saying so).
+inline bool PickSafeLeg(const std::vector<PathPoint>& path, float maxYd, const std::vector<StandHostile>& hostiles,
+    float& x, float& y, float& z)
+{
+    for (float part : {1.0f, 0.75f, 0.5f, 0.25f})
+    {
+        if (!PointAlongPath(path, maxYd * part, x, y, z))
+            return false;
+        bool clear = true;
+        for (const StandHostile& h : hostiles)
+            clear = clear && ai::PlanDistance(x, y, z, h.x, h.y, h.z) > kHopPullYd;
+        if (clear)
+            return true;
+    }
+    return false;
+}
 
 struct StandCandidate
 {
@@ -6188,6 +6240,10 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         ApproachHop(r, f, s, dt, order, s.kind == PlanStepKind::Boss ? "boss" : "pack");
         return;
     }
+    // The approach stand did its work once the pack is in sight: spent, so a later tick
+    // out of sight hops again instead of the stand's 'did not bring it' pause.
+    if (r.approachStandStep == r.step && r.approachStand == 4)
+        r.approachStand = 3;
     if (FinishHopInSight(r, f, dt, order, s.kind == PlanStepKind::Boss ? "boss" : "pack"))
         return;
     for (const UnitFact& u : f.units)
@@ -7490,6 +7546,7 @@ inline void EventFailed(Run& r, const std::string& why)
         r.autoRegroups = 0;
         ResetStep(r);
         ForgetMoveRefusals(r);
+        ForgetRewoundRoute(r);
         again = ": .bot run resume regroups and starts it again at step " + std::to_string(start + 1) + " (" +
             ai::PlanStepKindName(r.plan->steps[start].kind) + ")";
     }
@@ -7529,6 +7586,7 @@ inline bool RearmEventOnWipe(Run& r, const Facts& f)
     r.eventRearmed.insert(start);
     r.step = start;
     ForgetMoveRefusals(r);
+    ForgetRewoundRoute(r);
     r.eventRetry = true;
     return true;
 }

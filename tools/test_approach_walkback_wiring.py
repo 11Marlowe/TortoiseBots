@@ -88,9 +88,9 @@ class TooFarLegWiringTest(unittest.TestCase):
 
     def test_leg_follows_the_navmesh_path(self):
         fn = body(COMMANDS, "bool LegOnPath(Player* lead,", "\n}\n")
-        self.assertIn("if (type & (PATHFIND_NOPATH | PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT))\n        return false;", fn)
+        self.assertIn("if (type & (PATHFIND_NOPATH | PATHFIND_INCOMPLETE | PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT))\n"
+                      "        return false;", fn)
         self.assertIn("for (Vector3 const& p : path.getPath())", fn)
-        self.assertIn("return TortoiseBots::DungeonRun::PointAlongPath(points, maxYd, ox, oy, oz);", fn)
 
     def test_walk_sends_its_point_again_after_the_leg(self):
         fn = body(POLICY, "inline bool WalkTo(Run& r, const Facts& f,", "\n}\n")
@@ -121,6 +121,30 @@ class NoPathPauseWiringTest(unittest.TestCase):
         walk = body(POLICY, "inline void StartWalkBack(Run& r, const Facts& f)", "\n}\n")
         self.assertLess(walk.index("std::size_t const reached = LastReachedBefore(r, r.step);"),
                         walk.index("const PlanStep& p = r.plan->steps[last];"))
+
+
+class ReviewRoundOneWiringTest(unittest.TestCase):
+    """The Opus review of f1fdeb67."""
+
+    def test_event_rewinds_forget_the_route_memory(self):
+        for fn in ("inline void EventFailed(", "inline bool RearmEventOnWipe("):
+            code = body(POLICY, fn, "\n}\n")
+            self.assertLess(code.index("ForgetMoveRefusals(r);"), code.index("ForgetRewoundRoute(r);"))
+        # A resume keeps both (it is no rewind).
+        self.assertNotIn("ForgetRewoundRoute", body(POLICY, "inline bool Resume(Run& r)", "\n}\n"))
+
+    def test_leg_needs_a_full_path_and_a_clear_end(self):
+        fn = body(COMMANDS, "bool LegOnPath(Player* lead,", "\n}\n")
+        self.assertIn("PATHFIND_NOPATH | PATHFIND_INCOMPLETE | PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT", fn)
+        self.assertIn("HostileCreaturesAround(lead, maxYd + TortoiseBots::DungeonRun::kHopPullYd, around);", fn)
+        self.assertIn("return TortoiseBots::DungeonRun::PickSafeLeg(points, maxYd, hostiles, ox, oy, oz);", fn)
+
+    def test_stand_walk_is_a_hop_and_spent_on_sight(self):
+        stand = body(POLICY, "inline bool ApproachStand(Run& r, const PlanStep& s,", "\n}\n")
+        self.assertIn("r.hopWalk = true;\n        r.hopX = r.approachStandX;", stand)
+        fight = body(POLICY, "inline void FightStep(Run& r, const Facts& f, const PlanStep& s,", "\n}\n")
+        self.assertLess(fight.index("if (r.approachStandStep == r.step && r.approachStand == 4)\n        r.approachStand = 3;"),
+                        fight.index("if (FinishHopInSight("))
 
 
 if __name__ == "__main__":
