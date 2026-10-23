@@ -61,6 +61,20 @@ class StallFallbackWiringTest(unittest.TestCase):
         self.assertIn("NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::MoveFallbackYd(*step),\n"
                       "                    dx, dy, dz);", COMMANDS)
 
+    def test_direct_move_only_on_a_clear_swim_line(self):
+        # Codex review 2026-10-23: the server's direct step checks the end's floor and sight only.
+        fn = body(POLICY, "inline bool StallFallback(", "\n}\n")
+        self.assertIn("if (f.leadInWater && f.stallDirectRead && f.stallDirectClear && StallDirectFits(f, x, y, z))", fn)
+        facts = body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead,", "\n}\n")
+        self.assertIn("if (StallDirectProbeWanted(slot.run) && f.leadInWater && f.leadMoveFailed && lead->IsAlive() && !lead->GetTransport())", facts)
+        self.assertIn("bool const swimLine = ai::WorldPosition::IsSwimLine(line, lead);", facts)
+        self.assertIn("HostileCreaturesAround(lead, DistanceTo(lead, r.walkX, r.walkY, r.walkZ) + kStallDirectHostileYd, around);", facts)
+        self.assertIn("f.stallDirectRead = true;", facts)
+        self.assertIn("f.stallDirectClear = StallDirectLineClear(f.leadInWater, swimLine, hostiles, f.leadX, f.leadY, f.leadZ,\n"
+                      "            r.walkX, r.walkY, r.walkZ);", facts)
+        worldpos = (ROOT / "ai/playerbot/WorldPosition.cpp").read_text()
+        self.assertIn("bool WorldPosition::IsSwimLine(const std::vector<WorldPosition>& path, const Unit* bot)\n{\n    return SwimPathFits(path, bot);\n}", worldpos)
+
     def test_direct_limits_follow_the_direct_step(self):
         self.assertIn("static_assert(TortoiseBots::DungeonRun::kStallDirectMaxYd == RemoteCommander::kDirectMaxDistance &&\n"
                       "    TortoiseBots::DungeonRun::kStallDirectMaxVertical == RemoteCommander::kDirectMaxVertical,", COMMANDS)

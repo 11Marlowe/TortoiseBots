@@ -1274,6 +1274,11 @@ std::vector<G3D::Vector3> WorldPosition::toPointsArray(const std::vector<WorldPo
     return retVec;
 }
 
+bool WorldPosition::IsSwimLine(const std::vector<WorldPosition>& path, const Unit* bot)
+{
+    return SwimPathFits(path, bot);
+}
+
 //A single pathfinding attempt from one position to another. Returns pathfinding status and path.
 std::vector<WorldPosition> WorldPosition::getPathStepFrom(const WorldPosition& startPos, std::unique_ptr<PathFinder>& pathfinder, const Unit* bot, bool forceNormalPath) const
 {

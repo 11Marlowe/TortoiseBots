@@ -10775,6 +10775,27 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         f.leadMoveFailed = ai::PositionMoveFailing(lastMove.positionMoveFailMs, WorldTimer::getMSTime());
         f.leadMoveFailReason = ai::MoveFailReasonName(lastMove.moveFailReason);
     }
+    // A stall's direct move (DungeonRun::StallFallback) only on a clear swim line: read near a
+    // stall only, for the walk's point (one line test and one hostile search per walk).
+    if (StallDirectProbeWanted(slot.run) && f.leadInWater && f.leadMoveFailed && lead->IsAlive() && !lead->GetTransport())
+    {
+        TortoiseBots::DungeonRun::Run const& r = slot.run;
+        std::vector<ai::WorldPosition> const line = { ai::WorldPosition(lead),
+            ai::WorldPosition(lead->GetMapId(), r.walkX, r.walkY, r.walkZ) };
+        bool const swimLine = ai::WorldPosition::IsSwimLine(line, lead);
+        std::vector<HostileSpot> hostiles;
+        if (swimLine)
+        {
+            std::list<Unit*> around;
+            HostileCreaturesAround(lead, DistanceTo(lead, r.walkX, r.walkY, r.walkZ) + kStallDirectHostileYd, around);
+            for (Unit* unit : around)
+                if (unit->IsAlive())
+                    hostiles.push_back(HostileSpot{ unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ() });
+        }
+        f.stallDirectRead = true;
+        f.stallDirectClear = StallDirectLineClear(f.leadInWater, swimLine, hostiles, f.leadX, f.leadY, f.leadZ,
+            r.walkX, r.walkY, r.walkZ);
+    }
     // The group's raid icons now: a cc order takes only a free mark or one the run set (DungeonRun::PickCcOrder).
     if (Group* const iconGroup = lead->GetGroup())
     {

@@ -181,6 +181,11 @@ static_assert(kGoodPathMinYd > kIslandSizeYd + kArriveYd, "a path that only cros
 // kDirectMaxVertical; BotCommands.cpp static_asserts both).
 constexpr float kStallDirectMaxYd = 25.0f;
 constexpr float kStallDirectMaxVertical = 8.0f;
+// ... and only for the diagnosed case: the lead bot in water and the straight line a
+// swim line (every 2 yd sample in water, in sight: WorldPosition::IsSwimLine) with no
+// living hostile creature within this far of it (Codex review 2026-10-23: the server's
+// direct step checks the end's floor and sight only, not the line).
+constexpr float kStallDirectHostileYd = 15.0f;
 constexpr float kEscapeMaxYd = 10.0f;             // the straight hop off it goes to the last good spot this close ...
 constexpr float kEscapeMaxVertical = 8.0f;        // ... and this far up or down (RemoteCommander::kDirectMaxVertical)
 constexpr std::uint32_t kIslandEscapes = 2;       // hops off one island, then pause
@@ -620,6 +625,11 @@ struct Facts
     bool leadInWater = false;
     bool leadMoveFailed = false;
     std::string leadMoveFailReason;
+    // The stall's direct move (StallFallback): read by the glue only near a stall
+    // (StallDirectProbeWanted), for the walk's point: the line from the lead bot is
+    // clear for a straight swim (StallDirectLineClear). Not read: no direct move.
+    bool stallDirectRead = false;
+    bool stallDirectClear = false;
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
     // The group's raid icons now (Group::GetTargetIcon, star 0 ... skull 7):
     // a cc order only takes a mark that is free or one the run set itself.
@@ -3742,6 +3752,43 @@ inline bool StallDirectFits(const Facts& f, float x, float y, float z)
     return ground <= kStallDirectMaxYd && std::fabs(z - f.leadZ) <= kStallDirectMaxVertical;
 }
 
+// The distance from (px,py,pz) to the segment a -> b.
+inline float PointToSegmentYd(float px, float py, float pz, float ax, float ay, float az, float bx, float by, float bz)
+{
+    float const dx = bx - ax, dy = by - ay, dz = bz - az;
+    float const len2 = dx * dx + dy * dy + dz * dz;
+    float t = len2 > 0.0f ? ((px - ax) * dx + (py - ay) * dy + (pz - az) * dz) / len2 : 0.0f;
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    return ai::PlanDistance(px, py, pz, ax + dx * t, ay + dy * t, az + dz * t);
+}
+
+struct HostileSpot
+{
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+};
+
+// The glue's verdict for the stall's direct move: the lead bot in water, the line to
+// the point a swim line (swimLine: WorldPosition::IsSwimLine), and no living hostile
+// creature within kStallDirectHostileYd of the line.
+inline bool StallDirectLineClear(bool leadInWater, bool swimLine, const std::vector<HostileSpot>& hostiles,
+    float ax, float ay, float az, float bx, float by, float bz)
+{
+    if (!leadInWater || !swimLine)
+        return false;
+    for (const HostileSpot& h : hostiles)
+        if (PointToSegmentYd(h.x, h.y, h.z, ax, ay, az, bx, by, bz) <= kStallDirectHostileYd)
+            return false;
+    return true;
+}
+
+// Whether the glue reads the direct move's line this tick (Facts::stallDirectRead):
+// a walk under way, its fallback not tried yet, within kTickMs * 3 of the stall.
+inline bool StallDirectProbeWanted(const Run& r)
+{
+    return r.state == State::Running && r.phase == Phase::Walk && r.stallFallback == 0 &&
+        r.walkStillMs + 3 * kTickMs >= kWalkRetryMs;
+}
+
 // Whether the stalled walk is the current plain move step's own walk, with no stand-in
 // on yet: the walk a stand-in (UseDetour) may replace. Not a walk back's, a pull's, an
 // approach hop's, a stand's or the guard's walk back.
@@ -3759,7 +3806,9 @@ inline bool StallStandInFits(const Run& r, float x, float y, float z)
 // never ran, because a stall is no refusal. Now a walk stalled for kWalkRetryMs while the
 // lead bot's own move is failing (Facts::leadMoveFailed) and the party is out of combat
 // first tries what a player would do: the straight `cmd move ... direct` to the point,
-// when it fits the direct step's limits (StallDirectFits); after a further stall, on the
+// only in the diagnosed case (the lead bot in water, the line a clear swim line:
+// Facts::stallDirectClear) and within the direct step's limits (StallDirectFits);
+// otherwise, or after a further stall, on the
 // current move step's own walk, a stand-in on dry ground (the glue's NearestReachablePoint,
 // dry only; StallStandIn). Each at most once per walk; then the old retries and pause.
 // True: an order (or the glue's search) went out instead of the plain retry.
@@ -3774,7 +3823,7 @@ inline bool StallFallback(Run& r, const Facts& f, float x, float y, float z, boo
     if (r.stallFallback == 0)
     {
         r.stallFallback = 1;
-        if (StallDirectFits(f, x, y, z))
+        if (f.leadInWater && f.stallDirectRead && f.stallDirectClear && StallDirectFits(f, x, y, z))
         {
             r.walkStillMs = 0;
             order = MoveOrder(x, y, z, true);

@@ -344,6 +344,10 @@ namespace ai
         // (0 = none since the caller reset it): the action log's FAILED line reads it
         // for a failed move (MoveFailNotePolicy.h).
         static uint32& LastPathStepType() { static thread_local uint32 type = 0; return type; }
+        // The swim-line test getPathStepFrom keeps the core's straight swim answer by
+        // (SwimPathPolicy.h): every leg in water or ocean at 2 yd samples, at most 80 yd,
+        // and in `bot`'s sight. The run leader asks it before a stall's direct move.
+        static bool IsSwimLine(const std::vector<WorldPosition>& path, const Unit* bot);
         std::vector<WorldPosition> getPathStepFrom(const WorldPosition& startPos, std::unique_ptr<PathFinder>& pathfinder, const Unit* bot, bool forceNormalPath = false) const;
         std::vector<WorldPosition> getPathStepFrom(const WorldPosition& startPos, const Unit* bot, bool forceNormalPath = false) const;
         std::vector<WorldPosition> GetPathStepFrom(const WorldPosition& startPos, const Unit* bot, bool forceNormalPath = false) const { return getPathStepFrom(startPos, bot, forceNormalPath); }

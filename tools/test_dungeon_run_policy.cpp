@@ -300,6 +300,9 @@ static void TestStalledWalkWithAFailingMoveTriesDirectThenADryStandIn()
     f.leadInWater = true;
     f.leadMoveFailed = true;
     f.leadMoveFailReason = "dispatch-short";
+    // The glue read the line: a clear swim line (the BFD pool case).
+    f.stallDirectRead = true;
+    f.stallDirectClear = true;
     CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
     // The first stall: the direct move, not the same plain move again.
     CHECK(NextOrder(r, f) == "move 0.0 0.0 0.0 direct");
@@ -397,6 +400,53 @@ static void TestStalledWalkWithAFailingMoveTriesDirectThenADryStandIn()
     pull.steps = {PullStep(0, {4850}), Step(PlanStepKind::Rest)};
     Run p = Start(&pull);
     CHECK(!StallStandInFits(p, 0.0f, 0.0f, 0.0f));
+
+    // Codex review 2026-10-23: the direct move only in the diagnosed case. On land beside a
+    // ledge (the line not a clear swim line), with the line not read, or with the lead bot
+    // out of the water: no direct move, the dry stand-in at once.
+    for (int c = 0; c < 3; ++c)
+    {
+        Run land = Start(&plan);
+        Facts l = g;
+        if (c == 0)
+            l.stallDirectClear = false; // read: not a swim line, or a hostile near it
+        else if (c == 1)
+            l.stallDirectRead = false;  // not read
+        else
+            l.leadInWater = false;      // on land
+        CHECK(Tick(land, l) == "move 0.0 0.0 0.0");
+        CHECK(NextOrder(land, l).empty());
+        CHECK(land.stallStandInWanted && land.stallFallback == 2);
+        CHECK(!StallStandIn(land, false, 0, 0, 0));
+        CHECK(Tick(land, l) == "move 0.0 0.0 0.0"); // the old retries, never a direct move
+        CHECK(NextOrder(land, l) == "move 0.0 0.0 0.0");
+        CHECK(NextOrder(land, l).empty() && land.state == State::Paused);
+    }
+    // The glue's verdict: in water, a swim line, no hostile within 15 yd of the line.
+    std::vector<HostileSpot> none;
+    CHECK(StallDirectLineClear(true, true, none, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    CHECK(!StallDirectLineClear(false, true, none, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    CHECK(!StallDirectLineClear(true, false, none, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    std::vector<HostileSpot> nearLine = {HostileSpot{8.0f, 14.0f, 0.0f}};   // 14 yd off the middle of the line
+    CHECK(!StallDirectLineClear(true, true, nearLine, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    std::vector<HostileSpot> farOff = {HostileSpot{8.0f, 16.0f, 0.0f}, HostileSpot{-16.0f, 0.0f, 0.0f}};
+    CHECK(StallDirectLineClear(true, true, farOff, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    std::vector<HostileSpot> pastEnd = {HostileSpot{-14.0f, 0.0f, 0.0f}};    // 14 yd beyond the point
+    CHECK(!StallDirectLineClear(true, true, pastEnd, 16.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    CHECK(std::fabs(PointToSegmentYd(8.0f, 3.0f, 0.0f, 0.0f, 0.0f, 0.0f, 16.0f, 0.0f, 0.0f) - 3.0f) < 0.01f);
+    CHECK(std::fabs(PointToSegmentYd(20.0f, 3.0f, 0.0f, 0.0f, 0.0f, 0.0f, 16.0f, 0.0f, 0.0f) - 5.0f) < 0.01f);
+    CHECK(std::fabs(PointToSegmentYd(1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f) - std::sqrt(3.0f)) < 0.01f);
+    // The glue reads the line only near a stall of a walk whose fallback is untried.
+    Run probe = Start(&plan);
+    CHECK(Tick(probe, n) == "move 0.0 0.0 0.0");
+    CHECK(!StallDirectProbeWanted(probe));
+    probe.walkStillMs = kWalkRetryMs - 3 * kTickMs;
+    CHECK(StallDirectProbeWanted(probe));
+    probe.walkStillMs = kWalkRetryMs - 3 * kTickMs - 1;
+    CHECK(!StallDirectProbeWanted(probe));
+    probe.walkStillMs = kWalkRetryMs;
+    probe.stallFallback = 1;
+    CHECK(!StallDirectProbeWanted(probe));
 
     // A fresh walk starts the fallback over.
     Run fresh = Start(&plan);
