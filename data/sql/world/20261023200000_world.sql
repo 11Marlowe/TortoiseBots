@@ -8,7 +8,7 @@
 -- wolf_master_nandos, archmage_arugal; status 'draft (not mapped, not live-checked)'), exported with the options of the
 -- header of 20261022210900_world.sql:
 --   turtle-agent plan-export --mmaps <map 33 mmaps> --allow-draft --gm-cross-direct --approach-hops \
---     --rev ac9b63d --stamp 20261023200000 --out <dir> shadowfang_keep
+--     --rev c77e8cf --stamp 20261023200000 --out <dir> shadowfang_keep
 -- This migration supersedes 20261023180000_world.sql (it stays as applied and is not edited). Data fix from the live run
 -- r25 shadowfang_keep slot5 (RUN-LESSONS "r25 shadowfang_keep slot5"; traces tests/r25/slot5sfk), leg 2 only:
 --   * the step-39 pull (one row at -248.04 2346.95, radius 22.1, entries 3854,61970,4075,3855) was 12 living court
@@ -43,7 +43,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'shadowfang_keep';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'shadowfang_keep';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'shadowfang_keep';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent ac9b63d dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');
+('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent c77e8cf dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('shadowfang_keep', 0, 'rethilgore', ''),
 ('shadowfang_keep', 1, 'razorclaw_the_butcher', ''),

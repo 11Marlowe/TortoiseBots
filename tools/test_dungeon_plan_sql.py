@@ -212,7 +212,7 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("gm_cross", text)  # the header names every step the run leader cannot do
 
     def test_shadowfang_keep_is_the_whole_plan_as_exported(self):
-        # 20261023200000 (turtle-agent ac9b63d, 2026-10-23, the Data fix of r25 shadowfang_keep slot5): the whole draft is
+        # 20261023200000 (turtle-agent c77e8cf, 2026-10-23, the Data fix of r25 shadowfang_keep slot5): the whole draft is
         # 10 legs. Leg 4 is the courtyard_door leg (the Adamant gossip and the 18895 wait); leg 5 the old leg 4's
         # entrance-side pulls (10, no boss); leg 6 crosses the navmesh stair-top seam with the only move_direct, then the
         # four walkway pulls and Odo; legs 7-9 are Fenrus, Nandos and Arugal. The plan row carries cc_priority
@@ -221,7 +221,7 @@ class DungeonPlanSql(unittest.TestCase):
         # when its row is cut.
         name, text = newest_plan_text("shadowfang_keep")
         self.assertEqual(name, "20261023200000_world.sql")
-        self.assertIn("('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent ac9b63d dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent c77e8cf dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "shadowfang_keep")
         self.assertEqual(list(legs[i][0] for i in range(10)),
                          ["rethilgore", "razorclaw_the_butcher", "baron_silverlaine", "commander_springvale",
