@@ -5,7 +5,7 @@
 #include "playerbot/TravelMgr.h"
 #include "playerbot/strategy/generic/PullStrategy.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
-#include "playerbot/PullRegenPolicy.h"
+#include "playerbot/policy/pull/PullRegenPolicy.h"
 #include "playerbot/SurvivePolicy.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/values/GrindTargetValue.h"

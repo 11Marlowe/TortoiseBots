@@ -5,7 +5,7 @@
 #include "../../runtime/PlayerbotAIStorage.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/WorldPosition.h"
-#include "playerbot/PullReachPolicy.h"
+#include "playerbot/policy/pull/PullReachPolicy.h"
 #include "PullStrategy.h"
 
 using namespace ai;

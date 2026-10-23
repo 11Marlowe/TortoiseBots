@@ -11,7 +11,7 @@
 #include "PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/actions/ChooseTargetActions.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
-#include "playerbot/PullRegenPolicy.h"
+#include "playerbot/policy/pull/PullRegenPolicy.h"
 #include "playerbot/PointDangerPolicy.h"
 #include "playerbot/GrindSpotPolicy.h"
 #include "../../../../runtime/AltBotService.h"

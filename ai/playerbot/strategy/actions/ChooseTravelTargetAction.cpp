@@ -6,7 +6,7 @@
 #include "FishAction.h"
 #include "MoveToTravelTargetAction.h"
 #include "playerbot/PlayerbotAIConfig.h"
-#include "playerbot/PullRegenPolicy.h"
+#include "playerbot/policy/pull/PullRegenPolicy.h"
 #include "playerbot/LocalPickPolicy.h"
 #include "playerbot/GrindSpotPolicy.h"
 #include "playerbot/ZoneMigratePolicy.h"
