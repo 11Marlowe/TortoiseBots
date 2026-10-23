@@ -8,7 +8,7 @@
 #include "playerbot/AmmoStackPolicy.h"
 #include "../../runtime/BotNameService.h"
 #include "../../runtime/HunterPetPolicy.h"
-#include "policy/gear/SpellRankPolicy.h"
+#include "../../runtime/policy/pet/PetSpellRankPolicy.h"
 #include "../../runtime/policy/provision/StarterKitPolicy.h"
 #include "../../runtime/ProfessionGrantPolicy.h"
 #include "../../runtime/OwnedBotQolPolicy.h"
