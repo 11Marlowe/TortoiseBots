@@ -65,8 +65,8 @@ static void TestBackoffOnRefusedWalks()
     CHECK(StayWalkDue(b, false, kFar, false, false, now) && !StayWalkBackingOff(b, now)); // two: still walks
     Refused(b, now);                                                                         // the third: rests
     CHECK(StayWalkBackingOff(b, now) && !StayWalkDue(b, false, kFar, false, false, now));
-    CHECK(StayWalkBackingOff(b, now + kStayWalkBackoffFirstMs - 2));
-    CHECK(!StayWalkBackingOff(b, now + kStayWalkBackoffFirstMs + 1));
+    CHECK(StayWalkBackingOff(b, now + 9998));   // 10 s
+    CHECK(!StayWalkBackingOff(b, now + 10001));
     now += kStayWalkBackoffFirstMs + 1;
     CHECK(StayWalkDue(b, false, kFar, false, false, now));
     Refused(b, now);
@@ -77,7 +77,7 @@ static void TestBackoffOnRefusedWalks()
         now += kStayWalkBackoffMaxMs + 1;
         Refused(b, now);
     }
-    CHECK(b.lengthMs == kStayWalkBackoffMaxMs);
+    CHECK(b.lengthMs == 60000);
     CHECK(StayWalkBackingOff(b, now + kStayWalkBackoffMaxMs - 2) && !StayWalkBackingOff(b, now + kStayWalkBackoffMaxMs + 1));
 
     StayWalkBackoff w;
@@ -98,7 +98,7 @@ static void TestAcceptedDispatchThatStopsShortFails()
     std::uint32_t now = 1000;
     // Inside the grace a bot not yet moving is not judged.
     StayWalkDispatched(b, true, kFar, false, now);
-    CHECK(StayWalkDue(b, false, kFar, false, false, now + kStayAttemptGraceMs - 1) && b.attemptOn && b.fails == 0);
+    CHECK(StayWalkDue(b, false, kFar, false, false, now + 999) && b.attemptOn && b.fails == 0); // a 1 s grace
     now += kStayAttemptGraceMs;
     CHECK(StayWalkDue(b, false, kFar, false, false, now) && !b.attemptOn && b.fails == 1);
     StopsShort(b, now);
@@ -121,12 +121,22 @@ static void TestAcceptedDispatchThatStopsShortFails()
         StayWalkDispatched(m, true, d, false, now); // the action re-sends: no new attempt
         CHECK(m.attemptOn && m.fails == 0 && m.attemptStartYd == kFar);
     }
-    now += kStayAttemptStallMs - 1;
+    now += 2999; // the decided figures: 3 s without 1 yd
     StayWalkDue(m, false, d - 0.5f, true, false, now);
     CHECK(m.attemptOn && m.fails == 0);
     now += 1;
     StayWalkDue(m, false, d - 0.5f, true, false, now);
     CHECK(!m.attemptOn && m.fails == 1);
+    // 1.2 yd of progress (over the 1 yd step) at 2 s restarts the 3 s window: still on at 3.5 s.
+    StayWalkBackoff q;
+    StayWalkTrack(q, 1.0f, 2.0f, 3.0f, 33);
+    now = 1000;
+    StayWalkDispatched(q, true, kFar, false, now);
+    StayWalkDue(q, false, kFar - 1.2f, true, false, now + 2000);
+    StayWalkDue(q, false, kFar - 1.2f, true, false, now + 3500);
+    CHECK(q.attemptOn && q.fails == 0);
+    StayWalkDue(q, false, kFar - 1.2f, true, false, now + 5000);
+    CHECK(!q.attemptOn && q.fails == 1);
 }
 
 // A dispatch that brings the bot 3 yd nearer, or to the point, starts it all over.
@@ -140,9 +150,9 @@ static void TestProgressOrArrivalResets()
     CHECK(b.fails == 2);
     StayWalkDispatched(b, true, kFar, false, now);
     now += 500;
-    StayWalkDue(b, false, kFar - kStayAttemptGainYd + 0.1f, true, false, now);
+    StayWalkDue(b, false, kFar - 2.9f, true, false, now);
     CHECK(b.attemptOn && b.fails == 2); // not yet 3 yd
-    StayWalkDue(b, false, kFar - kStayAttemptGainYd, true, false, now);
+    StayWalkDue(b, false, kFar - 3.0f, true, false, now); // 3 yd nearer
     CHECK(!b.attemptOn && b.fails == 0);
 
     StopsShort(b, now);
