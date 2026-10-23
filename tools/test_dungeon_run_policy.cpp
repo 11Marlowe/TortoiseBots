@@ -9947,6 +9947,222 @@ static void TestNoPathPauseResumeTriesTheSameMovesAgain()
     CHECK(n.walkBack && n.walkBackIdx == 3);
 }
 
+// Sunken Temple r26 slot 6b step 235 (owner decision 2026-10-23): the lead bot sat on an island 13 yd below the
+// route (-448.0 103.2 -191.0); each resume: the hop off it found no spot, then 'walk back: the point of step 234
+// refused (unreachable)', then the same three moves skipped and the pause. As the last resort the run teleports
+// the lead bot to the last point it reached (the route checkpoint), out of combat only, at most once a step
+// (counted on arrival), 3 failed tries and 10 waits a step, the spot read afresh on each send; the party left
+// on the island is summoned to it after.
+static Facts StrandFacts(float x, float y, float z)
+{
+    Facts f = Party(x);
+    f.leadY = y;
+    f.leadZ = z;
+    f.seen = true;
+    MemberFact lead;
+    lead.name = "Tanky";
+    lead.x = x;
+    lead.y = y;
+    lead.z = z;
+    f.members = {lead};
+    return f;
+}
+
+static void TestStrandedLeadIsTeleportedToTheLastReachedPoint()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, -460.0f, 50.0f, -172.9f), Step(PlanStepKind::Move, -422.4f, 82.4f, -172.9f),
+        Step(PlanStepKind::Move, -422.9f, 104.3f, -172.9f), Step(PlanStepKind::Move, -422.4f, 106.7f, -172.9f),
+        Step(PlanStepKind::Move, -420.0f, 120.0f, -172.9f), Step(PlanStepKind::Rest)};
+    std::string const back = MoveOrder(-422.4f, 82.4f, -172.9f, false);
+    std::string const noSpot = "no-spot: no spot within 10 yd in the lead bot's sight has a floor, a clear line and a way on";
+    auto stranded = [&]()
+    {
+        Run r = Start(&plan, 2);
+        NoteCheckpoint(r, 1);
+        r.noPathSkips = {2, 3, 4};
+        r.walkBack = true;
+        r.walkBackIdx = 1;
+        r.walkBackStart = 1;
+        r.leadLastX = -448.0f;
+        r.leadLastY = 103.2f;
+        r.leadLastZ = -191.0f;
+        OrderRefused(r, "escape from -448.0 103.2 -191.0 toward -422.4 82.4 -172.9", noSpot);
+        CHECK(r.noSpotKnown && r.note.find("the straight hop off the navmesh island was not made (no-spot") == 0);
+        return r;
+    };
+    Facts f = StrandFacts(-448.0f, 103.2f, -191.0f);
+    Facts atPoint = StrandFacts(-422.4f, 82.4f, -172.9f);
+    // The four others still on the island, 30 yd below and away from the point.
+    for (const char* name : {"Yssia", "Beardinator", "Wendrick", "Bowjangles"})
+    {
+        MemberFact m;
+        m.name = name;
+        m.yd = 30.0f;
+        m.dz = -14.0f;
+        atPoint.members.push_back(m);
+    }
+    atPoint.members[2].yd = 3.0f; // Beardinator: under the point, a floor below: summoned too
+    atPoint.members[4].inCombat = true; // Bowjangles: in a fight, never summoned
+
+    Run r = stranded();
+    OrderRefused(r, back, kBareUnreachable);
+    CHECK(r.strandDue && r.strandIdx == 1 && r.walkBackIdx == 1 && r.state == State::Running);
+    CHECK(r.note == std::string("walk back: the point of step 2 refused (") + kBareUnreachable + ") where the hop off "
+        "the island found no spot: the lead bot is stranded; it is teleported to the last reached point out of combat");
+    // In combat: nothing goes out; it waits.
+    Facts fight = f;
+    fight.anyInCombat = true;
+    std::string order;
+    CHECK(StrandedTeleportTick(r, fight, kTickMs, order) && order.empty() && r.strandDue);
+    CHECK(r.note == "the lead bot is stranded at -448.0 103.2 -191.0 with no way back: the teleport to the last reached "
+        "point (step 2) waits for the fight to end");
+    fight.anyInCombat = false;
+    fight.leadInCombat = true;
+    CHECK(StrandedTeleportTick(r, fight, kTickMs, order) && order.empty() && r.strandDue);
+    // Out of combat: the teleport, through the walk back's own tick, from where the lead bot stands NOW
+    // (it moved 3 yd on the island since the reading).
+    Facts moved = StrandFacts(-445.0f, 101.0f, -190.0f);
+    order = Tick(r, moved);
+    CHECK(order == "rescue from -445.0 101.0 -190.0 to -422.4 82.4 -172.9");
+    CHECK(r.note == "the lead bot is stranded at -445.0 101.0 -190.0 with no way back: teleporting it to the last reached "
+        "point (step 2)");
+    CHECK(!r.strandDue && r.strandOn && !r.noSpotKnown);
+    CHECK(r.strandStep == static_cast<std::size_t>(-1)); // not used until it arrived
+    // It settles: no other order for kStrandSettleMs.
+    for (std::uint32_t ms = kTickMs; ms < kStrandSettleMs; ms += kTickMs)
+        CHECK(Tick(r, atPoint).empty());
+    // At the point: the step's teleport is used, the note says so.
+    order = Tick(r, atPoint);
+    CHECK(!r.strandOn && r.strandStep == 2 && r.strandSummon);
+    CHECK(r.note == "the lead bot was stranded at -445.0 101.0 -190.0 with no way back: teleported to the last reached "
+        "point (step 2)");
+    // The party left on the island is summoned to it, one a tick; a bot in a fight is waited for, not dropped.
+    Run fightLeft = r; // the same moment, for the 120 s bound below
+    std::vector<std::string> summons;
+    for (int i = 0; i < 8; ++i)
+    {
+        std::string const o = Tick(r, atPoint);
+        if (o.compare(0, 7, "summon ") == 0)
+            summons.push_back(o.substr(7));
+    }
+    CHECK(summons == std::vector<std::string>({"Yssia", "Beardinator", "Wendrick"}));
+    CHECK(r.strandSummon && r.summoned.count("Yssia") && !r.summoned.count("Bowjangles"));
+    CHECK(r.stepSummons["Wendrick"].count == 1);
+    CHECK(r.note == "the lead bot was teleported to the last reached point (step 2): waiting for Bowjangles (left behind, "
+        "30.0 yd from it) to leave its fight before summoning it");
+    // Its fight over (no combat, no attackers): summoned on that tick, and the summons end.
+    Facts freed = atPoint;
+    freed.members[4].inCombat = false;
+    CHECK(Tick(r, freed) == "summon Bowjangles");
+    CHECK(r.summoned.count("Bowjangles"));
+    CHECK(Tick(r, freed).compare(0, 7, "summon ") != 0 && !r.strandSummon && r.state == State::Running);
+    // Attackers alone count as a fight too (asked of the summon tick itself: Tick's regroup takes such a
+    // bot first, "running back with 1 attacker").
+    Facts hit = atPoint;
+    hit.members[4].inCombat = false;
+    hit.members[4].attackers = 1;
+    Run att = fightLeft;
+    att.strandSummoned = {"Yssia", "Beardinator", "Wendrick"};
+    std::string attOrder;
+    CHECK(StrandedTeleportTick(att, hit, kTickMs, attOrder) && attOrder.empty() && att.strandSummon);
+    CHECK(att.note.find("waiting for Bowjangles") != std::string::npos);
+    // Still in its fight after 120 s: the pause names the bot and its spot.
+    atPoint.members[4].x = -446.3f;
+    atPoint.members[4].y = 92.4f;
+    atPoint.members[4].z = -188.7f;
+    for (std::uint32_t ms = 0; ms <= kStrandSummonWaitMs + 8 * kTickMs && fightLeft.state == State::Running; ms += kTickMs)
+        Tick(fightLeft, atPoint);
+    CHECK(fightLeft.state == State::Paused && fightLeft.summoned.count("Wendrick") && !fightLeft.summoned.count("Bowjangles"));
+    CHECK(fightLeft.note == "the lead bot was teleported to the last reached point (step 2), but Bowjangles stayed in a "
+        "fight 30.0 yd from it at -446.3 92.4 -188.7 for 120 s: bring it to the lead bot, then .bot run resume");
+    CHECK(kStrandSummonWaitMs == 120000);
+
+    // At most once a step: the same strand again on that step passes the point as before.
+    Run again = stranded();
+    again.strandStep = 2;
+    OrderRefused(again, back, kBareUnreachable);
+    CHECK(!again.strandDue && again.walkBackIdx == 2 && again.note.find(": on to the next") != std::string::npos);
+    // ... and a resume (ResetStep) does not give it back, nor the counts.
+    again.strandCountStep = 2;
+    again.strandTries = 2;
+    again.strandWaits = 4;
+    ResetStep(again);
+    CHECK(again.strandStep == 2 && again.strandTries == 2 && again.strandWaits == 4 && !again.strandSummon);
+
+    // Not stranded: the hop off found a spot (or never ran) here.
+    Run hop = stranded();
+    hop.noSpotKnown = false;
+    OrderRefused(hop, back, kBareUnreachable);
+    CHECK(!hop.strandDue && hop.walkBackIdx == 2);
+    Run elsewhere = stranded();
+    elsewhere.leadLastX = -440.0f; // the no-spot reading was from another spot
+    OrderRefused(elsewhere, back, kBareUnreachable);
+    CHECK(!elsewhere.strandDue);
+    // Not the last reached point: a point before the checkpoint is passed as before.
+    Run early = stranded();
+    early.walkBackIdx = 0;
+    OrderRefused(early, MoveOrder(-460.0f, 50.0f, -172.9f, false), kBareUnreachable);
+    CHECK(!early.strandDue && early.walkBackIdx == 1);
+    // Not unreachable: another path refusal passes the point as before.
+    Run los = stranded();
+    OrderRefused(los, back, "no-los: the point is out of sight");
+    CHECK(!los.strandDue && los.walkBackIdx == 2);
+    // Not on a walk back: no teleport.
+    Run fwd = stranded();
+    fwd.walkBack = false;
+    CHECK(!StrandedLead(fwd, kBareUnreachable));
+
+    // A failed teleport (the glue refused it; nothing changed on the lead bot): due again, 3 tries a step,
+    // never marked used.
+    Run w = stranded();
+    OrderRefused(w, back, kBareUnreachable);
+    for (std::uint32_t t = 1; t <= kStrandTries; ++t)
+    {
+        order = Tick(w, f);
+        CHECK(order == "rescue from -448.0 103.2 -191.0 to -422.4 82.4 -172.9");
+        OrderRefused(w, order, "failed: the near teleport was refused");
+        CHECK(!w.strandOn && w.strandStep == static_cast<std::size_t>(-1) && w.strandTries == t);
+        CHECK(w.strandDue == (t < kStrandTries));
+    }
+    CHECK(w.note == "the teleport of the stranded lead bot failed 3 times (refused: failed: the near teleport was "
+        "refused): the walk back goes on as before");
+    // Used up: the point refused again is passed, no fourth try this step.
+    w.noSpotKnown = true;
+    w.noSpotX = w.leadLastX;
+    w.noSpotY = w.leadLastY;
+    w.noSpotZ = w.leadLastZ;
+    CHECK(!StrandedLead(w, kBareUnreachable));
+    // Not at the point after the settle: a failed try too.
+    Run off = stranded();
+    OrderRefused(off, back, kBareUnreachable);
+    order = Tick(off, f);
+    CHECK(order.compare(0, 7, "rescue ") == 0);
+    for (std::uint32_t ms = 0; ms < kStrandSettleMs; ms += kTickMs)
+        Tick(off, f);
+    CHECK(!off.strandOn && off.strandDue && off.strandTries == 1 && off.strandStep == static_cast<std::size_t>(-1));
+    CHECK(off.note.find("the teleport of the stranded lead bot failed (the lead bot stands ") == 0);
+
+    // "wait" answers keep it due (not a try), 10 a step, then the pause names the spot.
+    Run wt = stranded();
+    OrderRefused(wt, back, kBareUnreachable);
+    for (std::uint32_t i = 1; i < kStrandWaits; ++i)
+    {
+        order = Tick(wt, f);
+        CHECK(order.compare(0, 7, "rescue ") == 0);
+        OrderRefused(wt, order, "wait: the lead bot moved since it was read stranded");
+        CHECK(wt.strandDue && wt.strandWaits == i && wt.strandTries == 0 && wt.state == State::Running);
+    }
+    CHECK(wt.note == "the teleport of the stranded lead bot waits (wait: the lead bot moved since it was read stranded) "
+        "(9 of 10)");
+    order = Tick(wt, f);
+    OrderRefused(wt, order, "wait: a party bot is in combat");
+    CHECK(wt.state == State::Paused);
+    CHECK(wt.note == "the stranded lead bot at -448.0 103.2 -191.0 could not be teleported: the teleport waited 10 times "
+        "this step (wait: a party bot is in combat); bring it to the last reached point (step 2), then .bot run resume");
+    CHECK(kStrandTries == 3 && kStrandWaits == 10);
+}
+
 static void TestR22PullAndDirectStepsKeepTheirRefusals()
 {
     DungeonPlan plan = RfkS85Plan();
@@ -12864,6 +13080,32 @@ static void TestShotStandOnPath()
         auto none = [](const ApproachPoint&) { return false; };
         CHECK(!ShotStandOnPath(path, unit, 24.5f, none).known);
         CHECK(!ShotStandOnPath(path, unit, 0.0f, seesAll).known);
+    }
+    // Sunken Temple r26 slot 6b step 233: firing stand 1 for 5228 lay 13 yd down a ledge (the lead bot went from
+    // z -172.9 to -185.7 onto an island with no way back). The path is cut before its first point more than 6 yd
+    // below the lead bot's floor: the stand is the last point on that floor, or none.
+    {
+        auto Q = [](float x, float y, float z) { ApproachPoint p; p.x = x; p.y = y; p.z = z; return p; };
+        ApproachPoint const below = Q(0, 0, -186.0f);
+        std::vector<ApproachPoint> path = {Q(40, 0, -172.9f), Q(30, 0, -173.2f), Q(20, 0, -185.7f), Q(0, 0, -186.0f)};
+        ShotStand const s = ShotStandOnPath(path, below, 24.5f, seesAll);
+        CHECK(s.known && s.x == 30.0f && s.z > -173.5f); // not 24.5 yd from it, down the ledge
+        // A stair down of under 6 yd is no ledge: the stand is the ranged reach's own point.
+        std::vector<ApproachPoint> stair = {Q(40, 0, -172.9f), Q(30, 0, -175.0f), Q(20, 0, -178.8f), Q(0, 0, -178.8f)};
+        ShotStand const t = ShotStandOnPath(stair, Q(0, 0, -178.8f), 24.5f, seesAll);
+        CHECK(t.known && t.x < 30.0f && t.x > 20.0f); // between the stair's points, 24.5 yd from the unit (3D)
+        CHECK(std::fabs(std::sqrt(t.x * t.x + (t.z + 178.8f) * (t.z + 178.8f)) - 24.5f) < 0.05f);
+        // The ledge right at the lead bot's feet: no stand (the order goes out as before).
+        std::vector<ApproachPoint> cliff = {Q(40, 0, -172.9f), Q(38, 0, -185.0f), Q(20, 0, -186.0f), Q(0, 0, -186.0f)};
+        CHECK(!ShotStandOnPath(cliff, below, 24.5f, seesAll).known);
+        // In range but out of sight: no stand past the ledge either.
+        std::vector<ApproachPoint> near = {Q(22, 0, -172.9f), Q(15, 0, -185.0f), Q(10, 0, -186.0f), Q(0, 0, -186.0f)};
+        auto low = [](const ApproachPoint& p) { return p.z < -180.0f; };
+        CHECK(!ShotStandOnPath(near, below, 24.5f, low).known);
+        // Down the ledge and back up again: nothing past the drop counts, even back on the lead bot's floor.
+        std::vector<ApproachPoint> dip = {Q(40, 0, -172.9f), Q(30, 0, -185.0f), Q(25, 0, -172.9f), Q(0, 0, -172.9f)};
+        CHECK(!ShotStandOnPath(dip, Q(0, 0, -172.9f), 24.5f, seesAll).known);
+        CHECK(kStandLedgeDropYd == 6.0f);
     }
 }
 
@@ -16116,6 +16358,7 @@ int main()
     TestPickPackPullPrefersShootable();
     TestStandTicksAreNotFruitlessPulls();
     TestShotStandOnPath();
+    TestStrandedLeadIsTeleportedToTheLastReachedPoint();
     TestPullStandNeedsMoreRangeThanTheMargin();
     TestStandRequestIsReadOnce();
     TestStandWalkStuckOrdersFromHere();

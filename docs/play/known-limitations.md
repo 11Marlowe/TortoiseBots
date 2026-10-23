@@ -47,7 +47,7 @@ When adventuring with bots, understanding their targeting rules helps avoid unex
 
 - **Pull Level Caps:** Autonomous pool bots below level 10 outside battlegrounds will only pull mobs up to 1 level above their own level. From level 10 upward, they can engage enemies up to 4 levels higher.
 - **Pull Health and Mana Thresholds:** Masterless pool bots outside battlegrounds will not initiate a new pull while wounded (health, or mana for mana users, below [`AiPlayerbot.MediumHealth`](../server/settings/combat.md#aiplayerbotmediumhealth) / [`AiPlayerbot.MediumMana`](../server/settings/combat.md#aiplayerbotmediummana)); revenge against an attacker that already holds the bot as victim is always answered. Healers without off-DPS start no fights on their own.
-- **Runner Finishing Policy:** When an enemy of the party's fight flees below 30% health, bots finish the runner according to [shared runner rules](../classes/overview.md#shared-bot-behaviors) to avoid pulling adjacent packs.
+- **Runner Finishing Policy:** When an enemy of the party's fight flees below 30% health, bots finish the runner according to [shared runner rules](../classes/overview.md#shared-bot-behaviors) to avoid pulling adjacent packs. In a dungeon run, bots do not follow a runner down a cliff (more than 6 yards below, with a cliff or no complete path on the way); a runner let go there may come back with help.
 - **Auto-Attack Engagement:** Bots arm the melee auto-attack when ordered to attack (healers excepted, and only for a bot with no usable ranged weapon when the strategy set calls it ranged), ensuring they do not stand idle when out of mana or within melee distance.
 
 ## Known Quirks and Workarounds
