@@ -4685,6 +4685,18 @@ void StartRunBackPassive(uint64 commanderRaw, Player* bot, Player* lead)
 void SyncRunBackPassive();
 void SyncRunHealOnly();
 
+// Bots the run leader walked to the lead bot's spot (DungeonRun::WalkOrder, RunBotWalk: the straggler ladder, a
+// rogue back from a Sap that did not land): bot -> commander. Each holds on stay at that spot until the party's
+// next move forms it up again (it is no longer on stay: only dropped from the list), its next fight, or its run
+// no longer running (both: it follows the lead bot again, SyncRunWalkers). A player's order to the party drops
+// the list without touching the bots (PauseDungeonRunForPlayer).
+std::unordered_map<uint64, uint64>& RunWalkers()
+{
+    static std::unordered_map<uint64, uint64> bots;
+    return bots;
+}
+void SyncRunWalkers();
+
 uint32 s_dungeonRunMs = 0;
 bool s_runIssuing = false;    // the run leader is sending an order now (it does not pause itself)
 bool s_runGather = false;     // ... and it is a gather on the lead bot's own spot (`cmd move` lets it through)
@@ -9348,6 +9360,7 @@ void SendRunLine(Player* commander, DungeonRunSlot& slot, bool force)
 }
 
 bool RunIslandEscape(Player* commander, std::string const& order, std::string& answer);
+bool RunBotWalk(Player* commander, std::string const& order, std::string& answer);
 
 // Sends one order as the commander's own `.bot cmd <text>`. False with the
 // module's answer when it was refused (ERR). A pending task answers later.
@@ -9357,6 +9370,8 @@ bool IssueRunOrder(Player* commander, std::string const& text, std::string& answ
 {
     if (text.compare(0, 7, "escape ") == 0)
         return RunIslandEscape(commander, text, answer);
+    if (text.compare(0, 5, "walk ") == 0)
+        return RunBotWalk(commander, text, answer);
     ChatHandler handler(commander);
     s_runOrderCapture = RunOrderCapture();
     s_runOrderCapture.active = true;
@@ -9636,6 +9651,72 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float maxYd,
 // False with the reason: "wait: ..." (a fight, or the lead bot moved more than
 // kEscapeMovedYd from lx ly lz since the facts were read: not a try), or
 // "no-spot: ..." (a try). Nothing is touched before every check passed.
+// `walk <bot> <x> <y> <z>` (DungeonRun::WalkOrder): the run leader's own walk of one bot of the commanded group to
+// a point (the lead bot's spot) on the bot's own navmesh path, the way `cmd move` walks the lead bot: the bot holds
+// on stay at the point and walks there (return to stay position, path finding), so its follow and formation
+// station no longer walk it off (Shadowfang Keep r26 slot 7 step 46: back and forth on the stair below the lead
+// bot for 12 min). Refused, with nothing touched: a bot not in the group, dead, in a fight, on another map, or with
+// no navmesh path that ends within 5 yd of the point ("unreachable: ...").
+bool RunBotWalk(Player* commander, std::string const& order, std::string& answer)
+{
+    uint64 const commanderRaw = commander->GetObjectGuid().GetRawValue();
+    RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(commanderRaw);
+    Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+    Group* group = lead ? lead->GetGroup() : nullptr;
+    if (!lead || !lead->IsInWorld() || !group)
+    {
+        answer = "lead-unavailable: no lead bot or group in the world";
+        return false;
+    }
+    char name[64] = {};
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    if (std::sscanf(order.c_str(), "walk %63s %f %f %f", name, &x, &y, &z) != 4)
+    {
+        answer = "invalid: " + order;
+        return false;
+    }
+    Player* bot = nullptr;
+    for (Player* member : CommandedBots(group, lead))
+        if (member && member != lead && member->GetName() == std::string(name))
+            bot = member;
+    PlayerbotAI* ai = bot ? PlayerbotAIStorage::Instance().GetAI(bot) : nullptr;
+    if (!bot || !ai || !bot->IsInWorld())
+    {
+        answer = "no-bot: " + std::string(name) + " is not a bot of the commanded group in the world";
+        return false;
+    }
+    if (!bot->IsAlive() || bot->IsInCombat() || bot->GetMapId() != lead->GetMapId() || bot->IsBeingTeleported())
+    {
+        answer = "unavailable: " + std::string(name) + " is dead, in a fight, teleporting or on another map";
+        return false;
+    }
+    if (!MaNGOS::IsValidMapCoord(x, y, z))
+    {
+        answer = "invalid: the point is not on the map";
+        return false;
+    }
+    PathFinder path(bot);
+    path.calculate(x, y, z, false);
+    Vector3 const end = path.getActualEndPosition();
+    float const short_ = std::sqrt((end.x - x) * (end.x - x) + (end.y - y) * (end.y - y) + (end.z - z) * (end.z - z));
+    if ((path.getPathType() & PATHFIND_NOPATH) || short_ > 5.0f)
+    {
+        answer = "unreachable: " + std::string(name) + " has no navmesh path to the point (it ends " +
+            std::to_string(static_cast<int>(short_)) + " yd short)";
+        return false;
+    }
+    // The same transition as a task's stay walk (StartTaskStayWalk) and the lead bot's `cmd move`.
+    ai->DropQueuedMovementOrders();
+    PlayerConvenience::Instance().NoteHoldOrder(bot->GetObjectGuid());
+    ai->Reset();
+    ai->SetMovementStrategy("stay");
+    SetStayAnchor(ai, x, y, z, bot->GetMapId());
+    ExecuteQuietAction(ai, "return to stay position", ai::Event("return to stay position", "stay", commander));
+    RunWalkers()[bot->GetObjectGuid().GetRawValue()] = commanderRaw;
+    answer = "walking: " + std::string(name);
+    return true;
+}
+
 bool RunIslandEscape(Player* commander, std::string const& order, std::string& answer)
 {
     using namespace TortoiseBots::DungeonRun;
@@ -12068,6 +12149,38 @@ void SyncRunBackPassive()
     }
 }
 
+// Once a second, after the runs ticked: a bot the run leader walked to the lead bot's spot (RunBotWalk) that is no
+// longer on stay (the party's next move formed it up) leaves the list; one in a fight, or whose run is not running
+// or gone, follows the lead bot again (FormUpOnLead) and leaves it; a dead or vanished one leaves it.
+void SyncRunWalkers()
+{
+    for (auto it = RunWalkers().begin(); it != RunWalkers().end();)
+    {
+        Player* bot = FindCharacter(it->first);
+        PlayerbotAI* ai = bot ? PlayerbotAIStorage::Instance().GetAI(bot) : nullptr;
+        if (!bot || !ai || !bot->IsInWorld() || !bot->IsAlive() ||
+            !ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT))
+        {
+            it = RunWalkers().erase(it);
+            continue;
+        }
+        auto run = DungeonRuns().find(it->second);
+        bool const running = run != DungeonRuns().end() &&
+            run->second.run.state == TortoiseBots::DungeonRun::State::Running;
+        if (running && !bot->IsInCombat())
+        {
+            ++it;
+            continue;
+        }
+        Player* commander = FindCharacter(it->second);
+        RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(it->second);
+        Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+        if (commander && lead && lead != bot && lead->IsInWorld())
+            FormUpOnLead(commander, lead, std::vector<Player*>{ bot }, false);
+        it = RunWalkers().erase(it);
+    }
+}
+
 // Once a second: the healers of every running run, worked out again from the
 // run's party (DungeonRun::HealerKeptToHeals). A bot that left the party, a
 // healer that is none any more (a role change), one whose run paused, stopped
@@ -12119,6 +12232,8 @@ static void UpdateDungeonRuns(uint32 diff)
         SyncRunHealOnly(); // the last run is gone: every listed healer is let go
     if (!RunBackPassive().empty())
         SyncRunBackPassive();
+    if (!RunWalkers().empty())
+        SyncRunWalkers();
     if (DungeonRuns().empty())
     {
         s_dungeonRunMs = 0;
@@ -12179,6 +12294,10 @@ static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& ord
         EndRunBackPassive(passive->first);
         passive = RunBackPassive().erase(passive);
     }
+    // The run leader's walkers are the player's now: dropped from the list, not formed up (that would undo the
+    // player's own order).
+    for (auto walker = RunWalkers().begin(); walker != RunWalkers().end();)
+        walker = walker->second == commanderRaw ? RunWalkers().erase(walker) : std::next(walker);
     SendRunLine(FindCharacter(commanderRaw), it->second, false);
 }
 
