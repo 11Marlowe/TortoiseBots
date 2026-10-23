@@ -772,6 +772,99 @@ static void TestGoneIsDoneOnlyForAGoneObject()
     CHECK(r2.state == State::Paused && r2.step == 0);
 }
 
+// ai::kPlanFlagGoneIsDone on a wait_object row (Shadowfang Keep's Courtyard Door 18895, spawn 20835: Deathstalker
+// Adamant's escort sets it active and removes it a few waypoints later): done when the object is in the wanted
+// state, or not found after a wait step read it found; never seen, it waits out its timeout and pauses as before.
+static PlanStep GoneWaitStep(std::uint32_t flags)
+{
+    PlanStep s = Step(PlanStepKind::WaitObject, -242.58f, 2159.05f, 90.62f);
+    s.entry = 18895;
+    s.param = 1;
+    s.timeoutS = 25;
+    s.flags = flags;
+    ai::NormalizePlanStep(s);
+    return s;
+}
+
+static void TestWaitObjectGoneAfterSeenIsDone()
+{
+    DungeonPlan plan;
+    plan.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone), Step(PlanStepKind::Move, 9)};
+    // Seen ready (closed), then gone: done, with the note, long before the timeout.
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.objectState = 0;
+    Tick(r, f);
+    CHECK(r.step == 0 && r.state == State::Running && r.objectsSeen.count(18895) == 1);
+    f.objectState = -1;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(r.note.find("is gone after it was seen: counted as done") != std::string::npos);
+    // Seen active: the wanted state wins as before.
+    Run a = Start(&plan);
+    f.objectState = 1;
+    Tick(a, f);
+    CHECK(a.state == State::Running && a.step == 1 && a.note.find("in the state the plan waits for") != std::string::npos);
+    // Seen in the wrong state (ready), still found: keeps waiting.
+    Run w = Start(&plan);
+    f.objectState = 0;
+    for (int i = 0; i < 5; ++i)
+        Tick(w, f);
+    CHECK(w.state == State::Running && w.step == 0);
+}
+
+static void TestWaitObjectNeverSeenWaitsOutItsTimeout()
+{
+    DungeonPlan plan;
+    plan.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone), Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.objectState = -1; // never found: not gone, only not there yet
+    std::uint32_t ticks = 0;
+    while (r.state == State::Running && r.step == 0 && ticks < 200)
+    {
+        Tick(r, f);
+        ++ticks;
+    }
+    CHECK(r.state == State::Paused && r.step == 0 && ticks >= 25 && ticks <= 27);
+    CHECK(r.note.find("not found near its point") != std::string::npos);
+}
+
+static void TestWaitObjectGoneWithoutFlagPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {GoneWaitStep(0), Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.objectState = 0;
+    Tick(r, f);
+    f.objectState = -1;
+    std::uint32_t ticks = 0;
+    while (r.state == State::Running && r.step == 0 && ticks < 200)
+    {
+        Tick(r, f);
+        ++ticks;
+    }
+    CHECK(r.state == State::Paused && r.step == 0 && ticks >= 24);
+}
+
+// The sighting is the run's, not the step's: a resume of the paused step keeps it.
+static void TestWaitObjectSightSurvivesAPause()
+{
+    DungeonPlan plan;
+    plan.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone), Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.objectState = 0;
+    Tick(r, f);
+    Pause(r, "paused by hand");
+    CHECK(Resume(r));
+    f.objectState = -1;
+    for (int i = 0; i < 5 && r.step == 0; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1);
+}
+
 // After a wipe: resume revives the party and gathers it before the step.
 static void TestResumeRegroups()
 {
@@ -16726,6 +16819,10 @@ int main()
     TestGoneChestWithFlagIsDone();
     TestGoneChestWithoutFlagPauses();
     TestGoneIsDoneOnlyForAGoneObject();
+    TestWaitObjectGoneAfterSeenIsDone();
+    TestWaitObjectNeverSeenWaitsOutItsTimeout();
+    TestWaitObjectGoneWithoutFlagPauses();
+    TestWaitObjectSightSurvivesAPause();
     TestHopRechecksTheLeadOnTheFoot();
     TestDriftWithinTheRadiusIsNoProof();
     TestProofIsRetakenAfterAFightAndAResume();

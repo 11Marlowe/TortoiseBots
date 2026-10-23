@@ -884,6 +884,40 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
 
 
 
+class WaitObjectGoneWiringTest(unittest.TestCase):
+    """A wait_object row with ai::kPlanFlagGoneIsDone (Shadowfang Keep's Courtyard Door 18895, removed by the escort) is
+    done by the object being gone after a wait step read it found. The glue reads the object's state for the wait step
+    (-1 when not found), the step reads it into Run::objectsSeen before it judges, and the loader refuses the flag on any
+    kind but loot, open and wait_object."""
+
+    POLICY = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+    PLAN = (ROOT / "ai/playerbot/DungeonPlanPolicy.h").read_text()
+
+    def test_glue_reads_the_wait_objects_state(self):
+        facts = body(strip_comments(COMMANDS), "case ai::PlanStepKind::WaitObject:", "case ai::PlanStepKind::Hold:")
+        self.assertIn("f.objectState = 0;", facts)
+        self.assertIn("GameObject* go = guid && objectGuid.IsGameObject()", facts)
+
+    def test_wait_step_records_the_sighting_before_it_judges(self):
+        step = body(strip_comments(self.POLICY), "case PlanStepKind::WaitObject:", "case PlanStepKind::WaitClear:")
+        self.assertIn("r.objectsSeen.insert(s->entry);", step)
+        self.assertIn("WaitObjectGoneIsDone(r, *s, f)", step)
+        self.assertLess(step.index("r.objectsSeen.insert(s->entry);"), step.index("WaitObjectGoneIsDone(r, *s, f)"))
+        # The pause on the timeout stays after the gone check: a never-seen object still pauses.
+        self.assertLess(step.index("WaitObjectGoneIsDone(r, *s, f)"), step.index("Pause(r,"))
+
+    def test_gone_check_needs_a_sighting(self):
+        check = body(strip_comments(self.POLICY), "inline bool WaitObjectGoneIsDone(", "\n}\n")
+        self.assertIn("f.objectState < 0", check)
+        self.assertIn("r.objectsSeen.count(s.entry) > 0", check)
+        self.assertIn("ai::kPlanFlagGoneIsDone", check)
+
+    def test_loader_accepts_the_flag_on_wait_object_only_beside_loot_and_open(self):
+        norm = body(strip_comments(self.PLAN), "inline PlanStepRefusal NormalizePlanStep(", "if ((step.flags & kPlanFlagDeadNpcIsDone)")
+        for kind in ("Loot", "Open", "WaitObject"):
+            self.assertIn("step.kind != PlanStepKind::" + kind, norm)
+
+
 class BossTacticsJoinWiringTest(unittest.TestCase):
     """The Codex review of d7aca6b5: the run leader's deferral gate (DungeonRun::PullMayBeDeferred) reads a later boss
     step's ai_boss_tactic subjects from the sealed plan (PlanStep::tacticEntries). The loader fills them from the tactic

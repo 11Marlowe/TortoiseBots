@@ -1074,6 +1074,9 @@ struct Run
     std::uint32_t lootRestoreTries = 0; // restore orders sent by the running-tick restore (LootFfaRestoreTick)
     std::uint32_t lootFfaMs = 0;        // time since the ffa order went out (while lootFfaLive)
     std::unordered_set<std::uint32_t> missing;       // items the run did not get (a skipped loot or use)
+    // wait_object entries whose object a wait step read at least once (found, in any state): a wait_object row with
+    // ai::kPlanFlagGoneIsDone is done by that object being gone later (not found), never by one never seen.
+    std::unordered_set<std::uint32_t> objectsSeen;
     std::unordered_map<std::uint32_t, CorpseMark> corpses; // boss entry -> the corpse seen when that boss step ended "boss down"
     std::uint32_t pendingMissing = 0;                 // the item a paused step failed to get (missing on skip)
     std::size_t skippedOpenStep = static_cast<std::size_t>(-1); // an `open` left out: the wait after it goes too
@@ -3910,6 +3913,16 @@ inline bool GoneIsDone(const PlanStep* s, const std::string& answer)
         !(s->flags & ai::kPlanFlagGoneIsDone))
         return false;
     return answer.rfind("not-found:", 0) == 0 || answer.rfind("invalid-target: The object is gone", 0) == 0;
+}
+
+// ai::kPlanFlagGoneIsDone on a wait_object row: the object is not found now (Facts::objectState -1) and a wait step
+// read it found earlier in the run (Run::objectsSeen). An object never seen is not gone, only not there yet: the step
+// waits out its timeout as before. Shadowfang Keep's Courtyard Door 18895 is active for a few waypoints of
+// Deathstalker Adamant's escort and then removed.
+inline bool WaitObjectGoneIsDone(const Run& r, const PlanStep& s, const Facts& f)
+{
+    return s.kind == PlanStepKind::WaitObject && (s.flags & ai::kPlanFlagGoneIsDone) && f.objectState < 0 &&
+        r.objectsSeen.count(s.entry) > 0;
 }
 
 inline void GoneStepDone(Run& r, const PlanStep& s)
@@ -10948,8 +10961,12 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             }
             if (r.phase != Phase::Wait)
                 EnterPhase(r, Phase::Wait);
+            if (f.objectState >= 0)
+                r.objectsSeen.insert(s->entry);
             if (f.objectState == static_cast<int>(s->param))
                 NextStep(r, "object " + std::to_string(s->entry) + " is in the state the plan waits for");
+            else if (WaitObjectGoneIsDone(r, *s, f))
+                NextStep(r, "object " + std::to_string(s->entry) + " is gone after it was seen: counted as done");
             else if (r.phaseMs >= s->timeoutS * 1000)
                 Pause(r, "waited " + std::to_string(s->timeoutS) + " s for object " + std::to_string(s->entry) +
                     (f.objectState < 0 ? " (not found near its point)" : " (state " + std::to_string(f.objectState) + ")"));

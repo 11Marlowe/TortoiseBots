@@ -119,6 +119,19 @@ static void TestNormalize()
     graveOpen.entry = 128403;
     graveOpen.flags = kPlanFlagGoneIsDone;
     CHECK(NormalizePlanStep(graveOpen) == PlanStepRefusal::None);
+    // ... and a wait_object row (Shadowfang Keep's Courtyard Door 18895: the escort removes it after it was active).
+    PlanStep goneWait = Step(0, 13, PlanStepKind::WaitObject, -242.58f, 2159.05f, 90.62f);
+    goneWait.entry = 18895;
+    goneWait.param = 1;
+    goneWait.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(goneWait) == PlanStepRefusal::None && (goneWait.flags & kPlanFlagGoneIsDone));
+    PlanStep goneWaitClear = Step(0, 13, PlanStepKind::WaitClear, 1.0f, 2.0f, 3.0f);
+    goneWaitClear.radius = 10.0f;
+    goneWaitClear.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(goneWaitClear) == PlanStepRefusal::BadParam);
+    PlanStep goneWaitBadState = goneWait;
+    goneWaitBadState.param = 3;
+    CHECK(NormalizePlanStep(goneWaitBadState) == PlanStepRefusal::BadParam);
     PlanStep goneMove = Step(0, 14, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
     goneMove.flags = kPlanFlagGoneIsDone;
     CHECK(NormalizePlanStep(goneMove) == PlanStepRefusal::BadParam);
