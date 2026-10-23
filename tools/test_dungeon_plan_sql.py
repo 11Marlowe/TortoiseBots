@@ -294,7 +294,8 @@ class DungeonPlanSql(unittest.TestCase):
                          [("move", "boss approach"), ("move", "boss approach"), ("boss", "boss")])
         self.assertEqual([(float(r["x"]), float(r["y"]), float(r["z"])) for r in leg1[-3:-1]],
                          [(-524.0, 582.7, -230.56), (-541.58, 534.7, -216.68)])
-        self.assertNotIn("(-541.31885, 535.48035, -222.12796)", text)
+        self.assertFalse([r for r in leg1 if abs(float(r["x"]) + 541.31885) < 0.001 and abs(float(r["y"]) - 535.48035) < 0.001],
+                         "the off-mesh exporter cut is back")
         # Step 181 (1-based) is the stand before pull group 66's pull, and it is not in the bomb's corridor (x -573..-557, y 74..126).
         steps = leg_steps(rows, 0)
         i = [k for k, r in enumerate(steps) if r["kind"] == "pull" and r["comment"] == "pull group 66"][0]

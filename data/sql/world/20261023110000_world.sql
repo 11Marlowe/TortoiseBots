@@ -23,7 +23,7 @@
 -- 17, 20, 21 and 23 as the fixed leg numbers them) and 151 run-leader-hop warnings (a pull or boss 50-220 yd from the move row before
 -- it; the run leader walks there in navmesh hops of its own).
 -- Route check of leg 1's 103 exported rows on the server's filter, each hop from the row before: every hop complete, every point on
--- the mesh (nearest floor at most 0.8 yd above or below and 1.4 yd off), and every move hop within 1.06 of its straight distance
+-- the mesh (nearest floor at most 0.9 yd above or below and 1.4 yd off), and every move hop within 1.06 of its straight distance
 -- (the new ramp hops: 53.9 yd for 53.0, 33.5 for 33.5). The only hops a straight line understates are the existing pull rows seq 18
 -- (122.7 yd for 24.1), seq 60 (213.9 for 49.0) and seq 62 (68.9 for 44.7): they change level between the z -273 and z -230 floors,
 -- and the run leader walks them in hops of its own.
