@@ -34,7 +34,7 @@
 #include "../../runtime/PlayerbotAIStorage.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/RandomBotFacade.h"
-#include "playerbot/InstanceGuardPolicy.h"
+#include "playerbot/policy/dungeon/InstanceGuardPolicy.h"
 #include "playerbot/SurvivePolicy.h"
 #include "../../runtime/CommandedGroupQuery.h"
 #include "../../runtime/RemoteCommanderPolicy.h"

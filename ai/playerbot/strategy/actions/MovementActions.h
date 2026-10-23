@@ -9,7 +9,7 @@
 #include "playerbot/strategy/values/HazardsValue.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
 #include "playerbot/CreatureAuraKeepoutPolicy.h"
-#include "playerbot/LedgeStepDownPolicy.h"
+#include "playerbot/policy/dungeon/LedgeStepDownPolicy.h"
 #include "playerbot/policy/combat/SetBehindPolicy.h"
 #include <atomic>
 
