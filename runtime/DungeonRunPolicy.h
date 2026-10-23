@@ -3743,6 +3743,16 @@ inline std::string StuckNote(const Run& r, const Facts& f)
                           : std::string("not failing")) + ")";
 }
 
+// Whether the lead bot's own move failed for want of a path (MoveFailReasonName):
+// dispatch-short (fewer than 2 points), empty-path (no route) or shortcut-empty.
+// The stall's fallback runs only for those. Never for clipped-empty (ClipPath cut the
+// path at a hostile in reach or a hazard: going straight or around would walk into that
+// pack or AoE), magma, cantmove or any other reason (Opus review 2026-10-23).
+inline bool StallPathFailure(const std::string& reason)
+{
+    return reason == "dispatch-short" || reason == "empty-path" || reason == "shortcut-empty";
+}
+
 // Whether a stall's `direct` move fits the direct step's limits (kStallDirectMaxYd on the
 // ground, kStallDirectMaxVertical up or down); the server checks the rest (the floor
 // under the point, the lead bot's sight, every follower's way onto the line).
@@ -3804,7 +3814,8 @@ inline bool StallStandInFits(const Run& r, float x, float y, float z)
 // a deep pool, its own move FAILED every 2 s, and the walk re-sent the same `cmd move`
 // three times and paused; a resume sent it again. The refusal path's stand-in (UseDetour)
 // never ran, because a stall is no refusal. Now a walk stalled for kWalkRetryMs while the
-// lead bot's own move is failing (Facts::leadMoveFailed) and the party is out of combat
+// lead bot's own move is failing for want of a path (Facts::leadMoveFailed,
+// StallPathFailure) and the party is out of combat
 // first tries what a player would do: the straight `cmd move ... direct` to the point,
 // only in the diagnosed case (the lead bot in water, the line a clear swim line:
 // Facts::stallDirectClear) and within the direct step's limits (StallDirectFits);
@@ -3816,7 +3827,7 @@ inline bool StallFallback(Run& r, const Facts& f, float x, float y, float z, boo
 {
     if (direct || f.anyInCombat || r.stallFallback >= 3)
         return false;
-    if (r.stallFallback == 0 && !f.leadMoveFailed)
+    if (r.stallFallback == 0 && (!f.leadMoveFailed || !StallPathFailure(f.leadMoveFailReason)))
         return false;
     std::string const why = "the lead bot's own move to " + Num(x) + " " + Num(y) + " " + Num(z) + " failed (" +
         (f.leadMoveFailReason.empty() ? std::string("none") : f.leadMoveFailReason) + (f.leadInWater ? ", in water" : "") + ")";

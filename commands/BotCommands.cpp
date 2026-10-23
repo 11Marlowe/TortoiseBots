@@ -10777,7 +10777,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     }
     // A stall's direct move (DungeonRun::StallFallback) only on a clear swim line: read near a
     // stall only, for the walk's point (one line test and one hostile search per walk).
-    if (StallDirectProbeWanted(slot.run) && f.leadInWater && f.leadMoveFailed && lead->IsAlive() && !lead->GetTransport())
+    if (StallDirectProbeWanted(slot.run) && f.leadInWater && f.leadMoveFailed && StallPathFailure(f.leadMoveFailReason) &&
+        lead->IsAlive() && !lead->GetTransport())
     {
         TortoiseBots::DungeonRun::Run const& r = slot.run;
         std::vector<ai::WorldPosition> const line = { ai::WorldPosition(lead),

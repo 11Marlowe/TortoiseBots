@@ -66,7 +66,8 @@ class StallFallbackWiringTest(unittest.TestCase):
         fn = body(POLICY, "inline bool StallFallback(", "\n}\n")
         self.assertIn("if (f.leadInWater && f.stallDirectRead && f.stallDirectClear && StallDirectFits(f, x, y, z))", fn)
         facts = body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead,", "\n}\n")
-        self.assertIn("if (StallDirectProbeWanted(slot.run) && f.leadInWater && f.leadMoveFailed && lead->IsAlive() && !lead->GetTransport())", facts)
+        self.assertIn("if (StallDirectProbeWanted(slot.run) && f.leadInWater && f.leadMoveFailed && StallPathFailure(f.leadMoveFailReason) &&\n"
+                      "        lead->IsAlive() && !lead->GetTransport())", facts)
         self.assertIn("bool const swimLine = ai::WorldPosition::IsSwimLine(line, lead);", facts)
         self.assertIn("HostileCreaturesAround(lead, DistanceTo(lead, r.walkX, r.walkY, r.walkZ) + kStallDirectHostileYd, around);", facts)
         self.assertIn("f.stallDirectRead = true;", facts)
@@ -74,6 +75,10 @@ class StallFallbackWiringTest(unittest.TestCase):
                       "            r.walkX, r.walkY, r.walkZ);", facts)
         worldpos = (ROOT / "ai/playerbot/WorldPosition.cpp").read_text()
         self.assertIn("bool WorldPosition::IsSwimLine(const std::vector<WorldPosition>& path, const Unit* bot)\n{\n    return SwimPathFits(path, bot);\n}", worldpos)
+
+    def test_fallback_only_for_path_failures(self):
+        fn = body(POLICY, "inline bool StallFallback(", "\n}\n")
+        self.assertIn("if (r.stallFallback == 0 && (!f.leadMoveFailed || !StallPathFailure(f.leadMoveFailReason)))\n        return false;", fn)
 
     def test_direct_limits_follow_the_direct_step(self):
         self.assertIn("static_assert(TortoiseBots::DungeonRun::kStallDirectMaxYd == RemoteCommander::kDirectMaxDistance &&\n"

@@ -401,6 +401,31 @@ static void TestStalledWalkWithAFailingMoveTriesDirectThenADryStandIn()
     Run p = Start(&pull);
     CHECK(!StallStandInFits(p, 0.0f, 0.0f, 0.0f));
 
+    // Opus review 2026-10-23: the fallback only for a path failure. clipped-empty (the path
+    // cut at a hostile or a hazard), magma, cantmove: the old retries and pause, no direct
+    // move and no stand-in; dispatch-short, empty-path and shortcut-empty: the fallback.
+    for (const char* reason : {"clipped-empty", "magma", "cantmove", "hazard-short", "none", ""})
+    {
+        Run cut = Start(&plan);
+        Facts k = g;
+        k.leadMoveFailReason = reason;
+        CHECK(Tick(cut, k) == "move 0.0 0.0 0.0");
+        CHECK(NextOrder(cut, k) == "move 0.0 0.0 0.0");
+        CHECK(!cut.stallStandInWanted && cut.stallFallback == 0 && cut.walkTries == 2);
+        CHECK(NextOrder(cut, k) == "move 0.0 0.0 0.0");
+        CHECK(NextOrder(cut, k).empty() && cut.state == State::Paused && !cut.stallStandInWanted);
+    }
+    for (const char* reason : {"dispatch-short", "empty-path", "shortcut-empty"})
+    {
+        Run path = Start(&plan);
+        Facts k = g;
+        k.leadMoveFailReason = reason;
+        CHECK(StallPathFailure(reason));
+        CHECK(Tick(path, k) == "move 0.0 0.0 0.0");
+        CHECK(NextOrder(path, k) == "move 0.0 0.0 0.0 direct");
+    }
+    CHECK(!StallPathFailure("clipped-empty") && !StallPathFailure("magma"));
+
     // Codex review 2026-10-23: the direct move only in the diagnosed case. On land beside a
     // ledge (the line not a clear swim line), with the line not read, or with the lead bot
     // out of the water: no direct move, the dry stand-in at once.
