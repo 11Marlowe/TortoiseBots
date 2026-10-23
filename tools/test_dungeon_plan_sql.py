@@ -474,18 +474,18 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
     def test_sunken_temple_is_the_plan_with_the_census_fixes(self):
-        # 20261023130200 (turtle-agent e63e6ab, 2026-10-23): the Temple of Atal'Hakkar draft with the census fixes of
-        # PREP-SUNKEN-TEMPLE-2026-10-23.md, no row hand-set, with the entry-scoped boss rows of map 109. 6 legs, 1365 steps
-        # (16 + 37 + 25 + 8 + 2 + 1 pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the
-        # radii that reached the next pack are cut (0.5, 3.2, 3.3) and the seven wandering Frostwing pulls are 17 yd.
+        # 20261023170000 (turtle-agent 61f52c38, 2026-10-23): the 20261023130200 export again, with approach lists on the 23
+        # detour pulls (run r25 slot4 stopped at the first, leg 0 pull group 4: the pack is 26 yd away in a line and 587 yd by
+        # the entrance spiral). Census unit lists, radii, pulls and boss rows are unchanged. 6 legs, 2233 steps (16 + 37 + 25
+        # + 8 + 2 + 1 pulls), bosses in leg order, no door or event step; every approach hop is cut into move rows on the mesh.
         name, text = newest_plan_text("sunken_temple")
-        self.assertEqual(name, "20261023130200_world.sql")
-        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent e63e6ab dungeons/sunken_temple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261023170000_world.sql")
+        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent 61f52c38 dungeons/sunken_temple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(re.findall(r"(?m)^\('sunken_temple', \d+, '(?:[^']|'')*', '(?:[^']|'')*'\)[,;]$", text)), 6)
         self.assertEqual([n.replace("''", "'") for n in re.findall(r"(?m)^\('sunken_temple', \d+, '((?:[^']|'')*)', '(?:[^']|'')*'\)[,;]$", text)],
                          ["atal'alarion", "weaver", "dreamscythe", "jammal'an_the_prophet", "morphaz", "shade_of_eranikus"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "sunken_temple"]
-        self.assertEqual(len(rows), 1365)
+        self.assertEqual(len(rows), 2233)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [16, 37, 25, 8, 2, 1])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["8580", "5720", "5721", "5710", "5719", "5709"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -499,6 +499,30 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(float([r for r in leg_steps(rows, 0) if r["kind"] == "pull"][5]["radius"]), 17.5)
         self.assertEqual([float(r["radius"]) for r in leg_steps(rows, 3) if r["kind"] == "pull"][2:4], [14.3, 15.6])
         self.assertEqual([float(r["radius"]) for r in pulls if r["entries"] == "5291"], [17.0] * 7)
+        # The 23 detour pulls have two approach moves each; the last stands on the pack's own floor, 30 yd or less from the pull
+        # row (a cut path's move rows may lie between the two approach points and the pull, so find the last approach move before
+        # each pull row).
+        approaches = [r for r in rows if r["kind"] == "move" and r["comment"].endswith(" approach")]
+        self.assertEqual(len(approaches), 46)
+        self.assertEqual(len({(r["leg"], r["comment"].split()[2]) for r in approaches}), 23)
+        for leg in range(6):
+            steps = leg_steps(rows, leg)
+            for i, pull in enumerate(steps):
+                if pull["kind"] != "pull":
+                    continue
+                stand = None
+                for j in range(i - 1, -1, -1):
+                    if steps[j]["kind"] != "move":
+                        break
+                    if steps[j]["comment"].endswith(" approach"):
+                        stand = steps[j]
+                        break
+                if stand is None:
+                    continue
+                d = math.dist((float(stand["x"]), float(stand["y"]), float(stand["z"])),
+                              (float(pull["x"]), float(pull["y"]), float(pull["z"])))
+                self.assertLessEqual(d, 30.0, (leg, pull["comment"]))
+                self.assertLessEqual(abs(float(stand["z"]) - float(pull["z"])), 4.0, (leg, pull["comment"]))
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["sunken_temple"])
         # Entry-scoped on the shared map: only this plan's six bosses are deleted and replaced (the SM-wing rule on map 189).
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (109) AND `entry` IN (8580, 5720, 5721, 5710, 5719, 5709);", text)
