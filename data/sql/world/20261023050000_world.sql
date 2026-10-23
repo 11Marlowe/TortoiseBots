@@ -5,12 +5,12 @@
 --
 -- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
 
--- blackfathom_deeps: map 48, 7 legs, 634 steps
+-- blackfathom_deeps: map 48, 7 legs, 635 steps
 DELETE FROM `ai_dungeon_step` WHERE `plan` = 'blackfathom_deeps';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'blackfathom_deeps';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'blackfathom_deeps';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('blackfathom_deeps', 48, '4820,4809,4813,4811,4799', '4820,4809', '4809', 'turtle-agent 0c99b0a dungeons/blackfathom_deeps.json', 'plan v1, draft (not mapped, not live-checked)');
+('blackfathom_deeps', 48, '4820,4809,4813,4811,4799', '4820,4809', '4809', 'turtle-agent 9968628 dungeons/blackfathom_deeps.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('blackfathom_deeps', 0, 'ghamoo-ra', ''),
 ('blackfathom_deeps', 1, 'lady_sarevess', ''),
@@ -94,18 +94,19 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('blackfathom_deeps', 0, 71, 'pull', 0, -488.7, 120.09, -73.22, 7, 0, 0, 0, 0, '4822', 'pull group 41'),
 ('blackfathom_deeps', 0, 72, 'pull', 0, -486.54, 152.89, -71.28, 7, 0, 0, 0, 0, '4807', 'pull group 42'),
 ('blackfathom_deeps', 0, 73, 'move', 0, -472.8, 139.2, -71.3, 0, 0, 0, 0, 0, '', 'pull group 43 approach'),
-('blackfathom_deeps', 0, 74, 'move', 0, -439.65326, 175.62209, -62.89168, 0, 0, 0, 0, 0, '', 'approach path'),
-('blackfathom_deeps', 0, 75, 'move', 0, -406.5065, 212.04417, -54.247322, 0, 0, 0, 0, 0, '', 'approach path'),
-('blackfathom_deeps', 0, 76, 'move', 0, -405.33334, 213.33327, -53.941372, 0, 0, 0, 0, 0, '', 'approach path'),
-('blackfathom_deeps', 0, 77, 'move', 0, -380.2229, 253.64665, -69.57135, 0, 0, 0, 0, 0, '', 'approach path'),
-('blackfathom_deeps', 0, 78, 'pull', 0, -357.92, 284.18, -76.64, 7, 0, 0, 0, 0, '4822', 'pull group 43'),
-('blackfathom_deeps', 0, 79, 'move', 0, -362.6667, 277.33325, -77.24137, 0, 0, 0, 0, 0, '', 'approach path'),
-('blackfathom_deeps', 0, 80, 'move', 0, -366.13336, 276.2666, -78.34138, 0, 0, 0, 0, 0, '', 'approach path'),
-('blackfathom_deeps', 0, 81, 'move', 0, -374.6667, 273.33325, -77.441376, 0, 0, 0, 0, 0, '', 'approach path'),
-('blackfathom_deeps', 0, 82, 'move', 0, -376.80002, 272.53326, -76.541374, 0, 0, 0, 0, 0, '', 'approach path'),
-('blackfathom_deeps', 0, 83, 'move', 0, -405.33334, 238.39993, -55.941376, 0, 0, 0, 0, 0, '', 'approach path'),
-('blackfathom_deeps', 0, 84, 'move', 0, -419.73334, 228.79994, -52.941372, 0, 0, 0, 0, 0, '', 'approach path'),
-('blackfathom_deeps', 0, 85, 'boss', 4887, -442.424, 211.822, -52.6367, 0, 0, 0, 0, 0, '', 'boss'),
+('blackfathom_deeps', 0, 74, 'move', 0, -461.6, 168, -57.44, 0, 0, 0, 0, 0, '', 'pull group 43 approach'),
+('blackfathom_deeps', 0, 75, 'move', 0, -460.26666, 169.86662, -55.941376, 0, 0, 0, 0, 0, '', 'approach path'),
+('blackfathom_deeps', 0, 76, 'move', 0, -432, 194.66661, -52.441372, 0, 0, 0, 0, 0, '', 'approach path'),
+('blackfathom_deeps', 0, 77, 'move', 0, -398.82565, 231.63954, -58.13926, 0, 0, 0, 0, 0, '', 'approach path'),
+('blackfathom_deeps', 0, 78, 'move', 0, -397.06668, 233.59993, -58.441376, 0, 0, 0, 0, 0, '', 'approach path'),
+('blackfathom_deeps', 0, 79, 'pull', 0, -357.92, 284.18, -76.64, 7, 0, 0, 0, 0, '4822', 'pull group 43'),
+('blackfathom_deeps', 0, 80, 'move', 0, -362.6667, 277.33325, -77.24137, 0, 0, 0, 0, 0, '', 'approach path'),
+('blackfathom_deeps', 0, 81, 'move', 0, -366.13336, 276.2666, -78.34138, 0, 0, 0, 0, 0, '', 'approach path'),
+('blackfathom_deeps', 0, 82, 'move', 0, -374.6667, 273.33325, -77.441376, 0, 0, 0, 0, 0, '', 'approach path'),
+('blackfathom_deeps', 0, 83, 'move', 0, -376.80002, 272.53326, -76.541374, 0, 0, 0, 0, 0, '', 'approach path'),
+('blackfathom_deeps', 0, 84, 'move', 0, -405.33334, 238.39993, -55.941376, 0, 0, 0, 0, 0, '', 'approach path'),
+('blackfathom_deeps', 0, 85, 'move', 0, -419.73334, 228.79994, -52.941372, 0, 0, 0, 0, 0, '', 'approach path'),
+('blackfathom_deeps', 0, 86, 'boss', 4887, -442.424, 211.822, -52.6367, 0, 0, 0, 0, 0, '', 'boss'),
 ('blackfathom_deeps', 1, 0, 'move', 0, -436.26666, 253.59993, -57.441376, 0, 0, 0, 0, 0, '', 'path'),
 ('blackfathom_deeps', 1, 1, 'move', 0, -433.06668, 292.26657, -66.64137, 0, 0, 0, 0, 0, '', 'path'),
 ('blackfathom_deeps', 1, 2, 'move', 0, -432.26666, 295.19992, -66.64137, 0, 0, 0, 0, 0, '', 'path'),
