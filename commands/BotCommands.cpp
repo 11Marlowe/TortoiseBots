@@ -7326,7 +7326,7 @@ void NudgeTaskWalk(CommanderTask& task, Player* bot, uint32 diff)
     {
         bool const guard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());
         ai::LastMovement& lastMove = ai->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get();
-        if (ai::MagmaNudgeBlocked(guard, lastMove.moveFailReason == ai::MOVE_FAIL_MAGMA, lastMove.magmaRefusal,
+        if (ai::MagmaNudgeBlocked(guard, lastMove.magmaRefusal, bot->GetMapId(),
                 static_cast<std::int64_t>(time(nullptr)),
                 guard && ai::WorldPosition(bot->GetMapId(), task.stand.x, task.stand.y, task.stand.z).isInMagma(
                     bot->GetMap()->GetTerrain())))
