@@ -8,7 +8,9 @@ tools/test_dungeon_run_policy.cpp; this pins the glue in commands/BotCommands.cp
   kApproachStandYd of the step's point) and hands the answer to ApproachStandFound;
 - the too-far legs (DungeonRun::TooFarLegWanted): a walk's move refused beyond
   ReactDistance sends a leg along the lead bot's navmesh path (LegOnPath, never a
-  shortcut) instead of the pause, and only a refused leg falls back to OrderRefused.
+  shortcut) instead of the pause, and only a refused leg falls back to OrderRefused;
+- the walk back (DungeonRun::StartWalkBack) after a regroup is left out beside the
+  last pull or boss cleared (LastClearedFight), after the navmesh-hole rule.
 """
 import pathlib
 import unittest
@@ -79,6 +81,16 @@ class TooFarLegWiringTest(unittest.TestCase):
         fresh = body(fn, "if (fresh)", "return false;")
         self.assertIn("r.legOn = false;", fresh)
         self.assertIn("r.walkLegs = 0;", fresh)
+
+
+class WalkBackTargetWiringTest(unittest.TestCase):
+    def test_last_cleared_fight_after_the_hole_rule(self):
+        fn = body(POLICY, "inline void StartWalkBack(Run& r, const Facts& f)", "\n}\n")
+        hole = fn.index("std::size_t const hole = FirstUncrossedDirect(r);")
+        cleared = fn.index("std::size_t const cleared = LastClearedFight(r, f.team, last);")
+        self.assertLess(hole, cleared)
+        self.assertLess(cleared, fn.index("r.walkBack = true;\n    r.walkBackDirect = true;\n    r.walkBackIdx = last;"))
+        self.assertIn("!r.notCleared.count(i)", body(POLICY, "inline std::size_t LastClearedFight(", "\n}\n"))
 
 
 if __name__ == "__main__":

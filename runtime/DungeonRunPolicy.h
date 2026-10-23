@@ -5452,6 +5452,22 @@ inline std::size_t NearestMovePoint(const Run& r, const Facts& f)
     return idx;
 }
 
+// The last pull or boss step of the party's team after plan step `after` and before the
+// current step that the party cleared (not skipped, not left out of reach: notCleared),
+// npos for none: the last point the run reached by fighting there (StartWalkBack).
+inline std::size_t LastClearedFight(const Run& r, std::uint32_t team, std::size_t after)
+{
+    std::size_t found = static_cast<std::size_t>(-1);
+    for (std::size_t i = after + 1; i < r.step && i < r.plan->steps.size(); ++i)
+    {
+        const PlanStep& g = r.plan->steps[i];
+        if ((g.kind == PlanStepKind::Pull || g.kind == PlanStepKind::Boss) && ai::StepForTeam(g, team) &&
+            !r.notCleared.count(i))
+            found = i;
+    }
+    return found;
+}
+
 // After a regroup: the way back to the current step. The rule (route topology,
 // never straight-line proximity: Uldaman's route doubles back, and a point past
 // the scorpid pit lies nearer the entrance than points before it):
@@ -5464,6 +5480,14 @@ inline std::size_t NearestMovePoint(const Run& r, const Facts& f)
 //     before the first of them, not before the checkpoint, then the plan's
 //     points from there (the hops over the hole, the rest). Uldaman: step 39
 //     and the pit hops, not step 1 (run 4: 528 yd through Baelog's wing).
+//   - Without one, no walk back when the lead bot stands at the last pull or
+//     boss the party cleared after the last move point (LastClearedFight: within
+//     kSeeYd of its point and kStragglerDzYd up or down): the run goes on from
+//     the last point it reached, not from the move point before those fights.
+//     Sunken Temple r25 slot 4 step 5: after the pulls of steps 2-4 each resume
+//     sent the lead bot from 35 yd beside step 4's pack back up the entrance
+//     ramp to step 1 ('the straight way to the point of step 1 passes an
+//     uncleared pack: replaying the plan's points', 14-46 s each).
 //   - Without one (no direct step in the plan, or all of them crossed): as
 //     before, no walk back when it stands on the last move point before the
 //     step or within kApproachYd of the step's own point and nearer to it than
@@ -5509,6 +5533,18 @@ inline void StartWalkBack(Run& r, const Facts& f)
     {
         NoteCheckpoint(r, last);
         return; // on the last point already
+    }
+    std::size_t const cleared = LastClearedFight(r, f.team, last);
+    if (cleared != static_cast<std::size_t>(-1))
+    {
+        const PlanStep& c = r.plan->steps[cleared];
+        float const toCleared = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, c.x, c.y, c.z);
+        if (toCleared <= kSeeYd && std::fabs(f.leadZ - c.z) <= kStragglerDzYd)
+        {
+            r.note = "walk back: none, the lead bot stands at the last cleared step (step " +
+                std::to_string(cleared + 1) + ", " + Num(toCleared) + " yd from its point)";
+            return;
+        }
     }
     float const toStep = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, cur->x, cur->y, cur->z);
     if (toStep <= kApproachYd && toStep <= toLast)

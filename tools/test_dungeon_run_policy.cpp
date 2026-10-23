@@ -1850,6 +1850,68 @@ static void TestMoveRefusedTooFarGoesInLegsAlongThePath()
     CHECK(Tick(b, k) == "move 210.0 0.0 0.0" && b.walkLegs == 0 && !b.legOn);
 }
 
+// Sunken Temple r25 slot 4 step 5: after the pulls of steps 2-4 every resume sent the
+// lead bot from beside step 4's pack back up the entrance ramp to step 1 ('the straight
+// way to the point of step 1 passes an uncleared pack: replaying the plan's points').
+// A lead bot at the last pull or boss the party cleared after the last move point needs
+// no walk back; farther, on another floor, or with those fights not cleared, as before.
+static void TestResumeWalksBackNoFartherThanTheLastClearedFight()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0), PullStep(100, {1}), PullStep(120, {2}), PullStep(400, {3})};
+    auto resumed = [&](Facts f, const std::unordered_set<std::size_t>& notCleared, bool& walkedBack)
+    {
+        Run r = Start(&plan, 3);
+        r.restDue = false;
+        r.notCleared = notCleared;
+        Pause(r, "8 approach hops did not bring the party within 60.0 yd of the pack");
+        CHECK(Resume(r));
+        f.seen = false;
+        f.approachKnown = true;
+        f.approachX = f.leadX + 40;
+        f.approachZ = f.leadZ;
+        walkedBack = false;
+        std::string first;
+        for (int i = 0; i < 6 && first.empty() && r.state == State::Running; ++i)
+        {
+            first = Tick(r, f);
+            walkedBack = walkedBack || r.walkBack;
+        }
+        return std::make_pair(r, first);
+    };
+    bool walkedBack = true;
+    Facts f = Party(130);
+    auto got = resumed(f, {}, walkedBack);
+    CHECK(!walkedBack && got.first.state == State::Running);
+    CHECK(got.second == "move 170.0 0.0 0.0"); // the step's own approach, from here
+    // The note of the regroup's tick says why.
+    {
+        Run r = Start(&plan, 3);
+        r.restDue = false;
+        Pause(r, "x");
+        CHECK(Resume(r));
+        Facts g = f;
+        g.seen = false;
+        StartWalkBack(r, g);
+        CHECK(!r.walkBack && r.note == "walk back: none, the lead bot stands at the last cleared step (step 3, 10.0 yd "
+            "from its point)");
+    }
+    // Step 3 left out (out of reach): step 2 counts, 30 yd off.
+    got = resumed(f, {2}, walkedBack);
+    CHECK(!walkedBack);
+    // Neither cleared: the walk back to step 1 as before.
+    got = resumed(f, {1, 2}, walkedBack);
+    CHECK(walkedBack && got.first.walkBackStart == 0);
+    // Farther than 60 yd from the last cleared pack: as before.
+    got = resumed(Party(185), {}, walkedBack);
+    CHECK(walkedBack);
+    // Beside it but on another floor (9 yd below): as before.
+    Facts below = Party(125);
+    below.leadZ = -9;
+    got = resumed(below, {}, walkedBack);
+    CHECK(walkedBack);
+}
+
 // Uldaman 19z13, Revelosh loot step 20: the lead bot may not loot the corpse
 // (quest item 7741, another member's turn). The step is done once any party bot
 // carries the item; else the bot whose turn it is, then each living bot, is
@@ -14542,6 +14604,7 @@ int main()
     TestApproachHopCapCountsHopsWithoutProgress();
     TestApproachCapTriesAStandNearThePackBeforeThePause();
     TestMoveRefusedTooFarGoesInLegsAlongThePath();
+    TestResumeWalksBackNoFartherThanTheLastClearedFight();
     TestItemCarrierIsPickedFromTheStepsOwnInputs();
     TestUseItemPausesOnSplitInputs();
     TestLootStepIsDoneWhenAnyPartyBotHasTheItem();
