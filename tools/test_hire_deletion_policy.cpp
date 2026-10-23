@@ -6,7 +6,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_hire_deletion_policy.cpp -o /tmp/test_hire_deletion
 //   /tmp/test_hire_deletion
 
-#include "../runtime/HireDeletionPolicy.h"
+#include "../runtime/policy/hire/HireDeletionPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

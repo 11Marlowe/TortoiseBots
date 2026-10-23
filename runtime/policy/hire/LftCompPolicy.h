@@ -41,7 +41,7 @@
 #include <set>
 #include <vector>
 
-#include "LftRoleKitPolicy.h"
+#include "runtime/policy/hire/LftRoleKitPolicy.h"
 
 namespace TortoiseBots
 {

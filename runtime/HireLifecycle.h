@@ -2,7 +2,7 @@
 
 // pi-lens-ignore: clang:pp_file_not_found
 #include "ObjectGuid.h"
-#include "HireDeparturePolicy.h"
+#include "runtime/policy/hire/HireDeparturePolicy.h"
 
 #include <cstdint>
 #include <ctime>

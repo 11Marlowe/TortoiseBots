@@ -10,7 +10,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_hire_intro_policy.cpp -o /tmp/test_hire_intro
 //   /tmp/test_hire_intro
 
-#include "../runtime/HireIntroPolicy.h"
+#include "../runtime/policy/hire/HireIntroPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

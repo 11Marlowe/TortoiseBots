@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "HireGearPolicy.h"
+#include "runtime/policy/hire/HireGearPolicy.h"
 #include "HireUnlockPolicy.h"
 
 namespace TortoiseBots

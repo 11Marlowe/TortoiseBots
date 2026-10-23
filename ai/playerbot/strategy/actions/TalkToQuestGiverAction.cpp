@@ -8,9 +8,9 @@
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "playerbot/strategy/values/QuestValues.h"
 #include "playerbot/strategy/values/GuildValues.h"
-#include "../../../runtime/HireSourceGuardPolicy.h"
+#include "../../../runtime/policy/hire/HireSourceGuardPolicy.h"
 #include "../../../runtime/HireLifecycle.h"
-#include "../../../runtime/HireQuestPolicy.h"
+#include "../../../runtime/policy/hire/HireQuestPolicy.h"
 
 using namespace ai;
 

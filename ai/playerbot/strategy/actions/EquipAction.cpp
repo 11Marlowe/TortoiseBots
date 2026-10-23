@@ -10,12 +10,12 @@
 #include "playerbot/strategy/values/ItemCountValue.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "../../../runtime/ClaimLifecycle.h"
-#include "../../../runtime/ClaimedBotPolicy.h"
+#include "../../../runtime/policy/hire/ClaimedBotPolicy.h"
 #include "../../../runtime/HireLifecycle.h"
 #include "../../../../runtime/AltBotService.h"
 #include "../../../../runtime/AltBotPolicy.h"
-#include "../../../runtime/HireSourceGuardPolicy.h"
-#include "../../../runtime/HireGearPolicy.h"
+#include "../../../runtime/policy/hire/HireSourceGuardPolicy.h"
+#include "../../../runtime/policy/hire/HireGearPolicy.h"
 
 using namespace ai;
 

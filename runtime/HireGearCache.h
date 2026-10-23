@@ -10,7 +10,7 @@
 #include <mutex>
 #include <vector>
 
-#include "HireGearPolicy.h"
+#include "runtime/policy/hire/HireGearPolicy.h"
 
 namespace TortoiseBots
 {

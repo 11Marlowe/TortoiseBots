@@ -12,7 +12,7 @@
 #include "playerbot/strategy/values/TravelValues.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "../../../runtime/HireLifecycle.h"
-#include "../../../runtime/HireQuestPolicy.h"
+#include "../../../runtime/policy/hire/HireQuestPolicy.h"
 #include <iomanip>
 
 using namespace ai;

@@ -1,4 +1,4 @@
-#include "../runtime/LftCompPolicy.h"
+#include "../runtime/policy/hire/LftCompPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

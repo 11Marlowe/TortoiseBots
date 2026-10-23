@@ -4,7 +4,7 @@
 #include "playerbot/policy/quest/QuestLogPolicy.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "../../../runtime/HireLifecycle.h"
-#include "../../../runtime/HireQuestPolicy.h"
+#include "../../../runtime/policy/hire/HireQuestPolicy.h"
 #include "../../../../runtime/AltBotService.h"
 #include "../../../../runtime/AltBotPolicy.h"
 using namespace ai;

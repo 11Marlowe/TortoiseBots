@@ -13,7 +13,7 @@
 #include <cstdlib>
 #include <string>
 
-#include "HireGearPolicy.h"
+#include "runtime/policy/hire/HireGearPolicy.h"
 
 namespace TortoiseBots
 {
