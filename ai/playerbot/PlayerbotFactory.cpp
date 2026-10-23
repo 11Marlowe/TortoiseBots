@@ -14,6 +14,7 @@
 #include "../../runtime/OwnedBotQolPolicy.h"
 #include "../../runtime/ShamanTankKitPolicy.h"
 #include "../../runtime/GearItemLevelCapPolicy.h"
+#include "../../runtime/GearBlacklistPolicy.h"
 #include "../../runtime/PlayerAutogearPolicy.h"
 #include "Database/DBCStores.h"
 
@@ -1470,6 +1471,10 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
         bagsHaveBullets = HasAmmoInBagsFor(ITEM_SUBCLASS_WEAPON_GUN);
     }
 
+    // A real player and an owned bot keep whatever they wear: the blacklist
+    // only filters candidates, never scores worn gear down or removes it.
+    bool const keepsWornGear = playerUpgrade || (ai && ai->IsOwnedBot());
+
     for(uint8 slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
     {
         // Player upgrades: shirts and tabards are cosmetic, a random swap is
@@ -1597,6 +1602,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     // filter item level
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(newItemId);
                     if (!proto)
+                        continue;
+                    if (TortoiseBots::GearBlacklistBlocks(sPlayerbotAIConfig.randomGearBlacklist, newItemId))
                         continue;
 
                     // use only common items
@@ -1771,6 +1778,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                 Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
                 ItemPrototype const* oldProto = oldItem ? oldItem->GetProto() : nullptr;
                 uint32 oldStatValue = oldItem ? sRandomItemMgr.GetLiveStatWeight(bot, oldProto->ItemId, specId) : 0;
+                // A pool or hired bot already wearing a blocked item re-gears
+                // the slot: the worn piece scores nothing, so any passing
+                // candidate replaces it.
+                if (oldProto && TortoiseBots::GearWornCountsAsEmpty(keepsWornGear, sPlayerbotAIConfig.randomGearBlacklist, oldProto->ItemId))
+                    oldStatValue = 0;
 
                 // Keep the pieces of a set that currently gives an active
                 // bonus: breaking a live set is never an upgrade (real
@@ -1802,9 +1814,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     if (reqLevelGate > (uint32)bot->GetLevel())
                         continue;
 
-                    // Owner-configured exclusion list: applies to every gear
-                    // path (seed, hire, upgrade), not just the fresh seed.
-                    if (std::find(sPlayerbotAIConfig.randomGearBlacklist.begin(), sPlayerbotAIConfig.randomGearBlacklist.end(), newItemId) != sPlayerbotAIConfig.randomGearBlacklist.end())
+                    if (TortoiseBots::GearBlacklistBlocks(sPlayerbotAIConfig.randomGearBlacklist, newItemId))
                         continue;
 
                     // Fresh-seed provenance gate: tier cap + REP/PVP flags in
@@ -2158,6 +2168,13 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             // The seed's quality band is level-derived, so quality degradation
             // cannot widen it — one round is the whole search on that path.
         } while (!found && !seedSpread && attempts < 3 && quality != ITEM_QUALITY_POOR);
+        // Nothing passed and a pool or hired bot still wears a blocked piece:
+        // the slot counts as empty, so the piece is removed before the
+        // backstop guard below can see the slot as occupied.
+        if (!found && !keepsWornGear)
+            if (Item* worn = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+                if (worn->GetProto() && TortoiseBots::GearBlacklistBlocks(sPlayerbotAIConfig.randomGearBlacklist, worn->GetProto()->ItemId))
+                    bot->DestroyItem(worn->GetBagSlot(), worn->GetSlot(), true);
         if (!found && !bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot) &&
             slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD)
         {
@@ -2189,6 +2206,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                 {
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(fallbackId);
                     if (!proto)
+                        continue;
+                    if (TortoiseBots::GearBlacklistBlocks(sPlayerbotAIConfig.randomGearBlacklist, fallbackId))
                         continue;
                     // Caster off-hand on a melee class (Issue #219), as in the normal pass.
                     if (slot == EQUIPMENT_SLOT_OFFHAND && proto->InventoryType == INVTYPE_HOLDABLE &&
