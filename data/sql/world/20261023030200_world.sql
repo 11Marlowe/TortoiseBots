@@ -10,7 +10,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'scarlet_graveyard';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'scarlet_graveyard';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'scarlet_graveyard';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('scarlet_graveyard', 189, '', '', '6490', 'turtle-agent 5177caa dungeons/scarlet_graveyard.json', 'plan v1, draft (not mapped, not live-checked)');
+('scarlet_graveyard', 189, '', '', '6490', 'turtle-agent 0fb4f8f dungeons/scarlet_graveyard.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('scarlet_graveyard', 0, 'interrogator_vishas', ''),
 ('scarlet_graveyard', 1, 'scorn', ''),
