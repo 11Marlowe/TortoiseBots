@@ -107,7 +107,7 @@ Unit* WorldPvpSeekChecks::FindAssistTarget(PlayerbotAI* ai, Player* bot)
         Unit* attacker = victim->GetVictim();
         if (!attacker)
         {
-            AttackerSet const& attackers = victim->GetAttackers();
+            Unit::AttackerSet const& attackers = victim->GetAttackers();
             if (!attackers.empty())
                 attacker = *attackers.begin();
         }
