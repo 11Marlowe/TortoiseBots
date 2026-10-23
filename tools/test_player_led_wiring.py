@@ -95,7 +95,7 @@ class PlayerLedOrderWiringTest(unittest.TestCase):
 
     def test_leading_players_chat_is_an_order(self):
         chat = strip_comments(body(COMMANDS, "bool NoteHumanChatOrder(Player* bot, Player& from, std::string const& text, bool whisper)", "\n}\n"))
-        led = chat.index("if (fromCommander && run->second.playerLed.on)")
+        led = chat.index("if (fromCommander && runExists && run->second.playerLed.on)")
         self.assertLess(led, chat.index("RemoteCommander::ClassifyRunBoundOrder("))
         branch = chat[led:chat.index("RemoteCommander::ClassifyRunBoundOrder(")]
         self.assertIn("PauseDungeonRunForPlayer(commanderRaw,", branch)

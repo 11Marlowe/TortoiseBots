@@ -201,6 +201,7 @@ struct BindingState
     bool leadIsLeader = false;    // the lead bot still leads that group
     bool leadGroupIsRaidOrBg = false; // the group converted to a raid (or is a battleground group)
     bool realPlayerInGroup = false; // a human other than the commander is in the bound group
+    bool commanderInGroup = false;  // the commander is a member of the bound group (an in-party binding needs him there)
     size_t memberCount = 0;
     bool commanderIsLeader = false; // the commander leads the lead bot's group (a player-led binding's rule)
 };
@@ -216,6 +217,9 @@ enum class ReleaseReason : uint8_t
     PlayerJoined,
     GroupTooLarge,
     GroupRaid,
+    // An in-party binding whose commander is no longer a member of the bound group (he left, was kicked or the
+    // group lost him): released at once, the bots taken out of that party (DecideReleaseParty).
+    CommanderLeftParty,
     // Not a CheckBinding verdict: the commander's own `.bot commander unbind`.
     Unbound,
     // A player-led binding: the commander handed the party's lead to somebody else.
@@ -235,6 +239,10 @@ inline ReleaseReason CheckBinding(Binding const& binding, BindingState const& st
         return ReleaseReason::LeadLeft;
     if (!state.leadGroupId || state.leadGroupId != binding.groupId)
         return ReleaseReason::GroupChanged;
+    // In-party: the commander plays in the bound group; once he is not in it the other players keep their party and
+    // the bots leave it (2026-10-23 review round 1).
+    if (binding.inParty && !state.commanderInGroup)
+        return ReleaseReason::CommanderLeftParty;
     // Player-led: the commander leads the party, the lead bot (the tank) does not.
     if (binding.playerLed && !state.commanderIsLeader)
         return ReleaseReason::CommanderNotLeader;
@@ -251,6 +259,45 @@ inline ReleaseReason CheckBinding(Binding const& binding, BindingState const& st
     if (state.memberCount > kMaxGroupSize)
         return ReleaseReason::GroupTooLarge;
     return ReleaseReason::None;
+}
+
+// What the release of a binding does with the bound party (review round 2). For an in-party binding whose
+// commander is gone - the release is for his logout or departure (CommanderLeft, CommanderLeftParty), or he is not
+// there now: not found, not in the world, no network session (an offline commander keeps his group slot, so being a
+// member alone proves nothing), or not a member - the binding's bots leave that party, so no other player of it
+// becomes their master (the bots' own "a real player of the group becomes the master" rule), and the lead first goes
+// to an online real player of it. His hires go back to him (or wait for his login) as on every release. With the
+// commander there (unbind, config off) the bots stay and the lead goes back to him. A classic binding: nothing.
+enum class ReleasePartyAction : uint8_t
+{
+    None,
+    BotsLeave,
+    LeadToCommander,
+};
+
+struct ReleaseCommanderFacts
+{
+    bool inParty = false;
+    ReleaseReason reason = ReleaseReason::None;
+    bool found = false;      // the commander's character exists (between maps too)
+    bool inWorld = false;
+    bool hasSession = false; // a session with its network transport (a live client)
+    bool isMember = false;   // his guid is in the bound group's member slots
+};
+
+inline ReleasePartyAction DecideReleaseParty(ReleaseCommanderFacts const& facts)
+{
+    if (!facts.inParty)
+        return ReleasePartyAction::None;
+    if (facts.reason == ReleaseReason::CommanderLeft || facts.reason == ReleaseReason::CommanderLeftParty)
+        return ReleasePartyAction::BotsLeave;
+    // A player-led binding released because the commander gave the party's lead away: his choice stands (the lead
+    // is not handed back to him), the party stays as it is.
+    if (facts.reason == ReleaseReason::CommanderNotLeader)
+        return ReleasePartyAction::None;
+    if (!facts.found || !facts.inWorld || !facts.hasSession || !facts.isMember)
+        return ReleasePartyAction::BotsLeave;
+    return ReleasePartyAction::LeadToCommander;
 }
 
 // Followers the binding pointed at the lead bot that are no longer members of
@@ -288,6 +335,7 @@ inline char const* ReleaseReasonText(ReleaseReason reason)
         case ReleaseReason::PlayerJoined: return "a player joined the group";
         case ReleaseReason::GroupTooLarge: return "the group grew beyond five";
         case ReleaseReason::GroupRaid: return "the group became a raid";
+        case ReleaseReason::CommanderLeftParty: return "the commander left the party";
         case ReleaseReason::Unbound: return "unbound by the commander";
         case ReleaseReason::CommanderNotLeader: return "the player no longer leads the party";
     }
@@ -346,6 +394,8 @@ struct BindFacts
     bool inParty = false;
     bool leadInCommanderParty = false;
     std::size_t partyPlayers = 0;
+    // ... and the commander leads that party now: a plain member never takes the lead from its leader through a bind.
+    bool commanderLeadsParty = false;
 };
 
 enum class BindRefusal : uint8_t
@@ -368,6 +418,7 @@ enum class BindRefusal : uint8_t
     PartyUnnamed,
     LeadBound,
     NotInParty,
+    NotLeader,
 };
 
 // The bind is refused (fail closed) unless the commander controls every bot,
@@ -390,6 +441,8 @@ inline BindRefusal CheckBind(BindFacts const& facts)
         return BindRefusal::BotInOtherBinding;
     if (facts.inParty && !facts.leadInCommanderParty)
         return BindRefusal::NotInParty;
+    if (facts.inParty && !facts.commanderLeadsParty)
+        return BindRefusal::NotLeader;
     if (facts.lead.inOtherGroup)
         return BindRefusal::GroupHasPlayer;
     if (facts.leadGrouped)
@@ -448,6 +501,7 @@ inline char const* BindRefusalCode(BindRefusal refusal)
         case BindRefusal::PartyUnnamed: return "party-unnamed";
         case BindRefusal::LeadBound: return "lead-bound";
         case BindRefusal::NotInParty: return "not-in-party";
+        case BindRefusal::NotLeader: return "not-leader";
     }
     return "rejected";
 }
@@ -474,6 +528,7 @@ inline char const* BindRefusalText(BindRefusal refusal)
         case BindRefusal::PartyUnnamed: return "Your party holds a bot you did not name. Name every bot in your party in the bind (or take the others out of it first).";
         case BindRefusal::LeadBound: return "The lead bot has its own saved instance that would replace the group's. Reset it first (.instance unbind for the lead bot) or pick another lead.";
         case BindRefusal::NotInParty: return "With inparty the lead bot must be in your party: invite it first.";
+        case BindRefusal::NotLeader: return "With inparty you must lead your party: only its leader can hand the lead to a bot.";
     }
     return "Request rejected.";
 }
@@ -532,9 +587,11 @@ inline bool TakeBindInParty(std::vector<std::string>& names)
 }
 
 // A real player's order to a bot of a bound party (2026-10-23, players in the
-// party). runExists: a run (`.bot run`, running or paused) drives the party;
-// runRunning: it is running; fromCommander: the order is the bound commander's;
-// explicitOrder: a whisper to the bot or a `.bot action` (party chat is not).
+// party). bound: the bot's group is bound to a commander; runExists: a run
+// (`.bot run`, running or paused) drives it; runRunning: it is running;
+// fromCommander: the order is the bound commander's; explicitOrder: a whisper
+// to the bot or a `.bot action` (party chat is not). Another player's orders
+// are refused from the bind on, a run or not (review round 1).
 enum class RunOrderVerdict : uint8_t
 {
     Obey,       // handled as before
@@ -543,12 +600,15 @@ enum class RunOrderVerdict : uint8_t
     Refuse,     // another player's explicit order to a run-bound bot: refused with a reply
 };
 
-inline RunOrderVerdict ClassifyRunBoundOrder(bool runExists, bool runRunning, bool fromCommander, bool explicitOrder)
+inline RunOrderVerdict ClassifyRunBoundOrder(bool bound, bool runExists, bool runRunning, bool fromCommander,
+    bool explicitOrder)
 {
-    if (!runExists)
+    if (!bound)
         return RunOrderVerdict::Obey;
     if (!fromCommander)
         return explicitOrder ? RunOrderVerdict::Refuse : RunOrderVerdict::IgnoreChat;
+    if (!runExists)
+        return RunOrderVerdict::Obey;
     if (explicitOrder)
         return RunOrderVerdict::PauseRun;
     return runRunning ? RunOrderVerdict::IgnoreChat : RunOrderVerdict::Obey;
@@ -556,8 +616,8 @@ inline RunOrderVerdict ClassifyRunBoundOrder(bool runExists, bool runRunning, bo
 
 inline std::string RunBoundRefusalText(std::string const& commanderName)
 {
-    return "A run leader drives this party's bots for " + commanderName +
-        ": only " + commanderName + " may give them orders while the run lasts (.bot run status).";
+    return "These bots are bound to " + commanderName + " (.bot commander bind): only " + commanderName +
+        " may give them orders while they are bound.";
 }
 
 inline BindGroupPlan DecideBindGroup(BindPlanFacts const& facts)

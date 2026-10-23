@@ -185,6 +185,7 @@ static void TestPlayerLedBindingRule()
     s.commanderIsLeader = true;
     s.realPlayerInGroup = true;
     s.memberCount = 5;
+    s.commanderInGroup = true;
     CHECK(RC::CheckBinding(b, s) == RC::ReleaseReason::None);
     // He hands the lead to somebody (a bot, the tank, another player): released.
     s.commanderIsLeader = false;
@@ -209,6 +210,17 @@ static void TestPlayerLedBindingRule()
     s.leadIsLeader = true;
     s.commanderIsLeader = false;
     CHECK(RC::CheckBinding(classic, s) == RC::ReleaseReason::None);
+    // The release after he gave the lead away leaves the party as it is (no lead back to him); his logout still
+    // takes the bots out of the party (the in-party rule).
+    RC::ReleaseCommanderFacts rf;
+    rf.inParty = true;
+    rf.found = rf.inWorld = rf.hasSession = rf.isMember = true;
+    rf.reason = RC::ReleaseReason::CommanderNotLeader;
+    CHECK(RC::DecideReleaseParty(rf) == RC::ReleasePartyAction::None);
+    rf.reason = RC::ReleaseReason::Unbound;
+    CHECK(RC::DecideReleaseParty(rf) == RC::ReleasePartyAction::LeadToCommander);
+    rf.reason = RC::ReleaseReason::CommanderLeft;
+    CHECK(RC::DecideReleaseParty(rf) == RC::ReleasePartyAction::BotsLeave);
 }
 
 static void TestModeText()
