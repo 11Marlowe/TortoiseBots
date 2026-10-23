@@ -5105,11 +5105,36 @@ bool JoinLeadGroup(Player* lead, Player* member)
 // reanchorLead: the lead bot holds where it stands now (bind); otherwise a
 // lead bot already holding keeps its spot, so a `follow` during a move does
 // not stop the lead bot short. Returns the bots that took the order.
+// A player-led binding's form-up (PlayerLedPolicy.h): every bot, the tank too, follows the commander (their
+// master) with its own follow target; nobody is pointed at the tank or put on stay. Returns the bots that took it.
+uint32 FormUpOnPlayer(Player* commander, std::vector<Player*> const& bots)
+{
+    uint32 accepted = 0;
+    for (Player* bot : bots)
+    {
+        if (!bot || !bot->IsInWorld())
+            continue;
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        ai->DropQueuedMovementOrders();
+        bot->GetMotionMaster()->Clear();
+        if (ExecuteQuietAction(ai, "follow chat shortcut", ai::Event("follow", "", commander)))
+            ++accepted;
+    }
+    return accepted;
+}
+
 uint32 FormUpOnLead(Player* commander, Player* lead, std::vector<Player*> const& bots,
     bool reanchorLead)
 {
     uint32 accepted = 0;
     uint64 const commanderRaw = commander->GetObjectGuid().GetRawValue();
+    // Player-led: the party forms up on the player, never on the tank (every caller: a hold's end, a task's end,
+    // the run's rest, `cmd follow`).
+    if (RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(commanderRaw))
+        if (binding->playerLed)
+            return FormUpOnPlayer(commander, bots);
     for (Player* bot : bots)
     {
         if (!bot || !bot->IsInWorld())
@@ -5796,7 +5821,22 @@ struct CommanderOrder
     // the first live bot of the group on its map (a dead lead bot must not
     // stop the rest of the group from fighting).
     Player* judge = nullptr;
+    // A player-led binding (PlayerLedPolicy.h): the commander leads the party; he is the pull anchor and the
+    // summon point (CommanderPullAnchor).
+    bool playerLed = false;
 };
+
+// The pull anchor and summon point of a commander order: the lead bot, or in a player-led run the commander
+// himself while he is alive, in the world and on the lead bot's map (the design: the tank pulls back to where the
+// player stands, a straggler is summoned to him). Never moves him.
+Player* CommanderPullAnchor(CommanderOrder const& order)
+{
+    Player* commander = order.commander;
+    if (order.playerLed && commander && commander->IsInWorld() && commander->IsAlive() && order.lead &&
+        commander->GetMap() == order.lead->GetMap() && !commander->IsTaxiFlying() && !commander->IsBeingTeleported())
+        return commander;
+    return order.lead;
+}
 
 // The bound group as a BotCommandContext for the shared pull/CC executors.
 // The lead bot stands in for the requester: its position is the pull anchor
@@ -5843,7 +5883,7 @@ bool HealerPullStand(Player* lead, Unit* target, Player* healer, float& ox, floa
 BotCommandContext CommanderContext(CommanderOrder const& order, Unit* target)
 {
     BotCommandContext context;
-    context.requester = order.lead;
+    context.requester = CommanderPullAnchor(order); // the lead bot (bot-led), the player (player-led)
     context.requesterTarget = target;
     context.enemyTarget = target;
     context.group = order.group;
@@ -5857,7 +5897,7 @@ BotCommandContext CommanderContext(CommanderOrder const& order, Unit* target)
         {
             RunHealOnlyBots()[healer->GetObjectGuid().GetRawValue()] = commanderRaw;
         };
-        Player* lead = order.lead;
+        Player* lead = context.requester;
         context.healerStand = [lead, target](Player* healer, float& x, float& y, float& z)
         {
             return HealerPullStand(lead, target, healer, x, y, z);
@@ -6634,7 +6674,7 @@ static bool CommanderRevive(ChatHandler* handler, CommanderOrder const& order, P
 static bool CommanderSummon(ChatHandler* handler, CommanderOrder const& order, Player* bot,
     std::string const& intent)
 {
-    Player* lead = order.lead;
+    Player* lead = CommanderPullAnchor(order); // player-led: the summon point is the player
     if (bot == lead)
     {
         SendActionError(handler, intent, "invalid", "The lead bot is the summon point; summon another bot to it.");
@@ -9032,6 +9072,7 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
     }
     order.lead = FindCharacter(binding->leadGuid);
     order.group = order.lead ? order.lead->GetGroup() : nullptr;
+    order.playerLed = binding->playerLed;
     if (!order.lead || !order.group || !order.lead->IsInWorld())
     {
         SendActionError(handler, intent, "lead-unavailable", "The lead bot is between maps. Try again in a moment.");
@@ -9277,7 +9318,7 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
             return CommanderFocus(handler, order, target, intent);
         SupersedeCommanderTasks(order.commander->GetObjectGuid().GetRawValue(), 0, RemoteCommander::LaterOrder::Pull);
         BotCommandContext context = CommanderContext(order, target);
-        return RunPullOrder(handler, context, order.lead, verb, option, intent);
+        return RunPullOrder(handler, context, context.requester, verb, option, intent);
     }
 
     // cc clear <bot> [<mark> <guid>]: the run leader takes a bot off its cc
@@ -12077,6 +12118,76 @@ void ReadRunPlayers(DungeonRunSlot const& slot, uint64 commanderRaw, Player* lea
     }
 }
 
+// Player-led runs (PlayerLedPolicy.h): the leading player as the run sees him once a tick. Read only: nothing is
+// ever ordered to him. moving: he moved since the last read (PlayerLed::MovedSince) or his client says so; the bots'
+// farthest distance is from him (the gather's measure in a player-led run).
+TortoiseBots::PlayerLed::Anchor ReadPlayerLedAnchor(Player* commander, std::vector<Player*> const& bots, uint32 planMap,
+    TortoiseBots::PlayerLed::State& pl)
+{
+    TortoiseBots::PlayerLed::Anchor a;
+    if (!commander || !commander->IsInWorld() || commander->IsBeingTeleported())
+    {
+        pl.lastKnown = false;
+        return a;
+    }
+    a.read = true;
+    a.x = commander->GetPositionX();
+    a.y = commander->GetPositionY();
+    a.z = commander->GetPositionZ();
+    a.onMap = commander->GetMapId() == planMap;
+    a.alive = commander->IsAlive();
+    a.ghost = commander->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST);
+    bool const moved = TortoiseBots::PlayerLed::MovedSince(pl, a.x, a.y, a.z);
+    a.moving = moved || commander->IsMoving();
+    a.partyInCombat = a.alive && commander->IsInCombat();
+    for (Player* bot : bots)
+    {
+        if (!bot || !bot->IsAlive() || !bot->IsInWorld())
+            continue;
+        Pet* pet = bot->GetPet();
+        a.partyInCombat = a.partyInCombat || bot->IsInCombat() ||
+            (pet && pet->IsAlive() && pet->IsInWorld() && pet->IsInCombat());
+        float const yd = bot->GetMap() == commander->GetMap() ? bot->GetDistance(commander) : 1000.0f;
+        a.botsMaxYd = std::max(a.botsMaxYd, yd);
+    }
+    return a;
+}
+
+// The creatures in combat with the party (on the player, a bot or a bot's pet), each once, for the player-led
+// step pick's rule (a) (PlayerLed::EngagedStep). Their attacker lists only: no grid search.
+std::vector<TortoiseBots::PlayerLed::Engaged> ReadPlayerLedEngaged(Player* commander, std::vector<Player*> const& bots)
+{
+    std::vector<TortoiseBots::PlayerLed::Engaged> out;
+    std::unordered_set<uint64> seen;
+    auto const add = [&](Unit* victim)
+    {
+        if (!victim || !victim->IsInWorld())
+            return;
+        for (Unit* attacker : victim->GetAttackers())
+        {
+            if (!attacker || !attacker->IsAlive() || !attacker->IsCreature() || attacker->GetMap() != victim->GetMap() ||
+                sServerFacade.IsFriendlyTo(attacker, victim) || !seen.insert(attacker->GetObjectGuid().GetRawValue()).second)
+                continue;
+            TortoiseBots::PlayerLed::Engaged e;
+            e.entry = attacker->GetEntry();
+            e.x = attacker->GetPositionX();
+            e.y = attacker->GetPositionY();
+            e.z = attacker->GetPositionZ();
+            out.push_back(e);
+        }
+    };
+    if (commander && commander->IsAlive())
+        add(commander);
+    for (Player* bot : bots)
+    {
+        if (!bot || !bot->IsAlive())
+            continue;
+        add(bot);
+        add(bot->GetPet());
+    }
+    return out;
+}
+
 void TickDungeonRun(uint64 commanderRaw, uint32 dt)
 {
     auto it = DungeonRuns().find(commanderRaw);
@@ -12200,13 +12311,24 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         return;
     }
     std::vector<Player*> const bots = CommandedBots(group, lead);
+    // Player-led: where the player stands picks the step before its facts are read (PlayerLed::Pick).
+    TortoiseBots::PlayerLed::Anchor anchor;
+    if (slot.playerLed.on)
+    {
+        slot.playerLed.pullYd = sPlayerbotAIConfig.dungeonRunPlayerLedPullYd;
+        anchor = ReadPlayerLedAnchor(commander, bots, slot.run.plan->map, slot.playerLed);
+        anchor.team = lead->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde;
+        TortoiseBots::PlayerLed::Pick(slot.run, slot.playerLed, anchor, ReadPlayerLedEngaged(commander, bots));
+    }
     RetireLostCarrier(slot, lead, bots);
     TortoiseBots::DungeonRun::Facts facts;
     ReadRunFacts(slot, lead, bots, facts);
     // The real players of the party (the commander and others): deaths, wipes, the regroup, the pull hold, health.
     ReadRunPlayers(slot, commanderRaw, lead, group, facts);
     TortoiseBots::DungeonRun::ApplyPlayerHealth(facts);
-    std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
+    std::string const order = slot.playerLed.on
+        ? TortoiseBots::PlayerLed::Tick(slot.run, slot.playerLed, facts, anchor, dt)
+        : TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
     // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
     DropUnattackableCombat(lead, bots, slot.run.combatDrops);
     // The walk after a rest sent again: a seated lead bot stands up before the order below.
@@ -12242,7 +12364,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     if (lead->IsInMagma())
         NoteRunMagma(lead, lead->GetPositionX(), lead->GetPositionY(), lead->GetPositionZ(), RunMagmaNote::LeadSpot,
             "the lead bot stands");
-    if (PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead))
+    // Not in a player-led run: the tank follows the player, it is never put on stay.
+    if (PlayerbotAI* leadAi = slot.playerLed.on ? nullptr : PlayerbotAIStorage::Instance().GetAI(lead))
         if (TortoiseBots::DungeonRun::LeadStayDueWhileResting(slot.run, lead->IsAlive(), lead->IsInCombat(),
                 leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT), lead->IsInMagma(), facts.staleCombat))
         {
@@ -12978,6 +13101,16 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
             SendRunLine(commander, slot, true); // still paused, with its note
             return true;
         }
+    }
+    else if (slot.playerLed.on && slot.playerLed.picked == TortoiseBots::PlayerLed::kNone)
+    {
+        // Player-led with no step picked: the open pack or boss nearest the player is left out.
+        TortoiseBots::PlayerLed::Anchor here;
+        here.read = commander->IsInWorld();
+        here.x = commander->GetPositionX();
+        here.y = commander->GetPositionY();
+        here.z = commander->GetPositionZ();
+        done = TortoiseBots::PlayerLed::SkipNearest(slot.run, slot.playerLed, here);
     }
     else // skip
         done = Skip(slot.run);

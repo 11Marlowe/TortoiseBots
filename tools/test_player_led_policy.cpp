@@ -806,8 +806,20 @@ static void TestBotLedUnchanged()
     CHECK(!PL::Pick(a, off, Player(10), {}));
 }
 
+static void TestMovedSince()
+{
+    PL::State pl;
+    CHECK(!PL::MovedSince(pl, 10, 10, 0)); // the first read
+    CHECK(!PL::MovedSince(pl, 10.3f, 10, 0));
+    CHECK(PL::MovedSince(pl, 11.0f, 10, 0));
+    CHECK(!PL::MovedSince(pl, 11.0f, 10, 0));
+    pl.lastKnown = false; // he left the world: the next read starts over
+    CHECK(!PL::MovedSince(pl, 50, 50, 0));
+}
+
 int main()
 {
+    TestMovedSince();
     TestIdleNamesTheNextPack();
     TestPullWhenNearAndStill();
     TestNoPullWhileHeWalks();

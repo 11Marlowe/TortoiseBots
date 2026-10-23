@@ -108,5 +108,62 @@ class PlayerLedOrderWiringTest(unittest.TestCase):
         self.assertIn('PauseDungeonRunForPlayer(order.commander->GetObjectGuid().GetRawValue(), "cmd " + verb);', code)
 
 
+class PlayerLedGlueWiringTest(unittest.TestCase):
+    def test_tick_picks_before_the_facts(self):
+        tick = strip_comments(body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)\n{", "\n}\n"))
+        pick = tick.index("TortoiseBots::PlayerLed::Pick(slot.run, slot.playerLed, anchor, ReadPlayerLedEngaged(commander, bots));")
+        self.assertLess(pick, tick.index("ReadRunFacts(slot, lead, bots, facts);"))
+        self.assertIn("slot.playerLed.pullYd = sPlayerbotAIConfig.dungeonRunPlayerLedPullYd;", tick)
+        self.assertIn("anchor = ReadPlayerLedAnchor(commander, bots, slot.run.plan->map, slot.playerLed);", tick)
+        self.assertIn("? TortoiseBots::PlayerLed::Tick(slot.run, slot.playerLed, facts, anchor, dt)", tick)
+        self.assertIn(": TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);", tick)
+        # The tank is never put on stay for a rest in a player-led run.
+        self.assertIn("PlayerbotAI* leadAi = slot.playerLed.on ? nullptr : PlayerbotAIStorage::Instance().GetAI(lead)", tick)
+
+    def test_anchor_reads_the_player_only(self):
+        read = strip_comments(body(COMMANDS, "TortoiseBots::PlayerLed::Anchor ReadPlayerLedAnchor(", "\n}\n"))
+        self.assertIn("TortoiseBots::PlayerLed::MovedSince(pl, a.x, a.y, a.z)", read)
+        self.assertIn("a.moving = moved || commander->IsMoving();", read)
+        self.assertIn("a.botsMaxYd = std::max(a.botsMaxYd, yd);", read)
+        self.assertIn("bot->GetDistance(commander)", read)
+        # Read only: nothing is ordered to the player.
+        for absent in ("ExecuteQuietAction", "TeleportTo", "RequestSummon", "SetStrategy", "ChangeStrategy"):
+            self.assertNotIn(absent, read)
+        engaged = strip_comments(body(COMMANDS, "std::vector<TortoiseBots::PlayerLed::Engaged> ReadPlayerLedEngaged(", "\n}\n"))
+        self.assertIn("victim->GetAttackers()", engaged)
+        self.assertIn("add(bot->GetPet());", engaged)
+        self.assertNotIn("Cell::Visit", engaged)  # no grid search
+
+    def test_pull_anchor_and_summon_point_are_the_player(self):
+        anchor = strip_comments(body(COMMANDS, "Player* CommanderPullAnchor(CommanderOrder const& order)", "\n}\n"))
+        self.assertIn("if (order.playerLed && commander && commander->IsInWorld() && commander->IsAlive() && order.lead &&", anchor)
+        self.assertIn("return order.lead;", anchor)
+        order = strip_comments(body(COMMANDS, "static bool HandleCommanderOrder(", "\n}\n"))
+        self.assertIn("order.playerLed = binding->playerLed;", order)
+        self.assertIn("return RunPullOrder(handler, context, context.requester, verb, option, intent);", order)
+        context = strip_comments(body(COMMANDS, "BotCommandContext CommanderContext(CommanderOrder const& order, Unit* target)", "\n}\n"))
+        self.assertIn("context.requester = CommanderPullAnchor(order);", context)
+        self.assertIn("Player* lead = context.requester;", context)
+        summon = strip_comments(body(COMMANDS, "static bool CommanderSummon(", "\n}\n"))
+        self.assertIn("Player* lead = CommanderPullAnchor(order);", summon)
+        # The summon moves the bot to the point, never the player.
+        self.assertIn("RequestSummon(order.commander, bot, lead)", summon)
+
+    def test_form_up_is_on_the_player(self):
+        form = strip_comments(body(COMMANDS, "uint32 FormUpOnLead(Player* commander, Player* lead, std::vector<Player*> const& bots,", "\n}\n"))
+        branch = form.index("if (binding->playerLed)")
+        self.assertLess(branch, form.index("PointFollowerAtLead("))
+        self.assertIn("return FormUpOnPlayer(commander, bots);", form)
+        player = strip_comments(body(COMMANDS, "uint32 FormUpOnPlayer(Player* commander, std::vector<Player*> const& bots)", "\n}\n"))
+        self.assertIn('ExecuteQuietAction(ai, "follow chat shortcut", ai::Event("follow", "", commander))', player)
+        self.assertNotIn("PointFollowerAtLead", player)
+        self.assertNotIn('"stay', player)
+
+    def test_skip_with_nothing_picked(self):
+        run = strip_comments(body(COMMANDS, "static bool HandleDungeonRun(", "\n}\n"))
+        self.assertIn("slot.playerLed.on && slot.playerLed.picked == TortoiseBots::PlayerLed::kNone", run)
+        self.assertIn("TortoiseBots::PlayerLed::SkipNearest(slot.run, slot.playerLed, here)", run)
+
+
 if __name__ == "__main__":
     unittest.main()

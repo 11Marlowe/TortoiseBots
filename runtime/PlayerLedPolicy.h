@@ -285,6 +285,9 @@ struct State
     std::uint32_t stillMs = 0;
     float pullYd = 40.0f;
     bool started = false; // the steps before a partway start (`from`) are taken as done on the first pick
+    // S4: where the glue last read the player (MovedSince).
+    float lastX = 0.0f, lastY = 0.0f, lastZ = 0.0f;
+    bool lastKnown = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -421,6 +424,20 @@ struct Engaged
     std::uint32_t entry = 0;
     float x = 0.0f, y = 0.0f, z = 0.0f;
 };
+
+// S4: the player moved since the last read (more than kMovedYd), and the read is kept for the next tick. The first
+// read is no move. The glue also counts the client's own moving flag.
+constexpr float kMovedYd = 0.5f;
+
+inline bool MovedSince(State& pl, float x, float y, float z)
+{
+    bool const moved = pl.lastKnown && ai::PlanDistance(pl.lastX, pl.lastY, pl.lastZ, x, y, z) > kMovedYd;
+    pl.lastX = x;
+    pl.lastY = y;
+    pl.lastZ = z;
+    pl.lastKnown = true;
+    return moved;
+}
 
 inline bool Pickable(const PlanStep& s)
 {
