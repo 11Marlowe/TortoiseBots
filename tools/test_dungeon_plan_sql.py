@@ -22,7 +22,8 @@ KINDS = {"move", "move_direct", "move_hop_exact", "pull", "boss", "loot", "open"
 OPT_IN = pathlib.Path(ROOT) / "tools/optional-plans/zulfarrak-gahzrilla.sql"
 TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_boss")
 # The plans whose bosses ai_dungeon_boss lists, and their maps.
-BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36, "scarlet_library": 189}
+BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36, "scarlet_library": 189,
+              "scarlet_armory": 189, "scarlet_cathedral": 189, "scarlet_graveyard": 189}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -40,6 +41,9 @@ SEEDED_BOSSES = {
     (36, 61963): "Masterpiece Harvester", (36, 646): "Mr. Smite", (36, 647): "Captain Greenskin",
     (36, 639): "Edwin VanCleef", (36, 645): "Cookie",
     (189, 3974): "Houndmaster Loksey", (189, 61983): "Brother Wystan", (189, 6487): "Arcanist Doan",
+    (189, 61982): "Armory Quartermaster Daghelm", (189, 3975): "Herod",
+    (189, 4542): "High Inquisitor Fairbanks", (189, 3976): "Scarlet Commander Mograine", (189, 3977): "High Inquisitor Whitemane",
+    (189, 3983): "Interrogator Vishas", (189, 14693): "Scorn", (189, 4543): "Bloodmage Thalnos", (189, 61972): "Duke Dreadmoore",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
 # Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080).
@@ -286,10 +290,74 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["entries"], r["radius"], r["x"], r["y"]) for r in leg_steps(rows, 2) if r["kind"] == "pull"],
                          [("4540", "9", "173.97", "-429.18"), ("4291,4540,4299", "9", "181.14", "-443.63")])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["3974", "61983", "6487"])
-        # The boss table seeds the map's three bosses.
-        self.assertEqual([(m, e, n) for m, e, n in self.boss_rows() if m == 189],
+        # The boss table seeds the map's Library bosses (the three later wings add theirs with their own files).
+        self.assertEqual([(m, e, n) for m, e, n in self.boss_rows() if m == 189 and e in (3974, 61983, 6487)],
                          [(189, 3974, "Houndmaster Loksey"), (189, 61983, "Brother Wystan"), (189, 6487, "Arcanist Doan")])
 
+
+    def test_scarlet_armory_is_the_wing_with_the_census_fixes(self):
+        # 20261023030000 (turtle-agent prep/sm-wings, armory census 2026-10-23): 2 legs, 42 pulls, 2 bosses; the six fleers are
+        # plan-only, kill_first is the healer 4292 then the casters 4290/4297, and four radii are cut to 10 so a row does not take
+        # an unplanned unit of its own entry (the ten patrol pulls have no row form).
+        name, text = newest_plan_text("scarlet_armory")
+        self.assertEqual(name, "20261023030000_world.sql")
+        self.assertIn("('scarlet_armory', 189, '', '', '4292,4290,4297', 'turtle-agent ", text)
+        rows = [r for r in self.step_rows(text) if r["plan"] == "scarlet_armory"]
+        self.assertEqual(len(rows), 110)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (0, 1)}, {0: 54, 1: 56})
+        pulls = {leg: [(r["entries"], r["radius"], r["x"], r["y"]) for r in leg_steps(rows, leg) if r["kind"] == "pull"] for leg in (0, 1)}
+        self.assertEqual([len(pulls[0]), len(pulls[1])], [31, 11])
+        self.assertIn(("4286", "10", "1709.52", "-380.76"), pulls[0])   # group 7
+        self.assertIn(("4298", "10", "1850.37", "-352.24"), pulls[0])   # group 22
+        self.assertIn(("4295,4298", "10", "1878.32", "-384.53"), pulls[0])  # group 27
+        self.assertIn(("4298", "10", "1894.39", "-380.89"), pulls[1])   # group 0
+        self.assertEqual([(r["entry"], r["entries"]) for r in rows if r["kind"] == "boss"],
+                         [("61982", ""), ("3975", "")])
+
+    def test_scarlet_cathedral_is_the_wing_with_the_healer_fix(self):
+        # 20261023030100 (cathedral census 2026-10-23): 3 legs, 53 pulls, 3 bosses; the three healers are kill_first and no pack
+        # depends on cc_always; Fairbanks' Monk is boss.first; the 0.4 double pull is gone and five radii are cut (9-14).
+        name, text = newest_plan_text("scarlet_cathedral")
+        self.assertEqual(name, "20261023030100_world.sql")
+        self.assertIn("('scarlet_cathedral', 189, '', '', '4303,4300,4299', 'turtle-agent ", text)
+        rows = [r for r in self.step_rows(text) if r["plan"] == "scarlet_cathedral"]
+        self.assertEqual(len(rows), 99)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (0, 1, 2)}, {0: 25, 1: 72, 2: 2})
+        pulls = {leg: [(r["entries"], r["radius"], r["x"], r["y"]) for r in leg_steps(rows, leg) if r["kind"] == "pull"] for leg in (0, 1, 2)}
+        self.assertEqual([len(pulls[0]), len(pulls[1]), len(pulls[2])], [5, 48, 0])
+        self.assertIn(("4300,4301,4302", "10", "1140.18", "1340.5"), pulls[0])   # the 0.5 pack, no duplicate 0.4 row
+        self.assertIn(("4303,4540", "9", "1131.07", "1406.46"), pulls[1])         # group 1
+        self.assertIn(("4540,4302,4303", "10", "1114", "1400.55"), pulls[1])      # group 2
+        self.assertIn(("4303,4540", "10", "1093.91", "1406.32"), pulls[1])        # group 3
+        self.assertIn(("4301,4302", "10", "1101.94", "1422.63"), pulls[1])        # group 37
+        self.assertIn(("4300,4301,4302", "14", "1112.35", "1376.42"), pulls[1])   # group 43
+        self.assertFalse([r for r in pulls[0] if r[2] == "1134.68" and r[3] == "1338.78"])
+        self.assertEqual([(r["entry"], r["entries"], r["x"], r["y"]) for r in rows if r["kind"] == "boss"],
+                         [("4542", "4540", "1158.86", "1354.27"), ("3976", "", "1153.87", "1398.39"),
+                          ("3977", "", "1202.13", "1399.07")])
+
+    def test_scarlet_graveyard_is_the_wing_with_the_census_fixes(self):
+        # 20261023030200 (graveyard census 2026-10-23): 4 legs, 47 pulls, 4 bosses; 6547 (faction 68 Horde civilian) and 4075 (rat)
+        # are out of every group and four pure groups are gone; Vishas' Scryer and Scorn's guard are boss.first; the Duke leg is
+        # last and its 36-spawn crypt pull (radius 56.8) is the plan's one needs_walk point.
+        name, text = newest_plan_text("scarlet_graveyard")
+        self.assertEqual(name, "20261023030200_world.sql")
+        self.assertIn("('scarlet_graveyard', 189, '', '', '6490', 'turtle-agent ", text)
+        rows = [r for r in self.step_rows(text) if r["plan"] == "scarlet_graveyard"]
+        self.assertEqual(len(rows), 133)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (0, 1, 2, 3)}, {0: 13, 1: 38, 2: 32, 3: 50})
+        pulls = {leg: [(r["entries"], r["radius"], r["x"], r["y"]) for r in leg_steps(rows, leg) if r["kind"] == "pull"] for leg in (0, 1, 2, 3)}
+        self.assertEqual([len(pulls[0]), len(pulls[1]), len(pulls[2]), len(pulls[3])], [11, 19, 11, 6])
+        self.assertIn(("4283", "10", "1841.84", "1136.73"), pulls[0])             # the Sentry's patrol pull
+        self.assertIn(("4293,4306,61971", "56.8", "1871.88", "1110.15"), pulls[3])  # the crypt pack, Duke leg, last
+        self.assertIn(("4306,4293", "14", "1859.23", "1158.89"), pulls[3])        # the crypt room of 1.4 after the census
+        self.assertEqual([r["leg"] for r in rows if r["kind"] == "boss"], ["0", "1", "2", "3"])
+        self.assertEqual([(r["entry"], r["entries"]) for r in rows if r["kind"] == "boss"],
+                         [("3983", "4293"), ("14693", "6426"), ("4543", ""), ("61972", "")])
+        for row in rows:
+            if row["kind"] == "pull":
+                self.assertNotIn("6547", row["entries"].split(","), "the friendly Suffering Victim is still a pull member")
+                self.assertNotIn("4075", row["entries"].split(","), "a Rat is still a pull member")
 
     def step_rows(self, text):
         # Each ai_dungeon_step row of a migration as a dict of its columns, in file order.
@@ -822,11 +890,15 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertNotRegex(text, r"CREATE TABLE `ai_dungeon_boss`", name)  # only IF NOT EXISTS
             self.assertNotRegex(text, r"(?m)^INSERT INTO `ai_dungeon_boss`", name)  # REPLACE, so a re-run keeps one row
             # The DELETE before the rows is scoped to exactly the maps the file seeds: a seeded map it leaves out keeps a
-            # row a later file drops; a map it names beyond them loses rows it does not put back.
+            # row a later file drops; a map it names beyond them loses rows it does not put back. A map shared by several
+            # plans (189, the four SM wings) scopes the DELETE to its own boss entries too.
             seeded = {int(m) for m in re.findall(r"(?m)^\((\d+), \d+, '", text)}
-            scoped = re.findall(r"DELETE FROM `ai_dungeon_boss` WHERE `map` IN \(([\d, ]+)\);", text)
+            seeded_entries = {(int(m), int(e)) for m, e in re.findall(r"(?m)^\((\d+), (\d+), '", text)}
+            scoped = re.findall(r"DELETE FROM `ai_dungeon_boss` WHERE `map` IN \(([\d, ]+)\)(?: AND `entry` IN \(([\d, ]+)\))?;", text)
             self.assertEqual(len(scoped), 1, name)
-            self.assertEqual({int(m) for m in scoped[0].split(",")}, seeded, name)
+            if scoped[0][1]:
+                self.assertEqual({int(e) for e in scoped[0][1].split(",")}, {e for _m, e in seeded_entries}, name)
+            self.assertEqual({int(m) for m in scoped[0][0].split(",")}, seeded, name)
 
 
 if __name__ == "__main__":
