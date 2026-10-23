@@ -104,6 +104,7 @@ constexpr float kRouteSpotYd = 10.0f;             // a lead bot this close to wh
 constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point may be stood in for by a
                                                   // reachable one at most this far from it ...
 constexpr float kMoveFallbackYd = 25.0f;          // ... a plain move's point, this far (r22-19z40 Razorfen Kraul step 85)
+constexpr float kApproachStandYd = 25.0f;         // a pack the approach hops did not reach: a stand this near it (ApproachStand)
 constexpr std::size_t kUnreachableSkipsInARow = 3; // moves skipped for want of a path in a row, then pause
 constexpr float kDetourCloseMaxDz = 4.0f;         // a stand-in within kArriveYd of the point: at most this far above or below it
 constexpr float kDetourMaxPathYd = 40.0f;         // ... and the lead bot's navmesh path to it at most this much longer than the straight line
@@ -854,6 +855,18 @@ struct Run
     float hopX = 0.0f, hopY = 0.0f, hopZ = 0.0f;
     std::uint32_t approachHops = 0;     // approach hops since the party last got nearer to the step's point
     float approachBestYd = 0.0f;        // the nearest the lead bot has been to it (0: not set yet)
+    // A pull or boss step whose approach hops got no nearer (ApproachStand): a stand the
+    // glue's NearestReachablePoint finds within kApproachStandYd of the pack, the party
+    // walks there and pulls from it. Kept across a resume (ResetStep leaves it; NextStep
+    // clears it), so a resume of its pause never hops the same way again.
+    // approachStand: 0 none, 1 the glue searches (approachStandWanted), 2 a stand found,
+    // 4 walking to it, 3 spent (none found, or the stand did not bring the pack in sight).
+    std::size_t approachStandStep = static_cast<std::size_t>(-1);
+    std::uint8_t approachStand = 0;
+    bool approachStandWanted = false;
+    bool approachStandResumed = false; // a resume of this step's approach pause: no hops, the stand first
+    std::string approachStandWhy;      // the hops' note the stand's pause starts with (empty after a resume)
+    float approachStandX = 0.0f, approachStandY = 0.0f, approachStandZ = 0.0f;
     // A move whose point the navmesh cannot reach walks to the nearest
     // reachable point near it instead (UseDetour).
     bool detour = false;
@@ -2418,10 +2431,21 @@ inline void BeginRegroup(Run& r)
     r.leadDied = false; // the regroup revives and gathers whoever died
 }
 
+// The approach stand of a step (ApproachStand) is forgotten once the step is done.
+inline void ClearApproachStand(Run& r)
+{
+    r.approachStandStep = static_cast<std::size_t>(-1);
+    r.approachStand = 0;
+    r.approachStandWanted = false;
+    r.approachStandResumed = false;
+    r.approachStandWhy.clear();
+}
+
 inline void NextStep(Run& r, const std::string& note)
 {
     r.pendingMissing = 0;
     r.unreachableSkips.clear(); // a step done (MoveRefusedUnreachable puts its own skips back)
+    ClearApproachStand(r);
     ++r.step;
     r.autoRegroups = 0;
     ResetStep(r);
@@ -2726,6 +2750,14 @@ inline bool Resume(Run& r)
     // A plain move keeps them, so its second refusal skips it (r22-19z40).
     if (NeverSkipMove(r))
         ForgetMoveRefusals(r);
+    // A step whose approach hops got nowhere and whose stand was tried (ApproachStand):
+    // the resume does not hop the same way again, it searches the stand first.
+    if (r.approachStandStep == r.step)
+    {
+        r.approachStandResumed = true;
+        r.approachStand = 0;
+        r.approachStandWanted = false;
+    }
     BeginRegroup(r);
     r.walkBackDue = true; // a party revived at the entrance walks back the plan's way
     r.note = "resumed: regrouping";
@@ -4969,6 +5001,106 @@ inline void AwaitPull(Run& r)
     EnterPhase(r, Phase::Begin);
 }
 
+// Whether a step whose approach hops got no nearer asks the glue for a stand
+// (ApproachStand): a pull or boss step, its stand not tried yet this step.
+inline bool ApproachStandWanted(const Run& r, const PlanStep& s)
+{
+    return (s.kind == PlanStepKind::Pull || s.kind == PlanStepKind::Boss) &&
+        !(r.approachStandStep == r.step && r.approachStand != 0);
+}
+
+// Gnomeregan r24 slot 4 step 412, Sunken Temple r25 slot 4 step 5, Razorfen Kraul
+// r24 slot 8 step 299: '8 approach hops did not bring the party within 60 yd of the
+// pack' (nearest 66.8 to 99.6 yd), and every resume walked back and hopped the same
+// way into the same pause (Gnomeregan: three times, 10 minutes circling). Now the cap
+// first asks the glue once for a stand within kApproachStandYd of the pack
+// (NearestReachablePoint, the unreachable move's stand-in search: the path from the
+// lead bot ends at the stand, at most kDetourMaxPathYd longer than the straight line,
+// and the stand's own path leads on toward the pack); the party walks there and the
+// pull goes out from it (in sight: FightStep). Only when none is found, or the stand
+// does not bring the pack in sight, the run pauses. A resume of that pause hops no
+// more: it searches the stand again from where the party stands now, walks to it,
+// or pauses at once saying the pack is not reachable from this floor.
+// True: this tick is the stand's (a search asked, a walk to the stand, a pause).
+inline bool ApproachStand(Run& r, const PlanStep& s, std::uint32_t dt, const Facts& f, std::string& order,
+    const std::string& what)
+{
+    if (r.approachStandStep != r.step)
+        return false;
+    std::string const pack = "the " + what + " at " + Num(s.x) + " " + Num(s.y) + " " + Num(s.z);
+    if (r.approachStand == 1)
+    {
+        r.note = "approach: looking for a stand within " + Num(kApproachStandYd) + " yd of " + pack;
+        return true; // the glue answers on this tick (ApproachStandFound)
+    }
+    if (r.approachStand == 2)
+    {
+        r.approachStand = 4;
+        r.hopWalk = false;
+        r.note = "approach: walking to the stand " + Num(r.approachStandX) + " " + Num(r.approachStandY) + " " +
+            Num(r.approachStandZ) + ", " +
+            Num(ai::PlanDistance(r.approachStandX, r.approachStandY, r.approachStandZ, s.x, s.y, s.z)) + " yd from " +
+            pack + ", to pull from there";
+        WalkTo(r, f, r.approachStandX, r.approachStandY, r.approachStandZ, false, dt, order);
+        return true;
+    }
+    if (r.approachStand == 4)
+    {
+        // The walk ended (WalkTo, the Walk phase above) and the pack is still out of sight.
+        r.approachStand = 3;
+        Pause(r, (r.approachStandWhy.empty() ? std::string() : r.approachStandWhy + "; ") + pack +
+            " is not reachable from this floor: the stand " + Num(r.approachStandX) + " " +
+            Num(r.approachStandY) + " " + Num(r.approachStandZ) + " did not bring it within " + Num(kSeeYd) +
+            " yd (the lead bot " + Num(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s.x, s.y, s.z)) + " yd from it)");
+        return true;
+    }
+    if (r.approachStandResumed && r.approachStand == 0)
+    {
+        // A resume of the approach pause: the stand first, from where the party stands now.
+        r.approachStandResumed = false;
+        r.approachStand = 1;
+        r.approachStandWanted = true;
+        r.approachStandWhy.clear();
+        r.note = "approach (resumed): looking for a stand within " + Num(kApproachStandYd) + " yd of " + pack +
+            " before any hop";
+        return true;
+    }
+    return false;
+}
+
+// The glue's answer to the approach stand's search (ApproachStand): found (x y z), a
+// point within kApproachStandYd of the step's point the lead bot has a navmesh path to.
+// The party walks there (the next tick, WalkTo); none found: the pause, its note says
+// the pack is not reachable from this floor. True: the stand is taken.
+inline bool ApproachStandFound(Run& r, const Facts& f, bool found, float x, float y, float z)
+{
+    r.approachStandWanted = false;
+    const PlanStep* s = Current(r);
+    if (!s || r.state != State::Running || r.approachStandStep != r.step || r.approachStand != 1)
+        return false;
+    std::string const what = s->kind == PlanStepKind::Boss ? "boss" : "pack";
+    std::string const pack = "the " + what + " at " + Num(s->x) + " " + Num(s->y) + " " + Num(s->z);
+    if (!found || ai::PlanDistance(x, y, z, s->x, s->y, s->z) > kApproachStandYd)
+    {
+        r.approachStand = 3;
+        Pause(r, (r.approachStandWhy.empty() ? std::string() : r.approachStandWhy + "; ") + pack +
+            " is not reachable from this floor: no stand within " + Num(kApproachStandYd) +
+            " yd of it the lead bot has a path to (the lead bot " +
+            Num(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s->x, s->y, s->z)) + " yd from it" +
+            (r.approachBestYd > 0.0f ? ", the approach hops got no nearer than " + Num(r.approachBestYd) + " yd" : "") +
+            ")");
+        return false;
+    }
+    r.approachStand = 2; // the next tick walks there (ApproachStand)
+    r.approachStandX = x;
+    r.approachStandY = y;
+    r.approachStandZ = z;
+    EnterPhase(r, Phase::Begin);
+    r.note = "approach: a stand " + Num(x) + " " + Num(y) + " " + Num(z) + " found, " +
+        Num(ai::PlanDistance(x, y, z, s->x, s->y, s->z)) + " yd from " + pack;
+    return true;
+}
+
 // Walks toward a step whose point is out of sight, one navmesh hop at a time
 // (the glue's approach point). A hop is fixed when its walk starts; once there
 // the next tick asks for the next one. Bounded by kMaxApproachHops.
@@ -4982,6 +5114,8 @@ inline void ApproachHop(Run& r, const Facts& f, const PlanStep& s, std::uint32_t
             EnterPhase(r, Phase::Begin);
         return;
     }
+    if (ApproachStand(r, s, dt, f, order, what))
+        return;
     if (!f.approachKnown && !f.approachRead)
     {
         r.note += ": reading the way"; // the next tick asks the navmesh
@@ -5021,8 +5155,18 @@ inline void ApproachHop(Run& r, const Facts& f, const PlanStep& s, std::uint32_t
             r.note = "approach: " + r.note.substr(std::string("gather: ").size()) + " before the pause";
             return;
         }
-        Pause(r, std::to_string(kMaxApproachHops) + " approach hops did not bring the party within " +
-            Num(kSeeYd) + " yd of the " + what + " (nearest it got: " + Num(r.approachBestYd) + " yd)");
+        std::string const why = std::to_string(kMaxApproachHops) + " approach hops did not bring the party within " +
+            Num(kSeeYd) + " yd of the " + what + " (nearest it got: " + Num(r.approachBestYd) + " yd)";
+        if (ApproachStandWanted(r, s))
+        {
+            r.approachStandStep = r.step;
+            r.approachStand = 1;
+            r.approachStandWanted = true;
+            r.approachStandWhy = why;
+            r.note = why + ": looking for a stand within " + Num(kApproachStandYd) + " yd of it";
+            return;
+        }
+        Pause(r, why);
         return;
     }
     r.hopWalk = true;

@@ -80,6 +80,7 @@ python3 -m unittest tools/test_run_release_hold_wiring.py
 python3 -m unittest tools/test_swim_path_wiring.py
 python3 -m unittest tools/test_move_fail_note_wiring.py
 python3 -m unittest tools/test_stall_fallback_wiring.py
+python3 -m unittest tools/test_approach_walkback_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""

@@ -41,6 +41,17 @@ static PlanStep PullStep(float x, std::vector<std::uint32_t> entries, std::uint3
     return s;
 }
 
+// One tick as the glue runs it (TickDungeonRun) for the approach stand: Tick, then,
+// when it asked for one (Run::approachStandWanted), NearestReachablePoint's answer
+// (`stand`: found at sx sy sz; ApproachStandFound).
+static std::string StandTick(Run& r, const Facts& f, bool stand = false, float sx = 0, float sy = 0, float sz = 0)
+{
+    std::string const order = Tick(r, f);
+    if (r.approachStandWanted)
+        ApproachStandFound(r, f, stand, sx, sy, sz);
+    return order;
+}
+
 static Facts Party(float x = 0)
 {
     Facts f;
@@ -1637,14 +1648,117 @@ static void TestApproachHopCapCountsHopsWithoutProgress()
     for (int i = 0; i < 100 && s.state == State::Running; ++i)
     {
         g.approachX = 40;
-        Tick(s, g);
+        StandTick(s, g);
         g.leadX = 40;
-        Tick(s, g);
+        StandTick(s, g);
         g.leadX = 0; // dragged back
     }
     CHECK(s.state == State::Paused);
     CHECK(s.note.find("8 approach hops did not bring the party within 60.0 yd of the pack") == 0);
     CHECK(s.note.find("nearest it got: 1000.0 yd") != std::string::npos);
+    // Before that pause the glue was asked for a stand near the pack, and found none.
+    CHECK(s.approachStand == 3 && s.note.find("; the pack at 1000.0 0.0 0.0 is not reachable from this floor: "
+        "no stand within 25.0 yd of it the lead bot has a path to") != std::string::npos);
+}
+
+// Gnomeregan r24 slot 4 step 412, Sunken Temple r25 slot 4 step 5, Razorfen Kraul r24
+// slot 8 step 299: the hop cap paused ('8 approach hops did not bring the party within
+// 60 yd of the pack', nearest 66.8 to 99.6 yd) and each resume hopped the same way into
+// the same pause. The cap asks the glue once for a stand within 25 yd of the pack
+// (ApproachStand); the party walks there and pulls; the pause only when there is none
+// or it does not bring the pack in sight; a resume searches the stand, never hops first.
+static void TestApproachCapTriesAStandNearThePackBeforeThePause()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(1000, {1})};
+    auto capped = [&](Run& r, Facts& g)
+    {
+        for (int i = 0; i < 100 && r.state == State::Running && !r.approachStandWanted; ++i)
+        {
+            g.approachX = 40;
+            Tick(r, g);
+            if (r.approachStandWanted)
+                break;
+            g.leadX = 40;
+            Tick(r, g);
+            g.leadX = 0; // dragged back
+        }
+    };
+    auto far = [] { Facts g = Party(0); g.seen = false; g.approachKnown = true; return g; };
+    // A stand found: walked to, and the pull goes out from there.
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts g = far();
+    capped(r, g);
+    CHECK(r.state == State::Running && r.approachStandWanted && r.approachStand == 1);
+    CHECK(r.note.find("8 approach hops did not bring the party within 60.0 yd of the pack (nearest it got: 1000.0 yd): "
+        "looking for a stand within 25.0 yd of it") == 0);
+    CHECK(Tick(r, g).empty() && r.state == State::Running); // no hop while the glue searches
+    CHECK(ApproachStandFound(r, g, true, 980, 0, 0));
+    CHECK(r.approachStand == 2 && !r.approachStandWanted && r.state == State::Running);
+    CHECK(Tick(r, g) == "move 980.0 0.0 0.0");
+    CHECK(r.note.find("approach: walking to the stand 980.0 0.0 0.0, 20.0 yd from the pack at 1000.0 0.0 0.0") == 0);
+    Facts there = g;
+    there.leadX = 980;
+    there.seen = true;
+    there.units = {Unit(7, 1, 20)};
+    Tick(r, there);
+    CHECK(r.state == State::Running && r.note.find("approach") == std::string::npos);
+    // A stand that does not bring the pack in sight: the pause, saying so.
+    Run s = Start(&plan);
+    s.restDue = false;
+    Facts h = far();
+    capped(s, h);
+    CHECK(ApproachStandFound(s, h, true, 980, 0, 0));
+    CHECK(Tick(s, h) == "move 980.0 0.0 0.0");
+    h.leadX = 980;
+    Tick(s, h); // arrived, still out of sight (a wall)
+    Tick(s, h);
+    CHECK(s.state == State::Paused && s.approachStand == 3);
+    CHECK(s.note.find("8 approach hops did not bring the party within 60.0 yd of the pack") == 0);
+    CHECK(s.note.find("; the pack at 1000.0 0.0 0.0 is not reachable from this floor: the stand 980.0 0.0 0.0 "
+        "did not bring it within 60.0 yd") != std::string::npos);
+    // A stand farther than 25 yd from the pack is not taken.
+    Run w = Start(&plan);
+    w.restDue = false;
+    Facts k = far();
+    capped(w, k);
+    CHECK(!ApproachStandFound(w, k, true, 970, 0, 0) && w.state == State::Paused);
+    // Resumed with no stand reachable: no hop at all, the pause at once with the floor note.
+    Run q = Start(&plan);
+    q.restDue = false;
+    Facts m = far();
+    capped(q, m);
+    CHECK(!ApproachStandFound(q, m, false, 0, 0, 0) && q.state == State::Paused);
+    CHECK(Resume(q) && q.approachStandResumed);
+    m.leadX = 0;
+    m.approachX = 40;
+    bool hopped = false;
+    for (int i = 0; i < 60 && q.state == State::Running; ++i)
+        hopped = hopped || StandTick(q, m) == "move 40.0 0.0 0.0";
+    CHECK(!hopped && q.state == State::Paused);
+    CHECK(q.note.find("the pack at 1000.0 0.0 0.0 is not reachable from this floor: no stand within 25.0 yd of it") == 0);
+    // Resumed from a spot that has a stand now (a player moved the party): straight to it, no hop.
+    CHECK(Resume(q));
+    std::string first;
+    for (int i = 0; i < 60 && q.state == State::Running && first.empty(); ++i)
+        first = StandTick(q, m, true, 990, 0, 0);
+    CHECK(first == "move 990.0 0.0 0.0" && q.approachStand == 4);
+    // Another step kind (an NPC, the next point) keeps the old pause: no stand asked.
+    DungeonPlan moves;
+    moves.steps = {Step(PlanStepKind::Move, 1000)};
+    Run n = Start(&moves);
+    n.restDue = false;
+    Facts o = far();
+    capped(n, o);
+    CHECK(!n.approachStandWanted && n.state == State::Paused &&
+        n.note.find("approach hops did not bring the party") != std::string::npos);
+    // A step done forgets the stand.
+    Run d = Start(&plan);
+    d.approachStandStep = 0;
+    d.approachStand = 3;
+    NextStep(d, "done");
+    CHECK(d.approachStandStep == static_cast<std::size_t>(-1) && d.approachStand == 0);
 }
 
 // Uldaman 19z13, Revelosh loot step 20: the lead bot may not loot the corpse
@@ -10302,7 +10416,7 @@ static void TestApproachHopSummonsBeforePause()
     std::string const order = Tick(r, f);
     CHECK(order == "summon Fyran");
     CHECK(r.state == State::Running && r.note.find("approach: Fyran") == 0);
-    CHECK(Tick(r, f).find("summon") == std::string::npos); // Walky moves: not summoned
+    CHECK(StandTick(r, f).find("summon") == std::string::npos); // Walky moves: not summoned (no stand found)
     CHECK(r.state == State::Paused && r.note.find("approach hops") != std::string::npos);
 }
 
@@ -14337,6 +14451,7 @@ int main()
     TestUnseenPackIsApproachedNotCleared();
     TestFarPackHopIsNotUndoneByTheGatherBack();
     TestApproachHopCapCountsHopsWithoutProgress();
+    TestApproachCapTriesAStandNearThePackBeforeThePause();
     TestItemCarrierIsPickedFromTheStepsOwnInputs();
     TestUseItemPausesOnSplitInputs();
     TestLootStepIsDoneWhenAnyPartyBotHasTheItem();

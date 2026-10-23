@@ -11746,6 +11746,17 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                 dx, dy, dz, true);
         TortoiseBots::DungeonRun::StallStandIn(slot.run, found, dx, dy, dz);
     }
+    // An approach whose hops got no nearer to a pack or boss asked for a stand near it
+    // (DungeonRun::ApproachStand): the unreachable move's stand-in search, once, here.
+    if (slot.run.approachStandWanted)
+    {
+        float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+        ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(slot.run);
+        bool const found = step && lead->IsAlive() && lead->IsInWorld() &&
+            NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::kApproachStandYd,
+                sx, sy, sz);
+        TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);
+    }
     // While the party rests the lead bot holds where it stands
     // (DungeonRun::LeadStayDueWhileResting, RFC r3-19z20). Before the rest
     // order below, so its own drink or meal follows the stay's reset.
