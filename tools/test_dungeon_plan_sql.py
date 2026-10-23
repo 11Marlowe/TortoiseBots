@@ -272,20 +272,29 @@ class DungeonPlanSql(unittest.TestCase):
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
     def test_gnomeregan_is_the_plan_with_the_pack_fixes(self):
-        # 20261023070000 (turtle-agent 0fb7bfc, 2026-10-23): 20261023020000 (the draft of 20261022211100 with the four pull groups of the unattackable
-        # event NPCs 7897 and 7849 removed) carried over unchanged except one move row: leg 0 pull group 66 gets the approach stand -572 58 -198.75,
-        # 16 yd south of the Alarm-a-bomb's patrol corridor (r23 slot 4, stopped at step 181 of 621: the run leader's own approach hop ended at
-        # -566.8 78.8, inside the corridor, and the gather paused four times). 5 legs, 622 steps (87 + 37 + 17 + 24 + 4 pulls), bosses in leg order,
-        # no door or event step. The plan row has the unit lists (6223 is kill_first now, not cc_priority); the Agent at the Ambassador's own spot is
-        # that boss row's entries, not a pull. Leg 0's cave chain (groups 23-29: the merged 6223/6233 pairs and the 6223/6233 camps) is radius 8 and
-        # each has an approach move on its own floor.
+        # 20261023110000 (turtle-agent c8082bc3, 2026-10-23): 20261023070000 (the step-181 stand fix, itself 20261023020000 with the four pull
+        # groups of the unattackable event NPCs 7897 and 7849 removed) carried over unchanged except leg 1's two boss approach moves: the ramp
+        # foot -524 582.7 -230.56 and its top -541.58 534.7 -216.68 before Electrocutioner 6000 (r23 slot 4b, stopped at step 375 of 622:
+        # the exporter's 50 yd cut of the hop to the boss interpolated -541.3 535.5 -222.1, 5.4 yd below the mesh, and the run leader refused
+        # it as unreachable). 5 legs, 621 steps (87 + 37 + 17 + 24 + 4 pulls), bosses in leg order, no door or event step. The plan row has the
+        # unit lists (6223 is kill_first, not cc_priority); the Agent at the Ambassador's own spot is that boss row's entries, not a pull.
+        # Leg 0's cave chain (groups 23-29: the merged 6223/6233 pairs and the 6223/6233 camps) is radius 8 and each has an approach move on its
+        # own floor.
         name, text = newest_plan_text("gnomeregan")
-        self.assertEqual(name, "20261023070000_world.sql")
-        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent 0fb7bfc dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261023110000_world.sql")
+        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent c8082bc3 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "gnomeregan")), 5)
         rows = [r for r in self.step_rows(text) if r["plan"] == "gnomeregan"]
-        self.assertEqual(len(rows), 622)
+        self.assertEqual(len(rows), 621)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [87, 37, 17, 24, 4])
+        # Step 375 (1-based) is now the Electrocutioner's boss row; the failed exporter cut is gone, and its two approach moves stand before it.
+        self.assertEqual((rows[374]["leg"], rows[374]["kind"], rows[374]["entry"]), ("1", "boss", "6235"))
+        leg1 = leg_steps(rows, 1)
+        self.assertEqual([(r["kind"], r["comment"]) for r in leg1[-3:]],
+                         [("move", "boss approach"), ("move", "boss approach"), ("boss", "boss")])
+        self.assertEqual([(float(r["x"]), float(r["y"]), float(r["z"])) for r in leg1[-3:-1]],
+                         [(-524.0, 582.7, -230.56), (-541.58, 534.7, -216.68)])
+        self.assertNotIn("(-541.31885, 535.48035, -222.12796)", text)
         # Step 181 (1-based) is the stand before pull group 66's pull, and it is not in the bomb's corridor (x -573..-557, y 74..126).
         steps = leg_steps(rows, 0)
         i = [k for k, r in enumerate(steps) if r["kind"] == "pull" and r["comment"] == "pull group 66"][0]
