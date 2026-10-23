@@ -83,7 +83,9 @@ SEEDED_BOSSES = {
 # Grubbis 7361: no spawn row in the map 90 export and no boss step names him, Gnomeregan).
 # Shadowfang Keep's extras that are not legs (Sever 14682, Prelate Ironmane 61969, the intro Arugal 10000).
 # the BFD neutrals Argent Guard 4787 and Woji the Toad 62531 (both rank 0).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929}
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361,
+              4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929,
+              10393, 10809, 10558}
 # Ragglesnout 7354 (rank 2, Razorfen Downs: he is in a pull group).
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
@@ -119,6 +121,14 @@ SEEDED_BOSSES.update({(820, 62784): "Walgan Bloodcaller", (820, 62783): "Ambassa
                       (820, 62780): "Bonespeaker Narlgom", (820, 62781): "Prophet Stormhoof",
                       (820, 62779): "Pathun Duskhide", (820, 62782): "Chieftain Shalk Blackwind",
                       (820, 62778): "Ahgk'tos the Pure"})
+
+# Stratholme, undead side (20261024020200): its map and its five boss steps, names from the core's creature_template (all rank 1).
+# Baron Rivendare 10440 is rank 1 with detection 1 (his script gates him on the Slaughter Square event); the two hostile rares inside
+# the pulls, Skul 10393 and Stonespine 10809, and the neutral rare Hearthsinger Forresten 10558, are not seeded.
+BOSS_PLANS["stratholme_undead"] = 329
+SEEDED_BOSSES.update({(329, 10435): "Magistrate Barthilas", (329, 10437): "Nerub'enkan",
+                      (329, 10438): "Maleki the Pallid", (329, 10436): "Baroness Anastari",
+                      (329, 10440): "Baron Rivendare"})
 
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
@@ -740,6 +750,55 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertTrue(all(lo < i < hi for i in (pos[id(r)] for r in approach[c])), c)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["razorfen_downs"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
+
+    def test_stratholme_undead_is_the_undead_side_with_the_census_fixes(self):
+        # 20261024020200 (turtle-agent prep/stratholme_undead 58edf6e, 2026-10-24): the generator draft of map 329's undead side with
+        # the census fixes of PREP-STRATHOLME-UNDEAD-2026-10-24.md, no row hand-set. 5 legs, 253 steps (15 + 20 + 22 + 13 + 13
+        # pulls; 165 moves; the 5 bosses, each the leg's last row), 259 rows. The plan row carries kill_first 10393,10411,10400,10398
+        # and no cc_priority; the neutral citizens 10384/10385 and the neutral rare 10558 are out of every pull; the hostile rares
+        # Skul 10393 (leg 0) and Stonespine 10809 (leg 2) are members of the packs they stand in; the three Ash'ari Crystals 10415 are
+        # not pulls (no navmesh at their z, and each suicides when its acolytes die); Maleki's 3-unit caster pack is his first row;
+        # every radius stays short of the next pack (<= 15.6 yd).
+        name, text = newest_plan_text("stratholme_undead")
+        self.assertEqual(name, "20261024020200_world.sql")
+        self.assertIn("('stratholme_undead', 329, '', '', '10393,10411,10400,10398', 'turtle-agent 8dd1fa7 dungeons/stratholme_undead.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "stratholme_undead")
+        self.assertEqual([legs[i][0] for i in range(5)],
+                         ["magistrate_barthilas", "nerub'enkan", "maleki_the_pallid",
+                          "baroness_anastari", "baron_rivendare"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "stratholme_undead"]
+        self.assertEqual(len(rows), 253)
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        self.assertEqual(len([r for r in rows if r["kind"] == "move"]), 165)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)],
+                         [15, 20, 22, 13, 13])
+        bosses = [r for r in rows if r["kind"] == "boss"]
+        self.assertEqual([r["entry"] for r in bosses], ["10435", "10437", "10438", "10436", "10440"])
+        self.assertEqual([r["entries"] for r in bosses], ["", "", "10398,10400", "", ""])
+        for leg in range(5):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        # the neutral units of faction 7 and the crystals are in no pull
+        listed = {e for r in pulls for e in r["entries"].split(",") if e}
+        self.assertFalse(listed & {"10384", "10385", "10558", "10415"})
+        # the two hostile rares are explicit, each in one pack, and are kill_first entries
+        self.assertEqual([(r["leg"], float(r["radius"])) for r in pulls if "10393" in r["entries"].split(",")],
+                         [("0", 12.5)])
+        self.assertEqual([(r["leg"], float(r["radius"])) for r in pulls if "10809" in r["entries"].split(",")],
+                         [("2", 5.0)])
+        # leg 2 opens with the two corridor packs the draft had at the end of leg 1 (the exporter writes a leg's boss last)
+        pulls2 = [r for r in leg_steps(rows, 2) if r["kind"] == "pull"]
+        self.assertEqual([(r["entries"], round(dist(r, 3954.9, -3565.8))) for r in pulls2[:1]], [("10398,10400", 0)])
+        self.assertLessEqual(dist(pulls2[1], 3970.6, -3546.6), 0.1)
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 15.6)
+        # the spec's bbox cut this formation in half: the pull at 3543 -3421 is the whole formation plus the two ghouls in it
+        cadaver = [r for r in pulls if abs(float(r["x"]) - 3542.65) < 0.1 and abs(float(r["y"]) + 3420.89) < 0.1]
+        self.assertEqual([(r["entries"], float(r["radius"])) for r in cadaver],
+                         [("10390,10391,10381,10382,10405", 8.9)])
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stratholme_undead"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (329) AND `entry` IN (10435, 10437, 10438, 10436, 10440);", text)
+        self.assertEqual([(m, e) for m, e, _n in self.boss_rows(text)],
+                         [(329, 10435), (329, 10437), (329, 10438), (329, 10436), (329, 10440)])
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
         # 20261023210000 (turtle-agent cg-fix1 479dc0d) re-exports the 20261023130100 draft (prep/crescent_grove ba00e7c, the census
