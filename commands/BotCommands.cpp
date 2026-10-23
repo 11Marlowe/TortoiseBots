@@ -9484,7 +9484,8 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float maxYd,
         Vector3 const probeEnd = probe.getActualEndPosition();
         if (!TortoiseBots::DungeonRun::DetourCandidateLeadsOn((probeType & PATHFIND_NOPATH) != 0,
                 (probeType & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(probeEnd.x, probeEnd.y, probeEnd.z, px, py, ground),
-                DistanceTo(lead, probeEnd.x, probeEnd.y, probeEnd.z), ai::PlanDistance(px, py, ground, x, y, z)))
+                DistanceTo(lead, probeEnd.x, probeEnd.y, probeEnd.z), ai::PlanDistance(px, py, ground, x, y, z),
+                ai::PlanDistance(probeEnd.x, probeEnd.y, probeEnd.z, x, y, z), ground - z))
             return false;
         ox = px;
         oy = py;

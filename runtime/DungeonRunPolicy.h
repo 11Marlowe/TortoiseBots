@@ -105,6 +105,7 @@ constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point m
                                                   // reachable one at most this far from it ...
 constexpr float kMoveFallbackYd = 25.0f;          // ... a plain move's point, this far (r22-19z40 Razorfen Kraul step 85)
 constexpr std::size_t kUnreachableSkipsInARow = 3; // moves skipped for want of a path in a row, then pause
+constexpr float kDetourCloseMaxDz = 4.0f;         // a stand-in within kArriveYd of the point: at most this far above or below it
 constexpr float kDetourEndYd = 5.0f;              // ... whose navmesh path ends this close to it (DetourPointReachable)
 constexpr float kGatherYd = 20.0f;                // every living bot this close to the lead before a pull
 constexpr float kHopPullYd = 15.0f;               // units this close to the next hop are pulled first
@@ -2711,13 +2712,18 @@ inline bool DetourPointReachable(bool pathNoPath, bool pathIncomplete, float end
 // a closed 6 x 6 yd pit; the pit's own point 42.1 374.3 (3.2 yd away, its path
 // from the lead complete) was taken as 'the nearest reachable point, 10.0 yd from
 // the plan's' although its probe to 50.8 379.3 ended 1.1 yd from it, in the pit, and
-// step 97's pullback was refused. A candidate within kArriveYd of the point has
-// nothing to lead on to (the first candidate is the point itself): not asked.
+// step 97's pullback was refused. A candidate within kArriveYd of the point (the
+// first candidate is the point itself, put on the ground) was not asked until
+// the r22-19z40 review (Codex): one across a wall or up a ledge passed. Its probe
+// must now be complete and end within kArriveYd of the point, and the candidate
+// lie at most kDetourCloseMaxDz above or below it.
 inline bool DetourCandidateLeadsOn(bool probeNoPath, bool probeIncomplete, float probeEndFromCandidateYd,
-    float probeEndFromLeadYd, float candidateFromPointYd)
+    float probeEndFromLeadYd, float candidateFromPointYd, float probeEndFromPointYd, float candidateDz)
 {
-    return candidateFromPointYd <= kArriveYd ||
-        RingSpotLeadsOn(probeNoPath, probeIncomplete, probeEndFromCandidateYd, probeEndFromLeadYd);
+    if (candidateFromPointYd <= kArriveYd)
+        return !probeNoPath && !probeIncomplete && probeEndFromPointYd <= kArriveYd &&
+            std::fabs(candidateDz) <= kDetourCloseMaxDz;
+    return RingSpotLeadsOn(probeNoPath, probeIncomplete, probeEndFromCandidateYd, probeEndFromLeadYd);
 }
 
 // The glue probes the path to the last good lead spot (Facts::goodSpotCut)
@@ -5726,10 +5732,13 @@ inline bool MoveRefusedUnreachable(Run& r, const std::string& order, const std::
     }
     if (!again && RefusedFromIsland(r, order, answer))
         return true;
+    // The move right before a direct step (the hole's crossing starts there), a
+    // pull or a boss (the fight's approach stand) is never skipped.
     std::size_t const next = r.step + 1;
-    bool const beforeDirect = r.plan && next < r.plan->steps.size() &&
-        r.plan->steps[next].kind == PlanStepKind::MoveDirect;
-    if (s->kind != PlanStepKind::Move || IsExactPoint(r.plan, r.step) || beforeDirect ||
+    PlanStepKind const nextKind = r.plan && next < r.plan->steps.size() ? r.plan->steps[next].kind : PlanStepKind::None;
+    bool const beforeKeyStep = nextKind == PlanStepKind::MoveDirect || nextKind == PlanStepKind::Pull ||
+        nextKind == PlanStepKind::Boss;
+    if (s->kind != PlanStepKind::Move || IsExactPoint(r.plan, r.step) || beforeKeyStep ||
         (r.guardReturn && order == MoveOrder(r.guardX, r.guardY, r.guardZ, false)) || LeadNoProgressRefusal(answer))
         return false;
     ++r.moveRefusals;

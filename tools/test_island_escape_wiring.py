@@ -150,9 +150,11 @@ class IslandEscapeWiringTest(unittest.TestCase):
         probe = at(f, "probe.calculate(Vector3(px, py, ground), Vector3(x, y, z), false);")
         leads = at(f, "if (!TortoiseBots::DungeonRun::DetourCandidateLeadsOn((probeType & PATHFIND_NOPATH) != 0,")
         self.assertTrue(check < probe < leads < at(f, "ox = px;"))
-        at(f, "DistanceTo(lead, probeEnd.x, probeEnd.y, probeEnd.z), ai::PlanDistance(px, py, ground, x, y, z)))\n            return false;")
+        at(f, "DistanceTo(lead, probeEnd.x, probeEnd.y, probeEnd.z), ai::PlanDistance(px, py, ground, x, y, z),\n"
+              "                ai::PlanDistance(probeEnd.x, probeEnd.y, probeEnd.z, x, y, z), ground - z))\n            return false;")
         q = body(POLICY, "inline bool DetourCandidateLeadsOn(", "\n}\n")
-        at(q, "candidateFromPointYd <= kArriveYd ||")
+        # r22-19z40 review: a candidate close to the point is asked too (complete, reaching, <= 4 yd up or down).
+        at(q, "if (candidateFromPointYd <= kArriveYd)\n        return !probeNoPath && !probeIncomplete && probeEndFromPointYd <= kArriveYd &&")
         at(q, "RingSpotLeadsOn(probeNoPath, probeIncomplete, probeEndFromCandidateYd, probeEndFromLeadYd)")
         p = body(POLICY, "inline bool DetourPointReachable(", "\n}\n")
         at(p, "RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd)")

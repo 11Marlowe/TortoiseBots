@@ -8692,8 +8692,9 @@ static void GlueRefused(Run& r, const std::string& order, const std::string& ans
 static DungeonPlan RfkS85Plan()
 {
     DungeonPlan plan;
+    // A move after step 85's here: the move right before a pull is not skipped (TestR22MoveBeforeAFightIsNotSkipped).
     plan.steps = {Step(PlanStepKind::Move, 2153.0f, 1589.0f, 80.5f), Step(PlanStepKind::Move, 2180.0f, 1604.0f, 81.2f),
-        PullStep(2183.1f, {4440}), Step(PlanStepKind::Rest)};
+        Step(PlanStepKind::Move, 2185.0f, 1606.0f, 81.2f), PullStep(2183.1f, {4440}), Step(PlanStepKind::Rest)};
     return plan;
 }
 
@@ -8786,6 +8787,32 @@ static void TestR22SecondRefusalOfTheStepSkips()
     CHECK(s.state == State::Running && s.step == 2 && !s.detour);
 }
 
+// Codex review of 44f083c8: the move right before a pull or a boss (the fight's approach stand) is not skipped:
+// the pause as before; a stand-in is still taken. A move before another move is skipped as before.
+static void TestR22MoveBeforeAFightIsNotSkipped()
+{
+    for (PlanStepKind const kind : {PlanStepKind::Pull, PlanStepKind::Boss})
+    {
+        DungeonPlan plan;
+        plan.steps = {Step(PlanStepKind::Move, 40), Step(kind, 60), Step(PlanStepKind::Rest)};
+        Run r = Start(&plan, 0);
+        GlueRefused(r, "move 40.0 0.0 0.0", kBareUnreachable, false);
+        CHECK(r.state == State::Paused && r.step == 0);
+        CHECK(r.note.find(" (no reachable point within 25 yd of it either)") != std::string::npos);
+        Run d = Start(&plan, 0);
+        GlueRefused(d, "move 40.0 0.0 0.0", kBareUnreachable, true, 30.0f, 0.0f, 0.0f);
+        CHECK(d.state == State::Running && d.detour && d.step == 0);
+        // Its stand-in refused too: the pause, not a skip.
+        GlueRefused(d, "move 30.0 0.0 0.0", kBareUnreachable, false);
+        CHECK(d.state == State::Paused && d.step == 0);
+    }
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 60), Step(PlanStepKind::Rest)};
+    Run m = Start(&plan, 0);
+    GlueRefused(m, "move 40.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(m.state == State::Running && m.step == 1);
+}
+
 // Lead decision: three plain moves skipped in a row (no step done in between) pause the run, naming them and
 // the lead bot's spot; a step done the normal way starts the count over.
 static void TestR22ThreeSkipsInARowPause()
@@ -8826,13 +8853,13 @@ static void TestR22PullAndDirectStepsKeepTheirRefusals()
     DungeonPlan plan = RfkS85Plan();
     Facts f = AtRfk(2153.0f, 1589.0f, 80.5f);
     // A pull step's refused move (an approach or a gather): not the move fallback; the pause as before.
-    Run p = Start(&plan, 2);
+    Run p = Start(&plan, 3);
     std::string const hop = "move 2183.1 0.0 0.0";
     CHECK(!OwnMoveOrder(p, hop));
     CHECK(!MoveRefusedUnreachable(p, hop, kBareUnreachable, true, 2170.0f, 0.0f, 0.0f));
-    CHECK(p.step == 2 && !p.detour && p.state == State::Running);
+    CHECK(p.step == 3 && !p.detour && p.state == State::Running);
     GlueRefused(p, hop, kBareUnreachable, true, 2170.0f, 0.0f, 0.0f);
-    CHECK(p.state == State::Paused && p.step == 2 && p.note == std::string("cmd ") + hop + " refused: " + kBareUnreachable);
+    CHECK(p.state == State::Paused && p.step == 3 && p.note == std::string("cmd ") + hop + " refused: " + kBareUnreachable);
     // A direct step, and the plain move right before one: never skipped (the hole's crossing needs them).
     DungeonPlan d;
     d.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::MoveDirect, 60), Step(PlanStepKind::Rest)};
@@ -9099,23 +9126,33 @@ static void TestDetourCandidateLeadsOn()
     // The pit point: lead at 45.3 374.4 (3.2 yd away), the candidate's probe partial,
     // ending 1.1 yd from it and 1.1 + 3.2 yd from the lead.
     CHECK(DetourPointReachable(false, false, 0.0f, 20.0f, 3.2f));
-    CHECK(!DetourCandidateLeadsOn(false, true, 1.1f, 4.3f, fromPoint));
+    CHECK(!DetourCandidateLeadsOn(false, true, 1.1f, 4.3f, fromPoint, 10.0f, 0.0f));
     // Same pit point, lead at 42.5 376.3 (2.0 yd): refused as before by the arrive rule.
     CHECK(!DetourPointReachable(false, false, 0.0f, 20.0f, 2.0f));
     // A pit point whose probe ends in the pit at more than 10 yd from the lead and from itself would lead on
     // (the same rule as a ring spot's): the lead's own end distance stays the second gate.
-    CHECK(!DetourCandidateLeadsOn(false, true, kGoodPathMinYd + 1, 3.0f, fromPoint)); // ends near the lead
-    CHECK(!DetourCandidateLeadsOn(false, true, 3.0f, kGoodPathMinYd + 1, fromPoint)); // ends near the candidate
+    CHECK(!DetourCandidateLeadsOn(false, true, kGoodPathMinYd + 1, 3.0f, fromPoint, 10.0f, 0.0f)); // ends near the lead
+    CHECK(!DetourCandidateLeadsOn(false, true, 3.0f, kGoodPathMinYd + 1, fromPoint, 10.0f, 0.0f)); // ends near the candidate
     // A main-mesh candidate outside the pit: its probe is complete -> accepted.
-    CHECK(DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, fromPoint));
+    CHECK(DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, fromPoint, 10.0f, 0.0f));
     // ... or partial but leading on well past both.
-    CHECK(DetourCandidateLeadsOn(false, true, kGoodPathMinYd + 1, kGoodPathMinYd + 1, fromPoint));
+    CHECK(DetourCandidateLeadsOn(false, true, kGoodPathMinYd + 1, kGoodPathMinYd + 1, fromPoint, 10.0f, 0.0f));
     // No path at all from the candidate: refused.
-    CHECK(!DetourCandidateLeadsOn(true, false, 0.0f, 12.0f, fromPoint));
-    // The plan's own point (or one within kArriveYd of it) has nothing to lead on to: not asked.
-    CHECK(DetourCandidateLeadsOn(true, false, 0.0f, 0.0f, 0.0f));
-    CHECK(DetourCandidateLeadsOn(false, true, 0.0f, 0.0f, kArriveYd));
-    CHECK(!DetourCandidateLeadsOn(false, true, 0.0f, 0.0f, kArriveYd + 0.1f));
+    CHECK(!DetourCandidateLeadsOn(true, false, 0.0f, 12.0f, fromPoint, 10.0f, 0.0f));
+    // The plan's own point (or one within kArriveYd of it): asked since the r22-19z40 review. Its probe complete,
+    // ending at the point, on the point's level: accepted.
+    CHECK(DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, 0.0f, 0.0f, 0.0f));
+    CHECK(DetourCandidateLeadsOn(false, false, 2.0f, 12.0f, kArriveYd, kArriveYd, kDetourCloseMaxDz));
+    // Across a wall: the probe found no path, or a partial one: refused.
+    CHECK(!DetourCandidateLeadsOn(true, false, 0.0f, 12.0f, 2.0f, 2.0f, 0.0f));
+    CHECK(!DetourCandidateLeadsOn(false, true, 0.0f, 12.0f, 2.0f, 2.0f, 0.0f));
+    // A complete probe that ends short of the point (snapped onto another polygon): refused.
+    CHECK(!DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, 2.0f, kArriveYd + 0.1f, 0.0f));
+    // Up or down a ledge (more than 4 yd): refused.
+    CHECK(!DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, 1.0f, 0.5f, kDetourCloseMaxDz + 0.1f));
+    CHECK(!DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, 1.0f, 0.5f, -(kDetourCloseMaxDz + 0.1f)));
+    // Past kArriveYd the ring spot's rule, as before.
+    CHECK(!DetourCandidateLeadsOn(false, true, 0.0f, 0.0f, kArriveYd + 0.1f, 5.0f, 0.0f));
     // The lead itself within kArriveYd of the candidate: still refused before the probe is read.
     CHECK(!DetourPointReachable(false, false, 0.0f, 0.0f, kArriveYd));
 }
@@ -13179,6 +13216,7 @@ int main()
     TestR22SecondRefusalOfTheStepSkips();
     TestR22PullAndDirectStepsKeepTheirRefusals();
     TestR22ThreeSkipsInARowPause();
+    TestR22MoveBeforeAFightIsNotSkipped();
     TestGoodPathClearsTheRefusalSign();
     TestForwardMoveIslandNeedsSecondSign();
     TestForwardMoveNoPathLedgeEscapes();
