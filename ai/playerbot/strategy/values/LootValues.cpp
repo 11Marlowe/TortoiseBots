@@ -2,7 +2,7 @@
 #include "SharedValueContext.h"
 #include "LootValues.h"
 #include "playerbot/strategy/actions/LootAction.h"
-#include "playerbot/strategy/actions/SkinningLootPolicy.h"
+#include "../../policy/loot/SkinningLootPolicy.h"
 
 using namespace ai;
 

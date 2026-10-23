@@ -12,7 +12,7 @@
 #include "Maps/CellImpl.h"
 
 #include "playerbot/strategy/actions/DestroyItemAction.h"
-#include "playerbot/strategy/actions/LootWindowPolicy.h"
+#include "../../policy/loot/LootWindowPolicy.h"
 
 using namespace ai;
 using namespace MaNGOS;

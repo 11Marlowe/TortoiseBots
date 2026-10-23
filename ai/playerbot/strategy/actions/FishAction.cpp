@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include "FishAction.h"
 #include "playerbot/TravelMgr.h"
-#include "playerbot/FishingSpotPolicy.h"
+#include "../../policy/loot/FishingSpotPolicy.h"
 #include "TellLosAction.h"
 #include "EquipAction.h"
 

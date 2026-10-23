@@ -1,7 +1,7 @@
 
 #include "playerbot/playerbot.h"
-#include "SkinningLootPolicy.h"
-#include "LootWindowPolicy.h"
+#include "../../policy/loot/SkinningLootPolicy.h"
+#include "../../policy/loot/LootWindowPolicy.h"
 #include "LootAction.h"
 #include "playerbot/CastKeepsRunningPolicy.h"
 
