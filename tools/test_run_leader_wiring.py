@@ -759,6 +759,43 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertLess(off.index("SendRunLine(FindCharacter(entry.first), entry.second, false);"),
                         off.index("ReleaseRunHold("))
 
+    def test_unreachable_move_falls_back_or_skips(self):
+        # Razorfen Kraul r22-19z40 step 85: the step's move was refused unreachable after the walk around
+        # and the run paused 3 times. A refused own move (or its detour's) goes to MoveRefusedUnreachable
+        # with the stand-in NearestReachablePoint found within MoveFallbackYd (25 yd for a plain move),
+        # searched only while MoveFallbackWanted; anything it does not handle pauses as before.
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        f = body(COMMANDS, "        if (!accepted)\n        {", "\n        }\n")
+        code = strip_comments(f)
+        own = code.index("TortoiseBots::DungeonRun::OwnMoveOrder(it->second.run, order) &&")
+        verdict = code.index("TortoiseBots::DungeonRun::UnreachableAnswer(answer);")
+        wanted = code.index("bool const searched = unreachable && TortoiseBots::DungeonRun::MoveFallbackWanted(it->second.run);")
+        search = code.index("NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::MoveFallbackYd(*step),")
+        handled = code.index("TortoiseBots::DungeonRun::MoveRefusedUnreachable(it->second.run, order, answer, found, dx, dy, dz)))")
+        refused = code.index("TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +")
+        self.assertTrue(own < verdict < wanted < search < handled < refused)
+        self.assertIn("(unreachable ? TortoiseBots::DungeonRun::NoStandInNote(*step, searched) : std::string()));", code)
+        self.assertIn("bool const searched = unreachable && TortoiseBots::DungeonRun::MoveFallbackWanted(it->second.run);", code)
+        self.assertIn("bool const found = searched &&\n                NearestReachablePoint(", code)
+        # Opus review: the stand-in's path from the lead bot is capped (DetourPointReachable's pathYd).
+        self.assertIn("DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground), path.Length()))",
+                      body(COMMANDS, "bool NearestReachablePoint(", "\n}\n"))
+        self.assertIn("pathYd <= pointFromLeadYd + kDetourMaxPathYd &&", body(policy, "inline bool DetourPointReachable(", "\n}\n"))
+        # Every rewind of the step forgets the step's refusals.
+        for fn in ("inline void EventFailed(", "inline bool RearmEventOnWipe("):
+            self.assertIn("ForgetMoveRefusals(r);", body(policy, fn, "\n}\n"))
+        self.assertIn("if (NeverSkipMove(r))\n        ForgetMoveRefusals(r);", body(policy, "inline bool Resume(", "\n}\n"))
+        self.assertNotIn("UseDetour(", code)
+        self.assertNotIn("15 yd of it either", code)
+        # The ring search reaches the radius it is given and no farther.
+        near = strip_comments(body(COMMANDS, "bool NearestReachablePoint(", "\n}\n"))
+        self.assertIn("float maxYd, float& ox, float& oy, float& oz)", near)
+        self.assertIn("float const rings[] = {3.0f, 6.0f, 10.0f, 15.0f, 20.0f, 25.0f};", near)
+        self.assertIn("for (int i = 0; ring <= maxYd && i < 12; ++i)", near)
+        self.assertIn("constexpr float kMoveFallbackYd = 25.0f;", policy)
+        self.assertIn("if (ai::PlanDistance(x, y, z, s->x, s->y, s->z) > MoveFallbackYd(*s))",
+                      body(policy, "inline bool UseDetour(", "\n}\n"))
+
 
 class RunHoldsItsDeadWiringTest(unittest.TestCase):
     """SM-REVIVE-PATH-2026-10-23 fix 3: the run leader answers the auto release's

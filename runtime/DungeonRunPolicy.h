@@ -103,6 +103,10 @@ constexpr float kRouteSpotYd = 10.0f;             // a lead bot this close to wh
                                                   // still on its route checkpoint's stretch (Run::routeKnown)
 constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point may be stood in for by a
                                                   // reachable one at most this far from it ...
+constexpr float kMoveFallbackYd = 25.0f;          // ... a plain move's point, this far (r22-19z40 Razorfen Kraul step 85)
+constexpr std::size_t kUnreachableSkipsInARow = 3; // moves skipped for want of a path in a row, then pause
+constexpr float kDetourCloseMaxDz = 4.0f;         // a stand-in within kArriveYd of the point: at most this far above or below it
+constexpr float kDetourMaxPathYd = 40.0f;         // ... and the lead bot's navmesh path to it at most this much longer than the straight line
 constexpr float kDetourEndYd = 5.0f;              // ... whose navmesh path ends this close to it (DetourPointReachable)
 constexpr float kGatherYd = 20.0f;                // every living bot this close to the lead before a pull
 constexpr float kHopPullYd = 15.0f;               // units this close to the next hop are pulled first
@@ -832,6 +836,16 @@ struct Run
     // reachable point near it instead (UseDetour).
     bool detour = false;
     float detourX = 0.0f, detourY = 0.0f, detourZ = 0.0f;
+    // The step whose own move (or its detour) was last refused for want of a
+    // path, and how many such refusals it had (MoveRefusedUnreachable). Kept by
+    // ResetStep, so a resume does not start the step's detour over.
+    std::size_t moveRefusedStep = static_cast<std::size_t>(-1);
+    std::uint32_t moveRefusals = 0;
+    // (ForgetMoveRefusals clears both and unreachableSkips when the run goes back
+    // to an earlier step; Resume clears them for a step that is never skipped.)
+    // The moves skipped for want of a path since a step was last done any other
+    // way (MoveRefusedUnreachable; NextStep clears it): kUnreachableSkipsInARow pause.
+    std::vector<std::size_t> unreachableSkips;
     bool fighting = false;
     std::uint32_t fightMs = 0;
     std::uint32_t staleMs = 0;          // all the time in this fight the combat flag stood with nothing hostile engaged (Facts::staleCombat)
@@ -2375,6 +2389,7 @@ inline void BeginRegroup(Run& r)
 inline void NextStep(Run& r, const std::string& note)
 {
     r.pendingMissing = 0;
+    r.unreachableSkips.clear(); // a step done (MoveRefusedUnreachable puts its own skips back)
     ++r.step;
     r.autoRegroups = 0;
     ResetStep(r);
@@ -2630,6 +2645,39 @@ inline PartialStartVerdict CheckPartialStart(bool leadOnInstanceMap, std::size_t
 // `.bot run resume`: the party regroups first (the dead are revived, the
 // living gather on the lead bot), then the paused step starts over with fresh
 // tries; a lead bot far from it walks back on the navmesh (approach hops).
+// The step's move refusals and the run of skips are forgotten: the run went back
+// to an earlier step (EventFailed, RearmEventOnWipe), so the party comes forward
+// again from elsewhere, or a step that is never skipped was resumed.
+inline void ForgetMoveRefusals(Run& r)
+{
+    r.moveRefusedStep = static_cast<std::size_t>(-1);
+    r.moveRefusals = 0;
+    r.unreachableSkips.clear();
+}
+
+// A step that is not a plain move the run may skip when its point is
+// unreachable: a direct step, an exact point, any step not a move, and the
+// move before a direct step (the hole's crossing starts there), a pull, a boss
+// or a hold (the fight's approach stand). Steps that neither move nor fight
+// (rest, waits, use_item) are looked past: a move, a rest, then a pull counts
+// as before the pull.
+inline bool NeverSkipMove(const Run& r)
+{
+    const PlanStep* s = Current(r);
+    if (!s || s->kind != PlanStepKind::Move || IsExactPoint(r.plan, r.step))
+        return true;
+    for (std::size_t i = r.step + 1; i < r.plan->steps.size(); ++i)
+    {
+        PlanStepKind const k = r.plan->steps[i].kind;
+        if (k == PlanStepKind::Rest || k == PlanStepKind::WaitObject || k == PlanStepKind::WaitClear ||
+            k == PlanStepKind::UseItem)
+            continue;
+        return k == PlanStepKind::MoveDirect || k == PlanStepKind::Pull || k == PlanStepKind::Boss ||
+            k == PlanStepKind::Hold;
+    }
+    return false;
+}
+
 inline bool Resume(Run& r)
 {
     if (r.state != State::Paused || !Current(r))
@@ -2641,6 +2689,11 @@ inline bool Resume(Run& r)
     r.fighting = false;
     r.autoRegroups = 0;
     ResetStep(r);
+    // A step that is never skipped starts its refusals over: the next one may
+    // search a stand-in from the lead bot's new spot and hop it off an island.
+    // A plain move keeps them, so its second refusal skips it (r22-19z40).
+    if (NeverSkipMove(r))
+        ForgetMoveRefusals(r);
     BeginRegroup(r);
     r.walkBackDue = true; // a party revived at the entrance walks back the plan's way
     r.note = "resumed: regrouping";
@@ -2854,10 +2907,14 @@ inline bool RingSpotLeadsOn(bool pathNoPath, bool pathIncomplete, float endFromS
 // 10 yd ring point 136 298.7 lay 1.3 yd from the tank on its own rubble island,
 // its path complete, and the step counted as 'arrived' 10.3 yd from the plan's
 // point without a yard walked).
+// Nor one whose path from the lead bot (pathYd) is more than kDetourMaxPathYd
+// longer than its straight distance from it (a move goes out up to 60 yd off;
+// the r22-19z40 review: a 25 yd ring point could mean a long walk round, through
+// packs not cleared yet; r22's own walk around went back 60 yd before its refusal).
 inline bool DetourPointReachable(bool pathNoPath, bool pathIncomplete, float endFromPointYd, float endFromLeadYd,
-    float pointFromLeadYd)
+    float pointFromLeadYd, float pathYd = 0.0f)
 {
-    return pointFromLeadYd > kArriveYd && endFromPointYd <= kDetourEndYd &&
+    return pointFromLeadYd > kArriveYd && endFromPointYd <= kDetourEndYd && pathYd <= pointFromLeadYd + kDetourMaxPathYd &&
         RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd);
 }
 
@@ -2867,13 +2924,18 @@ inline bool DetourPointReachable(bool pathNoPath, bool pathIncomplete, float end
 // a closed 6 x 6 yd pit; the pit's own point 42.1 374.3 (3.2 yd away, its path
 // from the lead complete) was taken as 'the nearest reachable point, 10.0 yd from
 // the plan's' although its probe to 50.8 379.3 ended 1.1 yd from it, in the pit, and
-// step 97's pullback was refused. A candidate within kArriveYd of the point has
-// nothing to lead on to (the first candidate is the point itself): not asked.
+// step 97's pullback was refused. A candidate within kArriveYd of the point (the
+// first candidate is the point itself, put on the ground) was not asked until
+// the r22-19z40 review (Codex): one across a wall or up a ledge passed. Its probe
+// must now be complete and end within kArriveYd of the point, and the candidate
+// lie at most kDetourCloseMaxDz above or below it.
 inline bool DetourCandidateLeadsOn(bool probeNoPath, bool probeIncomplete, float probeEndFromCandidateYd,
-    float probeEndFromLeadYd, float candidateFromPointYd)
+    float probeEndFromLeadYd, float candidateFromPointYd, float probeEndFromPointYd, float candidateDz)
 {
-    return candidateFromPointYd <= kArriveYd ||
-        RingSpotLeadsOn(probeNoPath, probeIncomplete, probeEndFromCandidateYd, probeEndFromLeadYd);
+    if (candidateFromPointYd <= kArriveYd)
+        return !probeNoPath && !probeIncomplete && probeEndFromPointYd <= kArriveYd &&
+            std::fabs(candidateDz) <= kDetourCloseMaxDz;
+    return RingSpotLeadsOn(probeNoPath, probeIncomplete, probeEndFromCandidateYd, probeEndFromLeadYd);
 }
 
 // The glue probes the path to the last good lead spot (Facts::goodSpotCut)
@@ -5832,9 +5894,17 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
     }
 }
 
+// How far from a move step's point a stand-in may be (UseDetour, the glue's
+// NearestReachablePoint): kMoveFallbackYd for a plain move, kDetourMaxYd for a
+// direct step (its line is over a navmesh hole).
+inline float MoveFallbackYd(const PlanStep& s)
+{
+    return s.kind == PlanStepKind::Move ? kMoveFallbackYd : kDetourMaxYd;
+}
+
 // The glue found that the current move step's point cannot be reached (its
 // `cmd move` was refused unreachable or off-mesh) and that (x,y,z), within
-// kDetourMaxYd of it, can: the step walks there instead, by the navmesh path
+// MoveFallbackYd of it, can: the step walks there instead, by the navmesh path
 // around whatever is in the way. False (nothing changes) when the step is not
 // a move, a detour is already on, or the point is too far from the plan's.
 inline bool UseDetour(Run& r, float x, float y, float z)
@@ -5847,13 +5917,113 @@ inline bool UseDetour(Run& r, float x, float y, float z)
     // is the very thing the flag forbids. The refusal pauses the run.
     if (IsExactPoint(r.plan, r.step) || ExactLaunch(r.plan, r.step) != static_cast<std::size_t>(-1))
         return false;
-    if (ai::PlanDistance(x, y, z, s->x, s->y, s->z) > kDetourMaxYd)
+    if (ai::PlanDistance(x, y, z, s->x, s->y, s->z) > MoveFallbackYd(*s))
         return false;
     r.detour = true;
     r.detourX = x;
     r.detourY = y;
     r.detourZ = z;
     EnterPhase(r, Phase::Begin);
+    return true;
+}
+
+// The refused order is the current move step's own `cmd move`, or its detour's
+// (UseDetour), and not a walk back's.
+inline bool OwnMoveOrder(const Run& r, const std::string& order)
+{
+    const PlanStep* s = Current(r);
+    if (!s || (s->kind != PlanStepKind::Move && s->kind != PlanStepKind::MoveDirect) ||
+        (r.walkBack && r.walkBackIdx < r.step))
+        return false;
+    return order == MoveOrder(s->x, s->y, s->z, s->kind == PlanStepKind::MoveDirect) ||
+        (r.detour && order == MoveOrder(r.detourX, r.detourY, r.detourZ, false));
+}
+
+// The answer of a `cmd move` the server refused for want of a path to the point.
+inline bool UnreachableAnswer(const std::string& answer)
+{
+    return answer.compare(0, 11, "unreachable") == 0 || answer.compare(0, 8, "off-mesh") == 0;
+}
+
+// Whether the glue searches a stand-in (NearestReachablePoint) for the step's
+// refused move: no detour on yet, and none used for this step before.
+inline bool MoveFallbackWanted(const Run& r)
+{
+    return Current(r) && !r.detour && !(r.moveRefusedStep == r.step && r.moveRefusals > 0);
+}
+
+// The glue's words after a refused move that MoveRefusedUnreachable left to
+// OrderRefused: `searched` (a stand-in search ran and found none), else the
+// step's stand-in was used already (no search ran).
+inline std::string NoStandInNote(const PlanStep& s, bool searched)
+{
+    if (!searched)
+        return " (refused again in this step, after its walk to the nearest reachable point)";
+    return " (no reachable point within " + std::to_string(static_cast<int>(MoveFallbackYd(s))) + " yd of it either)";
+}
+
+// Razorfen Kraul r22-19z40 step 85: the plan's move to 2180 1604 81.2 lay in a
+// navmesh pocket of its own. The run leader walked around to a stand-in point,
+// the move was refused unreachable again, and the run paused; each resume
+// walked back to steps 66-81 and paused on the same refusal (3 times). Now the
+// glue hands a refused own move (OwnMoveOrder, UnreachableAnswer) here, with the
+// stand-in it found (found, dx dy dz; MoveFallbackWanted): its first refusal
+// walks to the stand-in (UseDetour, within kMoveFallbackYd), or else hops the
+// lead bot off a navmesh island (RefusedFromIsland, its own caps); a plain move
+// with neither, or refused a second time this step, is skipped with a note and
+// the party goes on to the next step. True: handled. False (OrderRefused
+// pauses or goes on as before): a direct step, an exact point or the step
+// before a direct one (the hole's crossing needs them), the guard's walk back
+// to its stand point, or a refusal from the lead bot's own spot
+// (LeadNoProgressRefusal: the next point would be refused the same way).
+inline bool MoveRefusedUnreachable(Run& r, const std::string& order, const std::string& answer, bool found,
+    float dx, float dy, float dz)
+{
+    const PlanStep* s = Current(r);
+    if (!s || r.state != State::Running || !OwnMoveOrder(r, order) || !UnreachableAnswer(answer))
+        return false;
+    if (r.moveRefusedStep != r.step)
+    {
+        r.moveRefusedStep = r.step;
+        r.moveRefusals = 0;
+    }
+    std::string const stepNo = std::to_string(r.step + 1);
+    std::string const point = Num(s->x) + " " + Num(s->y) + " " + Num(s->z);
+    bool const again = r.moveRefusals > 0;
+    if (!again && found && UseDetour(r, dx, dy, dz))
+    {
+        ++r.moveRefusals;
+        r.note = "step " + stepNo + ": cmd move to the plan's point " + point + " refused (" + answer +
+            "): walking to the nearest reachable point " + Num(dx) + " " + Num(dy) + " " + Num(dz) + ", " +
+            Num(ai::PlanDistance(dx, dy, dz, s->x, s->y, s->z)) + " yd from it, and going on from there";
+        return true;
+    }
+    if (!again && RefusedFromIsland(r, order, answer))
+        return true;
+    std::size_t const next = r.step + 1;
+    if (NeverSkipMove(r) ||
+        (r.guardReturn && order == MoveOrder(r.guardX, r.guardY, r.guardZ, false)) || LeadNoProgressRefusal(answer))
+        return false;
+    ++r.moveRefusals;
+    std::vector<std::size_t> skips = r.unreachableSkips;
+    skips.push_back(r.step);
+    NextStep(r, "step " + stepNo + " move to " + point + " skipped: no walkable path; the party goes on to step " +
+        std::to_string(next + 1) + (again ? " (refused again after the walk to the nearest reachable point: " :
+        " (no reachable point within " + std::to_string(static_cast<int>(kMoveFallbackYd)) + " yd of it: ") +
+        answer + ")");
+    r.unreachableSkips = skips;
+    // Three in a row (no step done in between): the lead bot is likely in the
+    // wrong part of the instance, and every next move would be skipped too.
+    if (r.state == State::Running && skips.size() >= kUnreachableSkipsInARow)
+    {
+        std::string steps;
+        for (std::size_t i = 0; i < skips.size(); ++i)
+            steps += (i ? (i + 1 == skips.size() ? " and " : ", ") : "") + std::to_string(skips[i] + 1);
+        r.unreachableSkips.clear();
+        Pause(r, "three moves in a row had no walkable path: the lead bot may be in the wrong part of the instance "
+            "(steps " + steps + " skipped; the lead bot at " + Num(r.leadLastX) + " " + Num(r.leadLastY) + " " +
+            Num(r.leadLastZ) + ")");
+    }
     return true;
 }
 
@@ -6665,6 +6835,7 @@ inline void EventFailed(Run& r, const std::string& why)
         r.step = start;
         r.autoRegroups = 0;
         ResetStep(r);
+        ForgetMoveRefusals(r);
         again = ": .bot run resume regroups and starts it again at step " + std::to_string(start + 1) + " (" +
             ai::PlanStepKindName(r.plan->steps[start].kind) + ")";
     }
@@ -6703,6 +6874,7 @@ inline bool RearmEventOnWipe(Run& r, const Facts& f)
         return false;
     r.eventRearmed.insert(start);
     r.step = start;
+    ForgetMoveRefusals(r);
     r.eventRetry = true;
     return true;
 }

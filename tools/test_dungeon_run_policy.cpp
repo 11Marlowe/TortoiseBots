@@ -886,8 +886,8 @@ static void TestUnreachableMoveDetours()
     Facts f = Party(0);
     std::string order = Tick(r, f);
     CHECK(order == "move 50.0 0.0 0.0");
-    // Too far from the plan's point: not a stand-in.
-    CHECK(!UseDetour(r, 30, 0, 0));
+    // Too far from the plan's point (26 yd, past kMoveFallbackYd): not a stand-in.
+    CHECK(!UseDetour(r, 24, 0, 0));
     CHECK(UseDetour(r, 44, 2, 0));
     CHECK(r.state == State::Running && r.detour);
     // Only once per step.
@@ -8672,16 +8672,346 @@ static void TestBareUnreachableIsNoIslandSign()
     CHECK(t.state == State::Paused);
 }
 
-// The glue's order for a refused own-step move (BotCommands.cpp, !accepted): the detour first, then
-// RefusedFromIsland, then OrderRefused. `detour` is what NearestReachablePoint and UseDetour gave.
-static void GlueRefused(Run& r, const std::string& order, const std::string& answer, bool detour)
+// The glue's order for a refused own-step move (BotCommands.cpp, !accepted): MoveRefusedUnreachable (the
+// detour, RefusedFromIsland, the skip), else OrderRefused. `detour` is whether NearestReachablePoint found a
+// stand-in (dx dy dz; asked only when MoveFallbackWanted).
+static void GlueRefused(Run& r, const std::string& order, const std::string& answer, bool detour, float dx = 0,
+    float dy = 0, float dz = 0)
 {
     const PlanStep* step = Current(r);
-    bool const ownMove = step && (step->kind == PlanStepKind::Move || step->kind == PlanStepKind::MoveDirect) &&
-        order == MoveOrder(step->x, step->y, step->z, step->kind == PlanStepKind::MoveDirect);
-    bool const unreachable = ownMove && (answer.compare(0, 11, "unreachable") == 0 || answer.compare(0, 8, "off-mesh") == 0);
-    if (!(unreachable && step && !r.detour && detour) && !(unreachable && RefusedFromIsland(r, order, answer)))
-        OrderRefused(r, order, answer + (unreachable ? " (no reachable point within 15 yd of it either)" : ""));
+    bool const unreachable = OwnMoveOrder(r, order) && UnreachableAnswer(answer);
+    bool const searched = unreachable && MoveFallbackWanted(r);
+    bool const found = searched && detour;
+    if (!(unreachable && MoveRefusedUnreachable(r, order, answer, found, dx, dy, dz)))
+        OrderRefused(r, order, answer + (unreachable ? NoStandInNote(*step, searched) : std::string()));
+}
+
+// Razorfen Kraul r22-19z40 step 85: the plan's move to 2180.0 1604.0 81.2 (a navmesh pocket of its own) was
+// refused unreachable after the walk around ('walking around: the plan's point is off the walkable way'), the
+// run paused, and each resume walked back and paused on the same refusal (3 pauses). For a plain move between
+// moves: the nearest reachable point within 25 yd, else the move is skipped with a note, and a second refusal of
+// the step skips it. This fixture puts a move after step 85's (the real plan has the pull right after it, which
+// pauses: TestR22RealStep85ApproachStandPauses).
+static DungeonPlan RfkS85Plan()
+{
+    DungeonPlan plan;
+    // A move after step 85's here: the move right before a pull is not skipped (TestR22MoveBeforeAFightIsNotSkipped).
+    plan.steps = {Step(PlanStepKind::Move, 2153.0f, 1589.0f, 80.5f), Step(PlanStepKind::Move, 2180.0f, 1604.0f, 81.2f),
+        Step(PlanStepKind::Move, 2185.0f, 1606.0f, 81.2f), PullStep(2183.1f, {4440}), Step(PlanStepKind::Rest)};
+    return plan;
+}
+
+static Facts AtRfk(float x, float y, float z)
+{
+    Facts f = Party(0);
+    f.leadX = x;
+    f.leadY = y;
+    f.leadZ = z;
+    return f;
+}
+
+static void TestR22RefusedMoveWalksToAStandInWithin25Yd()
+{
+    DungeonPlan plan = RfkS85Plan();
+    Facts f = AtRfk(2153.0f, 1589.0f, 80.5f);
+    Run r = Start(&plan, 1);
+    std::string const move = Tick(r, f);
+    CHECK(move == "move 2180.0 1604.0 81.2");
+    // A stand-in 20.0 yd off (past the old 15 yd, within 25): the step walks there.
+    CHECK(MoveFallbackWanted(r));
+    GlueRefused(r, move, kBareUnreachable, true, 2160.0f, 1604.0f, 81.2f);
+    CHECK(r.state == State::Running && r.step == 1 && r.detour);
+    CHECK(r.note.find("step 2: cmd move to the plan's point 2180.0 1604.0 81.2 refused (unreachable") == 0);
+    CHECK(r.note.find("nearest reachable point 2160.0 1604.0 81.2, 20.0 yd from it") != std::string::npos);
+    CHECK(Tick(r, f) == "move 2160.0 1604.0 81.2");
+    Facts there = AtRfk(2160.0f, 1604.0f, 81.2f);
+    Tick(r, there);
+    CHECK(r.step == 2 && r.state == State::Running && r.note.find("arrived at the nearest reachable point") == 0);
+    // 26 yd off is not a stand-in: the move is skipped instead.
+    Run far = Start(&plan, 1);
+    CHECK(Tick(far, f) == move);
+    GlueRefused(far, move, kBareUnreachable, true, 2154.0f, 1604.0f, 81.2f);
+    CHECK(!far.detour && far.step == 2 && far.state == State::Running);
+    // A direct step keeps the 15 yd stand-in.
+    PlanStep direct = Step(PlanStepKind::MoveDirect, 2180.0f, 1604.0f, 81.2f);
+    CHECK(MoveFallbackYd(direct) == kDetourMaxYd && MoveFallbackYd(plan.steps[1]) == kMoveFallbackYd);
+}
+
+static void TestR22NoStandInSkipsTheMoveWithoutAPause()
+{
+    DungeonPlan plan = RfkS85Plan();
+    Facts f = AtRfk(2153.0f, 1589.0f, 80.5f);
+    Run r = Start(&plan, 1);
+    std::string const move = Tick(r, f);
+    GlueRefused(r, move, kBareUnreachable, false);
+    CHECK(r.state == State::Running && r.step == 2);
+    CHECK(r.note.find("step 2 move to 2180.0 1604.0 81.2 skipped: no walkable path; the party goes on to step 3 "
+                      "(no reachable point within 25 yd of it: unreachable") == 0);
+    // An off-mesh answer is the same.
+    Run o = Start(&plan, 1);
+    GlueRefused(o, Tick(o, f), "off-mesh: The point is not on the navmesh.", false);
+    CHECK(o.state == State::Running && o.step == 2);
+    // A refusal for the lead bot's state (not a path verdict) still pauses as before.
+    Run b = Start(&plan, 1);
+    GlueRefused(b, Tick(b, f), "busy: The lead bot is casting.", false);
+    CHECK(b.state == State::Paused && b.step == 1);
+}
+
+static void TestR22SecondRefusalOfTheStepSkips()
+{
+    DungeonPlan plan = RfkS85Plan();
+    Facts f = AtRfk(2153.0f, 1589.0f, 80.5f);
+    // r22: the stand-in was the plan's point itself (on the ground), so the walk around sent the same order.
+    Run r = Start(&plan, 1);
+    std::string const move = Tick(r, f);
+    GlueRefused(r, move, kBareUnreachable, true, 2180.0f, 1604.0f, 81.2f);
+    CHECK(r.detour && r.state == State::Running);
+    CHECK(Tick(r, f) == move);
+    CHECK(r.note == "walking around: the plan's point is off the walkable way");
+    CHECK(!MoveFallbackWanted(r));
+    GlueRefused(r, move, kBareUnreachable, true, 2179.0f, 1604.0f, 81.2f);
+    CHECK(r.state == State::Running && r.step == 2 && !r.detour);
+    CHECK(r.note.find("step 2 move to 2180.0 1604.0 81.2 skipped: no walkable path; the party goes on to step 3 "
+                      "(refused again after the walk to the nearest reachable point") == 0);
+    // The stand-in's own order refused: the same skip.
+    Run d = Start(&plan, 1);
+    GlueRefused(d, Tick(d, f), kBareUnreachable, true, 2165.0f, 1600.0f, 81.0f);
+    std::string const around = Tick(d, f);
+    CHECK(around == "move 2165.0 1600.0 81.0" && OwnMoveOrder(d, around));
+    GlueRefused(d, around, kBareUnreachable, false);
+    CHECK(d.state == State::Running && d.step == 2);
+    // After a step reset (what a resume does: the detour is cleared), the second refusal skips; no new stand-in.
+    Run s = Start(&plan, 1);
+    GlueRefused(s, Tick(s, f), kBareUnreachable, true, 2165.0f, 1600.0f, 81.0f);
+    ResetStep(s);
+    CHECK(!s.detour && !MoveFallbackWanted(s));
+    CHECK(Tick(s, f) == move);
+    GlueRefused(s, move, kBareUnreachable, true, 2165.0f, 1600.0f, 81.0f);
+    CHECK(s.state == State::Running && s.step == 2 && !s.detour);
+}
+
+// Codex review of 44f083c8: the move right before a pull or a boss (the fight's approach stand) is not skipped:
+// the pause as before; a stand-in is still taken. A move before another move is skipped as before.
+static void TestR22MoveBeforeAFightIsNotSkipped()
+{
+    for (PlanStepKind const kind : {PlanStepKind::Pull, PlanStepKind::Boss})
+    {
+        DungeonPlan plan;
+        plan.steps = {Step(PlanStepKind::Move, 40), Step(kind, 60), Step(PlanStepKind::Rest)};
+        Run r = Start(&plan, 0);
+        GlueRefused(r, "move 40.0 0.0 0.0", kBareUnreachable, false);
+        CHECK(r.state == State::Paused && r.step == 0);
+        CHECK(r.note.find(" (no reachable point within 25 yd of it either)") != std::string::npos);
+        Run d = Start(&plan, 0);
+        GlueRefused(d, "move 40.0 0.0 0.0", kBareUnreachable, true, 30.0f, 0.0f, 0.0f);
+        CHECK(d.state == State::Running && d.detour && d.step == 0);
+        // Its stand-in refused too: the pause, not a skip, and its note does not claim a search that did not run.
+        GlueRefused(d, "move 30.0 0.0 0.0", kBareUnreachable, false);
+        CHECK(d.state == State::Paused && d.step == 0);
+        CHECK(d.note.find("within 25 yd") == std::string::npos &&
+            d.note.find("(refused again in this step, after its walk to the nearest reachable point)") != std::string::npos);
+        // Opus review of 44f083c8: resumed, the step is a first refusal again: a stand-in from the new spot is taken.
+        CHECK(Resume(d));
+        CHECK(MoveFallbackWanted(d) && d.moveRefusals == 0);
+        GlueRefused(d, "move 40.0 0.0 0.0", kBareUnreachable, true, 35.0f, 0.0f, 0.0f);
+        CHECK(d.state == State::Running && d.detour && d.detourX == 35.0f);
+    }
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 60), Step(PlanStepKind::Rest)};
+    Run m = Start(&plan, 0);
+    GlueRefused(m, "move 40.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(m.state == State::Running && m.step == 1);
+    // Opus re-review of db8689bf: steps that neither move nor fight are looked past (move, rest, pull; move,
+    // wait_clear, boss; move, rest, hold): the move is still the fight's approach stand.
+    for (PlanStepKind const between : {PlanStepKind::Rest, PlanStepKind::WaitClear})
+        for (PlanStepKind const kind : {PlanStepKind::Pull, PlanStepKind::Boss, PlanStepKind::Hold})
+        {
+            DungeonPlan q;
+            q.steps = {Step(PlanStepKind::Move, 40), Step(between, 40), Step(kind, 60), Step(PlanStepKind::Rest)};
+            Run a = Start(&q, 0);
+            CHECK(NeverSkipMove(a));
+            GlueRefused(a, "move 40.0 0.0 0.0", kBareUnreachable, false);
+            CHECK(a.state == State::Paused && a.step == 0);
+        }
+    // The plan's last move (only a rest after it): nothing to set up, skipped.
+    DungeonPlan last;
+    last.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Rest)};
+    Run l = Start(&last, 0);
+    CHECK(!NeverSkipMove(l));
+    GlueRefused(l, "move 40.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(l.state == State::Running && l.step == 1);
+    // ... but a move after the rest ends the look: move, rest, move, pull skips the first move.
+    DungeonPlan q;
+    q.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Rest), Step(PlanStepKind::Move, 50), PullStep(60, {1})};
+    Run b = Start(&q, 0);
+    CHECK(!NeverSkipMove(b));
+    GlueRefused(b, "move 40.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(b.state == State::Running && b.step == 1);
+}
+
+// The real r22-19z40 shape: step 85's move (2180.0 1604.0 81.2) is pull 42's approach stand, right before the
+// pull. Lead decision: such a stand with no path pauses (the plan data moves the stand); what this code removes
+// is the loop. Refused, the stand-in refused too: the pause. Resumed, the step searches a stand-in afresh from the
+// lead bot's new spot (and may hop it off an island) instead of pausing at once.
+static void TestR22RealStep85ApproachStandPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 2153.0f, 1589.0f, 80.5f), Step(PlanStepKind::Move, 2180.0f, 1604.0f, 81.2f),
+        PullStep(2183.1f, {4440}), Step(PlanStepKind::Rest)};
+    Facts f = AtRfk(2153.0f, 1589.0f, 80.5f);
+    Run r = Start(&plan, 1);
+    std::string const move = Tick(r, f);
+    CHECK(move == "move 2180.0 1604.0 81.2" && NeverSkipMove(r));
+    // r22: the stand-in was the plan's point itself; the walk around sent the same order, refused again.
+    GlueRefused(r, move, kBareUnreachable, true, 2180.0f, 1604.0f, 81.2f);
+    CHECK(r.state == State::Running && r.detour);
+    GlueRefused(r, move, kBareUnreachable, true, 2180.0f, 1604.0f, 81.2f);
+    CHECK(r.state == State::Paused && r.step == 1);
+    CHECK(r.note == std::string("cmd ") + move + " refused: " + kBareUnreachable +
+        " (refused again in this step, after its walk to the nearest reachable point)");
+    CHECK(Resume(r));
+    CHECK(r.moveRefusals == 0 && MoveFallbackWanted(r));
+    GlueRefused(r, move, kBareUnreachable, true, 2165.0f, 1600.0f, 81.0f);
+    CHECK(r.state == State::Running && r.detour && r.detourX == 2165.0f);
+    // The island hop is allowed again after the resume (Uldaman r16's ramp tip, the move before a pull).
+    DungeonPlan u = UldamanS39Plan();
+    u.steps.insert(u.steps.begin() + 2, PullStep(-150.0f, {4860}));
+    Facts g = OnRampTip();
+    Run i = Start(&u, 1);
+    std::string const um = Tick(i, g);
+    CHECK(um == "move -163.5 298.7 -52.8" && NeverSkipMove(i));
+    GlueRefused(i, um, kNoWalkablePath, true, -160.0f, 298.7f, -52.8f);
+    CHECK(i.detour && !i.islandSuspect);
+    GlueRefused(i, um, kNoWalkablePath, false);
+    CHECK(i.state == State::Paused && !i.islandSuspect); // the second refusal: no hop, the pause
+    CHECK(Resume(i) && i.moveRefusals == 0);
+    CHECK(MoveRefusedUnreachable(i, um, kNoWalkablePath, false, 0, 0, 0));
+    CHECK(i.state == State::Running && i.islandSuspect && i.note.find("navmesh island") != std::string::npos);
+}
+
+// Opus review of 44f083c8: a step the run goes back to (EventFailed, RearmEventOnWipe) starts its refusals and
+// the run of skips over: the party comes forward again from elsewhere.
+static void TestR22RewindForgetsMoveRefusals()
+{
+    Run r;
+    r.moveRefusedStep = 4;
+    r.moveRefusals = 1;
+    r.unreachableSkips = {2, 3};
+    ForgetMoveRefusals(r);
+    CHECK(r.moveRefusedStep == static_cast<std::size_t>(-1) && r.moveRefusals == 0 && r.unreachableSkips.empty());
+    // Both rewinds call it (a ritual plan: the ritual at step 1 starts the event, a hold at step 3).
+    DungeonPlan plan;
+    PlanStep ritual = Step(PlanStepKind::Ritual, 0);
+    PlanStep hold = Step(PlanStepKind::Hold, 0);
+    hold.flags = ai::kPlanFlagDoneData | ai::kPlanFlagEncounter;
+    plan.steps = {Step(PlanStepKind::Move, 10), ritual, Step(PlanStepKind::Move, 20), hold, Step(PlanStepKind::Rest)};
+    Run e = Start(&plan, 3);
+    e.moveRefusedStep = 2;
+    e.moveRefusals = 1;
+    e.unreachableSkips = {2};
+    EventFailed(e, "test");
+    CHECK(e.step == 1 && e.moveRefusals == 0 && e.moveRefusedStep == static_cast<std::size_t>(-1) &&
+        e.unreachableSkips.empty());
+    Run w = Start(&plan, 3);
+    w.moveRefusedStep = 2;
+    w.moveRefusals = 1;
+    w.unreachableSkips = {2};
+    Facts f = Party(0);
+    f.eventData = static_cast<long long>(ai::kPlanEncounterFail);
+    CHECK(RearmEventOnWipe(w, f));
+    CHECK(w.step == 1 && w.moveRefusals == 0 && w.unreachableSkips.empty());
+    // A plain move resumed keeps its count (its second refusal skips it: r22).
+    DungeonPlan p2;
+    p2.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 60), Step(PlanStepKind::Rest)};
+    Run m = Start(&p2, 0);
+    GlueRefused(m, "move 40.0 0.0 0.0", kBareUnreachable, true, 30.0f, 0.0f, 0.0f);
+    Pause(m, "test");
+    CHECK(Resume(m) && m.moveRefusals == 1 && !MoveFallbackWanted(m));
+}
+
+// Opus review of 44f083c8 (4): a stand-in whose navmesh path from the lead bot is longer than 40 yd is not taken.
+static void TestR22StandInPathIsCapped()
+{
+    CHECK(DetourPointReachable(false, false, 0.0f, 20.0f, 20.0f, 20.0f + kDetourMaxPathYd));
+    CHECK(!DetourPointReachable(false, false, 0.0f, 20.0f, 20.0f, 20.0f + kDetourMaxPathYd + 0.1f));
+    CHECK(!DetourPointReachable(false, false, 0.0f, 20.0f, 20.0f, 120.0f)); // r22: the walk round the west hall
+    // The cap is on the extra way, not the whole path: a move goes out with the lead bot up to 60 yd off.
+    // The lead bot 50 yd from the stand-in: a 75 yd path is accepted, a 95 yd one is not.
+    CHECK(DetourPointReachable(false, false, 0.0f, 50.0f, 50.0f, 75.0f));
+    CHECK(DetourPointReachable(false, false, 0.0f, 50.0f, 50.0f, 50.0f + kDetourMaxPathYd));
+    CHECK(!DetourPointReachable(false, false, 0.0f, 50.0f, 50.0f, 95.0f));
+}
+
+// Lead decision: three plain moves skipped in a row (no step done in between) pause the run, naming them and
+// the lead bot's spot; a step done the normal way starts the count over.
+static void TestR22ThreeSkipsInARowPause()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 80), Step(PlanStepKind::Move, 120),
+        Step(PlanStepKind::Move, 160), Step(PlanStepKind::Move, 200), Step(PlanStepKind::Rest)};
+    Facts f = Party(0);
+    Run r = Start(&plan, 0);
+    r.leadLastX = 1.5f;
+    r.leadLastY = 2.0f;
+    r.leadLastZ = 3.0f;
+    GlueRefused(r, "move 40.0 0.0 0.0", kBareUnreachable, false);
+    GlueRefused(r, "move 80.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(r.state == State::Running && r.step == 2 && r.unreachableSkips.size() == 2);
+    GlueRefused(r, "move 120.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(r.state == State::Paused && r.step == 3);
+    CHECK(r.note == "three moves in a row had no walkable path: the lead bot may be in the wrong part of the instance "
+                    "(steps 1, 2 and 3 skipped; the lead bot at 1.5 2.0 3.0)");
+    // After the resume the count starts over: the next skip does not pause.
+    CHECK(Resume(r));
+    CHECK(r.unreachableSkips.empty());
+    // A completed step in between resets it: skip, done, skip, skip = no pause.
+    Run c = Start(&plan, 0);
+    GlueRefused(c, "move 40.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(c.step == 1);
+    f.leadX = 80;
+    for (int i = 0; i < 5 && c.step == 1; ++i)
+        Tick(c, f);
+    CHECK(c.step == 2 && c.unreachableSkips.empty());
+    GlueRefused(c, "move 120.0 0.0 0.0", kBareUnreachable, false);
+    GlueRefused(c, "move 160.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(c.state == State::Running && c.step == 4 && c.unreachableSkips.size() == 2);
+}
+
+static void TestR22PullAndDirectStepsKeepTheirRefusals()
+{
+    DungeonPlan plan = RfkS85Plan();
+    Facts f = AtRfk(2153.0f, 1589.0f, 80.5f);
+    // A pull step's refused move (an approach or a gather): not the move fallback; the pause as before.
+    Run p = Start(&plan, 3);
+    std::string const hop = "move 2183.1 0.0 0.0";
+    CHECK(!OwnMoveOrder(p, hop));
+    CHECK(!MoveRefusedUnreachable(p, hop, kBareUnreachable, true, 2170.0f, 0.0f, 0.0f));
+    CHECK(p.step == 3 && !p.detour && p.state == State::Running);
+    GlueRefused(p, hop, kBareUnreachable, true, 2170.0f, 0.0f, 0.0f);
+    CHECK(p.state == State::Paused && p.step == 3 && p.note == std::string("cmd ") + hop + " refused: " + kBareUnreachable);
+    // A direct step, and the plain move right before one: never skipped (the hole's crossing needs them).
+    DungeonPlan d;
+    d.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::MoveDirect, 60), Step(PlanStepKind::Rest)};
+    Run m = Start(&d, 0);
+    std::string const before = Tick(m, Party(0));
+    CHECK(before == "move 40.0 0.0 0.0");
+    GlueRefused(m, before, kBareUnreachable, false);
+    CHECK(m.state == State::Paused && m.step == 0);
+    CHECK(m.note.find(std::string(kBareUnreachable) + " (no reachable point within 25 yd of it either)") != std::string::npos);
+    Run x = Start(&d, 1);
+    x.gatherWaived = true;
+    x.step = 1;
+    CHECK(!MoveRefusedUnreachable(x, "move 60.0 0.0 0.0 direct", kBareUnreachable, false, 0, 0, 0));
+    CHECK(x.step == 1);
+    // A direct step's stand-in stays within 15 yd.
+    Run y = Start(&d, 1);
+    CHECK(!UseDetour(y, 40, 0, 0) && UseDetour(y, 50, 0, 0));
+    // A refusal from the lead bot's own spot (an island) past the hop's caps: the pause, not a skip of every step.
+    Run i = Start(&plan, 1);
+    std::string const move = Tick(i, f);
+    i.islandEscapes = kIslandEscapes;
+    GlueRefused(i, move, kNoWalkablePath, false);
+    CHECK(i.state == State::Paused && i.step == 1);
 }
 
 // Opus review of 51fc904f: the guard's walk back to the stand point is the step's own point (the stay anchor, the
@@ -8703,7 +9033,7 @@ static void TestGuardReturnThroughTheGlue()
     Run d = Start(&plan, 1);
     SetGuardReturn(d, -163.5f, 298.7f, -52.8f);
     d.detour = false;
-    GlueRefused(d, back, kNoWalkablePath, true);
+    GlueRefused(d, back, kNoWalkablePath, true, -160.0f, 298.7f, -52.8f);
     CHECK(!d.islandSuspect && d.state == State::Running);
     // A bare `unreachable` through the glue: the guard branch, 'going on from here', as before.
     Run b = Start(&plan, 1);
@@ -8925,23 +9255,33 @@ static void TestDetourCandidateLeadsOn()
     // The pit point: lead at 45.3 374.4 (3.2 yd away), the candidate's probe partial,
     // ending 1.1 yd from it and 1.1 + 3.2 yd from the lead.
     CHECK(DetourPointReachable(false, false, 0.0f, 20.0f, 3.2f));
-    CHECK(!DetourCandidateLeadsOn(false, true, 1.1f, 4.3f, fromPoint));
+    CHECK(!DetourCandidateLeadsOn(false, true, 1.1f, 4.3f, fromPoint, 10.0f, 0.0f));
     // Same pit point, lead at 42.5 376.3 (2.0 yd): refused as before by the arrive rule.
     CHECK(!DetourPointReachable(false, false, 0.0f, 20.0f, 2.0f));
     // A pit point whose probe ends in the pit at more than 10 yd from the lead and from itself would lead on
     // (the same rule as a ring spot's): the lead's own end distance stays the second gate.
-    CHECK(!DetourCandidateLeadsOn(false, true, kGoodPathMinYd + 1, 3.0f, fromPoint)); // ends near the lead
-    CHECK(!DetourCandidateLeadsOn(false, true, 3.0f, kGoodPathMinYd + 1, fromPoint)); // ends near the candidate
+    CHECK(!DetourCandidateLeadsOn(false, true, kGoodPathMinYd + 1, 3.0f, fromPoint, 10.0f, 0.0f)); // ends near the lead
+    CHECK(!DetourCandidateLeadsOn(false, true, 3.0f, kGoodPathMinYd + 1, fromPoint, 10.0f, 0.0f)); // ends near the candidate
     // A main-mesh candidate outside the pit: its probe is complete -> accepted.
-    CHECK(DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, fromPoint));
+    CHECK(DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, fromPoint, 10.0f, 0.0f));
     // ... or partial but leading on well past both.
-    CHECK(DetourCandidateLeadsOn(false, true, kGoodPathMinYd + 1, kGoodPathMinYd + 1, fromPoint));
+    CHECK(DetourCandidateLeadsOn(false, true, kGoodPathMinYd + 1, kGoodPathMinYd + 1, fromPoint, 10.0f, 0.0f));
     // No path at all from the candidate: refused.
-    CHECK(!DetourCandidateLeadsOn(true, false, 0.0f, 12.0f, fromPoint));
-    // The plan's own point (or one within kArriveYd of it) has nothing to lead on to: not asked.
-    CHECK(DetourCandidateLeadsOn(true, false, 0.0f, 0.0f, 0.0f));
-    CHECK(DetourCandidateLeadsOn(false, true, 0.0f, 0.0f, kArriveYd));
-    CHECK(!DetourCandidateLeadsOn(false, true, 0.0f, 0.0f, kArriveYd + 0.1f));
+    CHECK(!DetourCandidateLeadsOn(true, false, 0.0f, 12.0f, fromPoint, 10.0f, 0.0f));
+    // The plan's own point (or one within kArriveYd of it): asked since the r22-19z40 review. Its probe complete,
+    // ending at the point, on the point's level: accepted.
+    CHECK(DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, 0.0f, 0.0f, 0.0f));
+    CHECK(DetourCandidateLeadsOn(false, false, 2.0f, 12.0f, kArriveYd, kArriveYd, kDetourCloseMaxDz));
+    // Across a wall: the probe found no path, or a partial one: refused.
+    CHECK(!DetourCandidateLeadsOn(true, false, 0.0f, 12.0f, 2.0f, 2.0f, 0.0f));
+    CHECK(!DetourCandidateLeadsOn(false, true, 0.0f, 12.0f, 2.0f, 2.0f, 0.0f));
+    // A complete probe that ends short of the point (snapped onto another polygon): refused.
+    CHECK(!DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, 2.0f, kArriveYd + 0.1f, 0.0f));
+    // Up or down a ledge (more than 4 yd): refused.
+    CHECK(!DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, 1.0f, 0.5f, kDetourCloseMaxDz + 0.1f));
+    CHECK(!DetourCandidateLeadsOn(false, false, 0.0f, 12.0f, 1.0f, 0.5f, -(kDetourCloseMaxDz + 0.1f)));
+    // Past kArriveYd the ring spot's rule, as before.
+    CHECK(!DetourCandidateLeadsOn(false, true, 0.0f, 0.0f, kArriveYd + 0.1f, 5.0f, 0.0f));
     // The lead itself within kArriveYd of the candidate: still refused before the probe is read.
     CHECK(!DetourPointReachable(false, false, 0.0f, 0.0f, kArriveYd));
 }
@@ -13928,6 +14268,15 @@ int main()
     TestNonPathRefusalUnchanged();
     TestBareUnreachableIsNoIslandSign();
     TestGuardReturnThroughTheGlue();
+    TestR22RefusedMoveWalksToAStandInWithin25Yd();
+    TestR22NoStandInSkipsTheMoveWithoutAPause();
+    TestR22SecondRefusalOfTheStepSkips();
+    TestR22PullAndDirectStepsKeepTheirRefusals();
+    TestR22ThreeSkipsInARowPause();
+    TestR22MoveBeforeAFightIsNotSkipped();
+    TestR22RewindForgetsMoveRefusals();
+    TestR22RealStep85ApproachStandPauses();
+    TestR22StandInPathIsCapped();
     TestGoodPathClearsTheRefusalSign();
     TestForwardMoveIslandNeedsSecondSign();
     TestForwardMoveNoPathLedgeEscapes();

@@ -9453,10 +9453,11 @@ bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& o
 }
 
 // A point the lead bot can walk to on its navmesh, as near as possible to
-// (x,y,z) and at most DungeonRun::kDetourMaxYd from it: the point itself on the
-// ground first, then rings of 3, 6, 10 and 15 yd around it (12 directions,
-// each put on the ground). Only run when a move was refused, never per tick.
-bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, float& oy, float& oz)
+// (x,y,z) and at most maxYd from it (DungeonRun::MoveFallbackYd: 25 yd for a
+// plain move, 15 for a direct step): the point itself on the ground first, then
+// rings of 3, 6, 10, 15, 20 and 25 yd around it, those within maxYd (12
+// directions, each put on the ground). Only run when a move was refused, never per tick.
+bool NearestReachablePoint(Player* lead, float x, float y, float z, float maxYd, float& ox, float& oy, float& oz)
 {
     Map* map = lead->GetMap();
     if (!map)
@@ -9475,7 +9476,7 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
         // and off the lead bot (r9-19z26: a ring point 1.3 yd from it on its island).
         if (!TortoiseBots::DungeonRun::DetourPointReachable((type & PATHFIND_NOPATH) != 0,
                 (type & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(end.x, end.y, end.z, px, py, ground),
-                DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground)))
+                DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground), path.Length()))
             return false;
         // And its OWN path toward the plan's point leads on (r13-19z30 Uldaman: the
         // pit the tank fell into has a ring point the lead's path reaches, and no way out).
@@ -9485,7 +9486,8 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
         Vector3 const probeEnd = probe.getActualEndPosition();
         if (!TortoiseBots::DungeonRun::DetourCandidateLeadsOn((probeType & PATHFIND_NOPATH) != 0,
                 (probeType & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(probeEnd.x, probeEnd.y, probeEnd.z, px, py, ground),
-                DistanceTo(lead, probeEnd.x, probeEnd.y, probeEnd.z), ai::PlanDistance(px, py, ground, x, y, z)))
+                DistanceTo(lead, probeEnd.x, probeEnd.y, probeEnd.z), ai::PlanDistance(px, py, ground, x, y, z),
+                ai::PlanDistance(probeEnd.x, probeEnd.y, probeEnd.z, x, y, z), ground - z))
             return false;
         ox = px;
         oy = py;
@@ -9494,9 +9496,9 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
     };
     if (reachable(x, y, z))
         return true;
-    float const rings[] = {3.0f, 6.0f, 10.0f, TortoiseBots::DungeonRun::kDetourMaxYd};
+    float const rings[] = {3.0f, 6.0f, 10.0f, 15.0f, 20.0f, 25.0f};
     for (float ring : rings)
-        for (int i = 0; i < 12; ++i)
+        for (int i = 0; ring <= maxYd && i < 12; ++i)
         {
             float const angle = static_cast<float>(i) * 3.14159265f / 6.0f;
             if (reachable(x + ring * std::cos(angle), y + ring * std::sin(angle), z))
@@ -11719,27 +11721,23 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             return;
         if (!accepted)
         {
-            // A move point the navmesh cannot reach: walk around to the nearest
-            // reachable point near it before giving up (never a silent skip).
+            // A move point the navmesh cannot reach (the step's own move or its
+            // detour's): DungeonRun::MoveRefusedUnreachable walks to the nearest
+            // reachable point near it (searched only when MoveFallbackWanted), hops
+            // the lead bot off a navmesh island, or skips the plain move with a note.
+            // Not a gather or regroup move to the lead bot's spot, nor an approach hop.
             float dx = 0.0f, dy = 0.0f, dz = 0.0f;
             ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(it->second.run);
-            // Only a refusal of the step's own point starts a detour (not of a
-            // gather or regroup move to the lead bot's spot, nor of an approach hop).
-            bool const ownMove = step && (step->kind == ai::PlanStepKind::Move ||
-                step->kind == ai::PlanStepKind::MoveDirect) &&
-                order == TortoiseBots::DungeonRun::MoveOrder(step->x, step->y, step->z,
-                    step->kind == ai::PlanStepKind::MoveDirect);
-            bool const unreachable = ownMove &&
-                (answer.compare(0, 11, "unreachable") == 0 || answer.compare(0, 8, "off-mesh") == 0);
-            // No detour either: a refusal for want of a path from the lead bot's own
-            // spot is the island's second sign (Uldaman r16-19z34 step 39): the next
-            // tick hops it off before the run pauses (RefusedFromIsland, its caps).
-            if (!(unreachable && step && !it->second.run.detour &&
-                    NearestReachablePoint(lead, step->x, step->y, step->z, dx, dy, dz) &&
-                    TortoiseBots::DungeonRun::UseDetour(it->second.run, dx, dy, dz)) &&
-                !(unreachable && TortoiseBots::DungeonRun::RefusedFromIsland(it->second.run, order, answer)))
+            bool const unreachable = TortoiseBots::DungeonRun::OwnMoveOrder(it->second.run, order) &&
+                TortoiseBots::DungeonRun::UnreachableAnswer(answer);
+            bool const searched = unreachable && TortoiseBots::DungeonRun::MoveFallbackWanted(it->second.run);
+            bool const found = searched &&
+                NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::MoveFallbackYd(*step),
+                    dx, dy, dz);
+            if (!(unreachable &&
+                    TortoiseBots::DungeonRun::MoveRefusedUnreachable(it->second.run, order, answer, found, dx, dy, dz)))
                 TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +
-                    (unreachable ? " (no reachable point within 15 yd of it either)" : ""));
+                    (unreachable ? TortoiseBots::DungeonRun::NoStandInNote(*step, searched) : std::string()));
         }
     }
     it = DungeonRuns().find(commanderRaw);

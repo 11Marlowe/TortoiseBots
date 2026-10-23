@@ -143,16 +143,18 @@ class IslandEscapeWiringTest(unittest.TestCase):
         f = body(COMMANDS, "bool NearestReachablePoint(", "\n}\n")
         check = at(f, "if (!TortoiseBots::DungeonRun::DetourPointReachable((type & PATHFIND_NOPATH) != 0,\n"
                       "                (type & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(end.x, end.y, end.z, px, py, ground),\n"
-                      "                DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground)))\n            return false;")
+                      "                DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground), path.Length()))\n            return false;")
         self.assertLess(check, at(f, "ox = px;"))
         self.assertNotIn("> 5.0f)", f)
         # r13-19z30 Uldaman: the candidate's own probe toward the plan's point leads on too (a closed pit).
         probe = at(f, "probe.calculate(Vector3(px, py, ground), Vector3(x, y, z), false);")
         leads = at(f, "if (!TortoiseBots::DungeonRun::DetourCandidateLeadsOn((probeType & PATHFIND_NOPATH) != 0,")
         self.assertTrue(check < probe < leads < at(f, "ox = px;"))
-        at(f, "DistanceTo(lead, probeEnd.x, probeEnd.y, probeEnd.z), ai::PlanDistance(px, py, ground, x, y, z)))\n            return false;")
+        at(f, "DistanceTo(lead, probeEnd.x, probeEnd.y, probeEnd.z), ai::PlanDistance(px, py, ground, x, y, z),\n"
+              "                ai::PlanDistance(probeEnd.x, probeEnd.y, probeEnd.z, x, y, z), ground - z))\n            return false;")
         q = body(POLICY, "inline bool DetourCandidateLeadsOn(", "\n}\n")
-        at(q, "candidateFromPointYd <= kArriveYd ||")
+        # r22-19z40 review: a candidate close to the point is asked too (complete, reaching, <= 4 yd up or down).
+        at(q, "if (candidateFromPointYd <= kArriveYd)\n        return !probeNoPath && !probeIncomplete && probeEndFromPointYd <= kArriveYd &&")
         at(q, "RingSpotLeadsOn(probeNoPath, probeIncomplete, probeEndFromCandidateYd, probeEndFromLeadYd)")
         p = body(POLICY, "inline bool DetourPointReachable(", "\n}\n")
         at(p, "RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd)")
@@ -176,13 +178,18 @@ class IslandEscapeWiringTest(unittest.TestCase):
         # a ramp's dead-end tip, no ring point passed, and the run paused although the
         # escape had not run. The glue asks RefusedFromIsland after the detour search
         # and before OrderRefused (the pause), and only for an own-move path refusal.
+        # Since r22-19z40 the order lives in DungeonRun::MoveRefusedUnreachable, which the glue asks
+        # before OrderRefused (test_run_leader_wiring.py pins the glue's side).
         f = body(COMMANDS, "        if (!accepted)\n        {", "\n        }\n")
-        detour = at(f, "NearestReachablePoint(lead, step->x, step->y, step->z, dx, dy, dz) &&")
-        use = at(f, "TortoiseBots::DungeonRun::UseDetour(it->second.run, dx, dy, dz)) &&")
-        island = at(f, "!(unreachable && TortoiseBots::DungeonRun::RefusedFromIsland(it->second.run, order, answer)))")
+        detour = at(f, "NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::MoveFallbackYd(*step),")
+        handled = at(f, "TortoiseBots::DungeonRun::MoveRefusedUnreachable(it->second.run, order, answer, found, dx, dy, dz)))")
         refused = at(f, "TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +")
-        self.assertTrue(detour < use < island < refused)
+        self.assertTrue(detour < handled < refused)
         self.assertEqual(f.count("OrderRefused("), 1)
+        m = body(POLICY, "inline bool MoveRefusedUnreachable(", "\n}\n")
+        use = at(m, "if (!again && found && UseDetour(r, dx, dy, dz))")
+        island = at(m, "if (!again && RefusedFromIsland(r, order, answer))")
+        self.assertTrue(use < island < at(m, "NextStep(r,"))
         p = body(POLICY, "inline bool PathRefusalIslandSign(", "\n}\n")
         at(p, "LeadNoProgressRefusal(answer)")
         # The source-side evidence: CommanderMove marks the no-progress refusal (RemoteCommander::NoProgressFromLead).
