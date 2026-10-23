@@ -34,6 +34,20 @@ class PlayerInPartyWiringTest(unittest.TestCase):
 
     def test_release_takes_the_bots_out_when_the_commander_is_gone(self):
         rel = strip_comments(body(COMMANDS, "uint32 ReleaseBinding(uint64 commanderRaw,", "\n}\n"))
+        # The bound group is found without the live lead too (round 3): the pure pick over the lead's group, the
+        # group store by id and a surviving follower's or the commander's group.
+        self.assertIn("Group* const byId = removed.groupId ? sObjectMgr.GetGroupById(removed.groupId) : nullptr;", rel)
+        self.assertIn("survivors.push_back(commanderRaw);", rel)
+        self.assertIn("groupFacts.leadGroupMatches = leadGroup && leadGroup->GetId() == removed.groupId;", rel)
+        self.assertIn("groupFacts.groupById = byId != nullptr;", rel)
+        self.assertIn("groupFacts.groupViaMember = viaMember != nullptr;", rel)
+        self.assertIn("switch (RemoteCommander::PickReleaseGroup(groupFacts))", rel)
+        self.assertIn("case RemoteCommander::ReleaseGroupSource::ById: boundGroup = byId; break;", rel)
+        self.assertIn("case RemoteCommander::ReleaseGroupSource::Member: boundGroup = viaMember; break;", rel)
+        self.assertIn("not found, nothing to clean up", rel)
+        self.assertIn("if (removed.inParty)\n        if (Group* group = boundGroup)", rel)
+        self.assertIn("present.leadFound = lead && group->IsMember(lead->GetObjectGuid());", rel)
+        self.assertIn("if (group->IsLeader(ObjectGuid(removed.leadGuid)))", rel)
         # The decision is the pure DecideReleaseParty, fed with the reason and what the glue reads of him.
         self.assertIn("present.reason = reason;", rel)
         self.assertIn("present.inWorld = commander && commander->IsInWorld();", rel)
@@ -48,7 +62,7 @@ class PlayerInPartyWiringTest(unittest.TestCase):
         self.assertIn("if (BotManager::Instance().IsBot(slot.guid))\n                            leaving.push_back(slot.guid);", rel)
         self.assertIn("group->RemoveMember(guid, 0);", rel)
         self.assertIn("else if (action == RemoteCommander::ReleasePartyAction::LeadToCommander &&\n"
-                      "                    group->IsLeader(lead->GetObjectGuid()))\n"
+                      "                    group->IsLeader(ObjectGuid(removed.leadGuid)))\n"
                       "                    group->ChangeLeader(ObjectGuid(commanderRaw));", rel)
         # Before the hires are ended (they are still held by the binding while they leave the party).
         self.assertLess(rel.index("group->RemoveMember(guid, 0);"), rel.index("HireLifecycle::Instance().EndCommand("))

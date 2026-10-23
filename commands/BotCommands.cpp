@@ -4975,22 +4975,52 @@ uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason
     RestoreCommanderAutonomy(removed.leadGuid);
     Player* commander = FindCharacter(commanderRaw);
     Player* lead = FindCharacter(removed.leadGuid);
+    // The bound group, found without the live lead bot too (review round 3: a LeadLeft release has none):
+    // RemoteCommander::PickReleaseGroup over the lead's group, the group store by id, a surviving member's group.
+    Group* const leadGroup = lead ? lead->GetGroup() : nullptr;
+    Group* const byId = removed.groupId ? sObjectMgr.GetGroupById(removed.groupId) : nullptr;
+    Group* viaMember = nullptr;
+    {
+        std::vector<uint64> survivors = removed.followers;
+        survivors.push_back(commanderRaw);
+        for (uint64 raw : survivors)
+            if (Player* member = FindCharacter(raw))
+                if (Group* g = member->GetGroup())
+                    if (g->GetId() == removed.groupId)
+                    {
+                        viaMember = g;
+                        break;
+                    }
+    }
+    RemoteCommander::ReleaseGroupFacts groupFacts;
+    groupFacts.leadGroupMatches = leadGroup && leadGroup->GetId() == removed.groupId;
+    groupFacts.groupById = byId != nullptr;
+    groupFacts.groupViaMember = viaMember != nullptr;
+    Group* boundGroup = nullptr;
+    switch (RemoteCommander::PickReleaseGroup(groupFacts))
+    {
+        case RemoteCommander::ReleaseGroupSource::Lead: boundGroup = leadGroup; break;
+        case RemoteCommander::ReleaseGroupSource::ById: boundGroup = byId; break;
+        case RemoteCommander::ReleaseGroupSource::Member: boundGroup = viaMember; break;
+        case RemoteCommander::ReleaseGroupSource::None:
+            TB_LOG_DETAIL("TortoiseBots: remote commander release: bound group %u not found, nothing to clean up",
+                removed.groupId);
+            break;
+    }
     // A bot that joined after the bind is no follower but may hold the
     // binding's "threat" (noted by AiFactory): release it too.
-    if (Group* group = lead ? lead->GetGroup() : nullptr)
-        if (group->GetId() == removed.groupId)
-            for (Group::MemberSlot const& slot : group->GetMemberSlots())
-            {
-                RestoreCommanderThreatBackoff(slot.guid.GetRawValue());
-                RestoreCommanderAutonomy(slot.guid.GetRawValue());
-            }
+    if (Group* group = boundGroup)
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+        {
+            RestoreCommanderThreatBackoff(slot.guid.GetRawValue());
+            RestoreCommanderAutonomy(slot.guid.GetRawValue());
+        }
     // In-party (review round 1): with the commander no longer in the bound group the binding's bots leave it, so no
     // other player of it becomes their master and the core gives the lead to a player of it; with him in it the
     // lead goes back to him (RemoteCommander::DecideReleaseParty, from the release's reason and his presence). Before the hires are ended below: they are still
     // held by the binding, so leaving the party does not end their hire, and they then go back to him as on any release.
     if (removed.inParty)
-        if (Group* group = lead ? lead->GetGroup() : nullptr)
-            if (group->GetId() == removed.groupId)
+        if (Group* group = boundGroup)
             {
                 RemoteCommander::ReleaseCommanderFacts present;
                 present.inParty = removed.inParty;
@@ -5000,12 +5030,13 @@ uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason
                 present.hasSession = commander && commander->GetSession() &&
                     commander->GetSession()->HasNetworkTransport();
                 present.isMember = group->IsMember(ObjectGuid(commanderRaw));
+                present.leadFound = lead && group->IsMember(lead->GetObjectGuid());
                 RemoteCommander::ReleasePartyAction const action = RemoteCommander::DecideReleaseParty(present);
                 if (action == RemoteCommander::ReleasePartyAction::BotsLeave)
                 {
                     // The lead first to an online real player of the party (never the gone commander), so the
                     // core does not pass it on to an offline member when the leading bot leaves.
-                    if (group->IsLeader(lead->GetObjectGuid()))
+                    if (group->IsLeader(ObjectGuid(removed.leadGuid)))
                         for (Group::MemberSlot const& slot : group->GetMemberSlots())
                         {
                             if (slot.guid.GetRawValue() == commanderRaw || BotManager::Instance().IsBot(slot.guid))
@@ -5028,7 +5059,7 @@ uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason
                             group->RemoveMember(guid, 0);
                 }
                 else if (action == RemoteCommander::ReleasePartyAction::LeadToCommander &&
-                    group->IsLeader(lead->GetObjectGuid()))
+                    group->IsLeader(ObjectGuid(removed.leadGuid)))
                     group->ChangeLeader(ObjectGuid(commanderRaw));
             }
     // The commander's own hires go back to its party (or wait for it to come

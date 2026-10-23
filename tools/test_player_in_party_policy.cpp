@@ -228,7 +228,7 @@ static void TestBindingRelease()
     RC::ReleaseCommanderFacts here;
     here.inParty = true;
     here.reason = RC::ReleaseReason::Unbound;
-    here.found = here.inWorld = here.hasSession = here.isMember = true;
+    here.found = here.inWorld = here.hasSession = here.isMember = here.leadFound = true;
     CHECK(RC::DecideReleaseParty(here) == A::LeadToCommander); // unbind with him in the party
     RC::ReleaseCommanderFacts off = here;
     off.reason = RC::ReleaseReason::Disabled;
@@ -263,6 +263,31 @@ static void TestBindingRelease()
     RC::ReleaseCommanderFacts left = here;
     left.reason = RC::ReleaseReason::CommanderLeftParty;
     CHECK(RC::DecideReleaseParty(left) == A::BotsLeave);
+    // The lead bot gone (round 3): it logged out or was removed (LeadLeft), or it is not in the bound group any
+    // more: the remaining bots leave the players' party, the commander there or not.
+    RC::ReleaseCommanderFacts leadGone = here;
+    leadGone.reason = RC::ReleaseReason::LeadLeft;
+    leadGone.leadFound = false;
+    CHECK(RC::DecideReleaseParty(leadGone) == A::BotsLeave);
+    RC::ReleaseCommanderFacts leadLeftOnly = here;
+    leadLeftOnly.reason = RC::ReleaseReason::LeadLeft;
+    CHECK(RC::DecideReleaseParty(leadLeftOnly) == A::BotsLeave);
+    RC::ReleaseCommanderFacts leadMissing = here;
+    leadMissing.leadFound = false;
+    CHECK(RC::DecideReleaseParty(leadMissing) == A::BotsLeave);
+    // Which group: the lead's own, else the store by id, else a surviving member's; none: nothing to do.
+    using G = RC::ReleaseGroupSource;
+    RC::ReleaseGroupFacts groups;
+    CHECK(RC::PickReleaseGroup(groups) == G::None);
+    groups.groupViaMember = true;
+    CHECK(RC::PickReleaseGroup(groups) == G::Member);
+    groups.groupById = true;
+    CHECK(RC::PickReleaseGroup(groups) == G::ById); // offline lead, online followers and players: found by id
+    groups.leadGroupMatches = true;
+    CHECK(RC::PickReleaseGroup(groups) == G::Lead);
+    RC::ReleaseGroupFacts storeOnly;
+    storeOnly.groupById = true;
+    CHECK(RC::PickReleaseGroup(storeOnly) == G::ById);
     // A classic binding: the party is left alone, gone commander or not.
     RC::ReleaseCommanderFacts classicGone = loggedOut;
     classicGone.inParty = false;
