@@ -1,7 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "OnyxiasLairDungeonTriggers.h"
-#include "playerbot/OnyxiaWhelpEggPolicy.h"
+#include "playerbot/policy/raid/OnyxiaWhelpEggPolicy.h"
 #include "playerbot/strategy/actions/OnyxiasLairDungeonActions.h"
 
 using namespace ai;

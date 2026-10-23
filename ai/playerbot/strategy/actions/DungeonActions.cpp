@@ -7,7 +7,7 @@
 #include "playerbot/strategy/values/LastMovementValue.h"
 #include "playerbot/CombatSpreadPolicy.h"
 #include "playerbot/CastKeepsRunningPolicy.h"
-#include "playerbot/VaelPolicy.h"
+#include "playerbot/policy/raid/VaelPolicy.h"
 #include "playerbot/policy/combat/DebuffSpreadPolicy.h"
 #include "playerbot/BombRunoutPolicy.h"
 #include "playerbot/FourHorsemenRotationPolicy.h"

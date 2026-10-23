@@ -1,4 +1,4 @@
-#include "../ai/playerbot/GeddonInfernoPolicy.h"
+#include "../ai/playerbot/policy/raid/GeddonInfernoPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

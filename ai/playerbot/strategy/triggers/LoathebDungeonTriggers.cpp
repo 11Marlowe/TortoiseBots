@@ -1,6 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "LoathebDungeonTriggers.h"
-#include "playerbot/LoathebSporesPolicy.h"
+#include "playerbot/policy/raid/LoathebSporesPolicy.h"
 #include "Maps/GridNotifiers.h"
 #include "Maps/GridNotifiersImpl.h"
 #include "Maps/CellImpl.h"

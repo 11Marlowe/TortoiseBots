@@ -1,6 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "GluthDungeonActions.h"
-#include "playerbot/GluthKitePolicy.h"
+#include "playerbot/policy/raid/GluthKitePolicy.h"
 #include "AttackAction.h"
 #include "Maps/GridNotifiers.h"
 #include "Maps/GridNotifiersImpl.h"

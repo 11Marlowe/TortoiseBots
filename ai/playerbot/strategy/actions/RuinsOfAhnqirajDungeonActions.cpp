@@ -1,7 +1,7 @@
 #include "playerbot/playerbot.h"
 #include "RuinsOfAhnqirajDungeonActions.h"
-#include "playerbot/OssirianCrystalPolicy.h"
-#include "playerbot/strategy/OssirianCrystalHelper.h"
+#include "playerbot/policy/raid/OssirianCrystalPolicy.h"
+#include "../../policy/raid/OssirianCrystalHelper.h"
 
 using namespace ai;
 

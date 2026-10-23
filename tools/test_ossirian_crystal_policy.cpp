@@ -1,4 +1,4 @@
-#include "../ai/playerbot/OssirianCrystalPolicy.h"
+#include "../ai/playerbot/policy/raid/OssirianCrystalPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

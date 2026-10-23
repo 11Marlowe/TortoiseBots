@@ -5,7 +5,7 @@
 #include "MovementActions.h"
 #include "UseItemAction.h"
 #include "playerbot/strategy/values/GuidPositionValues.h"
-#include "playerbot/RazorgorePolicy.h"
+#include "playerbot/policy/raid/RazorgorePolicy.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/AiObjectContext.h"
 

@@ -1,6 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "KelthuzadDungeonActions.h"
-#include "playerbot/KelthuzadAddsPolicy.h"
+#include "playerbot/policy/raid/KelthuzadAddsPolicy.h"
 #include "playerbot/GroupMembers.h"
 #include <cmath>
 #include "AttackAction.h"

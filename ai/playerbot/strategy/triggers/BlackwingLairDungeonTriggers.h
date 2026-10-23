@@ -1,6 +1,6 @@
 #pragma once
 #include "DungeonTriggers.h"
-#include "playerbot/RazorgorePolicy.h"
+#include "playerbot/policy/raid/RazorgorePolicy.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/strategy/values/PartyMemberToHeal.h"
 #include "GenericTriggers.h"

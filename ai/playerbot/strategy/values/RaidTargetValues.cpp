@@ -1,6 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "RaidTargetValues.h"
-#include "playerbot/RaidFrameworkPolicy.h"
+#include "playerbot/policy/raid/RaidFrameworkPolicy.h"
 #include "Maps/GridNotifiers.h"
 #include "Maps/GridNotifiersImpl.h"
 #include "Maps/CellImpl.h"

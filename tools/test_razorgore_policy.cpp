@@ -1,4 +1,4 @@
-#include "../ai/playerbot/RazorgorePolicy.h"
+#include "../ai/playerbot/policy/raid/RazorgorePolicy.h"
 
 #include <cstdlib>
 #include <iostream>

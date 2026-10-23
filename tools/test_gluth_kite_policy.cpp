@@ -1,4 +1,4 @@
-#include "../ai/playerbot/GluthKitePolicy.h"
+#include "../ai/playerbot/policy/raid/GluthKitePolicy.h"
 
 #include <cstdlib>
 #include <iostream>
