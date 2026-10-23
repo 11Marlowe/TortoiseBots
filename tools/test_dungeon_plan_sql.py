@@ -272,20 +272,22 @@ class DungeonPlanSql(unittest.TestCase):
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
     def test_gnomeregan_is_the_plan_with_the_pack_fixes(self):
-        # 20261023110000 (turtle-agent c8082bc3, 2026-10-23): 20261023070000 (the step-181 stand fix, itself 20261023020000 with the four pull
-        # groups of the unattackable event NPCs 7897 and 7849 removed) carried over unchanged except leg 1's two boss approach moves: the ramp
-        # foot -524 582.7 -230.56 and its top -541.58 534.7 -216.68 before Electrocutioner 6000 (r23 slot 4b, stopped at step 375 of 622:
-        # the exporter's 50 yd cut of the hop to the boss interpolated -541.3 535.5 -222.1, 5.4 yd below the mesh, and the run leader refused
-        # it as unreachable). 5 legs, 621 steps (87 + 37 + 17 + 24 + 4 pulls), bosses in leg order, no door or event step. The plan row has the
-        # unit lists (6223 is kill_first, not cc_priority); the Agent at the Ambassador's own spot is that boss row's entries, not a pull.
-        # Leg 0's cave chain (groups 23-29: the merged 6223/6233 pairs and the 6223/6233 camps) is radius 8 and each has an approach move on its
-        # own floor.
+        # 20261023140000 (turtle-agent f1ac7d0, 2026-10-23): 20261023110000 (leg 1's two boss approach moves before Electrocutioner 6000,
+        # itself 20261023070000's step-181 stand and 20261023020000's four removed event-NPC pulls) carried over unchanged except leg 2's
+        # walk from pull group 1 to the z -312 pack (pull group 2, the third pull of the leg): r24 slot 4 stopped at step 412 of 621 three
+        # times ('8 approach hops did not bring the party within 60.0 yd of the pack, nearest 72.2 / 99.6 / 99.6 yd'), the run leader's
+        # own hops taking the 564 yd navmesh route down the ramp and pausing at z -287, below the z -273 ring. The pack's point is 44.5 yd
+        # straight from the pull before it, so the exporter's 50 yd approach-hop cut never saw it; four approach points on the route export
+        # as the 35 move rows before it, and every one is on the floor (the first cut from the ramp top would float 5.5 yd under the flat
+        # there). 5 legs, 656 steps (87 + 37 + 17 + 24 + 4 pulls), bosses in leg order, no door or event step. The plan row has the unit lists
+        # (6223 is kill_first, not cc_priority); the Agent at the Ambassador's own spot is that boss row's entries, not a pull. Leg 0's cave
+        # chain (groups 23-29: the merged 6223/6233 pairs and the 6223/6233 camps) is radius 8 and each has an approach move on its own floor.
         name, text = newest_plan_text("gnomeregan")
-        self.assertEqual(name, "20261023110000_world.sql")
-        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent c8082bc3 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261023140000_world.sql")
+        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent f1ac7d0 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "gnomeregan")), 5)
         rows = [r for r in self.step_rows(text) if r["plan"] == "gnomeregan"]
-        self.assertEqual(len(rows), 621)
+        self.assertEqual(len(rows), 656)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [87, 37, 17, 24, 4])
         # Step 375 (1-based) is now the Electrocutioner's boss row; the failed exporter cut is gone, and its two approach moves stand before it.
         self.assertEqual((rows[374]["leg"], rows[374]["kind"], rows[374]["entry"]), ("1", "boss", "6235"))
@@ -296,6 +298,23 @@ class DungeonPlanSql(unittest.TestCase):
                          [(-524.0, 582.7, -230.56), (-541.58, 534.7, -216.68)])
         self.assertFalse([r for r in leg1 if abs(float(r["x"]) + 541.31885) < 0.001 and abs(float(r["y"]) - 535.48035) < 0.001],
                          "the off-mesh exporter cut is back")
+        # Leg 2's z -312 pull (r24 slot 4, step 412): the four approach moves on the route down the ramp, the exporter's own cut filling
+        # the path rows between them (leg 2 seq 36-70), then the pull at seq 71. The last approach stand is 32.1 yd from the pack, so the
+        # pull is not cut and the run leader sees it; without these rows the pull stands 44.5 yd straight (564 yd by path) from pull group
+        # 1 and the run leader's own 8 hops pause the run at z -287 (the first cut from the ramp top would float 5.5 yd under the flat there).
+        leg2 = leg_steps(rows, 2)
+        k = [j for j, r in enumerate(leg2) if r["kind"] == "pull" and r["comment"] == "pull group 2"][0]
+        self.assertEqual((int(leg2[k]["seq"]), leg2[k]["entries"], float(leg2[k]["radius"])), (71, "6226", 10.0))
+        approach = [r for r in leg2[:k] if r["kind"] == "move" and r["comment"] == "pull group 2 approach"]
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in approach],
+                         [("-623.2", "510.9332", "-273.05957"), ("-671.10754", "524.2145", "-272.87"),
+                          ("-751.2637", "548.34406", "-290.81"), ("-822.6667", "455.73322", "-308.05957")])
+        self.assertEqual([int(r["seq"]) for r in approach], [53, 54, 57, 70])
+        walk = leg2[36:k]
+        self.assertEqual(len(walk), 35, "the walk to the pull is 35 move rows")
+        self.assertTrue(all(r["kind"] == "move" for r in walk))
+        self.assertAlmostEqual(math.dist([float(approach[-1][c]) for c in ("x", "y", "z")],
+                                         [float(leg2[k][c]) for c in ("x", "y", "z")]), 32.1, places=1)
         # Step 181 (1-based) is the stand before pull group 66's pull, and it is not in the bomb's corridor (x -573..-557, y 74..126).
         steps = leg_steps(rows, 0)
         i = [k for k, r in enumerate(steps) if r["kind"] == "pull" and r["comment"] == "pull group 66"][0]
