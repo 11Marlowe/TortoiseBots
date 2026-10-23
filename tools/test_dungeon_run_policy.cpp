@@ -14099,6 +14099,38 @@ static void TestBossNotAtHisSpotIsSearchedForInTheInstance()
     Tick(o, f);
     CHECK(o.state == State::Paused && o.note.find("boss 3976 not found") == 0 &&
         o.note.find("nor anywhere") == std::string::npos);
+    // Scarlet Graveyard r23 slot 7: every spawn of his belongs to a game event that is not active (Scorn, event 81
+    // "Scourge Invasion"): the step is done with a note, no pause.
+    Run ev = Start(&plan);
+    toWindow(ev, f);
+    Facts eventOff = nothing;
+    eventOff.bossSearchEventOff = true;
+    eventOff.bossSearchEventId = 81;
+    eventOff.bossSearchEventName = "Scourge Invasion";
+    CHECK(Tick(ev, eventOff).empty());
+    CHECK(ev.state == State::Running && ev.step == 1);
+    CHECK(ev.note == "boss skipped: spawn is in inactive game event 81 (Scourge Invasion)");
+    CHECK(BossEventOffNote(81, "") == "boss skipped: spawn is in inactive game event 81");
+    // The same facts without the search read (no glue answer): the old pause.
+    Run evNotRead = Start(&plan);
+    toWindow(evNotRead, f);
+    Facts eventOffNotRead = eventOff;
+    eventOffNotRead.bossSearchRead = false;
+    Tick(evNotRead, eventOffNotRead);
+    CHECK(evNotRead.state == State::Paused && evNotRead.note.find("boss 3976 not found") == 0);
+    // An event spawn that is alive or dead after all (the event runs after all): the old outcomes win.
+    Run evAlive = Start(&plan);
+    toWindow(evAlive, f);
+    Facts eventAlive = alive;
+    eventAlive.bossSearchEventOff = true;
+    Tick(evAlive, eventAlive);
+    CHECK(evAlive.state == State::Paused && evAlive.note.find("boss 3976 is alive at") == 0);
+    Run evDead = Start(&plan);
+    toWindow(evDead, f);
+    Facts eventDead = dead;
+    eventDead.bossSearchEventOff = true;
+    Tick(evDead, eventDead);
+    CHECK(evDead.state == State::Running && evDead.step == 1 && evDead.note.find("boss down") == 0);
     // He walks in while the search is asked: pulled, the window starts over.
     Run w = Start(&plan);
     toWindow(w, f);

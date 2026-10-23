@@ -727,6 +727,14 @@ struct Facts
     bool bossSearchOwnDead = false;
     // ... the entry has no spawn row on the map (a script summons him): nothing could be searched.
     bool bossSearchNoSpawn = false;
+    // ... seen neither alive nor dead, and every spawn row of the entry on the map belongs to a game event that is
+    // not active (game_event_creature or its pool's event, read in sGameEventMgr: such a row spawns only while its
+    // event runs). The event of the step's own spawn and its description. Scarlet Graveyard r23 slot 7: Scorn (14693,
+    // spawn 2350) spawns only with event 81 "Scourge Invasion", whose start and end were 0 on that server, and his
+    // boss step paused "not found" until the run was stopped by hand.
+    bool bossSearchEventOff = false;
+    std::uint32_t bossSearchEventId = 0;
+    std::string bossSearchEventName;
     std::uint64_t bossSearchCorpseGuid = 0;
     float bossSearchCorpseX = 0.0f, bossSearchCorpseY = 0.0f, bossSearchCorpseZ = 0.0f;
     int objectState = -1;               // wait_object, hold done by object: 0 ready, 1 active, 2 active_alt; -1 not found
@@ -5735,6 +5743,14 @@ inline FightEnd FightStepEnd(const Run& r, const Facts& f, const PlanStep& s)
     return f.bossDeadNearSpot || (r.bossSeenAlive && f.bossDeadNearLead) ? FightEnd::BossDown : FightEnd::NotYet;
 }
 
+// The note of a boss step done because every spawn of the boss belongs to a game event that is not active
+// (Facts::bossSearchEventOff). An event without a description is named by its number only.
+inline std::string BossEventOffNote(std::uint32_t eventId, const std::string& eventName)
+{
+    return "boss skipped: spawn is in inactive game event " + std::to_string(eventId) +
+        (eventName.empty() ? std::string() : " (" + eventName + ")");
+}
+
 // pull and boss steps: approach until seen, then pull in order until nothing
 // hostile of the step is left. `order` lists the entries in kill order (empty:
 // any entry, nearest first).
@@ -5946,6 +5962,14 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
                 Num(f.bossSearchCorpseZ) + ", " +
                 Num(ai::PlanDistance(f.bossSearchCorpseX, f.bossSearchCorpseY, f.bossSearchCorpseZ, s.x, s.y, s.z)) +
                 " yd from his spot (an instance search after " + std::to_string(kBossSearchMs / 1000) + " s)");
+            return;
+        }
+        // Seen neither alive nor dead, and every spawn of his belongs to a game event that is not active: he cannot be
+        // in the world, so the step is done with a note, no pause. A boss with any spawn outside such an event keeps
+        // the pause below.
+        if (f.bossSearchRead && f.bossSearchEventOff)
+        {
+            NextStep(r, BossEventOffNote(f.bossSearchEventId, f.bossSearchEventName));
             return;
         }
         // Searched with a spawn in an unloaded grid: the note says only the loaded parts were looked at.

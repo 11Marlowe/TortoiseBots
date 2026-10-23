@@ -76,6 +76,8 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "ObjectMgr.h"
 // pi-lens-ignore: clang:pp_file_not_found
+#include "GameEventMgr.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "ObjectAccessor.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "Player.h"
@@ -10329,6 +10331,18 @@ std::vector<uint32> const& BossSpawnLowGuids(uint32 mapId, uint32 entry)
     return rows;
 }
 
+// The game event a creature spawn row belongs to (game_event_creature, or the event of its top pool), as
+// GuidPosition::GetGameEventId reads it: > 0 the row spawns while that event runs, < 0 it is removed while the
+// event runs, 0 none. GetGameEventId walks the event spawn lists: called only by the boss search below, once per
+// spawn row and search window, on the world thread (UpdateRemoteCommanders).
+int16 CreatureSpawnGameEvent(uint32 low)
+{
+    if (uint16 const topPool = sPoolMgr.IsPartOfTopPool<Creature>(low))
+        if (int16 const event = sGameEventMgr.GetGameEventId<Pool>(topPool))
+            return event;
+    return sGameEventMgr.GetGameEventId<Creature>(low);
+}
+
 // A boss step's instance search (DungeonRun::Facts::bossSearch*), on the tick after the policy asked for it
 // (Run::bossSearchWanted, once per kBossSearchMs window): every spawn of the boss's entry on the lead bot's map,
 // looked up by guid in that map (no grid or world scan), wherever it stands. Alive: one lives (where); dead: one
@@ -10395,6 +10409,37 @@ void ReadBossInInstance(ai::PlanStep const& step, Player* lead, TortoiseBots::Du
             f.bossSearchCorpseY = creature->GetPositionY();
             f.bossSearchCorpseZ = creature->GetPositionZ();
             corpseFromSpot = fromSpot;
+        }
+    }
+    // Seen neither alive nor dead: whether every spawn row belongs to a game event that is not active
+    // (Facts::bossSearchEventOff; Scarlet Graveyard's Scorn, event 81 "Scourge Invasion"). One row outside such an
+    // event (none, a removal event, or a running one) and the old pause stands. The event named is the own spawn's.
+    if (!spawns.empty() && !f.bossSearchAlive && !f.bossSearchDead)
+    {
+        bool eventOff = true;
+        int16 ownEvent = 0;
+        int16 firstEvent = 0;
+        for (uint32 low : spawns)
+        {
+            int16 const event = CreatureSpawnGameEvent(low);
+            if (event <= 0 || sGameEventMgr.IsActiveEvent(static_cast<uint16>(event)))
+            {
+                eventOff = false;
+                break;
+            }
+            if (!firstEvent)
+                firstEvent = event;
+            if (low == own)
+                ownEvent = event;
+        }
+        if (eventOff)
+        {
+            uint16 const id = static_cast<uint16>(ownEvent ? ownEvent : firstEvent);
+            f.bossSearchEventOff = true;
+            f.bossSearchEventId = id;
+            GameEventMgr::GameEventDataMap const& events = sGameEventMgr.GetEventMap();
+            if (id < events.size())
+                f.bossSearchEventName = events[id].description;
         }
     }
 }

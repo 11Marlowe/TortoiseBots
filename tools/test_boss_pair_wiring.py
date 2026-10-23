@@ -83,6 +83,26 @@ class BossPairWiringTest(unittest.TestCase):
         self.assertIn("if (it != cache.end())\n        return it->second;", spawns)
         self.assertIn("sObjectMgr.DoCreatureData(worker);", spawns)
 
+    def test_boss_search_reads_inactive_game_events(self):
+        # Scarlet Graveyard r23 slot 7: Scorn's only spawn belongs to event 81 (Scourge Invasion), never started. The
+        # search marks a boss whose every spawn row is in a game event that is not active, only when it saw him neither
+        # alive nor dead; one row outside such an event (none, a removal event, a running one) clears the mark.
+        self.assertIn('#include "GameEventMgr.h"', COMMANDS)
+        event = body(CODE, "int16 CreatureSpawnGameEvent(uint32 low)")
+        self.assertIn("sPoolMgr.IsPartOfTopPool<Creature>(low)", event)
+        self.assertIn("sGameEventMgr.GetGameEventId<Pool>(topPool)", event)
+        self.assertIn("return sGameEventMgr.GetGameEventId<Creature>(low);", event)
+        search = body(CODE, "void ReadBossInInstance(ai::PlanStep const& step, Player* lead,")
+        self.assertIn("if (!spawns.empty() && !f.bossSearchAlive && !f.bossSearchDead)", search)
+        self.assertIn("int16 const event = CreatureSpawnGameEvent(low);", search)
+        self.assertIn("if (event <= 0 || sGameEventMgr.IsActiveEvent(static_cast<uint16>(event)))\n            {\n"
+                      "                eventOff = false;", search)
+        self.assertIn("f.bossSearchEventOff = true;", search)
+        self.assertIn("f.bossSearchEventId = id;", search)
+        self.assertIn("f.bossSearchEventName = events[id].description;", search)
+        # Read after the alive/dead loop, so the mark sees what the loop found.
+        self.assertLess(search.index("f.bossSearchDead = true;"), search.index("CreatureSpawnGameEvent(low)"))
+
     def test_resume_of_a_held_unit_is_not_refused(self):
         # Codex review round 1: the pause for a unit held at 1 hp is resumed like any other.
         self.assertNotIn("unit-cannot-die", CODE)
