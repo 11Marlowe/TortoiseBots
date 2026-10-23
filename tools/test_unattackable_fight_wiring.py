@@ -69,7 +69,7 @@ class UnattackableFightWiringTest(unittest.TestCase):
     def test_ceiling_self_resume_counts_unattackable_combat_as_quiet(self):
         resume = body(CODE, "bool partyInCombat = false;", "CeilingFightOverWhilePaused(slot.run, partyInCombat, dt)")
         self.assertIn("ReadEngagedUnits(lead, pausedBots, engaged);", resume)
-        self.assertIn("partyInCombat = TortoiseBots::DungeonRun::FightOn(slot.run, engaged);", resume)
+        self.assertIn("partyInCombat = TortoiseBots::DungeonRun::FightOn(slot.run, engaged, dt);", resume)
 
 
 if __name__ == "__main__":

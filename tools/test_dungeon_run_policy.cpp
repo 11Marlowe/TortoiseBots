@@ -12723,11 +12723,19 @@ static void TestUnattackableOnlyFightIsNoFight()
     f.leadInCombat = true;
     f.engagedRead = true;
     f.engagedUnits = {Bomb()};
-    // A fight already past the ceiling with only the bomb left: no pause, the fight is over.
+    // The same bomb-only set for the grace (kUnattackableGraceMs of ticks in a row): the fight goes on and the
+    // step stays until then; on the grace's last tick the fight is over, with no pause.
     Run r = Start(&plan);
-    CHECK(UnattackableOnlyFight(f) && UnattackableFightLetGo(r, f) && !FightOn(r, f));
+    CHECK(UnattackableOnlyFight(f) && UnattackableFightLetGo(r, f));
     r.fighting = true;
-    r.fightMs = kFightCapMs + 5000;
+    r.fightMs = 10000;
+    std::uint32_t const graceTicks = kUnattackableGraceMs / kTickMs;
+    for (std::uint32_t i = 1; i < graceTicks; ++i)
+    {
+        Tick(r, f);
+        CHECK(r.state == State::Running && r.fighting && r.step == 0);
+    }
+    CHECK(r.fightMs == 10000 + (graceTicks - 1) * kTickMs);
     Tick(r, f);
     CHECK(r.state == State::Running && !r.fighting);
     CHECK(r.note.find("lasted more than") == std::string::npos);
@@ -12741,6 +12749,41 @@ static void TestUnattackableOnlyFightIsNoFight()
     for (int i = 0; i < 5; ++i)
         Tick(r, f);
     CHECK(r.state == State::Running && r.phase == Phase::Walk && !r.fighting);
+    // A live mob that is attackable, then unattackable 1..9 s (a burrow, a phase), then attackable again: the
+    // fight and the step stay on all through, its timer runs on.
+    UnitFact mobNow = Engaged(Unit(0xF13000183E00763Dull, 6206, 3));
+    for (std::uint32_t gap = 1; gap < graceTicks; ++gap)
+    {
+        Run m = Start(&plan);
+        Facts on = f;
+        on.engagedUnits = {mobNow};
+        Facts off = on;
+        off.engagedUnits[0].attackable = false;
+        Tick(m, on);
+        for (std::uint32_t i = 0; i < gap; ++i)
+        {
+            Tick(m, off);
+            CHECK(m.state == State::Running && m.fighting && m.step == 0);
+        }
+        Tick(m, on);
+        CHECK(m.state == State::Running && m.fighting && m.step == 0 && m.unattackableMs == 0);
+        CHECK(m.fightMs == (gap + 2) * kTickMs);
+    }
+    // A changed set starts the grace over: 6 s of the bomb, then 6 s of the bomb and another unattackable unit,
+    // still a fight at 12 s; the second set's own 10 s end it.
+    Run cs = Start(&plan);
+    Facts two = f;
+    UnitFact other = Bomb();
+    other.guid = 0xF130001ED90075B7ull;
+    two.engagedUnits = {Bomb(), other};
+    for (int i = 0; i < 6; ++i)
+        Tick(cs, f);
+    for (std::uint32_t i = 0; i < 6; ++i)
+        Tick(cs, two);
+    CHECK(cs.state == State::Running && cs.fighting && cs.step == 0 && cs.unattackableMs == 6 * kTickMs);
+    for (std::uint32_t i = 6; i < graceTicks; ++i)
+        Tick(cs, two);
+    CHECK(cs.state == State::Running && !cs.fighting);
     // The note is made once per stretch: a later tick does not add it again.
     CHECK(r.note.find("cannot attack only") == std::string::npos);
     // One attackable unit with it: a real fight, its timer runs, and the ceiling pause names both units.
@@ -12749,7 +12792,7 @@ static void TestUnattackableOnlyFightIsNoFight()
     q.fightMs = kFightCapMs + 5000;
     Facts g = f;
     g.engagedUnits = {Engaged(Unit(0xF13000183E00763Dull, 6206, 3)), Bomb()};
-    CHECK(!UnattackableOnlyFight(g) && FightOn(q, g));
+    CHECK(!UnattackableOnlyFight(g) && FightOn(q, g, kTickMs));
     Tick(q, g);
     CHECK(q.state == State::Paused && q.ceilingPaused);
     CHECK(q.note == "a fight lasted more than 180 s (kept on by entry 6206 (0xF13000183E00763D) attackable, "
@@ -12760,29 +12803,33 @@ static void TestUnattackableOnlyFightIsNoFight()
     o.fightMs = kFightCapMs + 5000;
     Facts h = f;
     h.engagedRead = false;
-    CHECK(!UnattackableOnlyFight(h) && FightOn(o, h));
+    CHECK(!UnattackableOnlyFight(h) && FightOn(o, h, kTickMs));
     Tick(o, h);
     CHECK(o.state == State::Paused && o.note == "a fight lasted more than 180 s");
     // Read and nothing engaged is the stale flag's (its grace, then its ceiling), not this rule.
     Facts e = f;
     e.engagedUnits.clear();
     e.staleCombat = true;
-    CHECK(!UnattackableOnlyFight(e) && FightOn(o, e));
+    CHECK(!UnattackableOnlyFight(e) && FightOn(o, e, kTickMs));
     CHECK(EngagedUnitsNote(e) == "nothing hostile engaged");
     // Out of combat it is nothing at all.
     Facts c = f;
     c.anyInCombat = false;
-    CHECK(!UnattackableOnlyFight(c) && !FightOn(o, c));
+    CHECK(!UnattackableOnlyFight(c) && !FightOn(o, c, kTickMs));
     // The note names at most kEngagedNoteMax units, then counts the rest.
     Facts many = g;
     many.engagedUnits.clear();
     for (std::uint64_t i = 0; i < kEngagedNoteMax + 2; ++i)
         many.engagedUnits.push_back(Engaged(Unit(100 + i, 6206, 3)));
     CHECK(EngagedUnitsNote(many).find(", 2 more") != std::string::npos);
-    // The ceiling pause's self-resume reads the fight the same way (the glue passes FightOn): only the bomb
-    // left is quiet.
-    CHECK(CeilingFightOverWhilePaused(q, FightOn(q, f), kCeilingQuietMs));
-    CHECK(q.state == State::Running);
+    // The ceiling pause's self-resume reads the fight the same way (the glue passes FightOn, which ticks the
+    // grace): only the bomb left is quiet once the grace is over, then kCeilingQuietMs more.
+    int resumedAt = 0;
+    for (int i = 1; i <= 40 && q.state == State::Paused; ++i)
+        if (CeilingFightOverWhilePaused(q, FightOn(q, f, kTickMs), kTickMs))
+            resumedAt = i;
+    CHECK(q.state == State::Running &&
+        resumedAt == static_cast<int>((kUnattackableGraceMs + kCeilingQuietMs) / kTickMs) - 1);
     // A boss step and an event keep the fight: a boss or an event unit may stand unattackable in its own fight
     // (a phase); its timer runs and its ceiling pauses, naming the unit.
     DungeonPlan bossPlan;
@@ -12791,7 +12838,7 @@ static void TestUnattackableOnlyFightIsNoFight()
     boss.entries = {7897};
     bossPlan.steps = {boss};
     Run b = Start(&bossPlan);
-    CHECK(!UnattackableFightLetGo(b, f) && FightOn(b, f));
+    CHECK(!UnattackableFightLetGo(b, f) && FightOn(b, f, kTickMs));
     b.fighting = true;
     b.fightMs = kBossFightCapMs + 5000;
     Tick(b, f);
@@ -12802,7 +12849,7 @@ static void TestUnattackableOnlyFightIsNoFight()
     hold.radius = 30;
     holdPlan.steps = {hold};
     Run ev = Start(&holdPlan);
-    CHECK(InEvent(ev) && !UnattackableFightLetGo(ev, f) && FightOn(ev, f));
+    CHECK(InEvent(ev) && !UnattackableFightLetGo(ev, f) && FightOn(ev, f, kTickMs));
 }
 
 // A unit the group cannot attack is never pulled, picked up, engaged, focused or crowd-controlled by the run,

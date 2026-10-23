@@ -1139,6 +1139,10 @@ struct Run
     // The last tick's combat was with units the group cannot attack only (UnattackableOnlyFight): the note
     // about it is made on the first tick of each such stretch.
     bool unattackableFight = false;
+    // UnattackableGraceTick: the engaged units (guids, sorted) of the current only-unattackable stretch, and
+    // how long that same set has stood so without a break.
+    std::vector<std::uint64_t> unattackableSet;
+    std::uint32_t unattackableMs = 0;
     std::size_t ceilingResumedStep = static_cast<std::size_t>(-1); // the step that has used its one self-resume (ResetStep keeps it)
     std::uint32_t eventIdleMs = 0; // out of a fight with an awake event unit standing
     std::uint32_t eventUp = 0, eventDown = 0, eventTotal = 0; // the event's units now: awake, dead, all seen
@@ -7603,7 +7607,7 @@ inline void UpdateHold(Run& r, const Facts& f)
 // (7897) kept the party in combat, every `attack` on it was refused invalid-target, and "a fight lasted more
 // than 180 s" paused the run four times on that step. Such a fight cannot be won, so it is no fight: Tick runs
 // the step on a view with the combat flags cleared (no fight timer, no ceiling, the step goes on), outside boss
-// steps and events (UnattackableFightLetGo). Only when the
+// steps and events (UnattackableFightLetGo), once the same units stood so for kUnattackableGraceMs. Only when the
 // units were read and at least one is engaged: nothing engaged at all is the stale flag's (Facts::staleCombat),
 // with its own grace and its ceiling.
 inline bool UnattackableOnlyFight(const Facts& f)
@@ -7625,11 +7629,40 @@ inline bool UnattackableFightLetGo(const Run& r, const Facts& f)
     return s && s->kind != PlanStepKind::Boss && !InEvent(r) && UnattackableOnlyFight(f);
 }
 
-// The party is in a fight the run counts as one: in combat, and not one UnattackableFightLetGo lets go.
-// The glue's self-resume of a ceiling pause asks this (CeilingFightOverWhilePaused).
-inline bool FightOn(const Run& r, const Facts& f)
+// One snapshot proves nothing: a live mob can be unattackable for a moment (a burrow, a phase, a scripted
+// transition, spawning in) and come back. The same engaged set (by guid) must stand unattackable-only on a step
+// that lets it go (UnattackableFightLetGo) for this long without a break before the fight counts as no fight.
+constexpr std::uint32_t kUnattackableGraceMs = 10000;
+
+// One tick of that grace (Codex adversarial review of b981daeb): any engaged unit attackable, a step that does
+// not let it go, or a changed set starts it over at once. True once the same set has stood kUnattackableGraceMs.
+inline bool UnattackableGraceTick(Run& r, const Facts& f, std::uint32_t dt)
 {
-    return f.anyInCombat && !UnattackableFightLetGo(r, f);
+    if (!UnattackableFightLetGo(r, f))
+    {
+        r.unattackableSet.clear();
+        r.unattackableMs = 0;
+        return false;
+    }
+    std::vector<std::uint64_t> set;
+    for (const UnitFact& u : f.engagedUnits)
+        set.push_back(u.guid);
+    std::sort(set.begin(), set.end());
+    if (set != r.unattackableSet)
+    {
+        r.unattackableSet = std::move(set);
+        r.unattackableMs = dt;
+    }
+    else
+        r.unattackableMs += dt;
+    return r.unattackableMs >= kUnattackableGraceMs;
+}
+
+// The party is in a fight the run counts as one: in combat, and not one the grace above has let go (it ticks
+// the grace). The glue's self-resume of a ceiling pause asks this (CeilingFightOverWhilePaused).
+inline bool FightOn(Run& r, const Facts& f, std::uint32_t dt)
+{
+    return f.anyInCombat && !UnattackableGraceTick(r, f, dt);
 }
 
 // A creature guid as the traces print it (0xF130001ED90075B6).
@@ -7693,9 +7726,9 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
 
 inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, const RestLines& lines = RestLines())
 {
-    // Combat with units the group cannot attack only is no fight (UnattackableOnlyFight): the step runs on a
-    // view with the combat flags cleared.
-    bool const unattackable = UnattackableFightLetGo(r, in);
+    // Combat with units the group cannot attack only is no fight (UnattackableOnlyFight) once the same units
+    // have stood so for the grace (UnattackableGraceTick): the step runs on a view with the combat flags cleared.
+    bool const unattackable = UnattackableGraceTick(r, in, dt);
     Facts quiet;
     if (unattackable)
     {

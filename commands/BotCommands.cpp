@@ -11393,7 +11393,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                     TortoiseBots::DungeonRun::Facts engaged;
                     engaged.anyInCombat = true;
                     ReadEngagedUnits(lead, pausedBots, engaged);
-                    partyInCombat = TortoiseBots::DungeonRun::FightOn(slot.run, engaged);
+                    partyInCombat = TortoiseBots::DungeonRun::FightOn(slot.run, engaged, dt);
                 }
                 if (TortoiseBots::DungeonRun::CeilingFightOverWhilePaused(slot.run, partyInCombat, dt))
                 {
