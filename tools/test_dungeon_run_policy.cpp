@@ -1761,6 +1761,95 @@ static void TestApproachCapTriesAStandNearThePackBeforeThePause()
     CHECK(d.approachStandStep == static_cast<std::size_t>(-1) && d.approachStand == 0);
 }
 
+// Sunken Temple r25 slot 4 step 5: `cmd move -449.5 25.9 -148.0` from 157 yd away was
+// refused 'too-far: The point is more than 150 yd (AiPlayerbot.ReactDistance) ...' and
+// the run paused. The refused walk's move now goes out in legs of at most 120 yd along
+// the lead bot's navmesh path (the glue's LegOnPath, PointAlongPath on its segments).
+static void TestMoveRefusedTooFarGoesInLegsAlongThePath()
+{
+    std::string const tooFar = "too-far: The point is more than 150 yd (AiPlayerbot.ReactDistance) from the lead bot. "
+        "Move in shorter legs.";
+    // The leg is on the path's segments, not on the straight line to its end.
+    std::vector<PathPoint> path = {{0, 0, 0}, {100, 0, 0}, {100, 100, 0}};
+    float x = 0, y = 0, z = 0;
+    CHECK(PointAlongPath(path, 120, x, y, z) && x == 100 && y == 20 && z == 0);
+    CHECK(PointAlongPath(path, 500, x, y, z) && x == 100 && y == 100); // shorter: its end
+    std::vector<PathPoint> line = {{0, 0, 0}, {200, 0, 10}};
+    CHECK(PointAlongPath(line, 120, x, y, z) && std::fabs(x - 119.8f) < 0.1f && std::fabs(z - 6.0f) < 0.1f);
+    std::vector<PathPoint> stub = {{0, 0, 0}, {2, 0, 0}};
+    CHECK(!PointAlongPath(stub, 120, x, y, z));   // no progress
+    CHECK(!PointAlongPath({{0, 0, 0}}, 120, x, y, z));
+    CHECK(ReactTooFarAnswer(tooFar));
+    CHECK(!ReactTooFarAnswer("too-far: Jinkla is not with Tankkinz (no way onto the line)"));
+    CHECK(!ReactTooFarAnswer("unreachable: The lead bot has no walkable path to that point."));
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 200), Step(PlanStepKind::Move, 210)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts f = Party(0);
+    f.seen = true;
+    std::string const move = Tick(r, f);
+    CHECK(move == "move 200.0 0.0 0.0");
+    CHECK(TooFarLegWanted(r, move, tooFar));
+    CHECK(!TooFarLegWanted(r, "move 200.0 0.0 0.0 direct", tooFar));
+    CHECK(!TooFarLegWanted(r, "move 10.0 0.0 0.0", tooFar)); // not the walk's own point
+    CHECK(!TooFarLegWanted(r, move, "busy: The lead bot is casting."));
+    CHECK(TooFarLegTaken(r, f, 120, 0, 0, true, ""));
+    CHECK(r.state == State::Running && r.legOn && r.walkLegs == 1);
+    CHECK(r.note.find("the move to 200.0 0.0 0.0 is beyond the lead bot's reach: walking a leg of the way first, to "
+        "120.0 0.0 0.0 (leg 1)") == 0);
+    // On its way: no new order; at the leg's end the walk's own point again, not a try.
+    f.leadX = 60;
+    CHECK(Tick(r, f).empty());
+    f.leadX = 119;
+    CHECK(Tick(r, f) == move);
+    CHECK(!r.legOn && r.walkTries == 1 && r.state == State::Running);
+    CHECK(r.note.find("the leg 120.0 0.0 0.0 walked: on to 200.0 0.0 0.0") == 0);
+    // A leg the path winds away on (farther from the point first) is no stall while it gains on the leg.
+    Run w = Start(&plan);
+    w.restDue = false;
+    Facts g = Party(0);
+    CHECK(Tick(w, g) == move);
+    CHECK(TooFarLegTaken(w, g, 0, 100, 0, true, ""));
+    for (int i = 1; i <= 8; ++i)
+    {
+        g.leadY = 10.0f * i; // away from the point (200 0 0), toward the leg
+        CHECK(Tick(w, g).empty());
+    }
+    CHECK(w.legOn);
+    // Stalled on the leg's way: the point again after the short stall.
+    std::string sent;
+    for (int i = 0; i < 4 && sent.empty(); ++i)
+        sent = Tick(w, g);
+    CHECK(sent == move && !w.legOn && w.walkTries == 1);
+    // The leg refused too: the refusal goes on as before (the pause).
+    Run q = Start(&plan);
+    q.restDue = false;
+    Facts h = Party(0);
+    CHECK(Tick(q, h) == move);
+    CHECK(!TooFarLegTaken(q, h, 120, 0, 0, false, "busy: x"));
+    OrderRefused(q, move, tooFar);
+    CHECK(q.state == State::Paused && q.note.find("too-far") != std::string::npos);
+    // Bounded: kMaxTooFarLegs legs a walk, then no more.
+    Run b = Start(&plan);
+    b.restDue = false;
+    Facts k = Party(0);
+    CHECK(Tick(b, k) == move);
+    for (std::uint32_t i = 0; i < kMaxTooFarLegs; ++i)
+    {
+        CHECK(TooFarLegWanted(b, move, tooFar));
+        CHECK(TooFarLegTaken(b, k, 20.0f * (i + 1), 0, 0, true, ""));
+        k.leadX = 20.0f * (i + 1); // the leg walked, the point refused again from here
+        CHECK(Tick(b, k) == move);
+    }
+    CHECK(!TooFarLegWanted(b, move, tooFar));
+    // A fresh walk starts the count over.
+    k.leadX = 200;
+    Tick(b, k);
+    CHECK(b.step == 1);
+    CHECK(Tick(b, k) == "move 210.0 0.0 0.0" && b.walkLegs == 0 && !b.legOn);
+}
+
 // Uldaman 19z13, Revelosh loot step 20: the lead bot may not loot the corpse
 // (quest item 7741, another member's turn). The step is done once any party bot
 // carries the item; else the bot whose turn it is, then each living bot, is
@@ -14452,6 +14541,7 @@ int main()
     TestFarPackHopIsNotUndoneByTheGatherBack();
     TestApproachHopCapCountsHopsWithoutProgress();
     TestApproachCapTriesAStandNearThePackBeforeThePause();
+    TestMoveRefusedTooFarGoesInLegsAlongThePath();
     TestItemCarrierIsPickedFromTheStepsOwnInputs();
     TestUseItemPausesOnSplitInputs();
     TestLootStepIsDoneWhenAnyPartyBotHasTheItem();

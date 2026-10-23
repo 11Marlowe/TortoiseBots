@@ -9469,6 +9469,23 @@ bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& o
     return false;
 }
 
+// A leg toward (x,y,z) for a move refused too-far (DungeonRun::TooFarLegWanted): the
+// point maxYd along the lead bot's own navmesh path to it (the path `cmd move` reads,
+// DungeonRun::PointAlongPath on its segments), never a straight line. False when the
+// navmesh gives no path built on it (no path, a shortcut, a path not using the mesh).
+bool LegOnPath(Player* lead, float x, float y, float z, float maxYd, float& ox, float& oy, float& oz)
+{
+    PathFinder path(lead);
+    path.calculate(x, y, z, false);
+    uint32 const type = static_cast<uint32>(path.getPathType());
+    if (type & (PATHFIND_NOPATH | PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT))
+        return false;
+    std::vector<TortoiseBots::DungeonRun::PathPoint> points;
+    for (Vector3 const& p : path.getPath())
+        points.push_back(TortoiseBots::DungeonRun::PathPoint{p.x, p.y, p.z});
+    return TortoiseBots::DungeonRun::PointAlongPath(points, maxYd, ox, oy, oz);
+}
+
 // A point the lead bot can walk to on its navmesh, as near as possible to
 // (x,y,z) and at most maxYd from it (DungeonRun::MoveFallbackYd: 25 yd for a
 // plain move, 15 for a direct step): the point itself on the ground first, then
@@ -11803,7 +11820,33 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         // A stalled walk's `direct` move refused: the walk goes on without it (DungeonRun::StallDirectRefused).
         bool const stallDirectRefused = !accepted &&
             TortoiseBots::DungeonRun::StallDirectRefused(it->second.run, order, answer);
-        if (!accepted && !stallDirectRefused)
+        // A walk's move refused too-far (beyond ReactDistance): a leg of at most kTooFarLegYd
+        // along the lead bot's navmesh path goes out instead of the pause (DungeonRun::TooFarLegTaken).
+        bool legTaken = false;
+        std::string legNote;
+        if (!accepted && !stallDirectRefused && TortoiseBots::DungeonRun::TooFarLegWanted(it->second.run, order, answer))
+        {
+            float lx = 0.0f, ly = 0.0f, lz = 0.0f;
+            TortoiseBots::DungeonRun::Run& run = it->second.run;
+            // Never longer than the reach the refusal named (a leg along the path is no
+            // farther from the lead bot in a straight line than along it).
+            float const legYd = std::min(TortoiseBots::DungeonRun::kTooFarLegYd, sPlayerbotAIConfig.reactDistance - 10.0f);
+            if (lead->IsAlive() && lead->IsInWorld() && legYd > 0.0f &&
+                LegOnPath(lead, run.walkX, run.walkY, run.walkZ, legYd, lx, ly, lz))
+            {
+                std::string legAnswer;
+                bool const legAccepted = IssueRunOrder(commander, TortoiseBots::DungeonRun::MoveOrder(lx, ly, lz, false),
+                    legAnswer);
+                it = DungeonRuns().find(commanderRaw);
+                if (it == DungeonRuns().end())
+                    return;
+                legTaken = TortoiseBots::DungeonRun::TooFarLegTaken(it->second.run, facts, lx, ly, lz, legAccepted,
+                    legAnswer);
+                if (!legTaken)
+                    legNote = " (a leg of the way was refused too: " + legAnswer + ")";
+            }
+        }
+        if (!accepted && !stallDirectRefused && !legTaken)
         {
             // A move point the navmesh cannot reach (the step's own move or its
             // detour's): DungeonRun::MoveRefusedUnreachable walks to the nearest
@@ -11820,7 +11863,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                     dx, dy, dz);
             if (!(unreachable &&
                     TortoiseBots::DungeonRun::MoveRefusedUnreachable(it->second.run, order, answer, found, dx, dy, dz)))
-                TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +
+                TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer + legNote +
                     (unreachable ? TortoiseBots::DungeonRun::NoStandInNote(*step, searched) : std::string()));
         }
     }

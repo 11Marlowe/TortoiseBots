@@ -137,6 +137,8 @@ constexpr std::uint32_t kDirectJoinHolds = 10;
 constexpr std::uint32_t kWalkRetryMs = 12000;     // no progress for this long: send the move again
 constexpr std::uint32_t kShortStallMs = 3000;     // a plain walk within kStalledArriveYd that gains nothing this long arrived
 constexpr std::uint32_t kWalkTries = 3;           // ... at most this often, then pause
+constexpr float kTooFarLegYd = 120.0f;            // a move refused too-far (ReactDistance) goes out in legs this long ...
+constexpr std::uint32_t kMaxTooFarLegs = 6;       // ... at most this many per walk, then the refusal pauses as before
 constexpr float kWalkProgressYd = 2.0f;
 // An exact waypoint (ai::kPlanFlagExact on a move row: the point a direct step
 // after it is launched from; ExactWalkTo). The Wailing Caverns hop to Lord
@@ -910,6 +912,13 @@ struct Run
     std::uint8_t stallFallback = 0;
     bool stallStandInWanted = false;
     float walkBestYd = 0.0f;
+    // A walk whose move was refused too-far (beyond AiPlayerbot.ReactDistance) goes in
+    // legs (TooFarLegTaken): the leg under way and how many this walk sent. A fresh walk
+    // clears them.
+    bool legOn = false;
+    float legX = 0.0f, legY = 0.0f, legZ = 0.0f;
+    float legBestYd = 0.0f;
+    std::uint32_t walkLegs = 0;
     // An exact waypoint's tighten (ExactWalkTo): on once the walk to the point
     // ended (3 yd, or a stall within 6 yd); it brings the lead bot onto the
     // point and wants the stand-still proof before the step is done.
@@ -3924,6 +3933,8 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         r.walkBestYd = dist;
         r.stallFallback = 0;
         r.stallStandInWanted = false;
+        r.legOn = false;
+        r.walkLegs = 0;
         order = MoveOrder(x, y, z, direct);
         return false;
     }
@@ -3932,6 +3943,24 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
     {
         r.walkBestYd = dist;
         r.walkStillMs = 0;
+    }
+    // A leg of a move refused too-far (TooFarLegTaken) walked, or stalled on its way: the
+    // walk's own point goes out again from here (in reach now, or the next leg), not a try.
+    // Its progress is the way to the leg (a path can wind away from the point first).
+    float const toLeg = r.legOn ? ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.legX, r.legY, r.legZ) : 0.0f;
+    if (r.legOn && toLeg < r.legBestYd - kWalkProgressYd)
+    {
+        r.legBestYd = toLeg;
+        r.walkStillMs = 0;
+    }
+    if (r.legOn && (toLeg <= kArriveYd || r.walkStillMs >= kShortStallMs))
+    {
+        r.legOn = false;
+        r.walkStillMs = 0;
+        r.note = "the leg " + Num(r.legX) + " " + Num(r.legY) + " " + Num(r.legZ) + " walked: on to " + Num(x) + " " +
+            Num(y) + " " + Num(z) + " (" + Num(dist) + " yd)";
+        order = MoveOrder(x, y, z, direct);
+        return false;
     }
     // A plain walk to a point close by (kStalledArriveYd) that gains nothing at
     // all is done after 3 s: a `cmd move` to a point 3-6 yd away does not move
@@ -5186,6 +5215,84 @@ struct PathPoint
 {
     float x = 0.0f, y = 0.0f, z = 0.0f;
 };
+
+// The point `maxYd` along a navmesh path (its first point the lead bot's spot), on the
+// path's own segments, never a straight line to its end; the path's end when it is
+// shorter. False for a path of fewer than two points or a leg that ends within
+// kArriveYd of the start (no progress).
+inline bool PointAlongPath(const std::vector<PathPoint>& path, float maxYd, float& x, float& y, float& z)
+{
+    if (path.size() < 2)
+        return false;
+    float walked = 0.0f;
+    x = path.back().x;
+    y = path.back().y;
+    z = path.back().z;
+    for (std::size_t i = 1; i < path.size(); ++i)
+    {
+        const PathPoint& a = path[i - 1];
+        const PathPoint& b = path[i];
+        float const len = ai::PlanDistance(a.x, a.y, a.z, b.x, b.y, b.z);
+        if (walked + len >= maxYd && len > 0.0f)
+        {
+            float const t = (maxYd - walked) / len;
+            x = a.x + t * (b.x - a.x);
+            y = a.y + t * (b.y - a.y);
+            z = a.z + t * (b.z - a.z);
+            break;
+        }
+        walked += len;
+    }
+    return ai::PlanDistance(path[0].x, path[0].y, path[0].z, x, y, z) > kArriveYd;
+}
+
+// The answer of a `cmd move` refused for its distance alone: the point is farther than
+// AiPlayerbot.ReactDistance from the lead bot (CommanderMove's TooFar verdict). Not a
+// direct step's too-far, which names a bot that is not with the lead bot.
+inline bool ReactTooFarAnswer(const std::string& answer)
+{
+    return answer.compare(0, 8, "too-far:") == 0 && answer.find("(AiPlayerbot.ReactDistance)") != std::string::npos;
+}
+
+// Sunken Temple r25 slot 4 step 5 (2026-10-23): the walk's `cmd move -449.5 25.9 -148.0`
+// from 157 yd away was refused 'too-far: The point is more than 150 yd
+// (AiPlayerbot.ReactDistance) from the lead bot. Move in shorter legs.' and the run
+// paused. Now such a refusal of the walk's own plain move (any walk: a step's, an
+// approach hop's, a walk back's, a stand's) asks the glue for a leg: the point at most
+// kTooFarLegYd along the lead bot's navmesh path to it (PointAlongPath on the path the
+// server's PathFinder returns); the leg goes out instead of the pause. Bounded by
+// kMaxTooFarLegs per walk.
+inline bool TooFarLegWanted(const Run& r, const std::string& order, const std::string& answer)
+{
+    return r.state == State::Running && r.phase == Phase::Walk && ReactTooFarAnswer(answer) &&
+        order == MoveOrder(r.walkX, r.walkY, r.walkZ, false) && r.walkLegs < kMaxTooFarLegs;
+}
+
+// The glue's leg for a move refused too-far (TooFarLegWanted) went out (`accepted`) as
+// `cmd move lx ly lz`: the walk goes on toward its own point, and once the lead bot
+// stands at the leg (or stalls on its way) WalkTo sends that point again. True: taken
+// (the refusal is handled); false: the refusal goes on as before (OrderRefused).
+inline bool TooFarLegTaken(Run& r, const Facts& f, float lx, float ly, float lz, bool accepted,
+    const std::string& legAnswer)
+{
+    if (!accepted)
+    {
+        r.note = "a leg toward " + Num(r.walkX) + " " + Num(r.walkY) + " " + Num(r.walkZ) + " was refused too (" +
+            legAnswer + ")";
+        return false;
+    }
+    r.legOn = true;
+    r.legX = lx;
+    r.legY = ly;
+    r.legZ = lz;
+    r.legBestYd = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, lx, ly, lz);
+    ++r.walkLegs;
+    r.walkStillMs = 0;
+    r.note = "the move to " + Num(r.walkX) + " " + Num(r.walkY) + " " + Num(r.walkZ) +
+        " is beyond the lead bot's reach: walking a leg of the way first, to " + Num(lx) + " " + Num(ly) + " " + Num(lz) +
+        " (leg " + std::to_string(r.walkLegs) + ")";
+    return true;
+}
 
 // The margin past a pull group's radius a direct walk back keeps from it.
 constexpr float kPackClearanceYd = 10.0f;

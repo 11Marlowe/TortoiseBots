@@ -47,8 +47,9 @@ class StallFallbackWiringTest(unittest.TestCase):
 
     def test_refused_direct_does_not_pause(self):
         self.assertIn("bool const stallDirectRefused = !accepted &&\n"
-                      "            TortoiseBots::DungeonRun::StallDirectRefused(it->second.run, order, answer);\n"
-                      "        if (!accepted && !stallDirectRefused)", COMMANDS)
+                      "            TortoiseBots::DungeonRun::StallDirectRefused(it->second.run, order, answer);\n", COMMANDS)
+        # (a too-far leg, test_approach_walkback_wiring.py, sits between the two since 2026-10-23)
+        self.assertIn("        if (!accepted && !stallDirectRefused && !legTaken)", COMMANDS)
 
     def test_dry_search_refuses_water_and_swim_lines(self):
         fn = body(COMMANDS, "bool NearestReachablePoint(Player* lead,", "\n}\n")

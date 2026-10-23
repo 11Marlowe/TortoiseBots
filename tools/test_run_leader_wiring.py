@@ -765,7 +765,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         # with the stand-in NearestReachablePoint found within MoveFallbackYd (25 yd for a plain move),
         # searched only while MoveFallbackWanted; anything it does not handle pauses as before.
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
-        f = body(COMMANDS, "        if (!accepted && !stallDirectRefused)\n        {", "\n        }\n")
+        f = body(COMMANDS, "        if (!accepted && !stallDirectRefused && !legTaken)\n        {", "\n        }\n")
         code = strip_comments(f)
         own = code.index("TortoiseBots::DungeonRun::OwnMoveOrder(it->second.run, order) &&")
         verdict = code.index("TortoiseBots::DungeonRun::UnreachableAnswer(answer);")
