@@ -143,7 +143,7 @@ class IslandEscapeWiringTest(unittest.TestCase):
         f = body(COMMANDS, "bool NearestReachablePoint(", "\n}\n")
         check = at(f, "if (!TortoiseBots::DungeonRun::DetourPointReachable((type & PATHFIND_NOPATH) != 0,\n"
                       "                (type & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(end.x, end.y, end.z, px, py, ground),\n"
-                      "                DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground)))\n            return false;")
+                      "                DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground), path.Length()))\n            return false;")
         self.assertLess(check, at(f, "ox = px;"))
         self.assertNotIn("> 5.0f)", f)
         # r13-19z30 Uldaman: the candidate's own probe toward the plan's point leads on too (a closed pit).

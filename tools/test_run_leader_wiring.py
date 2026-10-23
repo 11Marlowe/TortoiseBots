@@ -769,12 +769,22 @@ class RunLeaderWiringTest(unittest.TestCase):
         code = strip_comments(f)
         own = code.index("TortoiseBots::DungeonRun::OwnMoveOrder(it->second.run, order) &&")
         verdict = code.index("TortoiseBots::DungeonRun::UnreachableAnswer(answer);")
-        wanted = code.index("unreachable && TortoiseBots::DungeonRun::MoveFallbackWanted(it->second.run) &&")
+        wanted = code.index("bool const searched = unreachable && TortoiseBots::DungeonRun::MoveFallbackWanted(it->second.run);")
         search = code.index("NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::MoveFallbackYd(*step),")
         handled = code.index("TortoiseBots::DungeonRun::MoveRefusedUnreachable(it->second.run, order, answer, found, dx, dy, dz)))")
         refused = code.index("TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +")
         self.assertTrue(own < verdict < wanted < search < handled < refused)
-        self.assertIn("(unreachable ? TortoiseBots::DungeonRun::NoStandInNote(*step) : std::string()));", code)
+        self.assertIn("(unreachable ? TortoiseBots::DungeonRun::NoStandInNote(*step, searched) : std::string()));", code)
+        self.assertIn("bool const searched = unreachable && TortoiseBots::DungeonRun::MoveFallbackWanted(it->second.run);", code)
+        self.assertIn("bool const found = searched &&\n                NearestReachablePoint(", code)
+        # Opus review: the stand-in's path from the lead bot is capped (DetourPointReachable's pathYd).
+        self.assertIn("DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground), path.Length()))",
+                      body(COMMANDS, "bool NearestReachablePoint(", "\n}\n"))
+        self.assertIn("pathYd <= kDetourMaxPathYd &&", body(policy, "inline bool DetourPointReachable(", "\n}\n"))
+        # Every rewind of the step forgets the step's refusals.
+        for fn in ("inline void EventFailed(", "inline bool RearmEventOnWipe("):
+            self.assertIn("ForgetMoveRefusals(r);", body(policy, fn, "\n}\n"))
+        self.assertIn("if (NeverSkipMove(r))\n        ForgetMoveRefusals(r);", body(policy, "inline bool Resume(", "\n}\n"))
         self.assertNotIn("UseDetour(", code)
         self.assertNotIn("15 yd of it either", code)
         # The ring search reaches the radius it is given and no farther.

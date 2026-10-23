@@ -9474,7 +9474,7 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float maxYd,
         // and off the lead bot (r9-19z26: a ring point 1.3 yd from it on its island).
         if (!TortoiseBots::DungeonRun::DetourPointReachable((type & PATHFIND_NOPATH) != 0,
                 (type & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(end.x, end.y, end.z, px, py, ground),
-                DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground)))
+                DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground), path.Length()))
             return false;
         // And its OWN path toward the plan's point leads on (r13-19z30 Uldaman: the
         // pit the tank fell into has a ring point the lead's path reaches, and no way out).
@@ -11423,13 +11423,14 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(it->second.run);
             bool const unreachable = TortoiseBots::DungeonRun::OwnMoveOrder(it->second.run, order) &&
                 TortoiseBots::DungeonRun::UnreachableAnswer(answer);
-            bool const found = unreachable && TortoiseBots::DungeonRun::MoveFallbackWanted(it->second.run) &&
+            bool const searched = unreachable && TortoiseBots::DungeonRun::MoveFallbackWanted(it->second.run);
+            bool const found = searched &&
                 NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::MoveFallbackYd(*step),
                     dx, dy, dz);
             if (!(unreachable &&
                     TortoiseBots::DungeonRun::MoveRefusedUnreachable(it->second.run, order, answer, found, dx, dy, dz)))
                 TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +
-                    (unreachable ? TortoiseBots::DungeonRun::NoStandInNote(*step) : std::string()));
+                    (unreachable ? TortoiseBots::DungeonRun::NoStandInNote(*step, searched) : std::string()));
         }
     }
     it = DungeonRuns().find(commanderRaw);

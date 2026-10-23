@@ -106,6 +106,7 @@ constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point m
 constexpr float kMoveFallbackYd = 25.0f;          // ... a plain move's point, this far (r22-19z40 Razorfen Kraul step 85)
 constexpr std::size_t kUnreachableSkipsInARow = 3; // moves skipped for want of a path in a row, then pause
 constexpr float kDetourCloseMaxDz = 4.0f;         // a stand-in within kArriveYd of the point: at most this far above or below it
+constexpr float kDetourMaxPathYd = 40.0f;         // ... and the lead bot's navmesh path to it at most this long
 constexpr float kDetourEndYd = 5.0f;              // ... whose navmesh path ends this close to it (DetourPointReachable)
 constexpr float kGatherYd = 20.0f;                // every living bot this close to the lead before a pull
 constexpr float kHopPullYd = 15.0f;               // units this close to the next hop are pulled first
@@ -789,6 +790,8 @@ struct Run
     // ResetStep, so a resume does not start the step's detour over.
     std::size_t moveRefusedStep = static_cast<std::size_t>(-1);
     std::uint32_t moveRefusals = 0;
+    // (ForgetMoveRefusals clears both and unreachableSkips when the run goes back
+    // to an earlier step; Resume clears them for a step that is never skipped.)
     // The moves skipped for want of a path since a step was last done any other
     // way (MoveRefusedUnreachable; NextStep clears it): kUnreachableSkipsInARow pause.
     std::vector<std::size_t> unreachableSkips;
@@ -2513,6 +2516,39 @@ inline PartialStartVerdict CheckPartialStart(bool leadOnInstanceMap, std::size_t
 // `.bot run resume`: the party regroups first (the dead are revived, the
 // living gather on the lead bot), then the paused step starts over with fresh
 // tries; a lead bot far from it walks back on the navmesh (approach hops).
+// The step's move refusals and the run of skips are forgotten: the run went back
+// to an earlier step (EventFailed, RearmEventOnWipe), so the party comes forward
+// again from elsewhere, or a step that is never skipped was resumed.
+inline void ForgetMoveRefusals(Run& r)
+{
+    r.moveRefusedStep = static_cast<std::size_t>(-1);
+    r.moveRefusals = 0;
+    r.unreachableSkips.clear();
+}
+
+// A step that is not a plain move the run may skip when its point is
+// unreachable: a direct step, an exact point, any step not a move, and the
+// move before a direct step (the hole's crossing starts there), a pull, a boss
+// or a hold (the fight's approach stand). Steps that neither move nor fight
+// (rest, waits, use_item) are looked past: a move, a rest, then a pull counts
+// as before the pull.
+inline bool NeverSkipMove(const Run& r)
+{
+    const PlanStep* s = Current(r);
+    if (!s || s->kind != PlanStepKind::Move || IsExactPoint(r.plan, r.step))
+        return true;
+    for (std::size_t i = r.step + 1; i < r.plan->steps.size(); ++i)
+    {
+        PlanStepKind const k = r.plan->steps[i].kind;
+        if (k == PlanStepKind::Rest || k == PlanStepKind::WaitObject || k == PlanStepKind::WaitClear ||
+            k == PlanStepKind::UseItem)
+            continue;
+        return k == PlanStepKind::MoveDirect || k == PlanStepKind::Pull || k == PlanStepKind::Boss ||
+            k == PlanStepKind::Hold;
+    }
+    return false;
+}
+
 inline bool Resume(Run& r)
 {
     if (r.state != State::Paused || !Current(r))
@@ -2523,6 +2559,11 @@ inline bool Resume(Run& r)
     r.fighting = false;
     r.autoRegroups = 0;
     ResetStep(r);
+    // A step that is never skipped starts its refusals over: the next one may
+    // search a stand-in from the lead bot's new spot and hop it off an island.
+    // A plain move keeps them, so its second refusal skips it (r22-19z40).
+    if (NeverSkipMove(r))
+        ForgetMoveRefusals(r);
     BeginRegroup(r);
     r.walkBackDue = true; // a party revived at the entrance walks back the plan's way
     r.note = "resumed: regrouping";
@@ -2699,10 +2740,13 @@ inline bool RingSpotLeadsOn(bool pathNoPath, bool pathIncomplete, float endFromS
 // 10 yd ring point 136 298.7 lay 1.3 yd from the tank on its own rubble island,
 // its path complete, and the step counted as 'arrived' 10.3 yd from the plan's
 // point without a yard walked).
+// Nor one whose path from the lead bot is longer than kDetourMaxPathYd (pathYd;
+// the r22-19z40 review: a 25 yd ring point could mean a long walk round, through
+// packs not cleared yet; r22's own walk around went back 60 yd before its refusal).
 inline bool DetourPointReachable(bool pathNoPath, bool pathIncomplete, float endFromPointYd, float endFromLeadYd,
-    float pointFromLeadYd)
+    float pointFromLeadYd, float pathYd = 0.0f)
 {
-    return pointFromLeadYd > kArriveYd && endFromPointYd <= kDetourEndYd &&
+    return pointFromLeadYd > kArriveYd && endFromPointYd <= kDetourEndYd && pathYd <= kDetourMaxPathYd &&
         RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd);
 }
 
@@ -5688,9 +5732,13 @@ inline bool MoveFallbackWanted(const Run& r)
     return Current(r) && !r.detour && !(r.moveRefusedStep == r.step && r.moveRefusals > 0);
 }
 
-// The glue's words after a refused move that found no stand-in either.
-inline std::string NoStandInNote(const PlanStep& s)
+// The glue's words after a refused move that MoveRefusedUnreachable left to
+// OrderRefused: `searched` (a stand-in search ran and found none), else the
+// step's stand-in was used already (no search ran).
+inline std::string NoStandInNote(const PlanStep& s, bool searched)
 {
+    if (!searched)
+        return " (refused again in this step, after its walk to the nearest reachable point)";
     return " (no reachable point within " + std::to_string(static_cast<int>(MoveFallbackYd(s))) + " yd of it either)";
 }
 
@@ -5732,13 +5780,8 @@ inline bool MoveRefusedUnreachable(Run& r, const std::string& order, const std::
     }
     if (!again && RefusedFromIsland(r, order, answer))
         return true;
-    // The move right before a direct step (the hole's crossing starts there), a
-    // pull or a boss (the fight's approach stand) is never skipped.
     std::size_t const next = r.step + 1;
-    PlanStepKind const nextKind = r.plan && next < r.plan->steps.size() ? r.plan->steps[next].kind : PlanStepKind::None;
-    bool const beforeKeyStep = nextKind == PlanStepKind::MoveDirect || nextKind == PlanStepKind::Pull ||
-        nextKind == PlanStepKind::Boss;
-    if (s->kind != PlanStepKind::Move || IsExactPoint(r.plan, r.step) || beforeKeyStep ||
+    if (NeverSkipMove(r) ||
         (r.guardReturn && order == MoveOrder(r.guardX, r.guardY, r.guardZ, false)) || LeadNoProgressRefusal(answer))
         return false;
     ++r.moveRefusals;
@@ -6572,6 +6615,7 @@ inline void EventFailed(Run& r, const std::string& why)
         r.step = start;
         r.autoRegroups = 0;
         ResetStep(r);
+        ForgetMoveRefusals(r);
         again = ": .bot run resume regroups and starts it again at step " + std::to_string(start + 1) + " (" +
             ai::PlanStepKindName(r.plan->steps[start].kind) + ")";
     }
@@ -6610,6 +6654,7 @@ inline bool RearmEventOnWipe(Run& r, const Facts& f)
         return false;
     r.eventRearmed.insert(start);
     r.step = start;
+    ForgetMoveRefusals(r);
     r.eventRetry = true;
     return true;
 }
