@@ -105,5 +105,23 @@ check("clearto all=1 removes friendly too", world[3].removed and world[1].remove
 reset(); handler(42, gm, "tt clearto 33 0 0 100 50")
 check("clearto without a reference refuses", last():find('"err":"no_reference"', 1, true) and not world[1].removed)
 
+-- a rank-1 member in GM mode is not a reference (it is friendly to everything): refuse rather than clear friendlies
+do
+    reset()
+    local gmBot = player("GmBot", false, 0, 0, 100)
+    gmBot.IsGM = function() return true end
+    local g2 = { GetMembers = function() return { gmBot } end }
+    gmBot.GetGroup = function() return g2 end
+    _G.__players.GmBot = gmBot
+    handler(42, gm, "tt clearto 33 0 0 100 50 of=GmBot")
+    check("clearto: a GM-mode member below min rank is no reference", last():find('"err":"no_reference"', 1, true) and not world[3].removed and not world[1].removed)
+    -- with a normal member behind it, the normal member is used
+    local g3 = { GetMembers = function() return { gmBot, bot } end }
+    gmBot.GetGroup = function() return g3 end
+    reset(); gm.sent = {}
+    handler(42, gm, "tt clearto 33 0 0 100 50 of=GmBot")
+    check("clearto: the normal member after it is the reference", world[1].removed and not world[3].removed)
+end
+
 if fails > 0 then os.exit(1) end
 print("all mock tests passed")

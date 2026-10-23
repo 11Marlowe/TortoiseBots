@@ -508,7 +508,8 @@ local function flagOn(req, name)
     return req.flags[name] or (v ~= nil and v ~= "" and v ~= "0" and v:lower() ~= "false")
 end
 
--- Set of guid hexes hostile to a non-GM group member (a GM caller sees everything as
+-- Set of guid hexes hostile to a non-GM group member (rank below min_gm_rank AND not in GM mode:
+-- TT.creaturesAt treats any IsGM() reference as hostile to everything). (A GM caller sees everything as
 -- friendly, and Eluna has no IsHostileTo). nil, code, msg when no usable member.
 local function hostileSetOf(player, of, x, y, z, r)
     local mapId, inst = player:GetMapId(), player:GetInstanceId()
@@ -516,7 +517,7 @@ local function hostileSetOf(player, of, x, y, z, r)
     for i = 1, #members do
         local m = members[i]
         if m:GetMapId() == mapId and m:GetInstanceId() == inst and m:IsAlive()
-            and m:GetGMRank() < CFG.min_gm_rank then
+            and m:GetGMRank() < CFG.min_gm_rank and not (m.IsGM and m:IsGM()) then
             if TT.dist3(m:GetX(), m:GetY(), m:GetZ(), x, y, z) + r + 30 > CFG.max_search then
                 return nil, "reference_far", string.format("%s is too far from the point to judge friendliness", m:GetName())
             end
