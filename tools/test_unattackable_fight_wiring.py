@@ -36,10 +36,13 @@ class UnattackableFightWiringTest(unittest.TestCase):
         self.assertIn("facts.attackable = order.judge->IsValidAttackTarget(unit);", CODE)
         can = body(CODE, "bool GroupCanAttack(Player* judge, Unit* unit)")
         self.assertIn("judge->IsValidAttackTarget(unit)", can)
-        # The judge is picked as CommanderOrder::judge is: the lead bot, else a living bot on its map.
+        # The judge is picked as CommanderOrder::judge is: the lead bot, else a living bot on its map; a charmed
+        # bot or one not friendly to the lead bot never judges (test_boss_pair_wiring pins RunJudgeFit).
         judge = body(CODE, "Player* RunJudge(Player* lead, std::vector<Player*> const& bots)")
-        self.assertIn("if (lead->IsAlive())\n        return lead;", judge)
-        self.assertIn("bot->IsAlive() && bot->IsInWorld() && bot->GetMap() == lead->GetMap()", judge)
+        self.assertIn("if (RunJudgeFit(lead, lead))\n        return lead;", judge)
+        self.assertIn("if (RunJudgeFit(lead, bot))\n            return bot;", judge)
+        fit = body(CODE, "bool RunJudgeFit(Player* lead, Player* bot)")
+        self.assertIn("!bot->IsAlive() || !bot->IsInWorld() || bot->GetMap() != lead->GetMap()", fit)
 
     def test_engaged_units_feed_the_stale_test_and_the_fight_rule(self):
         read = body(CODE, "void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots,")
