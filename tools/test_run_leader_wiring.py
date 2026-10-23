@@ -79,7 +79,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", early)
         offmap = body(tick, "the lead bot is not on the plan's map", "return;")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", offmap)
-        stop = body(COMMANDS, 'slot.run.note = RunStopNote(rawArg);', "DungeonRuns().erase(it);")
+        stop = body(COMMANDS, 'EndRunEarly(slot.run, RunStopNote(rawArg));', "DungeonRuns().erase(it);")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", stop)
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("f.deadNames.push_back(bot->GetName());", facts)
@@ -138,7 +138,8 @@ class RunLeaderWiringTest(unittest.TestCase):
 
     def test_direct_walk_back_checks_the_path_against_packs(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
-        self.assertIn("f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,\n"
+        self.assertIn("f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan,\n"
+                      "                            TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,\n"
                       "                            slot.run.notCleared);", facts)
 
     def test_guard_reads_every_run_cc_as_held(self):
@@ -424,7 +425,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         tick = body(COMMANDS, "void TickDungeonRun(", "\n}\n")
         self.assertIn("RunTimeLimitReached(slot.elapsedMs, sPlayerbotAIConfig.dungeonRunMaxMinutes)", tick)
         self.assertIn("RunTimeLimitNote(sPlayerbotAIConfig.dungeonRunMaxMinutes)", tick)
-        self.assertIn("slot.run.note = RunStopNote(rawArg);", COMMANDS)
+        self.assertIn("EndRunEarly(slot.run, RunStopNote(rawArg));", COMMANDS) # the note, via EndRunEarly
         config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
         template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
         self.assertIn('"AiPlayerbot.DungeonRunMaxMinutes", 180', config)
@@ -820,10 +821,11 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
 
     def test_stop_and_time_limit_erase_the_run(self):
         stop = body(COMMANDS, 'if (verb == "stop")', 'if (verb == "status")')
-        self.assertIn("slot.run.state = State::Done;", stop)
+        self.assertIn("EndRunEarly(slot.run, RunStopNote(rawArg));", stop) # Done, with the deferred packs left alive
         self.assertIn("DungeonRuns().erase(it);", stop)
         limit = body(COMMANDS, "RunTimeLimitReached(slot.elapsedMs", "return;")
-        self.assertIn("slot.run.state = TortoiseBots::DungeonRun::State::Done;", limit)
+        self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(slot.run,\n"
+                      "            TortoiseBots::DungeonRun::RunTimeLimitNote(", limit)
         self.assertIn("DungeonRuns().erase(it);", limit)
 
     def test_walk_after_rest_stands_the_lead_up_before_the_order(self):
@@ -862,6 +864,23 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
         self.assertLess(tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"), tick.index(log))
         self.assertLess(tick.index("TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);"),
                         tick.index(log))
+
+    def test_runs_ended_early_list_their_deferred_packs(self):
+        # The Opus/Codex review of 6566f84d: a run stopped early (.bot run stop, the time limit, the key switched
+        # off) lists the deferred packs it left alive (DungeonRun::EndRunEarly), never a bare state = Done.
+        code = strip_comments(COMMANDS)
+        self.assertIn("EndRunEarly(slot.run, RunStopNote(rawArg));", body(code, 'if (verb == "stop")', 'if (verb == "status")'))
+        self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(slot.run,", body(code, "RunTimeLimitReached(slot.elapsedMs", "return;"))
+        off = body(code, "if (!sPlayerbotAIConfig.dungeonSelfClear || !sPlayerbotAIConfig.remoteCommander)", "SendRunLine(")
+        self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(entry.second.run,", off)
+        self.assertNotIn("run.state = TortoiseBots::DungeonRun::State::Done;", code)
+        self.assertNotIn("slot.run.state = State::Done;", code)
+
+    def test_direct_walk_back_counts_cleared_pulls_from_the_live_step(self):
+        # The Opus review of 6566f84d: during a deferred pull's retry the run's step is the deferred one; the pulls
+        # cleared after it must not count as live (DungeonRun::LiveFrom: the step the run goes on with).
+        self.assertIn("PathCrossesUnclearedPack(*slot.run.plan,\n"
+                      "                            TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,", COMMANDS)
 
 
 if __name__ == "__main__":

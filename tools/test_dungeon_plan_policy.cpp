@@ -153,6 +153,23 @@ static void TestNormalize()
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
     talk.flags = 0;
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::None && talk.timeoutS == kPlanDefaultTimeoutS);
+    // no_defer (1024, kPlanFlagNoDefer): a pull row keeps the run leader's pause for a pack not reachable from this
+    // floor (DungeonRunPolicy.h PullMayBeDeferred); on any other kind it is refused (the gossip refuses every other flag).
+    CHECK(kPlanFlagNoDefer == 1024);
+    PlanStep keepPull = Step(0, 23, PlanStepKind::Pull);
+    keepPull.entries = {7286};
+    keepPull.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(keepPull) == PlanStepRefusal::None && (keepPull.flags & kPlanFlagNoDefer));
+    PlanStep keepBoss = Step(0, 24, PlanStepKind::Boss);
+    keepBoss.entry = 7271;
+    keepBoss.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(keepBoss) == PlanStepRefusal::BadParam);
+    PlanStep keepMove = Step(0, 25, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    keepMove.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(keepMove) == PlanStepRefusal::BadParam);
+    talk.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    talk.flags = 0;
     // The flag belongs to a gossip row only: on any other kind it is a row the exporter got wrong, refused, not ignored.
     CHECK(kPlanFlagDeadNpcIsDone == 512);
     PlanStep deadMove = Step(0, 20, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);

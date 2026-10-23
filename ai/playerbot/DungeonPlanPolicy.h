@@ -134,6 +134,10 @@ namespace ai
     // event's troll waves in some runs. A gossip row without it pauses as before (Weegli: the End Door stays shut without him).
     // Any other kind with this flag is refused (BadParam), and a gossip row with any other flag.
     constexpr std::uint32_t kPlanFlagDeadNpcIsDone = 512;
+    // pull only: never deferred. A pack the run leader finds not reachable from the floor the party stands on is
+    // otherwise deferred when nothing later in the plan needs it gone (runtime/DungeonRunPolicy.h PullMayBeDeferred,
+    // DeferUnreachablePack); with this flag it pauses the run as before. Any other kind with this flag is refused (BadParam).
+    constexpr std::uint32_t kPlanFlagNoDefer = 1024;
     constexpr std::uint32_t kPlanEncounterNotStarted = 0;
     constexpr std::uint32_t kPlanEncounterFail = 2;
     constexpr std::uint32_t kPlanEncounterMax = 4;
@@ -325,6 +329,8 @@ namespace ai
         if ((step.flags & kPlanFlagGoneIsDone) && step.kind != PlanStepKind::Loot && step.kind != PlanStepKind::Open)
             return PlanStepRefusal::BadParam;
         if ((step.flags & kPlanFlagDeadNpcIsDone) && step.kind != PlanStepKind::Gossip)
+            return PlanStepRefusal::BadParam;
+        if ((step.flags & kPlanFlagNoDefer) && step.kind != PlanStepKind::Pull)
             return PlanStepRefusal::BadParam;
         if (step.exactLaunch && step.kind != PlanStepKind::MoveDirect)
             return PlanStepRefusal::BadParam;

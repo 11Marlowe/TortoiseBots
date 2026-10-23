@@ -1625,9 +1625,8 @@ static void TestFarPackHopIsNotUndoneByTheGatherBack()
 static void TestApproachHopCapCountsHopsWithoutProgress()
 {
     DungeonPlan plan;
-    // A boss after the pull: the pull gates it, so it pauses (PullMayBeDeferred; deferral:
-    // TestUnreachablePackIsDeferredAndRetriedAtTheLegEnd).
-    plan.steps = {PullStep(1000, {1}), Step(PlanStepKind::Boss, 3000)};
+    // no_defer: the pause (PullMayBeDeferred; deferral: TestUnreachablePackIsDeferredThenPulledOnTheWay).
+    plan.steps = {PullStep(1000, {1}, ai::kPlanFlagNoDefer)};
     Run r = Start(&plan);
     r.restDue = false;
     Facts f = Party(0);
@@ -1672,7 +1671,7 @@ static void TestApproachHopCapCountsHopsWithoutProgress()
 static void TestApproachCapTriesAStandNearThePackBeforeThePause()
 {
     DungeonPlan plan;
-    plan.steps = {PullStep(1000, {1}), Step(PlanStepKind::Boss, 3000)}; // a gating pull: it pauses (PullMayBeDeferred)
+    plan.steps = {PullStep(1000, {1}, ai::kPlanFlagNoDefer)}; // never deferred: it pauses (PullMayBeDeferred)
     auto capped = [&](Run& r, Facts& g)
     {
         for (int i = 0; i < 100 && r.state == State::Running && !r.approachStandWanted; ++i)
@@ -1850,7 +1849,7 @@ static void TestApproachStandIsASafeRingSpot()
     CHECK(!ApproachStandReject(r, wide, c[1], hostiles, 0).empty());
     // The policy refuses a point inside the ring from the glue too (a gating pull: the pause).
     DungeonPlan gated;
-    gated.steps = {PullStep(1000, {1}), Step(PlanStepKind::Boss, 3000)};
+    gated.steps = {PullStep(1000, {1}, ai::kPlanFlagNoDefer)};
     Run g = Start(&gated);
     g.approachStandStep = 0;
     g.approachStand = 1;
@@ -10952,7 +10951,7 @@ static void TestWalkBackResendBound()
 static void TestApproachHopSummonsBeforePause()
 {
     DungeonPlan plan;
-    plan.steps = {PullStep(300, {1}), Step(PlanStepKind::Boss, 3000)}; // a gating pull: it pauses (PullMayBeDeferred)
+    plan.steps = {PullStep(300, {1}, ai::kPlanFlagNoDefer)}; // never deferred: it pauses (PullMayBeDeferred)
     Run r = Start(&plan);
     r.restDue = false;
     Facts f = Party(0);
@@ -14995,9 +14994,19 @@ static PlanStep InLeg(PlanStep s, std::uint8_t leg)
     return s;
 }
 
+static PlanStep At(PlanStepKind kind, float x, float y, float z, float radius = -1.0f)
+{
+    PlanStep s = Step(kind, x, y, z);
+    if (radius >= 0.0f)
+        s.radius = radius;
+    return s;
+}
+
 // The hops toward a far pack (out of sight), each dragged back to `base`: the cap asks for a stand.
 static void CapApproach(Run& r, Facts& g, float base)
 {
+    g.seen = false;
+    g.approachKnown = true;
     for (int i = 0; i < 100 && r.state == State::Running && !r.approachStandWanted; ++i)
     {
         g.leadX = base;
@@ -15028,88 +15037,248 @@ static Facts FarPack(float x)
     return g;
 }
 
+// The pull at the current step deferred the way r26 slot 5b met it: hops dragged back, no stand.
+static void DeferByNoStand(Run& r, Facts& g, float base)
+{
+    r.restDue = false;
+    CHECK(PullMayBeDeferred(r));
+    CapApproach(r, g, base);
+    CHECK(r.approachStandWanted && r.state == State::Running);
+    CHECK(!ApproachStandFound(r, g, false, 0, 0, 0));
+}
+
+// Walks a plain move step that is in sight to its point.
+static void WalkMove(Run& r, Facts& g, float x, float y = 0, float z = 0)
+{
+    g.seen = true;
+    CHECK(FirstOrder(r, g) == "move " + Num(x) + " " + Num(y) + " " + Num(z));
+    g.leadX = x;
+    g.leadY = y;
+    g.leadZ = z;
+    Tick(r, g);
+}
+
+// A run in the retry of the deferred pull at `idx`, going on with `ret` afterwards.
+static Run InRetry(const DungeonPlan& plan, std::size_t idx, std::size_t ret)
+{
+    Run r = Start(&plan, idx);
+    r.restDue = false;
+    r.deferRetryStep = idx;
+    r.deferReturnStep = ret;
+    r.deferLeg = plan.steps[idx].leg;
+    return r;
+}
+
 // Windhorn Canyon r26 slot 5b step 68 (2026-10-23): the pack on the z 242 terrace, the party on
 // the floor below: 'no safe stand 15.0-25.0 yd from it' paused 4 times, each resume walked back
 // to step 59 and hopped into the same pause, and the stop rule ended the run at step 68 of 1890.
-// Such a pull is deferred: noted, counted not cleared, the run goes on; at the end of its leg it
-// is tried once more, fresh, from where the party is then; still not reachable: skipped, and the
-// run's end lists it.
-static void TestUnreachablePackIsDeferredAndRetriedAtTheLegEnd()
+// Such a pull is deferred: noted, counted not cleared, the run goes on; once a later move (or a
+// won fight) of the same leg leaves the lead bot within 40 yd and 6 yd of height of it, it is
+// pulled from there, and the run goes on where it left off. No walk back to it, ever.
+static void TestUnreachablePackIsDeferredThenPulledOnTheWay()
 {
     std::size_t const npos = static_cast<std::size_t>(-1);
     DungeonPlan plan;
-    plan.steps = {InLeg(PullStep(1000, {1}), 0), InLeg(Step(PlanStepKind::Move, 50), 0),
-        InLeg(Step(PlanStepKind::Move, 60), 1)};
+    plan.steps = {InLeg(PullStep(1000, {1}), 0), InLeg(Step(PlanStepKind::Move, 970), 0),
+        InLeg(Step(PlanStepKind::Move, 1100), 0), InLeg(Step(PlanStepKind::Move, 1200), 1)};
+    plan.name = "windhorn_canyon";
     plan.legs.push_back(ai::PlanLeg{0, "walgan_bloodcaller"});
-    auto deferred = [&](Run& r, Facts& g)
-    {
-        r.restDue = false;
-        CHECK(PullMayBeDeferred(r));
-        CapApproach(r, g, 0);
-        CHECK(r.approachStandWanted && r.state == State::Running);
-        CHECK(!ApproachStandFound(r, g, false, 0, 0, 0));
-    };
     Run r = Start(&plan);
     Facts g = FarPack(0);
-    deferred(r, g);
+    DeferByNoStand(r, g, 0);
     CHECK(r.state == State::Running && r.step == 1);
     CHECK(r.note.find("pack at 1000.0 0.0 0.0 deferred: not reachable from this floor; the run goes on (8 approach hops "
         "did not bring the party within 60.0 yd of the pack") == 0);
     CHECK(r.note.find("no safe stand 20.0-25.0 yd from it the lead bot has a path to") != std::string::npos);
     CHECK(r.notCleared.count(0) && r.deferredPulls == std::vector<std::size_t>{0});
     CHECK(r.deferLog.find("step 1: pack at 1000.0 0.0 0.0 deferred") == 0);
-    // The leg's next step: walked as usual (its point in sight).
-    g.seen = true;
-    CHECK(FirstOrder(r, g) == "move 50.0 0.0 0.0");
-    g.leadX = 50;
-    Tick(r, g);
-    g.seen = false;
-    // The end of leg 0: the deferred pull is current again, with a fresh approach.
+    CHECK(StatusLine(r).find("TBM:RUN|windhorn_canyon|running|2/4|walgan_bloodcaller|move|") == 0);
+    CHECK(StatusLine(r).size() > 7 && StatusLine(r).compare(StatusLine(r).size() - 7, 7, "|left 1") == 0);
+    // The move to 970 ends 30 yd from the pack, level with it: pulled from there.
+    WalkMove(r, g, 970);
     CHECK(r.state == State::Running && r.step == 0 && r.deferRetryStep == 0 && r.deferReturnStep == 2);
     CHECK(!r.notCleared.count(0) && r.deferredPulls.empty());
-    CHECK(r.note.find("; the end of leg walgan_bloodcaller: the deferred pack of step 1 at 1000.0 0.0 0.0 is tried "
-        "again from here") != std::string::npos);
-    CHECK(r.approachStandStep == npos && r.approachHops == 0 && r.approachStand == 0);
-    // Still not reachable: skipped, not cleared, never deferred again; the run goes on with leg 1.
-    CapApproach(r, g, 50);
-    CHECK(r.approachStandWanted);
-    CHECK(!ApproachStandFound(r, g, false, 0, 0, 0));
-    CHECK(r.state == State::Running && r.step == 2 && r.deferRetryStep == npos && r.deferredPulls.empty());
-    CHECK(r.note.find("pack at 1000.0 0.0 0.0 skipped, not cleared: still not reachable from this floor on its retry "
-        "at the end of the leg") == 0);
+    CHECK(r.note.find("; the deferred pack of step 1 at 1000.0 0.0 0.0 is 30.0 yd from the lead bot now: pulled from "
+        "here") != std::string::npos);
+    CHECK(r.approachStandStep == npos && r.approachHops == 0 && !r.walkBackDue && !r.walkBack);
+    // In sight from there: the pull goes out, no walk anywhere first.
+    Facts in = g;
+    in.seen = true;
+    in.units = {Unit(7, 1, 30)};
+    CHECK(FirstOrder(r, in) == "pullback 7");
+    // Cleared: out of notCleared, nothing left; the run goes on with the step it left.
+    NextStep(r, "pack cleared");
+    CHECK(r.step == 2 && r.note == "pack cleared" && !r.notCleared.count(0) && r.deferGivenUp.empty());
+    CHECK(r.deferRetryStep == npos && StatusLine(r).find("|left") == std::string::npos);
+    WalkMove(r, g, 1100);
+    WalkMove(r, g, 1200);
+    CHECK(r.state == State::Done && r.note == "plan done");
+}
+
+// A deferred pack the party never comes near in its leg is skipped at the leg's end: not
+// cleared, listed at the run's end and on the status line. Near but 10 yd below is not near.
+static void TestDeferredPackNeverReachedIsSkippedAtTheLegEnd()
+{
+    DungeonPlan plan;
+    plan.steps = {InLeg(PullStep(1000, {1}), 0), InLeg(Step(PlanStepKind::Move, 990, 0, 10), 0),
+        InLeg(Step(PlanStepKind::Move, 50), 0), InLeg(Step(PlanStepKind::Move, 60), 1)};
+    plan.name = "windhorn_canyon";
+    plan.legs.push_back(ai::PlanLeg{0, "walgan_bloodcaller"});
+    Run r = Start(&plan);
+    Facts g = FarPack(0);
+    DeferByNoStand(r, g, 0);
+    CHECK(r.step == 1);
+    WalkMove(r, g, 990, 0, 10); // 14 yd from it, 10 yd above: no retry
+    CHECK(r.step == 2 && r.deferredPulls == std::vector<std::size_t>{0} && r.deferRetryStep != 0);
+    WalkMove(r, g, 50);
+    // The end of leg 0: skipped, not cleared, never walked back to.
+    CHECK(r.state == State::Running && r.step == 3 && r.deferredPulls.empty());
+    CHECK(r.note.find("; the end of leg walgan_bloodcaller: the deferred pack of step 1 at 1000.0 0.0 0.0 was never "
+        "within reach: skipped, not cleared") != std::string::npos);
     CHECK(r.notCleared.count(0) && r.deferGivenUp == std::vector<std::size_t>{0});
-    g.seen = true;
-    CHECK(FirstOrder(r, g) == "move 60.0 0.0 0.0");
-    g.leadX = 60;
-    Tick(r, g);
+    WalkMove(r, g, 60);
     CHECK(r.state == State::Done);
-    CHECK(r.note == "plan done (1 pack not reached (deferred, then skipped on the retry): step 1 at 1000.0 0.0 0.0)");
-    // A retry that clears the pack: out of notCleared, nothing listed, on to the step after the leg.
-    Run c = Start(&plan);
-    Facts h = FarPack(0);
-    deferred(c, h);
-    h.seen = true;
-    CHECK(FirstOrder(c, h) == "move 50.0 0.0 0.0");
-    h.leadX = 50;
-    Tick(c, h);
-    CHECK(c.step == 0 && c.deferRetryStep == 0);
-    NextStep(c, "pack cleared");
-    CHECK(c.step == 2 && c.note == "pack cleared" && !c.notCleared.count(0) && c.deferGivenUp.empty());
-    // A pull at the plan's end: deferred and retried at once (no leg after it), then the run ends.
+    CHECK(r.note == "plan done (1 pack left alive (deferred, not reachable from this floor): step 1 at 1000.0 0.0 0.0)");
+    // The status line: the seven fields as before, then the count.
+    CHECK(StatusLine(r) == "TBM:RUN|windhorn_canyon|done|4/4|1|move|begin|plan done (1 pack left alive (deferred, not reachable from "
+        "this floor): step 1 at 1000.0 0.0 0.0)|left 1");
+    // The wipe counts and the list share the end note.
+    Run w = r;
+    w.wipes = 1;
+    CHECK(DoneNote(w) == "plan done (1 wipe; 1 pack left alive (deferred, not reachable from this floor): step 1 at "
+        "1000.0 0.0 0.0)");
+    // A pull at the plan's end: deferred, and given up at once (no leg after it).
     DungeonPlan last;
     last.steps = {PullStep(1000, {1})};
     Run e = Start(&last);
     Facts k = FarPack(0);
-    deferred(e, k);
-    CHECK(e.state == State::Running && e.step == 0 && e.deferRetryStep == 0 && e.deferReturnStep == 1);
-    CapApproach(e, k, 0);
-    CHECK(!ApproachStandFound(e, k, false, 0, 0, 0));
-    CHECK(e.state == State::Done && e.deferGivenUp == std::vector<std::size_t>{0});
-    // The wipe counts and the list share the end note.
-    Run w = e;
-    w.wipes = 1;
-    CHECK(DoneNote(w) == "plan done (1 wipe; 1 pack not reached (deferred, then skipped on the retry): step 1 at "
-        "1000.0 0.0 0.0)");
+    DeferByNoStand(e, k, 0);
+    CHECK(e.state == State::Done && e.deferGivenUp == std::vector<std::size_t>{0} && e.deferRetryStep != 0);
+}
+
+// The Codex review of 6566f84d: every way a retry ends with the pack alive gives it up (listed,
+// not cleared), and a deferred pack the run takes up again in order leaves both lists.
+static void TestEveryRetryExitThatLeavesThePackAliveGivesItUp()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {7078}), Step(PlanStepKind::Move, 30), Step(PlanStepKind::Move, 40)};
+    // (a) One unit pulled and leashed home again and again: out of reach.
+    {
+        Run r = InRetry(plan, 0, 1);
+        Facts f = Party(0);
+        f.units = {Unit(42, 7078, 10)};
+        for (int i = 0; i < 2000 && r.state == State::Running && r.step == 0; ++i)
+        {
+            f.anyInCombat = false;
+            if (Tick(r, f) == "pullback 42")
+            {
+                f.anyInCombat = true;
+                for (int k = 0; k < 5; ++k)
+                    Tick(r, f);
+            }
+        }
+        CHECK(r.state == State::Running && r.step == 1 && r.note.find("skipped, not cleared") != std::string::npos);
+        CHECK(r.deferGivenUp == std::vector<std::size_t>{0} && r.notCleared.count(0));
+        CHECK(StatusLine(r).compare(StatusLine(r).size() - 7, 7, "|left 1") == 0);
+    }
+    // (b) Pulls that kill nothing.
+    {
+        Run r = InRetry(plan, 0, 1);
+        Facts f = Party(0);
+        for (std::uint64_t g = 1; g <= 10; ++g)
+            f.units.push_back(Unit(g, 7078, 10 + g));
+        for (int i = 0; i < 3000 && r.state == State::Running && r.step == 0; ++i)
+        {
+            f.anyInCombat = false;
+            if (Tick(r, f).compare(0, 9, "pullback ") == 0)
+            {
+                f.anyInCombat = true;
+                for (int k = 0; k < 5; ++k)
+                    Tick(r, f);
+            }
+        }
+        CHECK(r.state == State::Running && r.step == 1 && r.note.find("skipped, not cleared: 10 units") != std::string::npos);
+        CHECK(r.deferGivenUp == std::vector<std::size_t>{0} && r.notCleared.count(0));
+    }
+    // (c) No walkable path toward it on the retry: given up, never the pause it is outside a retry.
+    {
+        Facts f = FarPack(0);
+        f.approachKnown = false;
+        Run r = InRetry(plan, 0, 1);
+        Tick(r, f);
+        CHECK(r.state == State::Running && r.step == 1);
+        CHECK(r.note == "pack at 10.0 0.0 0.0 skipped, not cleared: still not reachable from this floor on its retry (no "
+            "walkable path toward the pack at 10.0 0.0 0.0)");
+        CHECK(r.deferGivenUp == std::vector<std::size_t>{0} && r.notCleared.count(0));
+        Run p = Start(&plan);
+        p.restDue = false;
+        Tick(p, f);
+        CHECK(p.state == State::Paused && p.note.find("no walkable path toward the pack") == 0);
+    }
+    // (d) Still not reachable on the retry (the hops and the stand search again): given up, no second deferral.
+    {
+        DungeonPlan far;
+        far.steps = {PullStep(1000, {1}), Step(PlanStepKind::Move, 50)};
+        Run r = InRetry(far, 0, 1);
+        Facts g = FarPack(0);
+        CapApproach(r, g, 0);
+        CHECK(!ApproachStandFound(r, g, false, 0, 0, 0));
+        CHECK(r.step == 1 && r.deferredPulls.empty() && r.deferGivenUp == std::vector<std::size_t>{0});
+        CHECK(r.note.find("pack at 1000.0 0.0 0.0 skipped, not cleared: still not reachable from this floor on its retry ("
+            "8 approach hops") == 0);
+    }
+    // (e) `.bot run skip` on the retry.
+    {
+        Run r = InRetry(plan, 0, 1);
+        CHECK(Skip(r) && r.step == 1 && r.deferGivenUp == std::vector<std::size_t>{0});
+    }
+    // (f) A pause in the retry, then a resume: no walk back to it; given up, the run is back where it left off.
+    {
+        DungeonPlan back;
+        back.steps = {Step(PlanStepKind::Move, -200), PullStep(10, {7078}), Step(PlanStepKind::Move, 30),
+            Step(PlanStepKind::Move, 40)};
+        Run r = InRetry(back, 1, 3);
+        Pause(r, "fight ceiling");
+        CHECK(Resume(r) && r.step == 3 && r.deferGivenUp == std::vector<std::size_t>{1} && r.notCleared.count(1));
+        // A walk back that comes up while a retry is on (a wipe's regroup) goes to the step it left, never the retry.
+        Run w = InRetry(back, 1, 3);
+        Facts f = Party(500);
+        StartWalkBack(w, f);
+        CHECK(w.step == 3 && w.deferRetryStep != 1 && w.deferGivenUp == std::vector<std::size_t>{1});
+    }
+    // (g) The stop, the time limit: the retry and the pulls still deferred are listed in the note.
+    {
+        DungeonPlan three;
+        three.steps = {PullStep(10, {1}), Step(PlanStepKind::Move, 30), PullStep(500, {2}), Step(PlanStepKind::Move, 40)};
+        Run r = InRetry(three, 0, 1);
+        r.deferredPulls = {2};
+        r.notCleared.insert(2);
+        CHECK(StatusLine(r).compare(StatusLine(r).size() - 7, 7, "|left 2") == 0);
+        EndRunEarly(r, "stopped by .bot run stop");
+        CHECK(r.state == State::Done && r.note == "stopped by .bot run stop (2 packs left alive (deferred, not reachable "
+            "from this floor): step 1 at 10.0 0.0 0.0, step 3 at 500.0 0.0 0.0)");
+        CHECK(StatusLine(r).compare(StatusLine(r).size() - 7, 7, "|left 2") == 0);
+        Run q = Start(&three, 1);
+        EndRunEarly(q, "stopped by .bot run stop");
+        CHECK(q.note == "stopped by .bot run stop" && StatusLine(q).find("|left") == std::string::npos);
+    }
+    // (h) A rewind brings the run back to a deferred (or given-up) pull: taken up fresh, out of both lists.
+    {
+        DungeonPlan rw;
+        rw.steps = {Step(PlanStepKind::Move, 5), PullStep(10, {1}), Step(PlanStepKind::Move, 30)};
+        Run r = Start(&rw);
+        r.deferredPulls = {1};
+        r.notCleared.insert(1);
+        NextStep(r, "moved");
+        CHECK(r.step == 1 && r.deferredPulls.empty() && !r.notCleared.count(1));
+        NextStep(r, "pack cleared");
+        CHECK(r.step == 2 && !r.notCleared.count(1) && r.deferGivenUp.empty());
+        Run g = Start(&rw);
+        g.deferGivenUp = {1};
+        g.notCleared.insert(1);
+        NextStep(g, "moved");
+        CHECK(g.step == 1 && g.deferGivenUp.empty() && !g.notCleared.count(1));
+    }
 }
 
 // A stand that was walked to and did not bring the pack in sight defers the pull too.
@@ -15131,39 +15300,68 @@ static void TestStandThatDidNotBringThePackInSightDefers()
         "980.0 0.0 0.0 did not bring it within 60.0 yd") == 0);
 }
 
-// Never deferred: a boss, and a pull that gates a later step (looking past rests, item uses
-// and plain moves): those keep today's pause.
+// The Codex and Opus reviews of 6566f84d: a pull is deferred only when nothing later needs it
+// gone: never a boss, never with no_defer, never when a later step names one of its entries
+// (or the plan kills it first), never with a gating step of its leg near it. Otherwise the pause.
 static void TestGatingPullsAndBossesAreNeverDeferred()
 {
-    auto may = [](std::vector<PlanStep> steps, std::size_t at = 0)
+    auto may = [](std::vector<PlanStep> steps, std::vector<std::uint32_t> killFirst = {})
     {
         DungeonPlan plan;
         plan.steps = steps;
-        Run r = Start(&plan, at);
+        plan.killFirst = killFirst;
+        Run r = Start(&plan);
         return PullMayBeDeferred(r);
     };
-    PlanStep const pull = PullStep(1000, {1});
+    PlanStep const pull = PullStep(1000, {5}); // radius 15
     PlanStep const move = Step(PlanStepKind::Move, 50);
-    PlanStep const rest = Step(PlanStepKind::Rest);
+    CHECK(pull.radius == 15.0f);
     CHECK(may({pull}));
-    CHECK(may({pull, move, rest, PullStep(2000, {2})}));
-    CHECK(may({pull, Step(PlanStepKind::UseItem), move}));
-    CHECK(!may({pull, rest, move, Step(PlanStepKind::Boss, 1100)}));
-    CHECK(!may({pull, move, Step(PlanStepKind::Hold, 1100)}));
-    CHECK(!may({pull, Step(PlanStepKind::Open, 1100)}));
-    CHECK(!may({pull, Step(PlanStepKind::WaitObject, 1100)}));
-    CHECK(!may({pull, Step(PlanStepKind::WaitClear, 1100)}));
-    CHECK(!may({pull, Step(PlanStepKind::Gossip, 1100)}));
-    CHECK(!may({pull, Step(PlanStepKind::Loot, 1100)}));
-    CHECK(!may({pull, Step(PlanStepKind::MoveDirect, 1100)}));
-    PlanStep exact = move;
+    CHECK(may({pull, move, Step(PlanStepKind::Rest), PullStep(2000, {5})})); // a later pack of the same mobs: no gate
+    CHECK(!may({PullStep(1000, {5}, ai::kPlanFlagNoDefer)}));
+    CHECK(!may({At(PlanStepKind::Boss, 1000, 0, 0)}));
+    CHECK(!may({move, PullStep(2000, {5})})); // not a pull at all
+    CHECK(!may({pull}, {5}));                  // killed first plan-wide
+    CHECK(may({pull}, {6}));
+    // A later step naming one of its entries, anywhere later in the plan (another leg too, far away).
+    PlanStep hold = At(PlanStepKind::Hold, 5000, 0, 0, 30);
+    hold.entries = {5};
+    hold.leg = 3;
+    CHECK(!may({pull, hold}));
+    PlanStep adds = At(PlanStepKind::Boss, 5000, 0, 0, 30);
+    adds.entry = 99;
+    adds.entries = {5};
+    CHECK(!may({pull, adds}));
+    PlanStep clear = At(PlanStepKind::WaitClear, 5000, 0, 0, 20);
+    clear.entries = {5};
+    CHECK(!may({pull, clear}));
+    PlanStep talk = At(PlanStepKind::Gossip, 5000, 0, 0);
+    talk.entry = 5;
+    CHECK(!may({pull, talk}));
+    PlanStep other = hold;
+    other.entries = {6};
+    CHECK(may({pull, other}));
+    // A gating step of the same leg within its radius (40 yd without one) + the pack's 15 yd of the pack.
+    CHECK(!may({pull, At(PlanStepKind::Hold, 1040, 0, 0, 30)}));  // 40 <= 45
+    CHECK(may({pull, At(PlanStepKind::Hold, 1046, 0, 0, 30)}));   // 46 > 45
+    CHECK(!may({pull, At(PlanStepKind::Boss, 1040, 0, 0, 30)}));
+    CHECK(!may({pull, At(PlanStepKind::Open, 1054, 0, 0, 0)}));   // 54 <= 40 + 15
+    CHECK(may({pull, At(PlanStepKind::Open, 1056, 0, 0, 0)}));
+    CHECK(!may({pull, At(PlanStepKind::WaitObject, 1020, 0, 0, 0)}));
+    CHECK(!may({pull, At(PlanStepKind::Loot, 1020, 0, 0, 0)}));
+    CHECK(!may({pull, At(PlanStepKind::MoveDirect, 1050, 0, 0, 0)}));
+    CHECK(!may({pull, At(PlanStepKind::Hold, 1000, 0, 40, 30)}));  // 3D: 40 yd above, within 45
+    CHECK(may({pull, At(PlanStepKind::Hold, 1000, 0, 50, 30)}));   // 3D: 50 yd above (straight over it), past 45
+    PlanStep exact = At(PlanStepKind::Move, 1050, 0, 0, 0);
     exact.flags = ai::kPlanFlagExact;
-    CHECK(!may({pull, exact, PullStep(2000, {2})}));
-    CHECK(!may({Step(PlanStepKind::Boss, 1000), PullStep(2000, {2})}));
-    CHECK(!may({move, PullStep(2000, {2})})); // not a pull at all
-    // The pull before a boss pauses as before, its note unchanged.
+    CHECK(!may({pull, exact}));
+    CHECK(may({pull, At(PlanStepKind::Move, 1010, 0, 0, 0)})); // a plain move beside it: no gate
+    PlanStep nextLeg = At(PlanStepKind::Hold, 1040, 0, 0, 30);
+    nextLeg.leg = 1;
+    CHECK(may({pull, nextLeg})); // another leg's step near it: not this leg's gate
+    // A gated pull pauses as before, its note unchanged.
     DungeonPlan gated;
-    gated.steps = {pull, Step(PlanStepKind::Boss, 2000)};
+    gated.steps = {pull, At(PlanStepKind::Hold, 1040, 0, 0, 30)};
     Run r = Start(&gated);
     r.restDue = false;
     Facts g = FarPack(0);
@@ -15171,6 +15369,59 @@ static void TestGatingPullsAndBossesAreNeverDeferred()
     CHECK(!ApproachStandFound(r, g, false, 0, 0, 0));
     CHECK(r.state == State::Paused && r.step == 0 && r.deferredPulls.empty() && r.deferLog.empty());
     CHECK(r.note.find("; the pack at 1000.0 0.0 0.0 is not reachable from this floor: no safe stand") != std::string::npos);
+}
+
+// The Opus review of 6566f84d (its probe): during a retry the run's step is the deferred pull,
+// and the stand search counted every pull after it as live, the ones the run had cleared since
+// too. The search (ApproachStandReject, PickApproachStand: the glue's ApproachStandSearch keeps
+// what they keep) counts as live only the step the run goes on with and later ones, and earlier
+// ones notCleared names.
+static void TestStandSearchDuringARetryCountsOnlyLivePacks()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(1000, {1}), PullStep(300, {2}), Step(PlanStepKind::Move, 400), PullStep(700, {3}),
+        InLeg(Step(PlanStepKind::Move, 500), 1)};
+    const PlanStep& a = plan.steps[0];
+    StandCandidate c;
+    c.x = 980;
+    c.reachable = true;
+    c.los = true;
+    c.pathYd = 900;
+    // Past B (300, cleared on the way), then 60 yd north of C (700, not reached yet), to the stand.
+    c.path = {{200, 0, 0}, {350, 0, 0}, {350, 60, 0}, {980, 60, 0}, {980, 0, 0}};
+    std::vector<StandHostile> const hostiles = {{1000, 0, 0, 1}};
+    Run r = InRetry(plan, 0, 2);
+    CHECK(DeferRetryOn(r) && LiveFrom(r, false) == 2 && LiveFrom(r, true) == 2);
+    CHECK(ApproachStandReject(r, a, c, hostiles, 0).empty());
+    CHECK(PickApproachStand(r, a, {c}, hostiles, 0) == 0);
+    // B skipped earlier (notCleared): live again.
+    Run s = r;
+    s.notCleared.insert(1);
+    CHECK(ApproachStandReject(s, a, c, hostiles, 0) == "its path passes an uncleared pack");
+    // A path past C (after the step the run goes on with): live.
+    StandCandidate d = c;
+    d.path = {{400, 0, 0}, {980, 0, 0}};
+    CHECK(ApproachStandReject(r, a, d, hostiles, 0) == "its path passes an uncleared pack");
+    // Not a retry (the run at step 0 the first time): B is ahead, live.
+    Run n = Start(&plan);
+    CHECK(!DeferRetryOn(n) && LiveFrom(n, false) == 1 && LiveFrom(n, true) == 0);
+    CHECK(ApproachStandReject(n, a, c, hostiles, 0) == "its path passes an uncleared pack");
+    // The retry reached the opportunistic way (the probe's shape): A deferred, B cleared, then the
+    // move at 400 ends 600 yd off: no retry; one that ends 30 yd off: the retry, with return step 3.
+    DungeonPlan p2;
+    p2.steps = {PullStep(1000, {1}), PullStep(300, {2}), Step(PlanStepKind::Move, 970), PullStep(1500, {3}),
+        InLeg(Step(PlanStepKind::Move, 500), 1)};
+    Run o = Start(&p2, 1);
+    o.deferredPulls = {0};
+    o.notCleared.insert(0);
+    o.leadSeen = true;
+    o.leadLastX = 300;
+    NextStep(o, "pack cleared");
+    CHECK(o.step == 2 && !DeferRetryOn(o));
+    o.leadLastX = 970;
+    NextStep(o, "moved");
+    CHECK(o.step == 0 && DeferRetryOn(o) && o.deferReturnStep == 3 && LiveFrom(o, false) == 3);
+    CHECK(ApproachStandReject(o, p2.steps[0], c, hostiles, 0).empty());
 }
 
 // Windhorn Canyon r26 slot 5b: each resume of the step 68 pause walked back to step 59 and hopped
@@ -15301,9 +15552,12 @@ int main()
     TestApproachCapTriesAStandNearThePackBeforeThePause();
     TestApproachStandIsASafeRingSpot();
     TestApproachStandWalkIsAHopAndRewindsForgetIt();
-    TestUnreachablePackIsDeferredAndRetriedAtTheLegEnd();
+    TestUnreachablePackIsDeferredThenPulledOnTheWay();
+    TestDeferredPackNeverReachedIsSkippedAtTheLegEnd();
+    TestEveryRetryExitThatLeavesThePackAliveGivesItUp();
     TestStandThatDidNotBringThePackInSightDefers();
     TestGatingPullsAndBossesAreNeverDeferred();
+    TestStandSearchDuringARetryCountsOnlyLivePacks();
     TestResumeOfTheApproachPauseSearchesInPlaceThenDefers();
     TestMoveRefusedTooFarGoesInLegsAlongThePath();
     TestResumeWalksBackNoFartherThanTheLastClearedFight();
