@@ -1,4 +1,4 @@
-#include "../ai/playerbot/KelthuzadAddsPolicy.h"
+#include "../ai/playerbot/policy/raid/KelthuzadAddsPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

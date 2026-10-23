@@ -2,7 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "PartyMemberToDispel.h"
 
-#include "playerbot/DispelTargetPolicy.h"
+#include "playerbot/policy/heal/DispelTargetPolicy.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/actions/GenericSpellActions.h"
 using namespace ai;

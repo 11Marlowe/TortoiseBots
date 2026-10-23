@@ -1,7 +1,7 @@
 #include "playerbot/playerbot.h"
 #include "HeiganDungeonActions.h"
-#include "playerbot/HeiganDancePolicy.h"
-#include "playerbot/strategy/HeiganDungeonHelper.h"
+#include "playerbot/policy/raid/HeiganDancePolicy.h"
+#include "../../policy/raid/HeiganDungeonHelper.h"
 
 using namespace ai;
 

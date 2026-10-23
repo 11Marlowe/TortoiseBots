@@ -1,4 +1,4 @@
-#include "../ai/playerbot/DispelTargetPolicy.h"
+#include "../ai/playerbot/policy/heal/DispelTargetPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

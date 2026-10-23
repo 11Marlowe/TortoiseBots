@@ -9,7 +9,7 @@
 #include "../runtime/HireSpecPolicy.h"
 #include "../runtime/HireTierRequestPolicy.h"
 #include "../runtime/HireUnlockPolicy.h"
-#include "../runtime/WorldBuffPolicy.h"
+#include "../runtime/policy/pvp/WorldBuffPolicy.h"
 #include "../runtime/WorldBuffService.h"
 #include "../runtime/HireUnlockSync.h"
 #include "../runtime/HireUnlockKillStore.h"

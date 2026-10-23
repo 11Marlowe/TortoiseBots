@@ -1,4 +1,4 @@
-#include "../ai/playerbot/ZoneMigratePolicy.h"
+#include "../ai/playerbot/policy/rpg/ZoneMigratePolicy.h"
 
 #include <cstdlib>
 #include <iostream>

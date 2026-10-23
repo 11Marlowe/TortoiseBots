@@ -1,4 +1,4 @@
-#include "../ai/playerbot/AnubrekhanSwarmPolicy.h"
+#include "../ai/playerbot/policy/raid/AnubrekhanSwarmPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

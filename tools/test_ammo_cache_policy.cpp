@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_ammo_cache_policy.cpp -o /tmp/test_ammo_cache_policy
 //   /tmp/test_ammo_cache_policy
 
-#include "../ai/playerbot/strategy/values/AmmoCachePolicy.h"
+#include "../runtime/policy/provision/AmmoCachePolicy.h"
 
 #include <algorithm>
 #include <cstdio>

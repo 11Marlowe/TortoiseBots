@@ -2,7 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "ShamanTriggers.h"
 #include "ShamanActions.h"
-#include "ShamanFireGatePolicy.h"
+#include "playerbot/policy/class/ShamanFireGatePolicy.h"
 #include "playerbot/strategy/values/ThreatValues.h"
 
 using namespace ai;

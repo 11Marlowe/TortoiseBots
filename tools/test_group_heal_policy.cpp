@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_group_heal_policy.cpp -o /tmp/test_group_heal
 //   /tmp/test_group_heal
 
-#include "../ai/playerbot/GroupHealPolicy.h"
+#include "../ai/playerbot/policy/heal/GroupHealPolicy.h"
 
 #include <cstdint>
 #include <cstdio>

@@ -1,6 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "HeiganDungeonTriggers.h"
-#include "playerbot/strategy/HeiganDungeonHelper.h"
+#include "../../policy/raid/HeiganDungeonHelper.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/CombatSpreadPolicy.h"
 

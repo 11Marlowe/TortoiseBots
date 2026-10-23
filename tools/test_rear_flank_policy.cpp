@@ -1,4 +1,4 @@
-#include "../ai/playerbot/RearFlankPolicy.h"
+#include "../ai/playerbot/policy/combat/RearFlankPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

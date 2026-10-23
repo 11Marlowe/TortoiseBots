@@ -15,7 +15,7 @@
 // No core includes: the action translates group positions into anchors,
 // so tools/test_bomb_runout_policy.cpp can test the rules.
 
-#include "DebuffSpreadPolicy.h"
+#include "policy/combat/DebuffSpreadPolicy.h"
 
 #include <cmath>
 #include <cstddef>

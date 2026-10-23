@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_mimic_consumable_policy.cpp -o /tmp/test_mimic_consumable
 //   /tmp/test_mimic_consumable
 
-#include "../runtime/MimicConsumablePolicy.h"
+#include "../runtime/policy/provision/MimicConsumablePolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

@@ -6,7 +6,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_flamestrike_window_policy.cpp -o /tmp/test_flamestrike_window
 //   /tmp/test_flamestrike_window
 
-#include "../ai/playerbot/FlamestrikeWindowPolicy.h"
+#include "../ai/playerbot/policy/class/FlamestrikeWindowPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

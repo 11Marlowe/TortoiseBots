@@ -8,7 +8,7 @@
 // g++ -std=c++17 -Wall -Wextra tools/test_raid_quest_chain_policy.cpp -o /tmp/test_raid_quest_chain
 // /tmp/test_raid_quest_chain
 
-#include "../ai/playerbot/RaidQuestChainPolicy.h"
+#include "../ai/playerbot/policy/raid/RaidQuestChainPolicy.h"
 
 #include <cassert>
 #include <cstdint>

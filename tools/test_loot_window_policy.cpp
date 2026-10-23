@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/actions/LootWindowPolicy.h"
+#include "../ai/playerbot/policy/loot/LootWindowPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

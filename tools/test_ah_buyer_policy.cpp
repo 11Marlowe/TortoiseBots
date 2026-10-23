@@ -7,7 +7,7 @@
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_ah_buyer_policy.cpp -o /tmp/test_ah_buyer_policy && /tmp/test_ah_buyer_policy
 
-#include "../runtime/AhBuyerPolicy.h"
+#include "../runtime/policy/ah/AhBuyerPolicy.h"
 
 #include <cstdint>
 #include <iostream>

@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/values/AmmoCheatPolicy.h"
+#include "../runtime/policy/provision/AmmoCheatPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

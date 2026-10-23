@@ -1,7 +1,7 @@
 """Hired companions keep their group and their hirer (issue #1014).
 
 LeaveFarAwayAction refuses for a hire or a bot in a commanded group
-(ai/playerbot/GroupHygienePolicy.h FarAwayLeaveAllowed). PlayerbotAI's
+(ai/playerbot/policy/rpg/GroupHygienePolicy.h FarAwayLeaveAllowed). PlayerbotAI's
 group-master re-adoption asks runtime/HireMasterPolicy.h before it changes a
 master, and a hire whose hirer is back in the world gets that hirer back as
 its live master. The decisions are tested in tools/test_hire_master_policy.cpp

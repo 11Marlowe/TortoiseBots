@@ -6,7 +6,7 @@
 #include "EnemyPlayerValue.h"
 #include "PossibleTargetsValue.h"
 #include "../../../runtime/WorldPvpPolicy.h"
-#include "../../../runtime/WorldPvpFightPolicy.h"
+#include "../../../runtime/policy/pvp/WorldPvpFightPolicy.h"
 
 using namespace ai;
 

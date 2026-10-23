@@ -1,4 +1,4 @@
-#include "../ai/playerbot/PointDangerPolicy.h"
+#include "../ai/playerbot/policy/travel/PointDangerPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

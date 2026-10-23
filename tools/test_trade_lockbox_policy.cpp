@@ -1,4 +1,4 @@
-#include "../ai/playerbot/TradeLockboxPolicy.h"
+#include "../ai/playerbot/policy/gear/TradeLockboxPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

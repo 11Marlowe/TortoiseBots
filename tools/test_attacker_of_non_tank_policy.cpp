@@ -12,7 +12,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_attacker_of_non_tank_policy.cpp -o /tmp/test_attacker_of_non_tank_policy
 //   /tmp/test_attacker_of_non_tank_policy
 
-#include "../ai/playerbot/strategy/values/AttackerOfNonTankPolicy.h"
+#include "../ai/playerbot/policy/combat/AttackerOfNonTankPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

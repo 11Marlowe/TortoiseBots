@@ -1,8 +1,8 @@
 
 #include "playerbot/playerbot.h"
 #include "HealthTriggers.h"
-#include "playerbot/HealingCastPolicy.h"
-#include "playerbot/GroupHealPolicy.h"
+#include "playerbot/policy/heal/HealingCastPolicy.h"
+#include "playerbot/policy/heal/GroupHealPolicy.h"
 #include "playerbot/GroupMembers.h"
 
 using namespace ai;

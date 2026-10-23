@@ -3,14 +3,14 @@
 
 #include "playerbot/playerbot.h"
 #include "TalkToQuestGiverAction.h"
-#include "playerbot/QuestRewardPolicy.h"
+#include "playerbot/policy/quest/QuestRewardPolicy.h"
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "playerbot/strategy/values/QuestValues.h"
 #include "playerbot/strategy/values/GuildValues.h"
-#include "../../../runtime/HireSourceGuardPolicy.h"
+#include "../../../runtime/policy/hire/HireSourceGuardPolicy.h"
 #include "../../../runtime/HireLifecycle.h"
-#include "../../../runtime/HireQuestPolicy.h"
+#include "../../../runtime/policy/hire/HireQuestPolicy.h"
 
 using namespace ai;
 

@@ -1,4 +1,4 @@
-#include "../ai/playerbot/RpgRelevanceWeightPolicy.h"
+#include "../ai/playerbot/policy/rpg/RpgRelevanceWeightPolicy.h"
 #include "../ai/playerbot/WeightedShufflePolicy.h"
 
 #include <cstdint>

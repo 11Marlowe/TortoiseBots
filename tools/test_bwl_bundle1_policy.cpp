@@ -1,4 +1,4 @@
-#include "../ai/playerbot/BwlBundle1Policy.h"
+#include "../ai/playerbot/policy/raid/BwlBundle1Policy.h"
 
 #include <cstdlib>
 #include <iostream>

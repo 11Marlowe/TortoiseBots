@@ -1,4 +1,4 @@
-#include "../ai/playerbot/BgForceResetPolicy.h"
+#include "../runtime/policy/pvp/BgForceResetPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

@@ -1,4 +1,4 @@
-#include "../runtime/TradingLeasePolicy.h"
+#include "../runtime/policy/ah/TradingLeasePolicy.h"
 
 #include <cstdlib>
 #include <iostream>

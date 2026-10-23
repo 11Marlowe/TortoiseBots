@@ -1,4 +1,4 @@
-#include "../ai/playerbot/PullReachPolicy.h"
+#include "../ai/playerbot/policy/pull/PullReachPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

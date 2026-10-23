@@ -1,6 +1,6 @@
 // Standalone check for runtime/HunterFeignDeathPolicy.h:
 //   g++ -std=c++17 -Wall -Wextra tools/test_hunter_feign_death_policy.cpp -o /tmp/test_hunter_fd && /tmp/test_hunter_fd
-#include "../runtime/HunterFeignDeathPolicy.h"
+#include "../runtime/policy/class/HunterFeignDeathPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

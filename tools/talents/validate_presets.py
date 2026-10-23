@@ -22,7 +22,7 @@ from pathlib import Path
 MAX_TALENT_RANK = 5
 
 # Shaman tank-build markers (issue #1125): TortoiseBots reads the tank build
-# from these two talents alone (runtime/ShamanTankDetectionPolicy.h,
+# from these two talents alone (runtime/policy/class/ShamanTankDetectionPolicy.h,
 # kShamanTankTalent*), so no shaman premade other than 7.3 may allocate them -
 # a DPS link that took one would make every bot on it read as a tank. Matched
 # by rank-1 spell id, so a DBC reshuffle cannot silently defeat the rule.
@@ -33,7 +33,7 @@ SHAMAN_CLASS = 7
 # The C++ half of the tank identity below the first key talent (issue #1125):
 # the levelling-layout read in AiFactory is level-gated by this constant, and
 # the LFT role mask keys off the key talents themselves. Keep them honest.
-LEVELING_POLICY_PATH = 'runtime/ShamanTankLevelingPolicy.h'
+LEVELING_POLICY_PATH = 'runtime/policy/class/ShamanTankLevelingPolicy.h'
 
 
 def policy_constant(module_root, path, name):
@@ -105,7 +105,7 @@ def main():
     ap.add_argument('--conf', required=True)
     ap.add_argument('--rate', type=float, default=1.0)
     ap.add_argument('--module-root', default='.',
-                    help='module checkout root holding runtime/ShamanTank*Policy.h')
+                    help='module checkout root holding runtime/policy/class/ShamanTank*Policy.h')
     args = ap.parse_args()
 
     dbc = Path(args.dbc)
@@ -233,7 +233,7 @@ def main():
 
     # Issue #1125, the levels below the first key talent: the tank identity is
     # read from the spent levelling layout there (AiFactory ->
-    # runtime/ShamanTankLevelingPolicy.h), and that read is level-gated by
+    # runtime/policy/class/ShamanTankLevelingPolicy.h), and that read is level-gated by
     # kShamanTankFirstTalentLevel and trusted only where the layout singles the
     # tank entry out. Pin both against this conf and the DBC.
     tank_by_level = {level: by_spec[SHAMAN_TANK_SPEC]

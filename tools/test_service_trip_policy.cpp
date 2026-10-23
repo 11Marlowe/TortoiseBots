@@ -6,7 +6,7 @@
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_service_trip_policy.cpp -o /tmp/test_service_trip_policy && /tmp/test_service_trip_policy
 
-#include "../ai/playerbot/ServiceTripPolicy.h"
+#include "../ai/playerbot/policy/travel/ServiceTripPolicy.h"
 
 #include <cmath>
 #include <cstdlib>

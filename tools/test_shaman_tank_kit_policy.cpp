@@ -11,7 +11,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_shaman_tank_kit_policy.cpp -o /tmp/test_shaman_tank_kit
 //   /tmp/test_shaman_tank_kit
 
-#include "../runtime/ShamanTankKitPolicy.h"
+#include "../runtime/policy/class/ShamanTankKitPolicy.h"
 
 #include <algorithm>
 #include <cstdio>

@@ -3,8 +3,8 @@
 #include <typeinfo>
 #include "TravelValues.h"
 #include "playerbot/TravelMgr.h"
-#include "playerbot/LocalPickPolicy.h"
-#include "playerbot/ZoneMigratePolicy.h"
+#include "playerbot/policy/rpg/LocalPickPolicy.h"
+#include "playerbot/policy/rpg/ZoneMigratePolicy.h"
 #include "MaintenanceValues.h"
 #include "QuestValues.h"
 #include "SharedValueContext.h"

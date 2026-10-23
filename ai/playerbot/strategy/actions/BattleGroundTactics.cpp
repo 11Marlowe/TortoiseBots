@@ -1,6 +1,6 @@
 
 #include "playerbot/playerbot.h"
-#include "playerbot/BgForceResetPolicy.h"
+#include "../../../../runtime/policy/pvp/BgForceResetPolicy.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "MovementActions.h"
 #include "Battlegrounds/BattleGround.h"

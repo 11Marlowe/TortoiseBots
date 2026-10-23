@@ -6,7 +6,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_trinket_use_policy.cpp -o /tmp/test_trinket_use
 //   /tmp/test_trinket_use
 
-#include "../ai/playerbot/TrinketUsePolicy.h"
+#include "../ai/playerbot/policy/gear/TrinketUsePolicy.h"
 
 #include <cstdint>
 #include <cstdio>

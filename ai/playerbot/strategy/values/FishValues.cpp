@@ -1,7 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "playerbot/ServerFacade.h"
-#include "playerbot/FishingSpotPolicy.h"
+#include "../../policy/loot/FishingSpotPolicy.h"
 #include "FishValues.h"
 #include "Timer.h"
 

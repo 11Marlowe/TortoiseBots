@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_warlock_tap_policy.cpp -o /tmp/test_warlock_tap
 //   /tmp/test_warlock_tap
 
-#include "../runtime/WarlockTapPolicy.h"
+#include "../runtime/policy/class/WarlockTapPolicy.h"
 
 #include <cstdint>
 #include <cstdio>

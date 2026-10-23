@@ -11,7 +11,7 @@
 //   /tmp/test_shaman_tank_flag
 
 #include "../runtime/HireSpecPolicy.h"
-#include "../runtime/ShamanTankKitPolicy.h"
+#include "../runtime/policy/class/ShamanTankKitPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

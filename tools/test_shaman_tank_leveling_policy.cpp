@@ -11,7 +11,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_shaman_tank_leveling_policy.cpp -o /tmp/test_shaman_tank_leveling
 //   /tmp/test_shaman_tank_leveling
 
-#include "../runtime/ShamanTankLevelingPolicy.h"
+#include "../runtime/policy/class/ShamanTankLevelingPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

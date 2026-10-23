@@ -1,6 +1,6 @@
 #pragma once
 #include "playerbot/PlayerbotAI.h"
-#include "playerbot/TrinketUsePolicy.h"
+#include "playerbot/policy/gear/TrinketUsePolicy.h"
 #include "UseItemAction.h"
 
 #include <cstdint>

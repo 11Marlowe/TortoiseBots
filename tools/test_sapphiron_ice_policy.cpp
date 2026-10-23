@@ -1,4 +1,4 @@
-#include "../ai/playerbot/SapphironIcePolicy.h"
+#include "../ai/playerbot/policy/raid/SapphironIcePolicy.h"
 
 #include <cmath>
 #include <cstdlib>

@@ -1,4 +1,4 @@
-#include "../ai/playerbot/SetBehindPolicy.h"
+#include "../ai/playerbot/policy/combat/SetBehindPolicy.h"
 
 #include <cstdint>
 #include <cstdlib>

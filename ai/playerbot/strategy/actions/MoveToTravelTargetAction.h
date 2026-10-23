@@ -1,5 +1,5 @@
 #pragma once
-#include "playerbot/ServiceTripPolicy.h"
+#include "playerbot/policy/travel/ServiceTripPolicy.h"
 #include "playerbot/PlayerbotAI.h"
 
 #include "playerbot/strategy/Action.h"

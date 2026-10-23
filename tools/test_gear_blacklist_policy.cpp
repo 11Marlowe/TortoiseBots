@@ -9,7 +9,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_gear_blacklist_policy.cpp -o /tmp/test_gear_blacklist
 //   /tmp/test_gear_blacklist
 
-#include "../runtime/GearBlacklistPolicy.h"
+#include "../runtime/policy/provision/GearBlacklistPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

@@ -16,7 +16,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_talent_spell_save_policy.cpp -o /tmp/test_talent_save
 //   /tmp/test_talent_save
 
-#include "../ai/playerbot/TalentSpellSavePolicy.h"
+#include "../ai/playerbot/policy/gear/TalentSpellSavePolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

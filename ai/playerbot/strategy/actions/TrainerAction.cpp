@@ -3,7 +3,7 @@
 #include "TrainerAction.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/BudgetValues.h"
-#include "playerbot/SpellRankPolicy.h"
+#include "playerbot/policy/gear/SpellRankPolicy.h"
 #include "playerbot/TravelMgr.h"
 
 using namespace ai;

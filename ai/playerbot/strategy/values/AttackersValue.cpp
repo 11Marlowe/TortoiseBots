@@ -4,7 +4,7 @@
 #include "PossibleTargetsValue.h"
 #include "EnemyPlayerValue.h"
 #include "WorldPvpSeekChecks.h"
-#include "playerbot/AttackersAoeDensityPolicy.h"
+#include "playerbot/policy/combat/AttackersAoeDensityPolicy.h"
 
 using namespace ai;
 using namespace MaNGOS;

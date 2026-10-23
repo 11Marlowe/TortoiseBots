@@ -1,4 +1,4 @@
-#include "../ai/playerbot/BandageSafetyPolicy.h"
+#include "../ai/playerbot/policy/combat/BandageSafetyPolicy.h"
 
 #include <iostream>
 

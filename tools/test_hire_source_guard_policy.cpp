@@ -6,7 +6,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_hire_source_guard_policy.cpp -o /tmp/test_hire_source_guard
 //   /tmp/test_hire_source_guard
 
-#include "../runtime/HireSourceGuardPolicy.h"
+#include "../runtime/policy/hire/HireSourceGuardPolicy.h"
 
 #include <cassert>
 #include <iostream>

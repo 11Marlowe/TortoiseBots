@@ -5,7 +5,7 @@
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "playerbot/strategy/values/MaintenanceValues.h"
 #include "../../../runtime/ClaimLifecycle.h"
-#include "../../../runtime/ClaimedBotPolicy.h"
+#include "../../../runtime/policy/hire/ClaimedBotPolicy.h"
 #include "../../../../runtime/AltBotService.h"
 #include "../../../../runtime/AltBotPolicy.h"
 

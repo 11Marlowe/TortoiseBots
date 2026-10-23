@@ -11,7 +11,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_pet_spell_rank_policy.cpp -o /tmp/test_pet_ranks
 //   /tmp/test_pet_spell_rank_policy
 
-#include "../runtime/PetSpellRankPolicy.h"
+#include "../runtime/policy/pet/PetSpellRankPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

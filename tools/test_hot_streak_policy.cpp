@@ -6,7 +6,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_hot_streak_policy.cpp -o /tmp/test_hot_streak
 //   /tmp/test_hot_streak
 
-#include "../ai/playerbot/HotStreakPolicy.h"
+#include "../ai/playerbot/policy/class/HotStreakPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

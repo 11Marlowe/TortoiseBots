@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_judgement_upkeep_policy.cpp -o /tmp/test_judgement_upkeep
 //   /tmp/test_judgement_upkeep
 
-#include "../runtime/JudgementUpkeepPolicy.h"
+#include "../runtime/policy/class/JudgementUpkeepPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

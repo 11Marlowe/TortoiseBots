@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include "PullRegenPolicy.h"
+#include "../pull/PullRegenPolicy.h"
 
 namespace ai
 {

@@ -1,4 +1,4 @@
-#include "../ai/playerbot/OnyxiaBreathPolicy.h"
+#include "../ai/playerbot/policy/raid/OnyxiaBreathPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

@@ -4,12 +4,12 @@
 #include "WarlockActions.h"
 #include "WarlockPetTaunt.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
-#include "../../../runtime/VoidwalkerPolicy.h"
-#include "../../../runtime/HealthFunnelPolicy.h"
-#include "../../../runtime/WarlockPetPolicy.h"
-#include "../../../runtime/WarlockTapPolicy.h"
-#include "../../../runtime/WarlockStonePolicy.h"
-#include "../../../../runtime/WarlockSoulstonePolicy.h"
+#include "../../../runtime/policy/pet/VoidwalkerPolicy.h"
+#include "../../../runtime/policy/pet/HealthFunnelPolicy.h"
+#include "../../../runtime/policy/pet/WarlockPetPolicy.h"
+#include "../../../runtime/policy/class/WarlockTapPolicy.h"
+#include "../../../runtime/policy/class/WarlockStonePolicy.h"
+#include "../../../../runtime/policy/class/WarlockSoulstonePolicy.h"
 
 using namespace ai;
 

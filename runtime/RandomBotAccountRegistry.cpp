@@ -1,6 +1,6 @@
 #include "RandomBotAccountRegistry.h"
 
-#include "PoolResetPolicy.h"
+#include "runtime/policy/infra/PoolResetPolicy.h"
 #include "../host/ModuleLog.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 

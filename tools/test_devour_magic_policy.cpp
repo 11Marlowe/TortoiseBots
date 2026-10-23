@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_devour_magic_policy.cpp -o /tmp/test_devour_magic
 //   /tmp/test_devour_magic
 
-#include "../runtime/DevourMagicPolicy.h"
+#include "../runtime/policy/pet/DevourMagicPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

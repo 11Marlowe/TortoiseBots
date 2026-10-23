@@ -1,7 +1,7 @@
 
 #include "playerbot/playerbot.h"
-#include "SkinningLootPolicy.h"
-#include "LootWindowPolicy.h"
+#include "../../policy/loot/SkinningLootPolicy.h"
+#include "../../policy/loot/LootWindowPolicy.h"
 #include "LootAction.h"
 #include "playerbot/CastKeepsRunningPolicy.h"
 
@@ -13,7 +13,7 @@
 #include "playerbot/strategy/values/LootValues.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "playerbot/ServerFacade.h"
-#include "playerbot/QuestLogPolicy.h"
+#include "playerbot/policy/quest/QuestLogPolicy.h"
 #include "playerbot/strategy/values/SharedValueContext.h"
 #include "../../../../runtime/RemoteCommanderTasks.h"
 #include "../../../../runtime/CommandedGroupQuery.h"

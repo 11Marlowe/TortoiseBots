@@ -10,8 +10,8 @@
 #include "Database/DBCStructure.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "runtime/BotManager.h"
-#include "playerbot/GhostStallPolicy.h"
-#include "playerbot/GraveyardTeleportPolicy.h"
+#include "playerbot/policy/dungeon/GhostStallPolicy.h"
+#include "playerbot/policy/travel/GraveyardTeleportPolicy.h"
 
 using namespace ai;
 // Ghost stall (m-stuck §5.2): the corpse-run spline is re-dispatched from IDLE

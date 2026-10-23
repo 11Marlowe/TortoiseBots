@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_voidwalker_policy.cpp -o /tmp/test_voidwalker
 //   /tmp/test_voidwalker
 
-#include "../runtime/VoidwalkerPolicy.h"
+#include "../runtime/policy/pet/VoidwalkerPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

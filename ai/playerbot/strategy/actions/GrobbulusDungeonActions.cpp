@@ -1,6 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "GrobbulusDungeonActions.h"
-#include "playerbot/GrobbulusCloudPolicy.h"
+#include "playerbot/policy/raid/GrobbulusCloudPolicy.h"
 
 using namespace ai;
 

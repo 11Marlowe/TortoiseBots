@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_pet_upkeep_policy.cpp -o /tmp/test_pet_upkeep
 //   /tmp/test_pet_upkeep
 
-#include "../runtime/PetUpkeepPolicy.h"
+#include "../runtime/policy/pet/PetUpkeepPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

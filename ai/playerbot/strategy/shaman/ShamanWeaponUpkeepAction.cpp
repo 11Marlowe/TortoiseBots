@@ -1,7 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "ShamanActions.h"
-#include "ShamanImbuePolicy.h"
+#include "playerbot/policy/class/ShamanImbuePolicy.h"
 #include "playerbot/AiFactory.h"
 
 using namespace ai;

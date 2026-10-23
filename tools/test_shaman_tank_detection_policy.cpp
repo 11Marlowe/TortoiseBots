@@ -9,7 +9,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_shaman_tank_detection_policy.cpp -o /tmp/test_shaman_tank_detection
 //   /tmp/test_shaman_tank_detection
 
-#include "../runtime/ShamanTankDetectionPolicy.h"
+#include "../runtime/policy/class/ShamanTankDetectionPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

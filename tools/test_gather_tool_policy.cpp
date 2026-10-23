@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_gather_tool_policy.cpp -o /tmp/test_gather_tool
 //   /tmp/test_gather_tool
 
-#include "../runtime/GatherToolPolicy.h"
+#include "../runtime/policy/provision/GatherToolPolicy.h"
 
 #include <cstdint>
 #include <cstdio>

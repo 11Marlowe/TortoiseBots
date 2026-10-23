@@ -6,7 +6,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_heal_downrank_policy.cpp -o /tmp/test_heal_downrank
 //   /tmp/test_heal_downrank
 
-#include "../ai/playerbot/HealDownrankPolicy.h"
+#include "../ai/playerbot/policy/heal/HealDownrankPolicy.h"
 
 #include <cstdint>
 #include <cstdio>

@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-#include "HireSpecPolicy.h"
+#include "../../HireSpecPolicy.h"
 
 namespace TortoiseBots
 {

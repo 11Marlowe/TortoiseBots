@@ -6,7 +6,7 @@
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_undercity_lift_policy.cpp -o /tmp/test_undercity_lift_policy && /tmp/test_undercity_lift_policy
 
-#include "../ai/playerbot/UndercityLiftPolicy.h"
+#include "../ai/playerbot/policy/travel/UndercityLiftPolicy.h"
 
 #include <iostream>
 

@@ -12,8 +12,8 @@
 #include "GenericSpellActions.h"
 #include "playerbot/strategy/values/HealerCoverage.h"
 #include "playerbot/PlayerbotFactory.h"
-#include "playerbot/PullFiringPolicy.h"
-#include "playerbot/RangedApproachPolicy.h"
+#include "playerbot/policy/pull/PullFiringPolicy.h"
+#include "playerbot/policy/combat/RangedApproachPolicy.h"
 #include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "AI/CreatureAI.h"
 #include <ctime>

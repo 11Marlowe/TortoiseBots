@@ -4,10 +4,10 @@
 #include "LeastHpTargetValue.h"
 #include "AttackersValue.h"
 #include "PossibleAttackTargetsValue.h"
-#include "playerbot/DpsTargetPolicy.h"
+#include "playerbot/policy/combat/DpsTargetPolicy.h"
 #include "playerbot/FourHorsemenRotationPolicy.h"
 #include "playerbot/GroupMembers.h"
-#include "playerbot/RunnerFinishPolicy.h"
+#include "playerbot/policy/combat/RunnerFinishPolicy.h"
 
 using namespace ai;
 

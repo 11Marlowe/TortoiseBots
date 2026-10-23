@@ -1,4 +1,4 @@
-#include "../ai/playerbot/DebuffSpreadPolicy.h"
+#include "../ai/playerbot/policy/combat/DebuffSpreadPolicy.h"
 
 #include <cstdlib>
 #include <iostream>
