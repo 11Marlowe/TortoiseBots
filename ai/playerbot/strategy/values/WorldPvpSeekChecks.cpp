@@ -1,5 +1,7 @@
 
 #include "playerbot/playerbot.h"
+#include "playerbot/ServerFacade.h"
+#include "../../../runtime/PlayerbotAIStorage.h"
 #include "WorldPvpSeekChecks.h"
 #include "EnemyPlayerValue.h"
 #include "PossibleTargetsValue.h"
@@ -90,7 +92,7 @@ Unit* WorldPvpSeekChecks::FindAssistTarget(PlayerbotAI* ai, Player* bot)
     if (!IsSeeking(ai, bot))
         return nullptr;
 
-    std::list<ObjectGuid> candidates = AI_VALUE(std::list<ObjectGuid>, "nearest friendly players");
+    std::list<ObjectGuid> candidates = ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("nearest friendly players")->Get();
     for (ObjectGuid const& guid : candidates)
     {
         Unit* unit = ai->GetUnit(guid);

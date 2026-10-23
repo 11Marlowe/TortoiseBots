@@ -1,5 +1,8 @@
 
 #include "playerbot/playerbot.h"
+#include "playerbot/ServerFacade.h"
+#include "../../../runtime/PlayerbotAIStorage.h"
+#include "../../../runtime/ObservabilityEmitter.h"
 #include "WorldPvpSeekLog.h"
 
 using namespace ai;
