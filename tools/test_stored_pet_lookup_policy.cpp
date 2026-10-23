@@ -8,7 +8,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_stored_pet_lookup_policy.cpp -o /tmp/test_stored_pet_lookup
 //   /tmp/test_stored_pet_lookup
 
-#include "../runtime/StoredPetLookupPolicy.h"
+#include "../runtime/policy/pet/StoredPetLookupPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

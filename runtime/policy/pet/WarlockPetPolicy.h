@@ -2,8 +2,8 @@
 
 #include <cstdint>
 
-#include "DevourMagicPolicy.h"
-#include "SeductionPolicy.h"
+#include "runtime/policy/pet/DevourMagicPolicy.h"
+#include "runtime/policy/pet/SeductionPolicy.h"
 
 // Solo warlock default-pet choice (pool bots only): once the bot knows
 // Summon Voidwalker (697, trainer tier 10 in tw_world.spell_template) AND

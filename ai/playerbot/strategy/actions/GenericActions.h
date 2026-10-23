@@ -5,7 +5,7 @@
 #include "ChooseTargetActions.h"
 #include "MovementActions.h"
 #include "RemoveAuraAction.h"
-#include "../../../runtime/StoredPetLookupPolicy.h"
+#include "../../../runtime/policy/pet/StoredPetLookupPolicy.h"
 
 namespace ai
 {

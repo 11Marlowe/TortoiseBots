@@ -6,11 +6,11 @@
 #include "playerbot/PlayerbotFactory.h"
 #include <algorithm>
 #include <vector>
-#include "../../../runtime/PetUpkeepPolicy.h"
+#include "../../../runtime/policy/pet/PetUpkeepPolicy.h"
 #include "../../../runtime/HunterPetPolicy.h"
 #include "../../policy/gear/SpellRankPolicy.h"
-#include "../../../runtime/WarlockPetPolicy.h"
-#include "../../../runtime/PetTauntPolicy.h"
+#include "../../../runtime/policy/pet/WarlockPetPolicy.h"
+#include "../../../runtime/policy/pet/PetTauntPolicy.h"
 #include "../../../runtime/AttackOrderPolicy.h"
 
 using namespace ai;
