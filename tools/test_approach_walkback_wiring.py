@@ -69,6 +69,10 @@ class TooFarLegWiringTest(unittest.TestCase):
         # The run is looked up again after the leg's order (it may release the binding).
         self.assertIn("it = DungeonRuns().find(commanderRaw);\n                if (it == DungeonRuns().end())\n                    return;", block)
         self.assertIn("TooFarLegTaken(it->second.run, facts, lx, ly, lz, legAccepted,", block)
+        # Codex review of f1fdeb67: the same leg again is not sent (the refusal pauses, saying why).
+        rep = block.index("if (legFound && TortoiseBots::DungeonRun::TooFarLegRepeats(run, lx, ly, lz))")
+        self.assertLess(rep, block.index("IssueRunOrder(commander, TortoiseBots::DungeonRun::MoveOrder(lx, ly, lz, false),"))
+        self.assertIn("legNote = TortoiseBots::DungeonRun::TooFarLegRepeatNote(run, lx, ly, lz);", block)
         self.assertIn("OrderRefused(it->second.run, order, answer + legNote +", tick)
 
     def test_leg_follows_the_navmesh_path(self):
@@ -79,7 +83,7 @@ class TooFarLegWiringTest(unittest.TestCase):
 
     def test_walk_sends_its_point_again_after_the_leg(self):
         fn = body(POLICY, "inline bool WalkTo(Run& r, const Facts& f,", "\n}\n")
-        i = fn.index("if (r.legOn && (toLeg <= kArriveYd || r.walkStillMs >= kShortStallMs))")
+        i = fn.index("if (r.legOn && (toLeg <= kArriveYd || (r.legStartYd - toLeg >= kLegProgressYd && r.walkStillMs >= kShortStallMs)))")
         self.assertLess(i, fn.index("if (r.walkTries >= kWalkTries)"))
         fresh = body(fn, "if (fresh)", "return false;")
         self.assertIn("r.legOn = false;", fresh)

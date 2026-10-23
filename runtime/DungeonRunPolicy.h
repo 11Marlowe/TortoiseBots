@@ -139,6 +139,8 @@ constexpr std::uint32_t kShortStallMs = 3000;     // a plain walk within kStalle
 constexpr std::uint32_t kWalkTries = 3;           // ... at most this often, then pause
 constexpr float kTooFarLegYd = 120.0f;            // a move refused too-far (ReactDistance) goes out in legs this long ...
 constexpr std::uint32_t kMaxTooFarLegs = 6;       // ... at most this many per walk, then the refusal pauses as before
+constexpr float kLegProgressYd = 5.0f;            // a leg stalled after this much way toward it is done (else: a stall)
+constexpr float kLegRepeatYd = 3.0f;              // a next leg ending this close to the last one is not sent (the pause)
 constexpr float kWalkProgressYd = 2.0f;
 // An exact waypoint (ai::kPlanFlagExact on a move row: the point a direct step
 // after it is launched from; ExactWalkTo). The Wailing Caverns hop to Lord
@@ -922,6 +924,7 @@ struct Run
     bool legOn = false;
     float legX = 0.0f, legY = 0.0f, legZ = 0.0f;
     float legBestYd = 0.0f;
+    float legStartYd = 0.0f; // the lead bot's distance to the leg when it went out
     std::uint32_t walkLegs = 0;
     // An exact waypoint's tighten (ExactWalkTo): on once the walk to the point
     // ended (3 yd, or a stall within 6 yd); it brings the lead bot onto the
@@ -3948,16 +3951,20 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         r.walkBestYd = dist;
         r.walkStillMs = 0;
     }
-    // A leg of a move refused too-far (TooFarLegTaken) walked, or stalled on its way: the
-    // walk's own point goes out again from here (in reach now, or the next leg), not a try.
-    // Its progress is the way to the leg (a path can wind away from the point first).
+    // A leg of a move refused too-far (TooFarLegTaken) walked, or stalled after at least
+    // kLegProgressYd of way toward it: the walk's own point goes out again from here (in
+    // reach now, or the next leg), not a try. Its progress is the way to the leg (a path
+    // can wind away from the point first). A leg stalled with no such way is a stall like
+    // any other: the stall fallback, the retries and the pause below (the Codex review of
+    // f1fdeb67: a stalled leg counted as done re-sent the far point, skipped StallFallback
+    // and spent the leg budget in place).
     float const toLeg = r.legOn ? ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.legX, r.legY, r.legZ) : 0.0f;
     if (r.legOn && toLeg < r.legBestYd - kWalkProgressYd)
     {
         r.legBestYd = toLeg;
         r.walkStillMs = 0;
     }
-    if (r.legOn && (toLeg <= kArriveYd || r.walkStillMs >= kShortStallMs))
+    if (r.legOn && (toLeg <= kArriveYd || (r.legStartYd - toLeg >= kLegProgressYd && r.walkStillMs >= kShortStallMs)))
     {
         r.legOn = false;
         r.walkStillMs = 0;
@@ -5272,6 +5279,20 @@ inline bool TooFarLegWanted(const Run& r, const std::string& order, const std::s
         order == MoveOrder(r.walkX, r.walkY, r.walkZ, false) && r.walkLegs < kMaxTooFarLegs;
 }
 
+// Whether the glue's next leg ends within kLegRepeatYd of the last leg this walk sent:
+// the lead bot made no way toward it, so the same leg is not sent again (the refusal
+// pauses, TooFarLegRepeatNote saying why).
+inline bool TooFarLegRepeats(const Run& r, float lx, float ly, float lz)
+{
+    return r.walkLegs > 0 && ai::PlanDistance(lx, ly, lz, r.legX, r.legY, r.legZ) <= kLegRepeatYd;
+}
+
+inline std::string TooFarLegRepeatNote(const Run& r, float lx, float ly, float lz)
+{
+    return " (the next leg of the way, " + Num(lx) + " " + Num(ly) + " " + Num(lz) + ", ends where the last one did, " +
+        Num(r.legX) + " " + Num(r.legY) + " " + Num(r.legZ) + ": the lead bot made no way toward it)";
+}
+
 // The glue's leg for a move refused too-far (TooFarLegWanted) went out (`accepted`) as
 // `cmd move lx ly lz`: the walk goes on toward its own point, and once the lead bot
 // stands at the leg (or stalls on its way) WalkTo sends that point again. True: taken
@@ -5290,6 +5311,7 @@ inline bool TooFarLegTaken(Run& r, const Facts& f, float lx, float ly, float lz,
     r.legY = ly;
     r.legZ = lz;
     r.legBestYd = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, lx, ly, lz);
+    r.legStartYd = r.legBestYd;
     ++r.walkLegs;
     r.walkStillMs = 0;
     r.note = "the move to " + Num(r.walkX) + " " + Num(r.walkY) + " " + Num(r.walkZ) +

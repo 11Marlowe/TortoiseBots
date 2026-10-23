@@ -1822,6 +1822,38 @@ static void TestMoveRefusedTooFarGoesInLegsAlongThePath()
     for (int i = 0; i < 4 && sent.empty(); ++i)
         sent = Tick(w, g);
     CHECK(sent == move && !w.legOn && w.walkTries == 1);
+    // Codex review of f1fdeb67: a lead bot that does not move on its leg is a stall, not a
+    // leg done: no re-send of the far point after 3 s, no leg spent; after the stall time the
+    // 19z43e StallFallback (its own move failing: the dry stand-in of the step's own walk).
+    Run st = Start(&plan);
+    st.restDue = false;
+    Facts still = Party(0);
+    still.leadMoveFailed = true;
+    still.leadMoveFailReason = "dispatch-short";
+    CHECK(Tick(st, still) == move);
+    CHECK(TooFarLegTaken(st, still, 120, 0, 0, true, ""));
+    int quiet = 0;
+    for (int i = 0; i < 200 && !st.stallStandInWanted; ++i)
+        if (Tick(st, still).empty())
+            ++quiet;
+    CHECK(st.stallStandInWanted && st.stallFallback == 2 && st.walkLegs == 1 && st.legOn);
+    CHECK(quiet >= static_cast<int>(kWalkRetryMs / kTickMs) - 1);
+    // The same leg again (the lead bot made no way): not sent; another one is.
+    CHECK(TooFarLegRepeats(st, 121, 0, 0) && !TooFarLegRepeats(st, 125, 0, 0));
+    CHECK(TooFarLegRepeatNote(st, 121, 0, 0).find("ends where the last one did, 120.0 0.0 0.0") != std::string::npos);
+    Run none = Start(&plan);
+    CHECK(!TooFarLegRepeats(none, 0, 0, 0)); // no leg yet this walk
+    // A leg stalled after real way toward it (5 yd or more) is done: the far point again.
+    Run part = Start(&plan);
+    part.restDue = false;
+    Facts on = Party(0);
+    CHECK(Tick(part, on) == move);
+    CHECK(TooFarLegTaken(part, on, 120, 0, 0, true, ""));
+    on.leadX = 6;
+    std::string again;
+    for (int i = 0; i < 5 && again.empty(); ++i)
+        again = Tick(part, on);
+    CHECK(again == move && !part.legOn);
     // The leg refused too: the refusal goes on as before (the pause).
     Run q = Start(&plan);
     q.restDue = false;

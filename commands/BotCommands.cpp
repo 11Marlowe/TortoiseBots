@@ -11831,8 +11831,12 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             // Never longer than the reach the refusal named (a leg along the path is no
             // farther from the lead bot in a straight line than along it).
             float const legYd = std::min(TortoiseBots::DungeonRun::kTooFarLegYd, sPlayerbotAIConfig.reactDistance - 10.0f);
-            if (lead->IsAlive() && lead->IsInWorld() && legYd > 0.0f &&
-                LegOnPath(lead, run.walkX, run.walkY, run.walkZ, legYd, lx, ly, lz))
+            bool const legFound = lead->IsAlive() && lead->IsInWorld() && legYd > 0.0f &&
+                LegOnPath(lead, run.walkX, run.walkY, run.walkZ, legYd, lx, ly, lz);
+            // The same leg as the last one (the lead bot made no way toward it): not sent, the pause.
+            if (legFound && TortoiseBots::DungeonRun::TooFarLegRepeats(run, lx, ly, lz))
+                legNote = TortoiseBots::DungeonRun::TooFarLegRepeatNote(run, lx, ly, lz);
+            else if (legFound)
             {
                 std::string legAnswer;
                 bool const legAccepted = IssueRunOrder(commander, TortoiseBots::DungeonRun::MoveOrder(lx, ly, lz, false),
