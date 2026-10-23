@@ -273,18 +273,19 @@ class DungeonPlanSql(unittest.TestCase):
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
-        # 20261023040000 (turtle-agent rfk-fix3 2a70873, 2026-10-23, after live run r22 slot5 stopped at step 85): the Razorfen Kraul
-        # plan of 20261022211300 again, with the run-3 fix (pull 42's stand is 2110 1600 82.1: the room's 2180 1604 has no walkable path
-        # from the party's spot), no row hand-set, with the boss rows of map 47 left in 20261022210300. 7 legs, 721 steps (43 moves more:
-        # the cut walk from the stand to pull 42's pack), 32 + 20 + 8 + 14 + 17 + 10 + 22 pulls, bosses in leg order, no door or event
-        # step. The plan row has the unit lists; the packs that stand with a boss are that boss row's entries, not pulls; Halmgar 4842
-        # and the Blind Hunter 4425 are pull members.
+        # 20261023100000 (turtle-agent rfk-fix4 d7e19f3e, 2026-10-23, after live run r23 slot8 stopped at step 289): the Razorfen Kraul
+        # plan of 20261023040000 again, with the run-4 fixes (leg overlord_ramtusk keeps the lead's floor: pull group 13's approach is
+        # 2129.3 1716 80.9, so the cut to it no longer walks the lower floor; pull group 17's approach is 2055.8 1568.9 65.7 then
+        # 2061.3 1623.2 64.3, off the upper-floor island over 2048 1578.7), no row hand-set, with the boss rows of map 47 left in
+        # 20261022210300. 7 legs, 695 steps (26 moves fewer: 25 of the lower-floor approach cut and one of pull 17's cut), 32 + 20 + 8
+        # + 14 + 17 + 10 + 22 pulls, bosses in leg order, no door or event step. The plan row has the unit lists; the packs that stand
+        # with a boss are that boss row's entries, not pulls; Halmgar 4842 and the Blind Hunter 4425 are pull members.
         name, text = newest_plan_text("razorfen_kraul")
-        self.assertEqual(name, "20261023040000_world.sql")
-        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent 2a70873 dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261023100000_world.sql")
+        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent d7e19f3e dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "razorfen_kraul")), 7)
         rows = [r for r in self.step_rows(text) if r["plan"] == "razorfen_kraul"]
-        self.assertEqual(len(rows), 721)
+        self.assertEqual(len(rows), 695)
         # The opening stand is the lower-floor pocket 1994 1615 (the old 1987.53 1600.03 has the upper walkway overhead); the five
         # corridor groups all have radius 10 (group 0 was 25 and owned the next group's Quilguards; group 5's default was 19.3), and
         # seq 5 is the explicit corridor regroup move before pull group 4 (r19-19z37: the two ranged bots climbed the west ramp while
@@ -302,7 +303,21 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(stands, [("2110", "1600", "82.1", "pull group 21 approach"),
                                   ("2110", "1600", "82.1", "pull group 24 approach")])
         self.assertEqual([r["radius"] for r in leg_steps(rows, 0) if r["kind"] == "pull" and r["entries"] == "4440"], ["10"])
+        # Step 20 (r23 slot8 paused once, "the lead bot is stuck 28.6 yd from 2048.0 1578.7 64.6"): that corner is 15.9 yd under
+        # an upper-floor polygon that is a navmesh island; pull 17's approach is the lead's own spot at the foot of the descent and
+        # the exporter's next corner, both on the walkable lower floor.
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg_steps(rows, 0) if r["comment"] == "pull group 17 approach"],
+                         [("2055.8", "1568.9", "65.7"), ("2061.3", "1623.2", "64.3")])
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [32, 20, 8, 14, 17, 10, 22])
+        # Step 289 (r23 slot8: `cmd move 2140.0 1724.5 53.0 refused: unreachable`): the last lower-floor pull's hop to pull group 13
+        # is anchored on the lead's floor, 2129.3 1716 80.9, and its cut walks the upper floor only.
+        ramtusk = leg_steps(rows, 3)
+        after12 = next(i for i, r in enumerate(ramtusk) if r["comment"] == "pull group 12") + 1
+        self.assertEqual([(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in ramtusk[after12:after12 + 2]],
+                         [("move", "2129.3", "1716", "80.9", "pull group 13 approach"),
+                          ("move", "2129.5999", "1689.0667", "82.18699", "approach path")])
+        self.assertTrue(all(float(r["z"]) > 80 for r in ramtusk[after12:] if r["kind"] == "move"),
+                        "the Ramtusk approach cut walks the lower floor again")
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["6168", "4424", "4428", "4420", "62503", "4422", "4421"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         # The last step of every leg is its boss; the boss rows' entries are the packs that stand with them (Ramtusk's Spearhides,
