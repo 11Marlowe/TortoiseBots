@@ -1,6 +1,6 @@
 #pragma once
 #include "playerbot/PlayerbotAI.h"
-#include "playerbot/QuestLogPolicy.h"
+#include "playerbot/policy/quest/QuestLogPolicy.h"
 #include "playerbot/WandPolicy.h"
 #include "playerbot/ChatHelper.h"
 #include "playerbot/strategy/Trigger.h"

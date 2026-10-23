@@ -1,7 +1,7 @@
 #include "playerbot/playerbot.h"
 #include "AcceptQuestAction.h"
 #include "playerbot/PullRegenPolicy.h"
-#include "playerbot/QuestLogPolicy.h"
+#include "playerbot/policy/quest/QuestLogPolicy.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "../../../runtime/HireLifecycle.h"
 #include "../../../runtime/HireQuestPolicy.h"

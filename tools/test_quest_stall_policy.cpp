@@ -1,4 +1,4 @@
-#include "../ai/playerbot/QuestStallPolicy.h"
+#include "../ai/playerbot/policy/quest/QuestStallPolicy.h"
 
 #include <array>
 #include <cstdlib>

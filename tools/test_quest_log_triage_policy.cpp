@@ -1,4 +1,4 @@
-#include "../ai/playerbot/QuestLogPolicy.h"
+#include "../ai/playerbot/policy/quest/QuestLogPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

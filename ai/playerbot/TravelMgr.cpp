@@ -7,7 +7,7 @@
 // Pure travel re-pick decisions (cooldown park, kind give-up, trap streak).
 #include "playerbot/ZoneMigratePolicy.h"
 #include "playerbot/TravelRepickPolicy.h"
-#include "playerbot/QuestGiverStallPolicy.h"
+#include "playerbot/policy/quest/QuestGiverStallPolicy.h"
 #include "playerbot/WorkIdlePolicy.h"
 #include <numeric>
 #include <mutex>

@@ -13,7 +13,7 @@
 #include "playerbot/strategy/values/LootValues.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "playerbot/ServerFacade.h"
-#include "playerbot/QuestLogPolicy.h"
+#include "playerbot/policy/quest/QuestLogPolicy.h"
 #include "playerbot/strategy/values/SharedValueContext.h"
 #include "../../../../runtime/RemoteCommanderTasks.h"
 #include "../../../../runtime/CommandedGroupQuery.h"

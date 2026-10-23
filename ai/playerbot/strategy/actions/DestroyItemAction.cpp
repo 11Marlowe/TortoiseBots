@@ -2,7 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "DestroyItemAction.h"
 #include "playerbot/strategy/values/ItemCountValue.h"
-#include "playerbot/QuestLogPolicy.h"
+#include "playerbot/policy/quest/QuestLogPolicy.h"
 #include "playerbot/strategy/values/MaintenanceValues.h"
 #include "../../../../runtime/AltBotService.h"
 

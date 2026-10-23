@@ -3,7 +3,7 @@
 
 #include "playerbot/playerbot.h"
 #include "TalkToQuestGiverAction.h"
-#include "playerbot/QuestRewardPolicy.h"
+#include "playerbot/policy/quest/QuestRewardPolicy.h"
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "playerbot/strategy/values/QuestValues.h"

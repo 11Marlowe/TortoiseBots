@@ -10,7 +10,7 @@
 
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/ServerFacade.h"
-#include "playerbot/QuestLogPolicy.h"
+#include "playerbot/policy/quest/QuestLogPolicy.h"
 #include "../../../../runtime/ClassConsumablePolicy.h"
 #include "../../../../runtime/AhReadModelPolicy.h"
 
