@@ -8,7 +8,7 @@
 #include "../../../runtime/policy/pet/DevourMagicPolicy.h"
 #include "../../../runtime/policy/pet/HealthFunnelPolicy.h"
 #include "../../../runtime/policy/pet/SeductionPolicy.h"
-#include "../../../../runtime/WarlockSoulstonePolicy.h"
+#include "../../../../runtime/policy/class/WarlockSoulstonePolicy.h"
 
 namespace ai
 {

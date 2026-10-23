@@ -11,7 +11,7 @@
 #include "../../../../runtime/HireProvisionService.h"
 #include "../../../../runtime/AltBotService.h"
 #include "../../../../runtime/AltBotPolicy.h"
-#include "../../../../runtime/ShamanTankKitPolicy.h"
+#include "../../../../runtime/policy/class/ShamanTankKitPolicy.h"
 
 using namespace ai;
 

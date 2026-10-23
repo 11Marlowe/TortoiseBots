@@ -12,7 +12,7 @@
 #include "../../runtime/StarterKitPolicy.h"
 #include "../../runtime/ProfessionGrantPolicy.h"
 #include "../../runtime/OwnedBotQolPolicy.h"
-#include "../../runtime/ShamanTankKitPolicy.h"
+#include "../../runtime/policy/class/ShamanTankKitPolicy.h"
 #include "../../runtime/GearItemLevelCapPolicy.h"
 #include "../../runtime/GearBlacklistPolicy.h"
 #include "../../runtime/PlayerAutogearPolicy.h"

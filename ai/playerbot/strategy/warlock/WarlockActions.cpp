@@ -2,7 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "WarlockActions.h"
 #include "playerbot/strategy/actions/EquipAction.h"
-#include "../../../runtime/WarlockStonePolicy.h"
+#include "../../../runtime/policy/class/WarlockStonePolicy.h"
 
 using namespace ai;
 

@@ -1,6 +1,6 @@
 // Standalone check for runtime/RogueThreatPolicy.h:
 //   g++ -std=c++17 -Wall -Wextra tools/test_rogue_threat_policy.cpp -o /tmp/test_rogue_threat && /tmp/test_rogue_threat
-#include "../runtime/RogueThreatPolicy.h"
+#include "../runtime/policy/class/RogueThreatPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

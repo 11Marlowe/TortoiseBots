@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_warlock_stone_policy.cpp -o /tmp/test_warlock_stone
 //   /tmp/test_warlock_stone
 
-#include "../runtime/WarlockStonePolicy.h"
+#include "../runtime/policy/class/WarlockStonePolicy.h"
 
 #include <cstdio>
 #include <cstdlib>
