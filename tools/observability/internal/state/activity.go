@@ -19,11 +19,15 @@ const (
 	lootFeedLimit   = 600
 	questFeedLimit  = 400
 	levelFeedLimit  = 800
+	pvpFeedLimit    = 400
 	// notableQuality mirrors ITEM_QUALITY_UNCOMMON: the "green or better"
 	// filter the owner asked for.
 	notableQuality = 2
 	// flesh-skinning skill id (SKILL_SKINNING in SharedDefines.h).
 	skillSkinning = 393
+	// worldPvpFightExpiry is how long a bot counts as "fighting <name>"
+	// after its last world PvP event without a newer one.
+	worldPvpFightExpiry = time.Minute
 )
 
 // botActivityState is the mutable per-bot accumulator. The exported counters
@@ -40,6 +44,11 @@ type botActivityState struct {
 	deadAt    time.Time
 	lastLevel uint32
 	openQuest map[uint32]bool
+	// world PvP "fighting now": the last engage target and when the last
+	// world PvP event for this bot arrived. Cleared on kill/death; read
+	// with the expiry in worldPvpFightingLocked.
+	pvpFighting string
+	pvpFightAt  time.Time
 }
 
 // LootFilter selects rows from the pool-wide loot feed. Zero values mean "no
@@ -55,6 +64,12 @@ type LootFilter struct {
 
 // QuestFilter selects rows from the pool-wide quest feed.
 type QuestFilter struct {
+	Bot   string
+	Limit int
+}
+
+// PvpFilter selects rows from the pool-wide world PvP feed.
+type PvpFilter struct {
 	Bot   string
 	Limit int
 }
@@ -203,6 +218,24 @@ func (s *Store) applyBotEventLocked(ev model.BotEvent, now time.Time) {
 	case "BotDeath":
 		a.counters.Deaths++
 		a.deadAt = now
+	case "WorldPvpEngage":
+		a.counters.PvpEngagements++
+		a.pvpFighting = ev.Info1
+		a.pvpFightAt = now
+		s.appendPvpFeed(model.PvpFeedItem{At: now.Unix(), Bot: a.name, GUID: ev.GUID, Class: a.class, Level: a.level,
+			MapID: ev.MapID, ZoneID: ev.ZoneID, Event: "engage", Target: ev.Info1, TargetKind: ev.Info2, TargetLevel: ev.TargetLevel})
+	case "WorldPvpKill":
+		a.counters.PvpKills++
+		a.pvpFighting = ""
+		a.pvpFightAt = now
+		s.appendPvpFeed(model.PvpFeedItem{At: now.Unix(), Bot: a.name, GUID: ev.GUID, Class: a.class, Level: a.level,
+			MapID: ev.MapID, ZoneID: ev.ZoneID, Event: "kill", Target: ev.Info1, TargetLevel: uint32(parseUint(ev.Info2))})
+	case "WorldPvpDeath":
+		a.counters.PvpDeaths++
+		a.pvpFighting = ""
+		a.pvpFightAt = now
+		s.appendPvpFeed(model.PvpFeedItem{At: now.Unix(), Bot: a.name, GUID: ev.GUID, Class: a.class, Level: a.level,
+			MapID: ev.MapID, ZoneID: ev.ZoneID, Event: "death", Target: ev.Info1, TargetLevel: uint32(parseUint(ev.Info2))})
 	case "ReviveFromCorpseAction", "ReviveFromSpiritHealerAction", "RepopAction":
 		if !a.deadAt.IsZero() {
 			a.counters.GhostSeconds += now.Sub(a.deadAt).Seconds()
@@ -240,6 +273,14 @@ func (s *Store) appendQuestFeed(item model.QuestFeedItem) {
 	s.questFeed = append(s.questFeed, item)
 	if len(s.questFeed) > questFeedLimit {
 		s.questFeed = append([]model.QuestFeedItem(nil), s.questFeed[len(s.questFeed)-questFeedLimit:]...)
+	}
+}
+
+func (s *Store) appendPvpFeed(item model.PvpFeedItem) {
+	item.TimeStr = stampTime(item.At)
+	s.pvpFeed = append(s.pvpFeed, item)
+	if len(s.pvpFeed) > pvpFeedLimit {
+		s.pvpFeed = append([]model.PvpFeedItem(nil), s.pvpFeed[len(s.pvpFeed)-pvpFeedLimit:]...)
 	}
 }
 
@@ -370,6 +411,40 @@ func (s *Store) QuestFeed(f QuestFilter) []model.QuestFeedItem {
 	return out
 }
 
+// PvpFeed returns the pool-wide world PvP feed, newest first, filtered.
+func (s *Store) PvpFeed(f PvpFilter) []model.PvpFeedItem {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]model.PvpFeedItem, 0, 64)
+	bot := strings.ToLower(f.Bot)
+	for i := len(s.pvpFeed) - 1; i >= 0; i-- {
+		it := s.pvpFeed[i]
+		if bot != "" && !strings.Contains(strings.ToLower(it.Bot), bot) {
+			continue
+		}
+		out = append(out, it)
+		if f.Limit > 0 && len(out) >= f.Limit {
+			break
+		}
+	}
+	return out
+}
+
+// worldPvpFightingLocked names the enemy the bot is fighting right now, or
+// empty when none: the last engage target, cleared on kill/death and past
+// the expiry without a newer event. The caller holds the store lock.
+func (s *Store) worldPvpFightingLocked(guid uint32, now time.Time) string {
+	a := s.activity[guid]
+	if a == nil || a.pvpFighting == "" {
+		return ""
+	}
+	if now.Sub(a.pvpFightAt) > worldPvpFightExpiry {
+		return ""
+	}
+	return a.pvpFighting
+}
+
 // Activity builds the pool-wide activity view for GET /api/v1/activity.
 func (s *Store) Activity() model.ActivityResponse {
 	s.mu.RLock()
@@ -437,6 +512,9 @@ func addCounters(a, b model.BotActivity) model.BotActivity {
 	a.MoneySpent += b.MoneySpent
 	a.Kills += b.Kills
 	a.Deaths += b.Deaths
+	a.PvpEngagements += b.PvpEngagements
+	a.PvpKills += b.PvpKills
+	a.PvpDeaths += b.PvpDeaths
 	a.GhostSeconds += b.GhostSeconds
 	a.TrainerVisits += b.TrainerVisits
 	a.SpellsLearned += b.SpellsLearned

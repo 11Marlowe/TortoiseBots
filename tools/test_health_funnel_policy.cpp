@@ -6,7 +6,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_health_funnel_policy.cpp -o /tmp/test_health_funnel
 //   /tmp/test_health_funnel
 
-#include "../runtime/HealthFunnelPolicy.h"
+#include "../runtime/policy/pet/HealthFunnelPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

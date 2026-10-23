@@ -6,7 +6,7 @@
 #include "playerbot/RandomItemMgr.h"
 #include "../../../runtime/ClaimLifecycle.h"
 #include "../../../runtime/HireLifecycle.h"
-#include "../../../runtime/HireGearPolicy.h"
+#include "../../../runtime/policy/hire/HireGearPolicy.h"
 
 using namespace ai;
 

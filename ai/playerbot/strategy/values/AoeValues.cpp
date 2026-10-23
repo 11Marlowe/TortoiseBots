@@ -4,7 +4,7 @@
 
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
-#include "playerbot/AttackersAoeDensityPolicy.h"
+#include "playerbot/policy/combat/AttackersAoeDensityPolicy.h"
 using namespace ai;
 
 #include <set>

@@ -380,3 +380,5 @@ Inspects or modifies strategy trees across different execution states: combat (`
 ```
 
 Typing `co ?` prints the bot's currently active combat strategies. Prefixing a strategy name with `+` enables it, `-` disables it, and `~` toggles it.
+
+The `world pvp` strategy makes one bot seek PvP-flagged enemy players in the open world (`nc +world pvp` to switch it on, `nc -world pvp` for off). It is a pool-bot role: owned and hired bots ignore the pool roll, but the toggle still works on one bot.

@@ -5,7 +5,7 @@
 #include "playerbot/RandomBotFacade.h"
 #include "Guild/GuildMgr.h"
 #include "../../../runtime/ClaimLifecycle.h"
-#include "../../../runtime/ClaimedBotPolicy.h"
+#include "../../../runtime/policy/hire/ClaimedBotPolicy.h"
 #include "../../../runtime/HireLifecycle.h"
 #include "runtime/AltBotPolicy.h"
 #include "runtime/AltBotService.h"

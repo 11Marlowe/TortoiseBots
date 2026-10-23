@@ -1,7 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "AttackerOfNonTankTargetValue.h"
-#include "AttackerOfNonTankPolicy.h"
+#include "playerbot/policy/combat/AttackerOfNonTankPolicy.h"
 #include "TargetValue.h"
 #include "CcMarkHoldPolicy.h"
 #include "playerbot/ServerFacade.h"

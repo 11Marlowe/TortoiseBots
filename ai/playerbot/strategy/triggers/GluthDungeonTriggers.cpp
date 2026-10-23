@@ -1,6 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "GluthDungeonTriggers.h"
-#include "playerbot/GluthKitePolicy.h"
+#include "playerbot/policy/raid/GluthKitePolicy.h"
 
 using namespace ai;
 

@@ -1,4 +1,4 @@
-#include "../ai/playerbot/VaelPolicy.h"
+#include "../ai/playerbot/policy/raid/VaelPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

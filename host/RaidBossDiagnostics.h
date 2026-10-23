@@ -1,6 +1,6 @@
 #pragma once
 #include "ScriptObjects.h"
-#include "../runtime/RaidBossLogPolicy.h"
+#include "../runtime/policy/infra/RaidBossLogPolicy.h"
 #include <map>
 #include <mutex>
 #include <tuple>

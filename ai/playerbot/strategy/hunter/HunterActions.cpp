@@ -5,7 +5,7 @@
 #include "playerbot/ServerFacade.h"
 #include "HunterActions.h"
 #include "HunterValues.h"
-#include "../../../../runtime/HunterFeignDeathPolicy.h"
+#include "../../../../runtime/policy/class/HunterFeignDeathPolicy.h"
 
 using namespace ai;
 

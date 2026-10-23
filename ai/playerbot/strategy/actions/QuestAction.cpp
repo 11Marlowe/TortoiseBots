@@ -3,7 +3,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 #include "../../../runtime/HireLifecycle.h"
-#include "../../../runtime/HireQuestPolicy.h"
+#include "../../../runtime/policy/hire/HireQuestPolicy.h"
 #include "../../../../runtime/AltBotService.h"
 
 using namespace ai;

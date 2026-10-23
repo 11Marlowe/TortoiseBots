@@ -1,4 +1,4 @@
-#include "../ai/playerbot/ChromaggusSandPolicy.h"
+#include "../ai/playerbot/policy/raid/ChromaggusSandPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

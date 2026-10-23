@@ -4,7 +4,7 @@
 #include "PaladinActions.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/GroupMembers.h"
-#include "runtime/JudgementUpkeepPolicy.h"
+#include "runtime/policy/class/JudgementUpkeepPolicy.h"
 
 using namespace ai;
 

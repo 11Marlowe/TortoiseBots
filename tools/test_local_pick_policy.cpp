@@ -1,4 +1,4 @@
-#include "../ai/playerbot/LocalPickPolicy.h"
+#include "../ai/playerbot/policy/rpg/LocalPickPolicy.h"
 
 #include <cmath>
 #include <cstdlib>

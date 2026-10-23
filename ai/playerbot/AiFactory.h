@@ -68,4 +68,9 @@ public:
     static std::string CommandedSafeNonCombatStrategies(Player* player, std::string const& strategies, uint32* held = nullptr);
     // The list with every "+grind/+travel/+tfish/+rpg/+rpg craft/+wander" entry removed.
     static std::string StripOpenWorldNonCombatStrategies(std::string const& strategies);
+    // True when this bot may hold the open-world PvP seek role right now.
+    static bool IsWorldPvpSeekEligible(Player* player, PlayerbotAI* const facade);
+    // Rolls the seek role for an eligible bot (grant or remove by percent) and
+    // logs a grant. Called on strategy builds and on the reroll timer.
+    static void RollWorldPvpSeek(Player* player, PlayerbotAI* const facade);
 };

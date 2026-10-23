@@ -3,12 +3,12 @@
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/actions/UseItemAction.h"
 #include "playerbot/AoeFearPolicy.h"
-#include "../../../runtime/VoidwalkerPolicy.h"
+#include "../../../runtime/policy/pet/VoidwalkerPolicy.h"
 #include "WarlockPetTaunt.h"
-#include "../../../runtime/DevourMagicPolicy.h"
-#include "../../../runtime/HealthFunnelPolicy.h"
-#include "../../../runtime/SeductionPolicy.h"
-#include "../../../../runtime/WarlockSoulstonePolicy.h"
+#include "../../../runtime/policy/pet/DevourMagicPolicy.h"
+#include "../../../runtime/policy/pet/HealthFunnelPolicy.h"
+#include "../../../runtime/policy/pet/SeductionPolicy.h"
+#include "../../../../runtime/policy/class/WarlockSoulstonePolicy.h"
 
 namespace ai
 {

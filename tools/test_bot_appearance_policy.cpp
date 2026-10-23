@@ -1,6 +1,6 @@
 // Standalone test for runtime/BotAppearancePolicy.h (valid random-bot looks).
 // No core, no DB: checks the per-race/gender ranges the generator rolls from.
-#include "../runtime/BotAppearancePolicy.h"
+#include "../runtime/policy/provision/BotAppearancePolicy.h"
 
 #include <cstdio>
 

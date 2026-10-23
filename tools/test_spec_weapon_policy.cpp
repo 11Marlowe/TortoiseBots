@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/values/SpecWeaponPolicy.h"
+#include "../ai/playerbot/policy/gear/SpecWeaponPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

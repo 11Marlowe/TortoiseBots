@@ -5,14 +5,14 @@
 #include "playerbot/LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
-#include "playerbot/TravelInstancePolicy.h"
+#include "playerbot/policy/travel/TravelInstancePolicy.h"
 
 #include "Maps/GridNotifiers.h"
 #include "Maps/GridNotifiersImpl.h"
 #include "Maps/CellImpl.h"
 
 #include "playerbot/strategy/actions/DestroyItemAction.h"
-#include "playerbot/strategy/actions/LootWindowPolicy.h"
+#include "../../policy/loot/LootWindowPolicy.h"
 
 using namespace ai;
 using namespace MaNGOS;

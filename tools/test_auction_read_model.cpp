@@ -21,7 +21,7 @@
 // The read-model snapshot, faction scoping and appraisal rules under test
 // live in the shared policy header production calls into (issue #1180);
 // the mock types below only translate game state into plain inputs.
-#include "../runtime/AhReadModelPolicy.h"
+#include "../runtime/policy/ah/AhReadModelPolicy.h"
 
 static int checks = 0;
 #define CHECK(cond) do { \

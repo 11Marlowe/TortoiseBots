@@ -1,4 +1,4 @@
-#include "../ai/playerbot/AoeOffPolicy.h"
+#include "../ai/playerbot/policy/combat/AoeOffPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

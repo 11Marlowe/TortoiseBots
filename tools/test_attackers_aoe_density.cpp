@@ -11,7 +11,7 @@
 // The rules under test live in the shared policy header the production
 // values call into (issue #1180): the mock types below only translate game
 // state into plain inputs.
-#include "../ai/playerbot/AttackersAoeDensityPolicy.h"
+#include "../ai/playerbot/policy/combat/AttackersAoeDensityPolicy.h"
 
 // Lightweight mock types representing the MaNGOS/Tortoise types used in AttackersValue and AoeValues
 struct ObjectGuid

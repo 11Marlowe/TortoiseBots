@@ -1,4 +1,4 @@
-#include "../ai/playerbot/InstanceGuardPolicy.h"
+#include "../ai/playerbot/policy/dungeon/InstanceGuardPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

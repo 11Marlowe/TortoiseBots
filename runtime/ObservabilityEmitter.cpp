@@ -150,6 +150,8 @@ bool IsActivityEvent(std::string const& event)
         // explicit kill signal from XpGainAction (the CSV row cannot carry the
         // kill/non-kill XP flag)
         "Kill",
+        // open-world PvP seek: role grants, engagements, kills, deaths
+        "WorldPvpSeekGrant", "WorldPvpEngage", "WorldPvpKill", "WorldPvpDeath",
     };
     return whitelist.count(event) != 0;
 }
@@ -835,7 +837,8 @@ void ObservabilityEmitter::OnActionFailed(Player* bot,
 void ObservabilityEmitter::EmitBotActivity(std::string const& event,
                                             std::string const& info1,
                                             std::string const& info2,
-                                            Player* bot)
+                                            Player* bot,
+                                            uint32 targetLevel)
 {
     if (!IsEnabled() || !bot || !IsActivityEvent(event))
         return;
@@ -852,6 +855,8 @@ void ObservabilityEmitter::EmitBotActivity(std::string const& event,
        << ",\"level\":" << static_cast<uint32>(bot->GetLevel())
        << ",\"map\":" << bot->GetMapId()
        << ",\"zone\":" << bot->GetCachedZoneId();
+    if (targetLevel)
+        ss << ",\"target_level\":" << targetLevel;
 
     if (IsItemEvent(event))
     {
@@ -1296,6 +1301,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
         snap.kind = BotKindName(ResolveBotKind(bot));
         snap.role = GetBotRole(bot, ai);
         snap.strategy = FormatStrategies(ai);
+        snap.worldPvpSeeker = ai && (ai->HasStrategy("world pvp", BotState::BOT_STATE_NON_COMBAT) ||
+            ai->HasStrategy("world pvp", BotState::BOT_STATE_COMBAT));
         if (!bot->IsAlive())
         {
             auto killerIt = m_deathKillers.find(bot->GetGUIDLow());
@@ -1474,7 +1481,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
                 << ",\"ai_visits\":" << b.aiVisits
                 << ",\"ai_age_ms\":" << b.aiAgeMs
                 << ",\"pvp\":\"" << b.pvp << "\""
-                << ",\"pvp_bg\":\"" << EscapeJson(b.pvpWhere) << "\"}";
+                << ",\"pvp_bg\":\"" << EscapeJson(b.pvpWhere) << "\""
+                << ",\"world_pvp_seeker\":" << (b.worldPvpSeeker ? "true" : "false") << "}";
         }
         bss << "]}";
         SendDatagram(bss.str());

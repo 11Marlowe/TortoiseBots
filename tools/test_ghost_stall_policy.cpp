@@ -1,4 +1,4 @@
-#include "../ai/playerbot/GhostStallPolicy.h"
+#include "../ai/playerbot/policy/dungeon/GhostStallPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

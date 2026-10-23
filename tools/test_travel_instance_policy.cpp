@@ -1,4 +1,4 @@
-#include "../ai/playerbot/TravelInstancePolicy.h"
+#include "../ai/playerbot/policy/travel/TravelInstancePolicy.h"
 
 #include <cstdlib>
 #include <iostream>

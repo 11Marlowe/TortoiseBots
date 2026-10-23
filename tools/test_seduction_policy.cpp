@@ -6,7 +6,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_seduction_policy.cpp -o /tmp/test_seduction
 //   /tmp/test_seduction
 
-#include "../runtime/SeductionPolicy.h"
+#include "../runtime/policy/pet/SeductionPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

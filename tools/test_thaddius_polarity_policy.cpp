@@ -1,4 +1,4 @@
-#include "../ai/playerbot/ThaddiusPolarityPolicy.h"
+#include "../ai/playerbot/policy/raid/ThaddiusPolarityPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

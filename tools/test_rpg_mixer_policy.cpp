@@ -1,4 +1,4 @@
-#include "../ai/playerbot/RpgMixerPolicy.h"
+#include "../ai/playerbot/policy/rpg/RpgMixerPolicy.h"
 
 #include <cmath>
 #include <cstdlib>

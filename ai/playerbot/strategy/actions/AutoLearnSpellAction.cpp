@@ -3,7 +3,7 @@
 #include "AutoLearnSpellAction.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/TravelMgr.h"
-#include "playerbot/SpellRankPolicy.h"
+#include "playerbot/policy/gear/SpellRankPolicy.h"
 #include "playerbot/PlayerbotFactory.h"
 #include "../../../../runtime/ProfessionGrantPolicy.h"
 #include "Objects/Item.h"

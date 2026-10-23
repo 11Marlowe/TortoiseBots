@@ -1,4 +1,4 @@
-#include "../ai/playerbot/TravelRouteDangerPolicy.h"
+#include "../ai/playerbot/policy/travel/TravelRouteDangerPolicy.h"
 
 #include <cassert>
 #include <cstdlib>

@@ -1,6 +1,6 @@
 #pragma once
 #include "playerbot/GroupMembers.h"
-#include "../../../runtime/RogueThreatPolicy.h"
+#include "../../../runtime/policy/class/RogueThreatPolicy.h"
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/actions/UseItemAction.h"
 #include "playerbot/strategy/values/TargetValue.h"

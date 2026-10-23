@@ -1,4 +1,4 @@
-#include "../ai/playerbot/QuestGiverStallPolicy.h"
+#include "../ai/playerbot/policy/quest/QuestGiverStallPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

@@ -1,14 +1,14 @@
 #include "playerbot/TravelMgr.h"
-#include "playerbot/TravelRoutePolicy.h"
+#include "playerbot/policy/travel/TravelRoutePolicy.h"
 #include "playerbot/GrindSpotPolicy.h"
-#include "playerbot/PullRegenPolicy.h"
-#include "playerbot/PointDangerPolicy.h"
+#include "playerbot/policy/pull/PullRegenPolicy.h"
+#include "playerbot/policy/travel/PointDangerPolicy.h"
 // Zone migration exclusion for the leave-outgrown-zone grind errand.
 // Pure travel re-pick decisions (cooldown park, kind give-up, trap streak).
-#include "playerbot/ZoneMigratePolicy.h"
+#include "playerbot/policy/rpg/ZoneMigratePolicy.h"
 #include "playerbot/TravelRepickPolicy.h"
-#include "playerbot/QuestGiverStallPolicy.h"
-#include "playerbot/WorkIdlePolicy.h"
+#include "playerbot/policy/quest/QuestGiverStallPolicy.h"
+#include "playerbot/policy/rpg/WorkIdlePolicy.h"
 #include <numeric>
 #include <mutex>
 #include <iomanip>

@@ -8,7 +8,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_warlock_soulstone_policy.cpp -o /tmp/test_warlock_soulstone
 //   /tmp/test_warlock_soulstone
 
-#include "../runtime/WarlockSoulstonePolicy.h"
+#include "../runtime/policy/class/WarlockSoulstonePolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

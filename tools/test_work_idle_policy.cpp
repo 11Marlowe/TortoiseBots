@@ -1,4 +1,4 @@
-#include "../ai/playerbot/WorkIdlePolicy.h"
+#include "../ai/playerbot/policy/rpg/WorkIdlePolicy.h"
 
 #include <cstdlib>
 #include <iostream>

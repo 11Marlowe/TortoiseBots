@@ -3,7 +3,7 @@
 // Build and run from the repo root:
 //   g++ -std=c++17 -Wall -Wextra tools/test_mount_shop_policy.cpp -o /tmp/test_mount_shop_policy
 //   /tmp/test_mount_shop_policy
-#include "../ai/playerbot/MountShopPolicy.h"
+#include "../ai/playerbot/policy/travel/MountShopPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

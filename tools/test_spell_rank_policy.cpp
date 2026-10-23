@@ -1,4 +1,4 @@
-#include "../ai/playerbot/SpellRankPolicy.h"
+#include "../ai/playerbot/policy/gear/SpellRankPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

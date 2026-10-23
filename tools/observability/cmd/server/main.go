@@ -58,6 +58,7 @@ func main() {
 	httpHost := flag.String("http-host", getEnv("HTTP_HOST", "127.0.0.1"), "HTTP server bind address (127.0.0.1 = local only, 0.0.0.0 = all interfaces, for containers/LAN)")
 	udpHost := flag.String("udp-host", getEnv("UDP_HOST", "127.0.0.1"), "UDP telemetry listen address")
 	udpPort := flag.Int("udp-port", getEnvInt("UDP_PORT", 9195), "UDP telemetry listener port")
+	forwardUDP := flag.String("forward-udp", getEnv("FORWARD_UDP", ""), "Comma-separated host:port list; every telemetry datagram is also sent to each (empty = no forwarding)")
 	dbHost := flag.String("db-host", getEnv("DB_HOST", "127.0.0.1"), "MariaDB / MySQL host")
 	dbPort := flag.Int("db-port", getEnvInt("DB_PORT", 3306), "MariaDB / MySQL port")
 	dbUser := flag.String("db-user", getEnv("DB_USER", "mangos"), "MariaDB / MySQL user")
@@ -253,6 +254,18 @@ func main() {
 	// 5. WebSocket hub and UDP ingestion
 	hub := ws.NewHub()
 	udpListener := udp.NewListener(*udpHost, *udpPort, store, metricsRegistry, projectionEngine, hub)
+	var forwards []string
+	for _, f := range strings.Split(*forwardUDP, ",") {
+		if f = strings.TrimSpace(f); f != "" {
+			forwards = append(forwards, f)
+		}
+	}
+	if err := udpListener.SetForwards(forwards); err != nil {
+		log.Fatalf("Refusing -forward-udp: %v", err)
+	}
+	if len(forwards) > 0 {
+		log.Printf("[UDP] Forwarding every telemetry datagram to %s", strings.Join(forwards, ", "))
+	}
 	if err := udpListener.Start(); err != nil {
 		log.Fatalf("Failed to start UDP listener: %v", err)
 	}
@@ -369,10 +382,7 @@ func main() {
 		})
 	})
 
-	mux.HandleFunc("/api/v1/auth/logout", func(w http.ResponseWriter, r *http.Request) {
-		authService.ClearSessionCookie(w)
-		http.Redirect(w, r, "/login", http.StatusFound)
-	})
+	mux.HandleFunc("/api/v1/auth/logout", logoutHandler(authService))
 
 	requireAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -471,6 +481,18 @@ func main() {
 			f.Limit = 2000
 		}
 		writeJSON(w, store.QuestFeed(f))
+	}))
+
+	mux.HandleFunc("/api/v1/activity/pvp", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		f := state.PvpFilter{Bot: q.Get("bot"), Limit: int(qUint(q.Get("limit")))}
+		if f.Limit <= 0 {
+			f.Limit = 200
+		}
+		if f.Limit > 2000 {
+			f.Limit = 2000
+		}
+		writeJSON(w, store.PvpFeed(f))
 	}))
 
 	// Commanders: the standing remote-commander bindings the module reports
@@ -674,6 +696,34 @@ func main() {
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("HTTP server failed: %v", err)
+	}
+}
+
+// logoutHandler ends the session. Logout is POST-only: a GET or HEAD must not
+// clear the cookie, or a sandboxed page could log a GM out with a plain request.
+// POST alone is not enough: a cross-site HTML form POST is a top-level
+// navigation, so the browser would apply the clearing Set-Cookie. The request
+// must also be same-origin (Origin matches the Host, as for the WebSocket
+// stream); a missing, foreign or opaque (Origin: null) origin gets 403 and the
+// cookie is left alone. The dashboard's button posts with fetch and navigates to
+// /login itself.
+func logoutHandler(authService *auth.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// ws.SameOrigin lets a request with no Origin pass (the WebSocket stream
+		// relies on that for non-browser clients). Logout is stricter: the
+		// dashboard's button is a same-origin fetch POST, which every current
+		// browser sends with Origin, so a POST without one is refused too.
+		if r.Header.Get("Origin") == "" || !ws.SameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		authService.ClearSessionCookie(w)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

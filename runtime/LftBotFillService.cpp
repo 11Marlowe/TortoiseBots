@@ -1,7 +1,7 @@
 #include "LftBotFillService.h"
 #include "BotActivityLease.h"
-#include "LftCompPolicy.h"
-#include "LftRoleKitPolicy.h"
+#include "runtime/policy/hire/LftCompPolicy.h"
+#include "runtime/policy/hire/LftRoleKitPolicy.h"
 
 #include "BotManager.h"
 #include "PlayerbotAIStorage.h"

@@ -3,8 +3,8 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/SharedValueContext.h"
-#include "playerbot/QuestLogPolicy.h"
-#include "../../runtime/GatherToolPolicy.h"
+#include "playerbot/policy/quest/QuestLogPolicy.h"
+#include "../../runtime/policy/provision/GatherToolPolicy.h"
 #include "../../runtime/CommandedGroupQuery.h"
 #include "../../runtime/RemoteCommanderTasks.h"
 

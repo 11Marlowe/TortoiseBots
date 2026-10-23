@@ -2,8 +2,8 @@
 #include "MimicConsumableAction.h"
 #include "playerbot/ServerFacade.h"
 #include "../../../runtime/BotManager.h"
-#include "../../../runtime/ClassConsumablePolicy.h"
-#include "../../../runtime/MimicConsumablePolicy.h"
+#include "../../../runtime/policy/provision/ClassConsumablePolicy.h"
+#include "../../../runtime/policy/provision/MimicConsumablePolicy.h"
 
 using namespace ai;
 using namespace TortoiseBots;

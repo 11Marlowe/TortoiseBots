@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_hire_departure_policy.cpp -o /tmp/test_hire_departure
 //   /tmp/test_hire_departure
 
-#include "../runtime/HireDeparturePolicy.h"
+#include "../runtime/policy/hire/HireDeparturePolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

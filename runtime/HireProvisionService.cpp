@@ -4,16 +4,17 @@
 #include "HireCost.h"
 #include "BotNameService.h"
 #include "HireLifecycle.h"
-#include "HireIntroPolicy.h"
+#include "runtime/policy/hire/HireIntroPolicy.h"
 #include "HireSpecPolicy.h"
 #include "HireGearCache.h"
-#include "HireGearPolicy.h"
+#include "runtime/policy/hire/HireGearPolicy.h"
+#include "runtime/policy/provision/GearBlacklistPolicy.h"
 #include "../ai/playerbot/RandomItemMgr.h"
 #include "HireLevelPolicy.h"
 #include "HireFeePolicy.h"
 #include "HireTierRequestPolicy.h"
 #include "HireUnlockPolicy.h"
-#include "BotAppearancePolicy.h"
+#include "runtime/policy/provision/BotAppearancePolicy.h"
 #include "BotManager.h"
 #include "BotActivityLease.h"
 #include "PlayerbotAIStorage.h"
@@ -1551,6 +1552,9 @@ bool HireProvisionService::EquipHireGearSet(Player* bot, PlayerbotAI* ai, uint8_
                 bot->DestroyItem(oldItem->GetBagSlot(), oldItem->GetSlot(), true);
             continue;
         }
+        // A blocked row is skipped entirely: never equipped, never enchanted.
+        if (GearBlacklistBlocks(sPlayerbotAIConfig.randomGearBlacklist, row->itemId))
+            continue;
         if (!oldItem || oldItem->GetEntry() != row->itemId)
         {
             // The hire gear table comes from the offline generator; an

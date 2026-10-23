@@ -1,4 +1,4 @@
-#include "../ai/playerbot/LootRollPolicy.h"
+#include "../ai/playerbot/policy/loot/LootRollPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

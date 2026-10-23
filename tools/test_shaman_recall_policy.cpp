@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/shaman/ShamanRecallPolicy.h"
+#include "../ai/playerbot/policy/class/ShamanRecallPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

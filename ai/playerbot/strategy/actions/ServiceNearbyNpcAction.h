@@ -5,7 +5,7 @@
 
 #include "playerbot/strategy/Action.h"
 #include "MovementActions.h"
-#include "playerbot/strategy/values/NearbyServicePolicy.h"
+#include "../../../../runtime/policy/provision/NearbyServicePolicy.h"
 
 namespace ai
 {

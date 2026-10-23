@@ -11,9 +11,9 @@
 #include "Objects/Player.h"
 #endif
 #include "strategy/values/ItemUsageValue.h"
-#include "RaidQuestChainPolicy.h"
-#include "GearDuplicateItemPolicy.h"
-#include "TransmogClonePolicy.h"
+#include "playerbot/policy/raid/RaidQuestChainPolicy.h"
+#include "playerbot/policy/gear/GearDuplicateItemPolicy.h"
+#include "playerbot/policy/gear/TransmogClonePolicy.h"
 
 enum RandomItemType
 {

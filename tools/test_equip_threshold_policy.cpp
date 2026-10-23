@@ -1,4 +1,4 @@
-#include "../ai/playerbot/EquipThresholdPolicy.h"
+#include "../ai/playerbot/policy/gear/EquipThresholdPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

@@ -3,7 +3,7 @@
 #include "TrainerValues.h"
 #include "SharedValueContext.h"
 #include "playerbot/PlayerbotHelpMgr.h"
-#include "playerbot/strategy/values/TradeTrainerPolicy.h"
+#include "../../../../runtime/policy/provision/TradeTrainerPolicy.h"
 #include "../../../../runtime/ProfessionGrantPolicy.h"
 
 using namespace ai;

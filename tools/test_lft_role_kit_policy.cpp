@@ -1,4 +1,4 @@
-#include "../runtime/LftRoleKitPolicy.h"
+#include "../runtime/policy/hire/LftRoleKitPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

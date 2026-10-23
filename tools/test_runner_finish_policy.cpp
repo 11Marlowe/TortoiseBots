@@ -1,4 +1,4 @@
-#include "../ai/playerbot/RunnerFinishPolicy.h"
+#include "../ai/playerbot/policy/combat/RunnerFinishPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

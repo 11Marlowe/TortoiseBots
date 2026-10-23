@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_mage_aoe_safety_policy.cpp -o /tmp/test_mage_aoe_safety
 //   /tmp/test_mage_aoe_safety
 
-#include "../ai/playerbot/MageAoeSafetyPolicy.h"
+#include "../ai/playerbot/policy/class/MageAoeSafetyPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

@@ -5,7 +5,7 @@
 
 #include "../ai/playerbot/RandomBotFacade.h"
 #include "runtime/BotActivityLease.h"
-#include "AhReadModelPolicy.h"
+#include "runtime/policy/ah/AhReadModelPolicy.h"
 #include "NamedLocationIndex.h"
 
 #include "../ai/playerbot/PlayerbotAI.h"

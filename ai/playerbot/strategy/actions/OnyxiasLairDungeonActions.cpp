@@ -4,8 +4,8 @@
 
 using namespace ai;
 #include "playerbot/ServerFacade.h"
-#include "playerbot/OnyxiaBreathPolicy.h"
-#include "playerbot/OnyxiaWhelpEggPolicy.h"
+#include "playerbot/policy/raid/OnyxiaBreathPolicy.h"
+#include "playerbot/policy/raid/OnyxiaWhelpEggPolicy.h"
 #include "ChooseTargetActions.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 

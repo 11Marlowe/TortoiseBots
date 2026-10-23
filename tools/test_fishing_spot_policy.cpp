@@ -1,4 +1,4 @@
-#include "../ai/playerbot/FishingSpotPolicy.h"
+#include "../ai/playerbot/policy/loot/FishingSpotPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

@@ -8,7 +8,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_hire_quest_policy.cpp -o /tmp/test_hire_quest_policy
 //   /tmp/test_hire_quest_policy
 
-#include "../runtime/HireQuestPolicy.h"
+#include "../runtime/policy/hire/HireQuestPolicy.h"
 
 #include <cassert>
 #include <iostream>

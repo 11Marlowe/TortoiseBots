@@ -2,17 +2,18 @@
 #include "playerbot/playerbot.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "RandomItemMgr.h"
+#include "../../runtime/policy/provision/GearBlacklistPolicy.h"
 #include "Maps/Map.h"
 #include "Database/DatabaseEnv.h"
 
 #include "playerbot/ServerFacade.h"
 #include "strategy/values/LootValues.h"
-#include "strategy/values/RogueWeaponPolicy.h"
+#include "policy/gear/RogueWeaponPolicy.h"
 #include "ItemEnchantmentMgr.h"
 
 #include "strategy/values/SharedValueContext.h"
-#include "strategy/values/SpecWeaponPolicy.h"
-#include "strategy/values/AmmoCachePolicy.h"
+#include "policy/gear/SpecWeaponPolicy.h"
+#include "../../runtime/policy/provision/AmmoCachePolicy.h"
 
 char * strstri (const char* str1, const char* str2);
 
@@ -1527,10 +1528,9 @@ uint32 RandomItemMgr::CalculateStatWeight(uint8 playerclass, uint8 spec, ItemPro
         return proto->Quality + proto->ItemLevel;
     }
 
-    bool isWhitelist = false;
-    // whitelist
-    if (std::find(sPlayerbotAIConfig.randomGearWhitelist.begin(), sPlayerbotAIConfig.randomGearWhitelist.end(), proto->ItemId) != sPlayerbotAIConfig.randomGearWhitelist.end())
-        isWhitelist = true;
+    bool isWhitelist = TortoiseBots::GearWhitelistApplies(sPlayerbotAIConfig.randomGearBlacklist,
+        std::find(sPlayerbotAIConfig.randomGearWhitelist.begin(), sPlayerbotAIConfig.randomGearWhitelist.end(), proto->ItemId) != sPlayerbotAIConfig.randomGearWhitelist.end(),
+        proto->ItemId);
 
     // whitelist pvp items, as thei have wierd stats
     if (proto->RequiredHonorRank)
@@ -3153,8 +3153,7 @@ uint32 RandomItemMgr::GetUpgrade(Player* player, std::string spec, uint8 slot, u
         if (info->weights[specId] == 0)
             continue;
 
-        // owner-configured exclusion list: never suggest these items
-        if (std::find(sPlayerbotAIConfig.randomGearBlacklist.begin(), sPlayerbotAIConfig.randomGearBlacklist.end(), info->itemId) != sPlayerbotAIConfig.randomGearBlacklist.end())
+        if (TortoiseBots::GearBlacklistBlocks(sPlayerbotAIConfig.randomGearBlacklist, info->itemId))
             continue;
 
         // skip higher lvl
@@ -3276,8 +3275,7 @@ std::vector<uint32> RandomItemMgr::GetUpgradeList(Player* player, uint32 specId,
         if (info->weights[specId] == 0)
             continue;
 
-        // owner-configured exclusion list: never suggest these items
-        if (std::find(sPlayerbotAIConfig.randomGearBlacklist.begin(), sPlayerbotAIConfig.randomGearBlacklist.end(), info->itemId) != sPlayerbotAIConfig.randomGearBlacklist.end())
+        if (TortoiseBots::GearBlacklistBlocks(sPlayerbotAIConfig.randomGearBlacklist, info->itemId))
             continue;
 
         // skip higher lvl

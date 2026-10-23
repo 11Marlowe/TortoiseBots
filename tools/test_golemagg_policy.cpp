@@ -1,4 +1,4 @@
-#include "../ai/playerbot/GolemaggPolicy.h"
+#include "../ai/playerbot/policy/raid/GolemaggPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

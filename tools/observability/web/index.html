@@ -89,7 +89,7 @@
 
     <div class="sidebar-footer">
       <a href="/metrics" target="_blank" class="footer-link" title="Prometheus metrics endpoint">Prometheus ↗</a>
-      <a href="/api/v1/auth/logout" class="footer-link">Logout</a>
+      <button type="button" id="logoutBtn" class="footer-link">Logout</button>
     </div>
   </aside>
 
@@ -408,6 +408,7 @@
             <div class="seg" id="feed-seg" role="group" aria-label="Event feed">
               <button class="seg-btn active" data-v="quests">Quests</button>
               <button class="seg-btn" data-v="loot">Loot &amp; money</button>
+              <button class="seg-btn" data-v="pvp">World PvP</button>
               <button class="seg-btn" data-v="console">Live console</button>
             </div>
             <div class="feed-filters" data-feed="quests">
@@ -424,8 +425,10 @@
               <input type="number" id="loot-min-level" class="input input-num" placeholder="Min level" min="1" max="60">
               <input type="text" id="loot-bot-search" placeholder="Bot name…" class="input">
             </div>
+            <div class="feed-filters" data-feed="pvp" hidden>
+              <input type="text" id="pvp-bot-search" placeholder="Bot name…" class="input">
+            </div>
           </div>
-
           <div class="feed-pane" data-feed="quests">
             <div class="table-container scroll-y">
               <table class="data-table">
@@ -443,6 +446,17 @@
                 <thead><tr><th>Time</th><th>Bot</th><th>Class / level</th><th>Source</th><th>Item</th><th>Zone</th></tr></thead>
                 <tbody id="loot-table-body">
                   <tr><td colspan="6" class="table-empty">Loading notable loot...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="feed-pane" data-feed="pvp" hidden>
+            <div class="table-container scroll-y">
+              <table class="data-table">
+                <thead><tr><th>Time</th><th>Bot</th><th>Class / level</th><th>Event</th><th>Other side</th><th>Zone</th></tr></thead>
+                <tbody id="pvp-table-body">
+                  <tr><td colspan="6" class="table-empty">Loading world PvP events...</td></tr>
                 </tbody>
               </table>
             </div>

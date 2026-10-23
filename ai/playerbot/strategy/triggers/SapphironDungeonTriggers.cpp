@@ -1,6 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "SapphironDungeonTriggers.h"
-#include "playerbot/strategy/SapphironDungeonHelper.h"
+#include "../../policy/raid/SapphironDungeonHelper.h"
 
 using namespace ai;
 

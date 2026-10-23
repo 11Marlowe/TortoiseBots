@@ -1,4 +1,4 @@
-#include "../ai/playerbot/GrobbulusCloudPolicy.h"
+#include "../ai/playerbot/policy/raid/GrobbulusCloudPolicy.h"
 
 #include <cmath>
 #include <cstdlib>

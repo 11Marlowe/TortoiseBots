@@ -1,7 +1,7 @@
 #pragma once
 #include "DungeonTriggers.h"
 #include "GenericTriggers.h"
-#include "playerbot/GolemaggPolicy.h"
+#include "playerbot/policy/raid/GolemaggPolicy.h"
 
 namespace ai
 {

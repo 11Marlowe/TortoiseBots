@@ -16,7 +16,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_warlock_pet_policy.cpp -o /tmp/test_warlock_pet
 //   /tmp/test_warlock_pet
 
-#include "../runtime/WarlockPetPolicy.h"
+#include "../runtime/policy/pet/WarlockPetPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

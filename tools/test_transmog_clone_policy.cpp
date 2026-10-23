@@ -7,8 +7,8 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_transmog_clone_policy.cpp -o /tmp/test_transmog_clone_policy
 //   /tmp/test_transmog_clone_policy
 
-#include "../ai/playerbot/TransmogClonePolicy.h"
-#include "../ai/playerbot/GearDuplicateItemPolicy.h"
+#include "../ai/playerbot/policy/gear/TransmogClonePolicy.h"
+#include "../ai/playerbot/policy/gear/GearDuplicateItemPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

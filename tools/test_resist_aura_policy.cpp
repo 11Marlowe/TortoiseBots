@@ -1,4 +1,4 @@
-#include "../ai/playerbot/ResistAuraPolicy.h"
+#include "../ai/playerbot/policy/class/ResistAuraPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

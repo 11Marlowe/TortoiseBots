@@ -1,4 +1,4 @@
-#include "../ai/playerbot/PullFiringPolicy.h"
+#include "../ai/playerbot/policy/pull/PullFiringPolicy.h"
 
 #include <cmath>
 #include <cstdlib>

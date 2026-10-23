@@ -8,7 +8,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_gear_duplicate_item_policy.cpp -o /tmp/test_gear_duplicate_item_policy
 //   /tmp/test_gear_duplicate_item_policy
 
-#include "../ai/playerbot/GearDuplicateItemPolicy.h"
+#include "../ai/playerbot/policy/gear/GearDuplicateItemPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

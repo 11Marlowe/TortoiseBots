@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "EnemyPlayerValue.h"
+#include "WorldPvpSeekChecks.h"
 #include "TargetValue.h"
 
 using namespace ai;
@@ -52,6 +53,16 @@ std::list<ObjectGuid> EnemyPlayersValue::Calculate()
             {
                 result = AI_VALUE(std::list<ObjectGuid>, "possible targets");
                 ApplyFilter(result, getOne, true);
+            }
+
+            // Outside battlegrounds only bots holding the open-world PvP seek
+            // role scan the cached proximity list for a flagged enemy player
+            // to start a fight with. No new world scan: "possible targets" is
+            // the same cached list the rest of the AI already uses.
+            if (result.empty() && !bot->InBattleGround() && WorldPvpSeekChecks::IsSeeking(ai, bot))
+            {
+                result = AI_VALUE(std::list<ObjectGuid>, "possible targets");
+                ApplyWorldPvpFilter(result, getOne);
             }
         }
     }
@@ -157,6 +168,33 @@ void EnemyPlayersValue::ApplyFilter(std::list<ObjectGuid>& targets, bool getOne,
                 break;
             }
         }
+    }
+
+    targets = filteredTargets;
+}
+
+void EnemyPlayersValue::ApplyWorldPvpFilter(std::list<ObjectGuid>& targets, bool getOne)
+{
+    std::list<ObjectGuid> filteredTargets;
+    for (const ObjectGuid& targetGuid : targets)
+    {
+        Unit* target = ai->GetUnit(targetGuid);
+        Player* enemy = dynamic_cast<Player*>(target);
+        if (enemy && IsValid(target, bot) && WorldPvpSeekChecks::IsSeekTarget(ai, bot, enemy))
+        {
+            filteredTargets.push_back(target->getObjectGuid());
+
+            if (getOne)
+            {
+                break;
+            }
+        }
+    }
+
+    if (filteredTargets.empty())
+    {
+        if (Unit* assist = WorldPvpSeekChecks::FindAssistTarget(ai, bot))
+            filteredTargets.push_back(assist->getObjectGuid());
     }
 
     targets = filteredTargets;

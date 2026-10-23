@@ -1,4 +1,4 @@
-#include "../ai/playerbot/RangedApproachPolicy.h"
+#include "../ai/playerbot/policy/combat/RangedApproachPolicy.h"
 
 #include <cmath>
 #include <cstdlib>

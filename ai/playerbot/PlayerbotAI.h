@@ -958,6 +958,34 @@ public:
     // 15-min/30-min shape, shorter because the killer is one named player).
     void SetAvoidPlayerKiller(std::string const& name) { avoidPlayerKiller_ = name; avoidPlayerKillerMs_ = WorldTimer::getMSTime(); }
     bool ShouldAvoidPlayerKiller(std::string const& name) const;
+    // Open-world PvP kill/death notes from the unit-death hook: the killer
+    // camps the victim's corpse for WorldPvpCampSeconds, then ignores the
+    // victim for WorldPvpCampIgnoreSeconds. Deaths feed the PvP death counter.
+    void NotePvpKill(Player* victim);
+    void NotePvpDeath(Player* killer);
+    // Open-world PvP seek: the level-gap decision per (bot, target) pair stays
+    // stable for about two minutes (WorldPvpPolicy.h), keyed on the target's
+    // low guid. Small bounded table: the proximity list it filters is bounded
+    // too, and stale entries are dropped when a new one arrives.
+    struct WorldPvpGapDecision { uint32 targetGuidLow = 0; uint32 decidedAtSec = 0; bool accept = false; };
+    static constexpr uint32 kWorldPvpGapDecisions = 16;
+    WorldPvpGapDecision worldPvpGapDecisions_[kWorldPvpGapDecisions] = {};
+    bool WorldPvpGapAccepted(uint32 targetGuidLow, uint32 nowSec, bool& known) const;
+    void WorldPvpNoteGapDecision(uint32 targetGuidLow, uint32 nowSec, bool accept);
+    // Pursuit of a fleeing target: when it started (0 = none) and who. Given
+    // up after WorldPvpPursuitSeconds or when the target leaves sight range.
+    uint32 worldPvpPursuitGuidLow_ = 0;
+    uint32 worldPvpPursuitStartMs_ = 0;
+    // Camp after a kill: who was killed and when; after WorldPvpCampSeconds
+    // the victim is ignored for WorldPvpCampIgnoreSeconds (0 = none).
+    uint32 worldPvpCampGuidLow_ = 0;
+    uint32 worldPvpCampStartMs_ = 0;
+    uint32 worldPvpIgnoreGuidLow_ = 0;
+    uint32 worldPvpIgnoreStartMs_ = 0;
+    // Last seek-role roll (world-thread ms, 0 = never) and its next deadline
+    // with jitter applied by RandomBotService.
+    uint32 worldPvpSeekRollMs_ = 0;
+    uint32 worldPvpSeekNextMs_ = 0;
 
     void SetActionDuration(const Action* action);
     void SetActionDuration(uint32 duration);

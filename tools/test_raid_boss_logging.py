@@ -14,7 +14,7 @@ class RaidBossLoggingTest(unittest.TestCase):
     def test_rows_packets_and_throttle(self):
         root = Path(__file__).resolve().parents[1]
         cpp = r'''
-#include "runtime/RaidBossLogPolicy.h"
+#include "runtime/policy/infra/RaidBossLogPolicy.h"
 #include <cassert>
 #include <limits>
 #include <iostream>

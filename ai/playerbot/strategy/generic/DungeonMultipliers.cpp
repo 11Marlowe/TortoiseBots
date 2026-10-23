@@ -1,6 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "playerbot/ServerFacade.h"
-#include "playerbot/McGarrShazzrahPolicy.h"
+#include "playerbot/policy/raid/McGarrShazzrahPolicy.h"
 #include "playerbot/strategy/AiObjectContext.h"
 #include "DungeonMultipliers.h"
 #include "playerbot/strategy/actions/MoltenCoreDungeonActions.h"
@@ -10,16 +10,16 @@
 #include "playerbot/strategy/AiObjectContext.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/ServerFacade.h"
-#include "playerbot/RazorgorePolicy.h"
+#include "playerbot/policy/raid/RazorgorePolicy.h"
 #include "playerbot/strategy/actions/ChooseTargetActions.h"
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/actions/GenericSpellActions.h"
 #include "playerbot/strategy/AiObjectContext.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/ServerFacade.h"
-#include "playerbot/GolemaggPolicy.h"
+#include "playerbot/policy/raid/GolemaggPolicy.h"
 #include "playerbot/strategy/values/PartyMemberToHeal.h"
-#include "playerbot/GeddonInfernoPolicy.h"
+#include "playerbot/policy/raid/GeddonInfernoPolicy.h"
 
 using namespace ai;
 

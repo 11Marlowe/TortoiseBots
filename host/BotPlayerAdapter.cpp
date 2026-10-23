@@ -237,11 +237,20 @@ void BotUnitAdapter::OnUnitDeath(Unit* unit, Unit* killer)
 
     Player* player = unit->ToPlayer();
     PlayerbotAI* ai = GET_PLAYERBOT_AI(player);
-    if (!ai)
-        return;
-
-    ai->SetLastKiller(killer);
+    Player* killerPlayer = killer ? killer->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr;
+    if (ai)
+    {
+        ai->SetLastKiller(killer);
+        if (killerPlayer)
+            ai->NotePvpDeath(killerPlayer);
+    }
     AltBotService::Instance().OnDeath(player);
+
+    if (killerPlayer && killerPlayer != player)
+    {
+        if (PlayerbotAI* killerAi = GET_PLAYERBOT_AI(killerPlayer))
+            killerAi->NotePvpKill(player);
+    }
 }
 
 void BotUnitAdapter::OnDamage(Unit* attacker, Unit* victim, uint32& /*damage*/)

@@ -6,7 +6,7 @@
 #include "PullTriggers.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/actions/PullActions.h"
-#include "playerbot/strategy/shaman/ShamanTankPolicy.h"
+#include "../../policy/class/ShamanTankPolicy.h"
 
 using namespace ai;
 

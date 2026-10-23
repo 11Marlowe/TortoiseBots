@@ -68,7 +68,7 @@ class WandFallbackWiringTest(unittest.TestCase):
     def test_stop_waits_for_spell_gcd_too(self):
         fn = body(SPELL_ACTIONS, "bool StopWandAction::Execute(Event& event)")
         self.assertIn("WandStopWaitMs(bot->GetAttackTimer(RANGED_ATTACK), ai->SpellGlobalCooldownRemainingMs(), sPlayerbotAIConfig.reactDelay)", fn)
-        ai = (ROOT / "ai/playerbot/PlayerbotAI.cpp").read_text()
+        ai = (ROOT / "ai/playerbot/PlayerbotAISpells.cpp").read_text()
         # Every own-cast path records the GCD right after a successful prepare.
         self.assertEqual(len(re.findall(r"NoteSpellGlobalCooldown\(pSpellInfo\);", ai)), 3)
 
