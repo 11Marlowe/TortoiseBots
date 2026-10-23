@@ -1318,15 +1318,17 @@ struct Run
         std::uint32_t ms = 0;
     };
     std::unordered_map<std::uint64_t, HpWatch> hpWatch;
-    // FightProgressTick: per engaged unit (guid) its hp (tenths of a percent of its most) on each fight tick of the
-    // last kFightProgressWindowMs, by the watch's own clock (fight ticks watched); the dead count of the last tick
-    // and when it last rose. Cleared out of combat and by ResetStep (ClearFightProgress).
-    struct HpSample
+    // FightProgressTick: per unit engaged in this fight (guid) the low mark of its hp (tenths of a percent of its
+    // most): the hp it last set a new low at, kFightProgressPermille or more under the mark before, and when, by the
+    // watch's own clock (fight ticks watched); the dead count of the last tick and when it last rose. Cleared out of
+    // combat and by ResetStep (ClearFightProgress).
+    struct HpLow
     {
+        std::uint32_t low = 0;
         std::uint32_t at = 0;
-        std::uint32_t permille = 0;
+        bool fell = false; // it has set a new low in this fight (at is that time)
     };
-    std::unordered_map<std::uint64_t, std::vector<HpSample>> fightHp;
+    std::unordered_map<std::uint64_t, HpLow> fightHp;
     std::uint32_t fightHpMs = 0;
     std::uint32_t fightHpDead = 0;
     bool fightHpDeath = false;
@@ -9089,17 +9091,21 @@ enum class FightProgress
 {
     Unread,  // no engaged unit with its hp read: the ceiling pauses as before
     Young,   // hp read, no loss yet, and the watch is younger than its window: the ceiling waits
-    Losing,  // an engaged unit lost kFightProgressPermille or more in the window: the ceiling waits
+    Losing,  // an engaged unit the party can hit set a new low in the window: the ceiling waits
     Stalled, // the watch has a full window and no engaged unit lost that much in it: the ceiling pauses
     Dying,   // a party member died in the window: the ceiling pauses
 };
 
 // One fight tick of the hp watch behind the progress-aware fight ceiling (kFightProgressWindowMs; Dragonmaw Retreat
 // r25 slot 7: Searistrasz 62072 lost hp from 100 % to 7 % over about 20 min while the 180 s ceiling paused four
-// times). Each engaged unit with its hp read keeps its samples of the last window; it is losing when its highest
-// sample in the window stands kFightProgressPermille or more above its hp now. Per unit, not a sum: a fresh add at
-// full hp or one that died never hides or fakes another's loss. A unit no longer engaged is forgotten. A rise of the
-// party's dead count (not the count the watch began with) is a member lost in the fight.
+// times). Each engaged unit with its hp read keeps a low mark: its hp when first seen, then each new low that stands
+// kFightProgressPermille or more under the mark before. The fight is losing hp while an engaged unit the party can
+// hit (attackable, or a party member's victim) set such a new low within the window. Net loss only, per unit: hp
+// that swings (a healer healing two adds in turn, 60 -> 50 -> 60 % out of phase) sets no new low after its first
+// trough (Opus cold review of fa482263), a fresh add at full hp hides no other unit's loss, and a unit the group
+// cannot attack never holds the ceiling. A unit keeps its mark for the whole fight, also while it drops out of the
+// engaged read for a tick. A rise of the party's dead count (not the count the watch began with) is a member lost
+// in the fight.
 inline FightProgress FightProgressTick(Run& r, const Facts& f, std::uint32_t dt)
 {
     bool const fresh = r.fightHpMs == 0;
@@ -9111,7 +9117,6 @@ inline FightProgress FightProgressTick(Run& r, const Facts& f, std::uint32_t dt)
         r.fightHpDeathAt = now;
     }
     r.fightHpDead = f.dead;
-    std::unordered_map<std::uint64_t, std::vector<Run::HpSample>> next;
     bool read = false;
     bool losing = false;
     if (f.engagedRead)
@@ -9122,25 +9127,24 @@ inline FightProgress FightProgressTick(Run& r, const Facts& f, std::uint32_t dt)
             read = true;
             std::uint32_t const pm =
                 static_cast<std::uint32_t>(static_cast<std::uint64_t>(u.health) * 1000u / u.maxHealth);
-            std::vector<Run::HpSample> samples;
             auto const had = r.fightHp.find(u.guid);
-            if (had != r.fightHp.end())
-                samples = std::move(had->second);
-            samples.erase(std::remove_if(samples.begin(), samples.end(),
-                              [now](const Run::HpSample& h) { return h.at + kFightProgressWindowMs < now; }),
-                samples.end());
-            Run::HpSample h;
-            h.at = now;
-            h.permille = pm;
-            samples.push_back(h);
-            std::uint32_t top = 0;
-            for (const Run::HpSample& x : samples)
-                top = std::max(top, x.permille);
-            if (top >= pm + kFightProgressPermille)
+            if (had == r.fightHp.end())
+            {
+                Run::HpLow mark;
+                mark.low = pm;
+                r.fightHp[u.guid] = mark;
+                continue;
+            }
+            Run::HpLow& mark = had->second;
+            if (pm + kFightProgressPermille <= mark.low)
+            {
+                mark.low = pm;
+                mark.at = now;
+                mark.fell = true;
+            }
+            if ((u.attackable || u.partyHits) && mark.fell && now - mark.at <= kFightProgressWindowMs)
                 losing = true;
-            next[u.guid] = std::move(samples);
         }
-    r.fightHp = std::move(next);
     if (!read)
         return FightProgress::Unread;
     if (r.fightHpDeath && now - r.fightHpDeathAt < kFightProgressWindowMs)
@@ -9150,15 +9154,16 @@ inline FightProgress FightProgressTick(Run& r, const Facts& f, std::uint32_t dt)
     return now >= kFightProgressWindowMs ? FightProgress::Stalled : FightProgress::Young;
 }
 
-// One of the engaged units is a boss step's entry, whatever the step: the fight gets the boss ceiling
+// One of the engaged units (read, and one the group can attack) is a boss step's entry, whatever the step: the fight
+// gets the boss ceiling
 // (kBossFightCapMs). Dragonmaw Retreat r25 slot 7 fought Searistrasz 62072 on step 260, a step before his own.
 inline bool EngagedPlanBoss(const Run& r, const Facts& f)
 {
-    if (!r.plan)
+    if (!r.plan || !f.engagedRead)
         return false;
     for (const UnitFact& u : f.engagedUnits)
         for (const PlanStep& s : r.plan->steps)
-            if (s.kind == PlanStepKind::Boss && s.entry && s.entry == u.entry)
+            if (u.attackable && s.kind == PlanStepKind::Boss && s.entry && s.entry == u.entry)
                 return true;
     return false;
 }

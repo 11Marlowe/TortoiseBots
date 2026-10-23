@@ -15072,12 +15072,13 @@ static void TestFightWithNoHpLossPastTheCeilingPauses()
         at = i;
     }
     CHECK(p.state == State::Paused && p.note.find("no engaged unit lost hp in 60 s") != std::string::npos);
-    CHECK(at >= 340 && at <= 360);
-    // Too slow is a stall: 1 point every 70 s is at most 1 point in a window, under kFightProgressPermille.
+    // The last new low came at tick 300: held while it is within the window, paused on the first tick after.
+    CHECK(at == 361);
+    // Too slow is a stall: 1 point every 200 s sets its first new low (2 points) at 400 s, after the ceiling.
     Run slow = Start(&plan);
     std::uint32_t sl = 0;
     for (; sl < 600 && slow.state == State::Running; ++sl)
-        Tick(slow, FightFacts({HpUnit(0xF130001836000001ull, 4300, maxHp - (sl / 70) * 30, maxHp)}));
+        Tick(slow, FightFacts({HpUnit(0xF130001836000001ull, 4300, maxHp - (sl / 200) * 30, maxHp)}));
     CHECK(slow.state == State::Paused && sl == kFightCapMs / kTickMs + 1);
     // Exactly 2 points in the window is progress: 1 point every 30 s.
     Run two = Start(&plan);
@@ -15133,6 +15134,65 @@ static void TestFightWithNoHpLossPastTheCeilingPauses()
         Tick(u, FightFacts({HpUnit(0xF130001836000001ull, 4300, 0, 0)}));
     CHECK(u.state == State::Paused && u.fightMs == kFightCapMs + kTickMs &&
         u.note == "a fight lasted more than 180 s (kept on by entry 4300 (0xF130001836000001) attackable)");
+    // Two adds healed in turn (Opus cold review of fa482263): each swings 60 -> 50 -> 60 % over 40 s, 20 s out of
+    // phase, so one of them always stands 2 points or more under its 60 s high. No net loss: after the first trough
+    // neither sets a new low, and the ceiling pauses as a stall once the window has passed it.
+    auto swing = [&](std::uint32_t t) -> std::uint32_t
+    {
+        std::uint32_t const ph = t % 40;
+        return maxHp * 60 / 100 - (ph < 20 ? ph : 40 - ph) * (maxHp / 100) / 2; // 60 % down to 50 % and back
+    };
+    Run sw = Start(&plan);
+    std::uint32_t swt = 0;
+    for (; swt < 1000 && sw.state == State::Running; ++swt)
+        Tick(sw, FightFacts({HpUnit(0xF130001836000001ull, 4300, swing(swt), maxHp),
+            HpUnit(0xF130001836000002ull, 4300, swing(swt + 20), maxHp)}));
+    CHECK(sw.state == State::Paused && swt == kFightCapMs / kTickMs + 1 &&
+        sw.note.find("a fight lasted more than 180 s and no engaged unit lost hp in 60 s") == 0);
+    // A unit the group cannot attack, not a party member's victim, losing hp holds nothing (an attackable unit
+    // stays in the fight at full hp so the fight is not let go as an unattackable one).
+    Run ua = Start(&plan);
+    std::uint32_t uat = 0;
+    for (; uat < 1000 && ua.state == State::Running; ++uat)
+    {
+        UnitFact bomb = HpUnit(0xF130001ED90075B6ull, 7897, maxHp - uat * 5, maxHp);
+        bomb.attackable = false;
+        bomb.partyHits = false;
+        Tick(ua, FightFacts({bomb, HpUnit(0xF130001836000001ull, 4300, maxHp, maxHp)}));
+    }
+    CHECK(ua.state == State::Paused && uat == kFightCapMs / kTickMs + 1 &&
+        ua.note.find("no engaged unit lost hp in 60 s") != std::string::npos);
+    // ... while the same unit as a party member's victim does hold it.
+    Run uh = Start(&plan);
+    for (std::uint32_t i = 0; i < 400 && uh.state == State::Running; ++i)
+    {
+        UnitFact bomb = HpUnit(0xF130001ED90075B6ull, 7897, maxHp - i * 5, maxHp);
+        bomb.attackable = false;
+        Tick(uh, FightFacts({bomb, HpUnit(0xF130001836000001ull, 4300, maxHp, maxHp)}));
+    }
+    CHECK(uh.state == State::Running);
+    // A unit that drops out of the engaged read for a tick keeps its low mark: a swinging add missing at each peak
+    // would otherwise start a fresh mark there and set a "new low" at every trough.
+    Run fl = Start(&plan);
+    std::uint32_t flt = 0;
+    for (; flt < 1000 && fl.state == State::Running; ++flt)
+    {
+        Facts g = FightFacts({HpUnit(0xF130001836000001ull, 4300, swing(flt), maxHp),
+            HpUnit(0xF130001836000002ull, 4300, maxHp, maxHp)});
+        if (flt % 40 == 0)
+            g.engagedUnits.erase(g.engagedUnits.begin());
+        Tick(fl, g);
+    }
+    CHECK(fl.state == State::Paused && flt == kFightCapMs / kTickMs + 1);
+    // ResetStep forgets the watch (a step change, a resume).
+    Run rs = Start(&plan);
+    for (int i = 0; i < 5; ++i)
+        Tick(rs, FightFacts({HpUnit(0xF130001836000001ull, 4300, maxHp - i * 100, maxHp)}));
+    rs.fightHpDeath = true;
+    rs.fightHpDead = 2;
+    CHECK(!rs.fightHp.empty() && rs.fightHpMs == 5 * kTickMs);
+    ResetStep(rs);
+    CHECK(rs.fightHp.empty() && rs.fightHpMs == 0 && rs.fightHpDead == 0 && !rs.fightHpDeath && rs.fightHpDeathAt == 0);
     // Out of combat the watch is forgotten (a far move, so the step does not end with the fight).
     DungeonPlan far;
     far.steps = {Step(PlanStepKind::Move, 500)};
@@ -15167,6 +15227,25 @@ static void TestPlanBossOnAMoveStepGetsTheBossCeiling()
     // Not a plan boss: the 180 s ceiling; a hold's unit is no boss step's entry.
     CHECK(pausedAt(4300).first == kFightCapMs / kTickMs + 1);
     CHECK(pausedAt(9999).first == kFightCapMs / kTickMs + 1);
+    // The boss's entry counts only when read and attackable: unattackable (beside an attackable add, so the fight is
+    // one), or facts without the engaged read, keep 180 s.
+    {
+        Run r = Start(&plan);
+        std::uint32_t i = 0;
+        for (; i < 1000 && r.state == State::Running; ++i)
+        {
+            UnitFact boss62072 = HpUnit(0xF13000F27800A001ull, 62072, 0, 0);
+            boss62072.attackable = false;
+            Tick(r, FightFacts({boss62072, HpUnit(0xF130001836000001ull, 4300, 0, 0)}));
+        }
+        CHECK(r.state == State::Paused && i == kFightCapMs / kTickMs + 1);
+        Facts unread = FightFacts({HpUnit(0xF13000F27800A001ull, 62072, 0, 0)});
+        unread.engagedRead = false;
+        Run q = Start(&plan);
+        CHECK(!EngagedPlanBoss(q, unread));
+        unread.engagedRead = true;
+        CHECK(EngagedPlanBoss(q, unread));
+    }
     // An event's fight keeps its own ceiling: hp loss does not hold it.
     DungeonPlan holdPlan;
     PlanStep h = Step(PlanStepKind::Hold);
