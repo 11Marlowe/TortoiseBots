@@ -29,7 +29,9 @@ namespace
 // both read through here, so a reload checks every row as the startup did.
 // The core's Query hands over a raw QueryResult* the caller frees (src/shared/Database/Database.h): each is held by a
 // unique_ptr, as in the rest of the module.
-static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts)
+// `tactics` (sealed, read first): the boss steps take the subjects of their `ai_boss_tactic` rows before the seal
+// (DungeonPlanTable::JoinBossTactics), so the run leader's deferral gate sees them (PullMayBeDeferred).
+static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts, const BossTacticTable& tactics)
 {
     std::uint32_t& skippedPlans = counts.skippedPlans;
     if (std::unique_ptr<QueryResult> result{WorldDatabase.Query(
@@ -128,6 +130,7 @@ static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts)
         } while (result->NextRow());
     }
 
+    table.JoinBossTactics(tactics);
     // Sealed even when the tables are empty or missing: `.bot run` then finds no plan.
     table.Seal();
     for (const DungeonPlan* plan : table.All())
@@ -145,7 +148,8 @@ void ai::LoadDungeonPlans()
     if (table.Sealed())
         return;
     PlanLoadCounts counts;
-    ReadDungeonPlanRows(table, counts);
+    LoadBossTactics(); // the tactics first (nothing when the startup already read them): the boss steps join them
+    ReadDungeonPlanRows(table, counts, GetBossTactics());
     sLog.outString(">> %s", PlanLoadSummary(table, counts).c_str());
     sLog.outString();
 }
@@ -202,12 +206,13 @@ PlanReloadReport ai::ReloadDungeonPlans(std::vector<DungeonPlan const*> const& i
         r.before = ReadTableFingerprint(t.table, t.columns);
         reads.push_back(r);
     }
-    auto next = std::make_shared<DungeonPlanTable>();
-    PlanLoadCounts counts;
-    ReadDungeonPlanRows(*next, counts);
+    // The tactics first: the new plans' boss steps join the new tactic rows (JoinBossTactics).
     auto nextTactics = std::make_shared<BossTacticTable>();
     std::uint64_t tacticRowsRead = 0;
     uint32 const skippedTactics = ReadBossTacticRows(*nextTactics, &tacticRowsRead);
+    auto next = std::make_shared<DungeonPlanTable>();
+    PlanLoadCounts counts;
+    ReadDungeonPlanRows(*next, counts, *nextTactics);
     std::uint64_t const rowsRead[] = {counts.planRows, counts.legRows, counts.stepRows, counts.bossRows, tacticRowsRead};
     for (std::size_t i = 0; i < reads.size(); ++i)
     {

@@ -79,7 +79,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", early)
         offmap = body(tick, "the lead bot is not on the plan's map", "return;")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", offmap)
-        stop = body(COMMANDS, 'slot.run.note = RunStopNote(rawArg);', "DungeonRuns().erase(it);")
+        stop = body(COMMANDS, 'EndRunEarly(slot.run, RunStopNote(rawArg));', "DungeonRuns().erase(it);")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", stop)
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("f.deadNames.push_back(bot->GetName());", facts)
@@ -138,7 +138,8 @@ class RunLeaderWiringTest(unittest.TestCase):
 
     def test_direct_walk_back_checks_the_path_against_packs(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
-        self.assertIn("f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,\n"
+        self.assertIn("f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan,\n"
+                      "                            TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,\n"
                       "                            slot.run.notCleared);", facts)
 
     def test_guard_reads_every_run_cc_as_held(self):
@@ -424,7 +425,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         tick = body(COMMANDS, "void TickDungeonRun(", "\n}\n")
         self.assertIn("RunTimeLimitReached(slot.elapsedMs, sPlayerbotAIConfig.dungeonRunMaxMinutes)", tick)
         self.assertIn("RunTimeLimitNote(sPlayerbotAIConfig.dungeonRunMaxMinutes)", tick)
-        self.assertIn("slot.run.note = RunStopNote(rawArg);", COMMANDS)
+        self.assertIn("EndRunEarly(slot.run, RunStopNote(rawArg));", COMMANDS) # the note, via EndRunEarly
         config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
         template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
         self.assertIn('"AiPlayerbot.DungeonRunMaxMinutes", 180', config)
@@ -820,10 +821,11 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
 
     def test_stop_and_time_limit_erase_the_run(self):
         stop = body(COMMANDS, 'if (verb == "stop")', 'if (verb == "status")')
-        self.assertIn("slot.run.state = State::Done;", stop)
+        self.assertIn("EndRunEarly(slot.run, RunStopNote(rawArg));", stop) # Done, with the deferred packs left alive
         self.assertIn("DungeonRuns().erase(it);", stop)
         limit = body(COMMANDS, "RunTimeLimitReached(slot.elapsedMs", "return;")
-        self.assertIn("slot.run.state = TortoiseBots::DungeonRun::State::Done;", limit)
+        self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(slot.run,\n"
+                      "            TortoiseBots::DungeonRun::RunTimeLimitNote(", limit)
         self.assertIn("DungeonRuns().erase(it);", limit)
 
     def test_walk_after_rest_stands_the_lead_up_before_the_order(self):
@@ -849,6 +851,79 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
         self.assertIn("f.leadResting = HasMealAura(lead) || lead->GetStandState() != UNIT_STAND_STATE_STAND;", facts)
         self.assertIn("f.leadCasting = lead->IsNonMeleeSpellCasted(true, false, true);", facts)
         self.assertIn("f.leadInCombat = member.inCombat;", facts)
+    def test_a_deferred_pull_is_logged_once_after_the_stand_answer(self):
+        # Windhorn Canyon r26 slot 5b step 68: a pull not reachable from this floor is deferred, not paused
+        # (DungeonRun::DeferUnreachablePack, tested in tools/test_dungeon_run_policy.cpp). The run keeps running, so
+        # the end-of-tick log of a stopped run never shows it: the glue logs the policy's deferLog once, after both
+        # places a deferral comes from (the tick, and the stand search's answer), and clears it.
+        tick = body(strip_comments(COMMANDS), "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        log = ("if (!slot.run.deferLog.empty())\n    {\n"
+               "        TB_LOG_DETAIL(\"TortoiseBots: run leader of %s: %s\", commander->GetName(), slot.run.deferLog.c_str());\n"
+               "        slot.run.deferLog.clear();\n    }")
+        self.assertIn(log, tick)
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"), tick.index(log))
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);"),
+                        tick.index(log))
+
+    def test_runs_ended_early_list_their_deferred_packs(self):
+        # The Opus/Codex review of 6566f84d: a run stopped early (.bot run stop, the time limit, the key switched
+        # off) lists the deferred packs it left alive (DungeonRun::EndRunEarly), never a bare state = Done.
+        code = strip_comments(COMMANDS)
+        self.assertIn("EndRunEarly(slot.run, RunStopNote(rawArg));", body(code, 'if (verb == "stop")', 'if (verb == "status")'))
+        self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(slot.run,", body(code, "RunTimeLimitReached(slot.elapsedMs", "return;"))
+        off = body(code, "if (!sPlayerbotAIConfig.dungeonSelfClear || !sPlayerbotAIConfig.remoteCommander)", "SendRunLine(")
+        self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(entry.second.run,", off)
+        self.assertNotIn("run.state = TortoiseBots::DungeonRun::State::Done;", code)
+        self.assertNotIn("slot.run.state = State::Done;", code)
+
+    def test_direct_walk_back_counts_cleared_pulls_from_the_live_step(self):
+        # The Opus review of 6566f84d: during a deferred pull's retry the run's step is the deferred one; the pulls
+        # cleared after it must not count as live (DungeonRun::LiveFrom: the step the run goes on with).
+        self.assertIn("PathCrossesUnclearedPack(*slot.run.plan,\n"
+                      "                            TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,", COMMANDS)
+
+
+
+class BossTacticsJoinWiringTest(unittest.TestCase):
+    """The Codex review of d7aca6b5: the run leader's deferral gate (DungeonRun::PullMayBeDeferred) reads a later boss
+    step's ai_boss_tactic subjects from the sealed plan (PlanStep::tacticEntries). The loader fills them from the tactic
+    rows (DungeonPlanTable::JoinBossTactics, tested in tools/test_dungeon_plan_policy.cpp) before the seal, at startup
+    and on `.bot run reloadplans`, with the tactics read first."""
+
+    MGR = strip_comments((ROOT / "ai/playerbot/DungeonPlanMgr.cpp").read_text())
+
+    def test_the_rows_reader_joins_the_tactics_before_the_seal(self):
+        read = body(self.MGR, "static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts, "
+                              "const BossTacticTable& tactics)", "\n}\n")
+        self.assertIn("table.JoinBossTactics(tactics);", read)
+        self.assertLess(read.index("table.JoinBossTactics(tactics);"), read.index("table.Seal();"))
+        self.assertLess(read.index("FROM `ai_dungeon_step`"), read.index("table.JoinBossTactics(tactics);"))
+
+    def test_startup_reads_the_tactics_first(self):
+        load = body(self.MGR, "void ai::LoadDungeonPlans()", "\n}\n")
+        self.assertIn("ReadDungeonPlanRows(table, counts, GetBossTactics());", load)
+        self.assertLess(load.index("LoadBossTactics();"), load.index("ReadDungeonPlanRows(table, counts, GetBossTactics());"))
+
+    def test_reload_joins_the_new_tactics(self):
+        reload = body(self.MGR, "PlanReloadReport ai::ReloadDungeonPlans(", "    return report;\n}")
+        self.assertIn("ReadDungeonPlanRows(*next, counts, *nextTactics);", reload)
+        self.assertLess(reload.index("ReadBossTacticRows(*nextTactics, &tacticRowsRead);"),
+                        reload.index("ReadDungeonPlanRows(*next, counts, *nextTactics);"))
+
+    def test_the_glue_hands_the_run_the_live_tactics_before_its_tick(self):
+        # The Codex review of 7cfcbff6: a reload swaps the tactic table under a run that keeps its old plan; the gate
+        # also reads the table the server reads now (DungeonRun::Run::liveTactics), set before the tick each second.
+        tick = body(strip_comments(COMMANDS), "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertIn("slot.run.liveTactics = &ai::GetBossTactics();", tick)
+        self.assertLess(tick.index("slot.run.liveTactics = &ai::GetBossTactics();"),
+                        tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"))
+        self.assertIn('#include "../ai/playerbot/BossTacticsMgr.h"', COMMANDS)
+
+    def test_the_gate_reads_the_joined_subjects(self):
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        gate = body(policy, "inline bool PullMayBeDeferred(const Run& r)", "\n}\n")
+        self.assertIn("for (std::uint32_t e : n.tacticEntries)", gate)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -424,8 +424,68 @@ static void TestOwns()
     CHECK(!other.Owns(table->Find("bfd")));
 }
 
+// The Codex review of 7cfcbff6: a boss step carries the subjects of its ai_boss_tactic rows (JoinBossTactics), so a
+// reload in which only a tactic target changed (the same row count, the same step rows) reports that plan changed.
+static std::shared_ptr<BossTacticTable> KillFirstOn4887(std::uint32_t target)
+{
+    auto table = std::make_shared<BossTacticTable>();
+    BossTacticRow row;
+    row.map = 48;
+    row.bossEntry = 4887;
+    row.kind = BossTacticKind::KillFirst;
+    row.targetEntry = target;
+    CHECK(table->Add(row));
+    table->Seal();
+    return table;
+}
+
+static std::shared_ptr<DungeonPlanTable> JoinedSet(const BossTacticTable& tactics)
+{
+    auto table = std::make_shared<DungeonPlanTable>();
+    PlanLoadCounts counts;
+    CHECK(table->AddPlan("bfd", 48));
+    CHECK(table->AddPlan("rfk", 47));
+    StepRow(*table, counts, "bfd", Move(1, 1, 10));
+    StepRow(*table, counts, "bfd", Move(1, 2, 20));
+    StepRow(*table, counts, "bfd", Boss(1, 3, 4887));
+    StepRow(*table, counts, "rfk", Move(1, 1, 5));
+    StepRow(*table, counts, "rfk", Move(1, 2, 6));
+    CHECK(table->AddBoss(48, 4829));
+    table->JoinBossTactics(tactics);
+    table->Seal();
+    return table;
+}
+
+static void TestTacticTargetChangeMarksThePlanChanged()
+{
+    PlanStep a = Boss(1, 3, 4887);
+    PlanStep b = a;
+    b.tacticEntries = {222};
+    CHECK(!SamePlanStep(a, b));
+    a.tacticEntries = {222};
+    CHECK(SamePlanStep(a, b));
+
+    auto oldTactics = KillFirstOn4887(111);
+    ReloadableTable<DungeonPlanTable> plans;
+    ReloadableTable<BossTacticTable> tactics;
+    plans.Install(JoinedSet(*oldTactics));
+    tactics.Install(oldTactics);
+    CHECK(plans.Current().Find("bfd")->steps[2].tacticEntries == std::vector<std::uint32_t>{111});
+    // The same target again: nothing changed.
+    auto same = KillFirstOn4887(111);
+    PlanReloadOutcome const kept = CommitPlanReload(plans, JoinedSet(*same), PlanLoadCounts(), tactics, same, 0, {}, {});
+    CHECK(kept.swapped && kept.changes.empty());
+    // Only the target changes (one row before, one row after): bfd changed, rfk not.
+    auto moved = KillFirstOn4887(222);
+    PlanReloadOutcome const out = CommitPlanReload(plans, JoinedSet(*moved), PlanLoadCounts(), tactics, moved, 0, {}, {});
+    CHECK(out.swapped && out.tacticsBefore == 1 && tactics.Current().Size() == 1);
+    CHECK(out.changes.size() == 1 && out.changes[0] == "bfd 3 steps, rows changed");
+    CHECK(plans.Current().Find("bfd")->steps[2].tacticEntries == std::vector<std::uint32_t>{222});
+}
+
 int main()
 {
+    TestTacticTargetChangeMarksThePlanChanged();
     TestGoodReloadSwaps();
     TestUnchangedReloadListsNothing();
     TestBadRowKeepsTheOldSet();

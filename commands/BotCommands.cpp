@@ -61,6 +61,7 @@
 #include "../runtime/CommanderTelemetry.h"
 #include "../runtime/DungeonRunPolicy.h"
 #include "../ai/playerbot/DungeonPlanMgr.h"
+#include "../ai/playerbot/BossTacticsMgr.h"
 #include "../ai/playerbot/PullAggroEstimatePolicy.h"
 #include "CreatureGroups.h"
 #include "Group/CreatureLinkingMgr.h"
@@ -11452,7 +11453,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY,
                         f.approachZ, direct ? &whole : nullptr, step->kind == ai::PlanStepKind::Move ? &f : nullptr);
                     if (direct && f.approachKnown)
-                        f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,
+                        f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan,
+                            TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,
                             slot.run.notCleared);
                 }
                 if (!slot.run.walkBack)
@@ -12011,8 +12013,9 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     if (slot.run.state != TortoiseBots::DungeonRun::State::Done &&
         TortoiseBots::DungeonRun::RunTimeLimitReached(slot.elapsedMs, sPlayerbotAIConfig.dungeonRunMaxMinutes))
     {
-        slot.run.state = TortoiseBots::DungeonRun::State::Done;
-        slot.run.note = TortoiseBots::DungeonRun::RunTimeLimitNote(sPlayerbotAIConfig.dungeonRunMaxMinutes);
+        // The deferred packs left alive go into the note (DungeonRun::EndRunEarly).
+        TortoiseBots::DungeonRun::EndRunEarly(slot.run,
+            TortoiseBots::DungeonRun::RunTimeLimitNote(sPlayerbotAIConfig.dungeonRunMaxMinutes));
         TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander ? commander->GetName() : "?",
             slot.run.note.c_str());
         SendRunLine(commander, slot, true);
@@ -12101,6 +12104,9 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     RetireLostCarrier(slot, lead, bots);
     TortoiseBots::DungeonRun::Facts facts;
     ReadRunFacts(slot, lead, bots, facts);
+    // The tactic rows the server reads now (a reload may have swapped them under this run's old plan): the deferral
+    // gate reads them beside the plan's own (DungeonRun::PullMayBeDeferred), in the tick and in the stand's answer below.
+    slot.run.liveTactics = &ai::GetBossTactics();
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
     // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
     DropUnattackableCombat(lead, bots, slot.run.combatDrops);
@@ -12130,6 +12136,13 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         bool const found = step && lead->IsAlive() && lead->IsInWorld() &&
             ApproachStandSearch(lead, slot.run, *step, facts.team, sx, sy, sz);
         TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);
+    }
+    // A pull deferred, or skipped on its retry, as not reachable from this floor
+    // (DungeonRun::DeferUnreachablePack, in the tick or in the stand's answer above): logged once.
+    if (!slot.run.deferLog.empty())
+    {
+        TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(), slot.run.deferLog.c_str());
+        slot.run.deferLog.clear();
     }
     // While the party rests the lead bot holds where it stands
     // (DungeonRun::LeadStayDueWhileResting, RFC r3-19z20). Before the rest
@@ -12374,8 +12387,8 @@ static void UpdateDungeonRuns(uint32 diff)
     {
         for (auto& entry : DungeonRuns())
         {
-            entry.second.run.state = TortoiseBots::DungeonRun::State::Done;
-            entry.second.run.note = "stopped: the run leader was switched off (AiPlayerbot.DungeonSelfClear)";
+            TortoiseBots::DungeonRun::EndRunEarly(entry.second.run,
+                "stopped: the run leader was switched off (AiPlayerbot.DungeonSelfClear)");
             SendRunLine(FindCharacter(entry.first), entry.second, false);
             // As `.bot run stop` and the time limit: the bots held on stay (hold stands, places) follow the
             // lead bot again, and a loot step's free-for-all detour ends (ReleaseRunHold restores the method).
@@ -12669,8 +12682,8 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
     DungeonRunSlot& slot = it->second;
     if (verb == "stop")
     {
-        slot.run.state = State::Done;
-        slot.run.note = RunStopNote(rawArg); // "stopped by .bot run stop", or the reason the caller gave
+        // "stopped by .bot run stop", or the reason the caller gave; the deferred packs left alive follow (EndRunEarly).
+        EndRunEarly(slot.run, RunStopNote(rawArg));
         SendRunLine(commander, slot, true);
         ReleaseRunHold(commander, binding->leadGuid, slot); // held bots follow the lead bot again
         ClearRunCcIcons(binding->leadGuid, binding->groupId, slot);

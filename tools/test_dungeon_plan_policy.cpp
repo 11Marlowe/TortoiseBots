@@ -153,6 +153,23 @@ static void TestNormalize()
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
     talk.flags = 0;
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::None && talk.timeoutS == kPlanDefaultTimeoutS);
+    // no_defer (1024, kPlanFlagNoDefer): a pull row keeps the run leader's pause for a pack not reachable from this
+    // floor (DungeonRunPolicy.h PullMayBeDeferred); on any other kind it is refused (the gossip refuses every other flag).
+    CHECK(kPlanFlagNoDefer == 1024);
+    PlanStep keepPull = Step(0, 23, PlanStepKind::Pull);
+    keepPull.entries = {7286};
+    keepPull.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(keepPull) == PlanStepRefusal::None && (keepPull.flags & kPlanFlagNoDefer));
+    PlanStep keepBoss = Step(0, 24, PlanStepKind::Boss);
+    keepBoss.entry = 7271;
+    keepBoss.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(keepBoss) == PlanStepRefusal::BadParam);
+    PlanStep keepMove = Step(0, 25, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    keepMove.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(keepMove) == PlanStepRefusal::BadParam);
+    talk.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    talk.flags = 0;
     // The flag belongs to a gossip row only: on any other kind it is a row the exporter got wrong, refused, not ignored.
     CHECK(kPlanFlagDeadNpcIsDone == 512);
     PlanStep deadMove = Step(0, 20, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
@@ -415,8 +432,67 @@ static void TestBossRows()
     CHECK(table.BossCount() == 3);
 }
 
+// The Codex review of d7aca6b5: the run leader's deferral gate cannot see ai_boss_tactic, so the load joins each boss
+// step's tactic rows (keyed on the plan's map and the step's boss or one of its entries) into PlanStep::tacticEntries.
+static void TestBossStepsJoinTheirTacticSubjects()
+{
+    BossTacticTable tactics;
+    auto row = [](std::uint32_t map, std::uint32_t boss, BossTacticKind kind, std::uint32_t target, std::uint32_t spell,
+        float param)
+    {
+        BossTacticRow r;
+        r.map = map;
+        r.bossEntry = boss;
+        r.kind = kind;
+        r.targetEntry = target;
+        r.spellId = spell;
+        r.param = param;
+        return r;
+    };
+    CHECK(tactics.Add(row(70, 100, BossTacticKind::KillFirst, 555, 0, 0)));
+    CHECK(tactics.Add(row(70, 101, BossTacticKind::Interrupt, 0, 7, 0))); // the caster: the add 101 itself
+    CHECK(tactics.Add(row(70, 100, BossTacticKind::Behind, 0, 0, 5)));     // the boss itself
+    CHECK(tactics.Add(row(71, 100, BossTacticKind::KillFirst, 777, 0, 0))); // another map
+    CHECK(tactics.Add(row(70, 101, BossTacticKind::KillFirst, 555, 0, 0))); // 555 again, through the add: once
+    DungeonPlanTable table;
+    CHECK(table.AddPlan("p", 70));
+    CHECK(table.AddPlan("q", 71)); // the same boss on map 71: that map's rows only
+    PlanStep other = Step(0, 1, PlanStepKind::Boss);
+    other.entry = 100;
+    CHECK(table.AddStep("q", other) == PlanStepRefusal::None);
+    PlanStep boss = Step(0, 2, PlanStepKind::Boss);
+    boss.entry = 100;
+    boss.entries = {101};
+    CHECK(table.AddStep("p", boss) == PlanStepRefusal::None);
+    PlanStep pull = Step(0, 1, PlanStepKind::Pull);
+    pull.entries = {555};
+    CHECK(table.AddStep("p", pull) == PlanStepRefusal::None);
+    CHECK(table.JoinBossTactics(tactics) == 0); // the tactic table not sealed yet: nothing
+    tactics.Seal();
+    CHECK(table.JoinBossTactics(tactics) == 4); // p: 555, 101, 100 (555 once); q: 777
+    table.Seal();
+    CHECK(table.JoinBossTactics(tactics) == 0); // after the plans' seal: nothing
+    const DungeonPlan* q = table.Find("q");
+    CHECK(q && q->steps.size() == 1);
+    std::vector<std::uint32_t> got71 = q->steps[0].tacticEntries;
+    std::sort(got71.begin(), got71.end());
+    CHECK((got71 == std::vector<std::uint32_t>{777}));
+    // A table sealed before any join stays as it was.
+    DungeonPlanTable late;
+    CHECK(late.AddPlan("p", 70));
+    CHECK(late.AddStep("p", boss) == PlanStepRefusal::None);
+    late.Seal();
+    CHECK(late.JoinBossTactics(tactics) == 0 && late.Find("p")->steps[0].tacticEntries.empty());
+    const DungeonPlan* p = table.Find("p");
+    CHECK(p && p->steps.size() == 2 && p->steps[0].kind == PlanStepKind::Pull && p->steps[0].tacticEntries.empty());
+    // In entry order whatever order the rows came in (the add's rows first here): a reload reading the same rows in
+    // another order is no change (DungeonPlanReloadPolicy.h SamePlanStep compares the lists).
+    CHECK((p->steps[1].tacticEntries == std::vector<std::uint32_t>{100, 101, 555}));
+}
+
 int main()
 {
+    TestBossStepsJoinTheirTacticSubjects();
     TestPlanUnits();
     TestKinds();
     TestEntries();
