@@ -70,6 +70,7 @@ python3 -m unittest tools/test_warrior_rage_wiring.py
 python3 -m unittest tools/test_hunter_manners_wiring.py
 python3 -m unittest tools/test_dash_bosses_wiring.py
 python3 -m unittest tools/test_reload_plans_wiring.py
+python3 -m unittest tools/test_run_release_hold_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -261,6 +262,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_run_leader_live_policy
         test_run_leader_sentinel_policy
         test_run_loot_corpse_policy
+        test_run_release_hold_policy
         test_run_trace_records
         test_run_trace_summary
         test_sapphiron_ice_policy
