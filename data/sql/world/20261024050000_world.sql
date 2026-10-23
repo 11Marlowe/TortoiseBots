@@ -10,7 +10,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'blackfathom_deeps';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'blackfathom_deeps';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'blackfathom_deeps';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('blackfathom_deeps', 48, '4820,4809,4813,4811,4799', '4820,4809', '4809', 'turtle-agent 5479e6d dungeons/blackfathom_deeps.json', 'plan v1, draft (not mapped, not live-checked)');
+('blackfathom_deeps', 48, '4820,4809,4813,4811,4799', '4820,4809', '4809', 'turtle-agent 256ea00 dungeons/blackfathom_deeps.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('blackfathom_deeps', 0, 'ghamoo-ra', ''),
 ('blackfathom_deeps', 1, 'lady_sarevess', ''),

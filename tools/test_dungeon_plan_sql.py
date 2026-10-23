@@ -273,7 +273,7 @@ class DungeonPlanSql(unittest.TestCase):
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
     def test_blackfathom_deeps_is_the_plan_with_the_kelris_fix(self):
-        # 20261024050000 (turtle-agent 5479e6d, 2026-10-24): 20261023080000 again, with leg twilight_lord_kelris
+        # 20261024050000 (turtle-agent 256ea00, 2026-10-24): 20261023080000 again, with leg twilight_lord_kelris
         # in route order and the Aku'mai fires after Kelris. Leg 5's pull groups ran far end first while its first
         # move walked through the un-pulled hall (r27 slot6 wiped at step 554); they now run the hall entry
         # westward ((-754.31 -58.17 -29.93), the new leg `to`), the shadowmage/elementalist platform, the west
@@ -285,7 +285,7 @@ class DungeonPlanSql(unittest.TestCase):
         # cut to the groups' members (the overlap test is clean) and 9 groups carry patrol blocks.
         name, text = newest_plan_text("blackfathom_deeps")
         self.assertEqual(name, "20261024050000_world.sql")
-        self.assertIn("('blackfathom_deeps', 48, '4820,4809,4813,4811,4799', '4820,4809', '4809', 'turtle-agent 5479e6d dungeons/blackfathom_deeps.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('blackfathom_deeps', 48, '4820,4809,4813,4811,4799', '4820,4809', '4809', 'turtle-agent 256ea00 dungeons/blackfathom_deeps.json', 'plan v1, draft (not mapped, not live-checked)');", text)
 
         # leg_rows() matches [A-Za-z0-9_] leg names only; ghamoo-ra, old_serra'kis and aku'mai are not
         # words, so the legs are counted from the step rows (each leg's boss step proves its rows are there).
