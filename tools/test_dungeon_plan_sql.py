@@ -212,15 +212,16 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("gm_cross", text)  # the header names every step the run leader cannot do
 
     def test_shadowfang_keep_is_the_whole_plan_as_exported(self):
-        # 20261023180000 (turtle-agent 85446e3, 2026-10-23, the Data fix of r24 shadowfang_keep slot7): the whole draft
-        # is 10 legs. Leg 4 is the new courtyard_door leg (the Adamant gossip and the 18895 wait); leg 5 the old leg 4's
+        # 20261023200000 (turtle-agent ac9b63d, 2026-10-23, the Data fix of r25 shadowfang_keep slot5): the whole draft is
+        # 10 legs. Leg 4 is the courtyard_door leg (the Adamant gossip and the 18895 wait); leg 5 the old leg 4's
         # entrance-side pulls (10, no boss); leg 6 crosses the navmesh stair-top seam with the only move_direct, then the
         # four walkway pulls and Odo; legs 7-9 are Fenrus, Nandos and Arugal. The plan row carries cc_priority
-        # 3855,61970,10000; the packs that stand with a boss are that boss row's entries. Legs 0-3 are byte-identical to
-        # 20261022210900_world.sql. Every pin fails when its row is cut.
+        # 3855,61970,10000; the packs that stand with a boss are that boss row's entries. Legs 0-1 and 3-9 are
+        # byte-identical to 20261023180000_world.sql; leg 2 is the r25 step-39 fix (see the test below). Every pin fails
+        # when its row is cut.
         name, text = newest_plan_text("shadowfang_keep")
-        self.assertEqual(name, "20261023180000_world.sql")
-        self.assertIn("('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent 85446e3 dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261023200000_world.sql")
+        self.assertIn("('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent ac9b63d dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "shadowfang_keep")
         self.assertEqual(list(legs[i][0] for i in range(10)),
                          ["rethilgore", "razorclaw_the_butcher", "baron_silverlaine", "commander_springvale",
@@ -228,7 +229,7 @@ class DungeonPlanSql(unittest.TestCase):
                           "fenrus_the_devourer", "wolf_master_nandos", "archmage_arugal"])
         self.assertEqual(len(legs), 10)
         rows = [r for r in self.step_rows(text) if r["plan"] == "shadowfang_keep"]
-        self.assertEqual(len(rows), 308)
+        self.assertEqual(len(rows), 313)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
                          [4, 16, 21, 5, 0, 10, 4, 13, 3, 2])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
@@ -256,12 +257,62 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("(33, 4274, 'Fenrus the Devourer')", text)
         self.assertIn("(33, 3927, 'Wolf Master Nandos')", text)
         self.assertIn("(33, 4275, 'Archmage Arugal')", text)
-        # Legs 0-3 unchanged: every move, pull and boss row of the run 1 export is the same text in both files.
-        old = dict(migrations())["20261022210900_world.sql"]
-        old_rows = [r for r in self.step_rows(old) if r["plan"] == "shadowfang_keep" and int(r["leg"]) <= 3]
-        new_rows = [r for r in rows if int(r["leg"]) <= 3]
-        self.assertEqual(len(old_rows), 78)
+        # Legs 0-1 and 3-9 unchanged: every row of the map-33 export before the r25 fix is the same text in both files.
+        old = dict(migrations())["20261023180000_world.sql"]
+        old_rows = [r for r in self.step_rows(old) if r["plan"] == "shadowfang_keep" and int(r["leg"]) not in (2,)]
+        new_rows = [r for r in rows if int(r["leg"]) not in (2,)]
+        self.assertEqual(len(old_rows), 282)
         self.assertEqual([r for r in old_rows], [r for r in new_rows])
+
+    def test_shadowfang_keep_step39_split_and_stair(self):
+        # 20261023200000, r25 shadowfang_keep slot5 (traces tests/r25/slot5sfk): the step-39 pull was one row at
+        # -248.04 2346.95 radius 22.1 (entries 3854,61970,4075,3855) covering 12 living court units, the next pull's
+        # Wolfguard and two Darksouls 20 yd off among them; the run wiped twice on it. It is two pulls of three with a
+        # stand each (20 yd clear of every pack pulled later) and the rat out, and the walk up to the upper court is
+        # three approach moves through the stair's real top. Every pin fails when its row is cut.
+        name, text = newest_plan_text("shadowfang_keep")
+        self.assertEqual(name, "20261023200000_world.sql")
+        rows = [r for r in self.step_rows(text) if r["plan"] == "shadowfang_keep"]
+        steps = leg_steps(rows, 2)
+        self.assertEqual(len(steps), 31)
+
+        def at(kind, x, y):
+            found = [r for r in steps if r["kind"] == kind and dist(r, x, y) < 0.1]
+            self.assertEqual(len(found), 1, "%s at %.1f %.1f" % (kind, x, y))
+            return found[0]
+
+        # The stair: three moves (turn, the mesh's real top, the landing) right before the Darksoul trio's pull.
+        stair = [(float(r["x"]), float(r["y"]), float(r["z"])) for r in steps if r["comment"] == "pull group 2 approach"]
+        self.assertEqual(stair, [(-287.2, 2305.1, 90.7), (-284.3, 2320.8, 96.6), (-275.5, 2321.7, 96.2)])
+        self.assertEqual([r["seq"] for r in steps if r["comment"] == "pull group 2 approach"], ["3", "4", "5"])
+        trio = at("pull", -256.67, 2311.73)
+        self.assertEqual((trio["seq"], trio["entries"], trio["radius"]), ("6", "3855", "11"))
+        self.assertLess(float(stair[0][2]), float(stair[1][2]))
+
+        # The split: south (2 Wolfguards + a Cleric) and north (a Cleric, a Darksoul and the folded-in Wolfguard),
+        # each behind its own stand move, radius 8, no rat and no 3855 in the south row.
+        south_stand = at("move", -248.5, 2321)
+        south = at("pull", -247.37, 2339.1)
+        north_stand = at("move", -250.7, 2332.5)
+        north = at("pull", -249.96, 2355.84)
+        self.assertEqual([south_stand["seq"], south["seq"], north_stand["seq"], north["seq"]], ["8", "9", "10", "11"])
+        self.assertEqual((south["entries"], south["radius"]), ("3854,61970", "8"))
+        self.assertEqual((north["entries"], north["radius"]), ("61970,3855,3854", "8"))
+        self.assertEqual(north_stand["z"], "96.9")
+        self.assertEqual(south_stand["z"], "97")
+        # The rat the old row pulled first is out of the split (the leg's other pulls keep theirs).
+        self.assertNotIn("4075", south["entries"])
+        self.assertNotIn("4075", north["entries"])
+        self.assertFalse([r for r in steps if r["kind"] == "pull" and dist(r, -248.04, 2346.95) < 4 and r["radius"] == "22.1"])
+        # Both stands keep the 20-yd aggro reach clear of every pull row after them (the wipe's shape; the spawn-level
+        # check is turtle-agent's TestShadowfangKeepStep39SplitAndStair).
+        later = [r for r in steps if r["kind"] == "pull" and int(r["seq"]) > int(north["seq"])]
+        self.assertEqual(len(later), 15)
+        for stand in (south_stand, north_stand):
+            for r in later:
+                self.assertGreaterEqual(dist(r, float(stand["x"]), float(stand["y"])), 20.0, (stand, r))
+        # Two pulls of three where the wipe's one row was: leg 2 still has its 21 pulls.
+        self.assertEqual(len([r for r in steps if r["kind"] == "pull"]), 21)
 
 
     def test_deadmines_pack_fixes(self):
