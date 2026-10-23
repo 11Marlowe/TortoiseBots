@@ -124,7 +124,7 @@ class PlayerLedGlueWiringTest(unittest.TestCase):
         read = strip_comments(body(COMMANDS, "TortoiseBots::PlayerLed::Anchor ReadPlayerLedAnchor(", "\n}\n"))
         self.assertIn("TortoiseBots::PlayerLed::MovedSince(pl, a.x, a.y, a.z)", read)
         self.assertIn("a.moving = moved || commander->IsMoving();", read)
-        self.assertIn("a.botsMaxYd = std::max(a.botsMaxYd, yd);", read)
+        self.assertIn("a.botsMaxYd = yd;", read)
         self.assertIn("bot->GetDistance(commander)", read)
         # Read only: nothing is ordered to the player.
         for absent in ("ExecuteQuietAction", "TeleportTo", "RequestSummon", "SetStrategy", "ChangeStrategy"):
@@ -195,6 +195,25 @@ class PlayerLedReleaseWiringTest(unittest.TestCase):
         release = strip_comments(body(COMMANDS, "uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason, bool notify)", "\n}\n"))
         facts = release.index("present.playerLed = removed.playerLed;")
         self.assertLess(facts, release.index("RemoteCommander::DecideReleaseParty(present)"))
+
+
+class PlayerLedRound1WiringTest(unittest.TestCase):
+    def test_commanded_bots_are_the_commanders(self):
+        fill = strip_comments(body(COMMANDS, "void FillCommandedBots(Group* group, Player* lead, std::vector<Player*>& bots)", "\n}\n"))
+        self.assertIn("CommanderBindings().FindByGroup(group->GetId())", fill)
+        self.assertIn("TortoiseBots::PlayerLed::CommandsBot(true, owner && record && CanControlBot(owner, record))", fill)
+        self.assertIn("IsLiveHeadlessBot(lead) && commanded(lead)", fill)
+        self.assertIn("IsLiveHeadlessBot(member) && commanded(member)", fill)
+
+    def test_named_tank_pulls(self):
+        order = strip_comments(body(COMMANDS, "static bool HandleCommanderOrder(", "\n}\n"))
+        sel = order.index("context.selectedBot = order.lead;")
+        self.assertLess(order.index("if (order.playerLed)"), sel)
+        self.assertLess(sel, order.index("return RunPullOrder(handler, context, context.requester, verb, option, intent);"))
+
+    def test_anchor_names_the_farthest_bot(self):
+        read = strip_comments(body(COMMANDS, "TortoiseBots::PlayerLed::Anchor ReadPlayerLedAnchor(", "\n}\n"))
+        self.assertIn("a.farthestBot = bot->GetName();", read)
 
 
 if __name__ == "__main__":

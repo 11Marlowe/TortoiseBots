@@ -4762,14 +4762,26 @@ void FillCommandedBots(Group* group, Player* lead, std::vector<Player*>& bots)
     bots.clear();
     if (!group || !lead)
         return;
-    if (IsLiveHeadlessBot(lead))
+    // A player-led binding commands only the bots its commander controls (PlayerLed::CommandsBot): a later joiner
+    // that is another player's is left alone, as a real player is.
+    RemoteCommander::Binding const* binding = CommanderBindings().FindByGroup(group->GetId());
+    bool const playerLed = binding && binding->playerLed;
+    Player* const owner = playerLed ? FindCharacter(binding->commanderGuid) : nullptr;
+    auto const commanded = [&](Player* bot)
+    {
+        if (!playerLed)
+            return true;
+        BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
+        return TortoiseBots::PlayerLed::CommandsBot(true, owner && record && CanControlBot(owner, record));
+    };
+    if (IsLiveHeadlessBot(lead) && commanded(lead))
         bots.push_back(lead);
     for (Group::MemberSlot const& slot : group->GetMemberSlots())
     {
         if (slot.guid == lead->GetObjectGuid())
             continue;
         Player* member = ObjectAccessor::FindPlayer(slot.guid);
-        if (member && IsLiveHeadlessBot(member))
+        if (member && IsLiveHeadlessBot(member) && commanded(member))
             bots.push_back(member);
     }
 }
@@ -9401,6 +9413,10 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
             return CommanderFocus(handler, order, target, intent);
         SupersedeCommanderTasks(order.commander->GetObjectGuid().GetRawValue(), 0, RemoteCommander::LaterOrder::Pull);
         BotCommandContext context = CommanderContext(order, target);
+        // Player-led: the run's tank (the one named at the start, else the first tank-role bot) pulls, whoever else
+        // could (ResolvePullExecutor takes the selected bot first).
+        if (order.playerLed)
+            context.selectedBot = order.lead;
         return RunPullOrder(handler, context, context.requester, verb, option, intent);
     }
 
@@ -12297,7 +12313,11 @@ TortoiseBots::PlayerLed::Anchor ReadPlayerLedAnchor(Player* commander, std::vect
         a.partyInCombat = a.partyInCombat || bot->IsInCombat() ||
             (pet && pet->IsAlive() && pet->IsInWorld() && pet->IsInCombat());
         float const yd = bot->GetMap() == commander->GetMap() ? bot->GetDistance(commander) : 1000.0f;
-        a.botsMaxYd = std::max(a.botsMaxYd, yd);
+        if (yd > a.botsMaxYd)
+        {
+            a.botsMaxYd = yd;
+            a.farthestBot = bot->GetName(); // the straggler ladder's summon (PlayerLed::Tick)
+        }
     }
     return a;
 }

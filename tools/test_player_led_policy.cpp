@@ -927,7 +927,7 @@ static void TestDownStates()
     PL::Anchor alive = Player(-300);
     alive.botsMaxYd = 250;
     CHECK(PL::Tick(r, pl, f, alive).empty());
-    CHECK(r.note.find("come back to your party") != std::string::npos);
+    CHECK(r.note.find("your party holds where you fell") != std::string::npos);
     alive.botsMaxYd = 10;
     CHECK(PL::Tick(r, pl, f, alive) == "follow");
     // His own follow ends the hold.
@@ -1169,8 +1169,277 @@ static void TestOtherTeamDoesNotHoldTheEnd()
     CHECK(!PL::AllDone(r, pl));
 }
 
+// ---------------------------------------------------------------------------
+// Review round 1 (Codex + Opus on bceb4389)
+// ---------------------------------------------------------------------------
+
+// (1) The event chain walks its gate moves: an exact move, a move_direct with its launch, a trigger move. A plain
+// route move is left out.
+static void TestChainWalksGateMoves()
+{
+    DungeonPlan plan;
+    PlanStep ritual = At(PlanStepKind::Ritual, 40);
+    ritual.entry = 5;
+    PlanStep plain = At(PlanStepKind::Move, 45);
+    PlanStep exact = At(PlanStepKind::Move, 50);
+    exact.flags = ai::kPlanFlagExact;
+    PlanStep launch = At(PlanStepKind::Move, 55);
+    PlanStep direct = At(PlanStepKind::MoveDirect, 58);
+    PlanStep trigger = At(PlanStepKind::Move, 59);
+    trigger.entry = 962;
+    PlanStep hold = At(PlanStepKind::Hold, 60);
+    hold.entry = 2;
+    hold.flags = ai::kPlanFlagDoneData;
+    hold.param = 3;
+    hold.timeoutS = 300;
+    plan.steps = {ritual, plain, exact, launch, direct, trigger, hold};
+    CHECK(!PL::GateMove(plan, 1));
+    CHECK(PL::GateMove(plan, 2) && PL::GateMove(plan, 3) && PL::GateMove(plan, 4) && PL::GateMove(plan, 5));
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    PL::Pick(r, pl, Player(30), {});
+    CHECK(pl.picked == 0);
+    NextStep(r, "ritual done: the event started");
+    PL::Pick(r, pl, Player(-500), {});
+    // The plain move is left out; the exact one is the current step and its walk goes out (no gate on it).
+    CHECK(r.step == 2 && pl.picked == 2 && pl.inChain);
+    CHECK(PL::ChainMove(r, pl));
+    PL::Anchor walking = Player(30);
+    walking.moving = true;
+    Facts f = Seen({});
+    f.leadX = 40;
+    std::string order;
+    for (int i = 0; i < 3 && order.empty(); ++i)
+        order = PL::Tick(r, pl, f, walking);
+    CHECK(Walks(order));
+    CHECK(!PL::Dropped(order, walking, &r, &pl));
+    CHECK(PL::Dropped(order, walking, &r)); // without the chain state the same move is a dropped walk
+    // Each gate move walked in turn, then the hold.
+    for (std::size_t expect : {3u, 4u, 5u, 6u})
+    {
+        NextStep(r, "arrived");
+        PL::Pick(r, pl, Player(-500), {});
+        CHECK(r.step == expect && pl.picked == expect);
+    }
+    CHECK(!pl.inChain);
+    CHECK(plan.steps[r.step].kind == PlanStepKind::Hold);
+}
+
+// (2) What the party fights is adopted only from a step for its team.
+static void TestEngagedStepIsForTheTeam()
+{
+    DungeonPlan plan;
+    PlanStep horde = At(PlanStepKind::Pull, 40, {4851});
+    horde.flags = ai::kPlanFlagHorde;
+    PlanStep alliance = At(PlanStepKind::Pull, 42, {4851});
+    alliance.flags = ai::kPlanFlagAlliance;
+    plan.steps = {horde, alliance};
+    PL::Engaged e;
+    e.entry = 4851;
+    e.x = 40;
+    for (std::uint32_t team : {ai::kPlanFlagAlliance, ai::kPlanFlagHorde})
+    {
+        Run r = Start(&plan);
+        PL::State pl = Led();
+        PL::Anchor a = Player(-500);
+        a.team = team;
+        CHECK(PL::Pick(r, pl, a, {e}));
+        CHECK(pl.picked == (team == ai::kPlanFlagHorde ? 0u : 1u));
+    }
+}
+
+// (3) Opus probe: a Horde-only boss does not gate an Alliance party's medallion loot; skip reaches a gated step.
+static void TestOtherTeamDoesNotGate()
+{
+    DungeonPlan plan;
+    PlanStep b = At(PlanStepKind::Boss, 0, {}, 6906);
+    b.flags = ai::kPlanFlagHorde;
+    PlanStep l = At(PlanStepKind::Loot, 5);
+    l.entry = 123329;
+    l.item = 7740;
+    PlanStep u = At(PlanStepKind::UseItem, 0);
+    u.entry = 7740;
+    u.item = 7733;
+    u.leg = 1;
+    plan.steps = {b, l, u};
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    pl.team = ai::kPlanFlagAlliance;
+    PL::Anchor a = Player(5);
+    a.team = ai::kPlanFlagAlliance;
+    CHECK(!PL::Gated(r, pl, 1));
+    CHECK(PL::NearestStep(r, pl, a, 40) == 1);
+    pl.done.insert(1);
+    pl.done.insert(2);
+    CHECK(PL::AllDone(r, pl));
+    // For a Horde party the boss gates the loot; `.bot run skip` reaches the gated loot too.
+    Run h = Start(&plan);
+    PL::State hp = Led();
+    hp.team = ai::kPlanFlagHorde;
+    hp.done.insert(0);
+    hp.done.erase(0);
+    CHECK(PL::Gated(h, hp, 1));
+    PL::Anchor near = Player(5);
+    near.team = ai::kPlanFlagHorde;
+    hp.done.insert(0); // the boss skipped
+    CHECK(PL::SkipNearest(h, hp, near) && hp.done.count(1) == 1);
+    PL::State gated = Led();
+    gated.team = ai::kPlanFlagHorde;
+    Run g = Start(&plan);
+    CHECK(PL::Gated(g, gated, 1));
+    PL::Anchor atLoot = Player(5);
+    atLoot.team = ai::kPlanFlagHorde;
+    CHECK(PL::SkipNearest(g, gated, atLoot)); // the nearest is the loot (5 yd), gated: skipped all the same
+    CHECK(gated.done.count(1) == 1);
+}
+
+// (4) Opus q.cpp: a ghost released to a graveyard outside is down, not away; alive outside, the party keeps
+// holding where he fell; back inside but far, the note says where it holds; near, it follows.
+static void TestGhostOutsideIsDown()
+{
+    DungeonPlan plan;
+    plan.steps = {At(PlanStepKind::Pull, 0, {1})};
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    Facts f;
+    f.leadX = 100;
+    PL::Anchor body = Player(100);
+    body.alive = false;
+    CHECK(PL::DownOrAway(r, pl, f, body, 1000).empty());
+    CHECK(pl.held == PL::State::Held::None);
+    PL::Anchor ghost = Player(-900);
+    ghost.alive = false;
+    ghost.ghost = true;
+    ghost.onMap = false;
+    pl.awayMs = 30000; // he had been out a while when he died out there: the away clock stops and starts over
+    CHECK(PL::DownOrAway(r, pl, f, ghost, 1000) == "stay");
+    CHECK(pl.held == PL::State::Held::Down);
+    CHECK(pl.awayMs == 0);
+    for (int i = 0; i < 1200; ++i) // twenty minutes a ghost: the away clock does not run
+        CHECK(PL::DownOrAway(r, pl, f, ghost, 1000).empty());
+    CHECK(pl.awayMs == 0 && r.state == State::Running);
+    // Alive at the spirit healer outside: still held where he fell, the away clock runs, no follow.
+    PL::Anchor outside = Player(-900);
+    outside.onMap = false;
+    CHECK(PL::DownOrAway(r, pl, f, outside, 1000).empty());
+    CHECK(pl.held == PL::State::Held::Down && pl.awayMs == 1000);
+    CHECK(r.note.find("holds where you fell") != std::string::npos);
+    // Back inside at the portal, 250 yd from the bots: they hold, the note says where.
+    PL::Anchor back = Player(-150);
+    back.botsMaxYd = 250;
+    CHECK(PL::DownOrAway(r, pl, f, back, 1000).empty());
+    CHECK(r.note.find("250.0 yd N") != std::string::npos);
+    // Near them: follow.
+    back = Player(95);
+    back.botsMaxYd = 8;
+    CHECK(PL::DownOrAway(r, pl, f, back, 1000) == "follow");
+    CHECK(pl.held == PL::State::Held::None);
+}
+
+// (5) Uldaman's Keepers: the hold (leg 11 seq 0) is never picked before its ritual (leg 10 seq 5).
+static void TestHoldNeedsItsStart()
+{
+    DungeonPlan plan;
+    PlanStep pack = At(PlanStepKind::Pull, 0, {1});
+    pack.leg = 10;
+    PlanStep ritual = At(PlanStepKind::Ritual, 20);
+    ritual.entry = 124371;
+    ritual.leg = 10;
+    PlanStep hold = At(PlanStepKind::Hold, 30);
+    hold.leg = 11;
+    hold.timeoutS = 300;
+    plan.steps = {pack, ritual, hold};
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    pl.done.insert(0);
+    CHECK(PL::Gated(r, pl, 2));        // another leg, yet its start is not done
+    CHECK(PL::Pick(r, pl, Player(28), {}));
+    CHECK(pl.picked == 1);              // the ritual (8 yd) even though the hold is 2 yd away
+    pl.done.insert(1);
+    pl.picked = PL::kNone;
+    CHECK(!PL::Gated(r, pl, 2));
+    // A hold with no start step waits for its leg only.
+    DungeonPlan bare;
+    PlanStep lone = At(PlanStepKind::Hold, 30);
+    bare.steps = {lone};
+    Run rb = Start(&bare);
+    PL::State pb = Led();
+    CHECK(!PL::Gated(rb, pb, 0));
+}
+
+// (6) The straggler ladder: a bot 15 s beyond 20 yd from the player is summoned to him, twice at most, then named.
+static void TestStragglerLadder()
+{
+    DungeonPlan plan = Route();
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    PL::Anchor a = Player(10);
+    a.botsMaxYd = 35;
+    a.farthestBot = "Healy";
+    PL::Pick(r, pl, a, {});
+    Facts f = Seen({Unit(11, 4851, 30)});
+    int summons = 0;
+    for (int i = 0; i < 14; ++i) // not before 15 s
+        CHECK(PL::Tick(r, pl, f, a).empty());
+    for (int i = 0; i < 46; ++i)
+    {
+        std::string const order = PL::Tick(r, pl, f, a);
+        CHECK(order.empty() || order == "summon Healy");
+        summons += order == "summon Healy" ? 1 : 0;
+    }
+    CHECK(summons == 2);
+    CHECK(r.note.find("waiting for Healy") != std::string::npos);
+    // A new pick starts the ladder over.
+    PL::NewPick(pl);
+    CHECK(pl.straggleSummons.empty() && pl.straggleMs == 0);
+    // While he walks the ladder does not run.
+    PL::State walk = Led();
+    Run rw = Start(&plan);
+    PL::Anchor moving = a;
+    moving.moving = true;
+    PL::Pick(rw, walk, moving, {});
+    for (int i = 0; i < 40; ++i)
+        CHECK(PL::Tick(rw, walk, f, moving).empty());
+}
+
+// (6) Each refused step has its own retry clock.
+static void TestPathRefusalsPerStep()
+{
+    DungeonPlan plan;
+    plan.steps = {At(PlanStepKind::Pull, 20, {1}), At(PlanStepKind::Pull, 30, {2})};
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    PL::PathCheck refuseFirst = [](std::size_t i) { return i != 0; };
+    PL::Pick(r, pl, Player(10), {}, refuseFirst);
+    CHECK(pl.pathRefused.count(0) == 1);
+    PL::Tick(r, pl, Seen({}), Player(10));
+    for (int i = 0; i < 5; ++i)
+        PL::Tick(r, pl, Seen({}), Player(10));
+    pl.pathRefused[1] = 0; // refused later
+    for (int i = 0; i < 4; ++i)
+        PL::Tick(r, pl, Seen({}), Player(10));
+    CHECK(pl.pathRefused.count(0) == 0); // 10 s after its own refusal
+    CHECK(pl.pathRefused.count(1) == 1); // only 4 s after its own
+}
+
+// (6) A bot that joined later and is not the commander's is never commanded by a player-led run.
+static void TestUncontrolledJoinerIsNotCommanded()
+{
+    CHECK(PL::CommandsBot(true, true));
+    CHECK(!PL::CommandsBot(true, false));
+    CHECK(PL::CommandsBot(false, false)); // bot-led: every live bot of the bound group, as before
+}
+
 int main()
 {
+    TestUncontrolledJoinerIsNotCommanded();
+    TestChainWalksGateMoves();
+    TestEngagedStepIsForTheTeam();
+    TestOtherTeamDoesNotGate();
+    TestGhostOutsideIsDown();
+    TestHoldNeedsItsStart();
+    TestStragglerLadder();
+    TestPathRefusalsPerStep();
     TestAwayTimerStopsTheRun();
     TestFightGoesOnWhileHeIsDown();
     TestDownStates();
