@@ -1326,7 +1326,9 @@ struct Run
     {
         std::uint32_t low = 0;
         std::uint32_t at = 0;
-        bool fell = false; // it has set a new low in this fight (at is that time)
+        bool fell = false;     // it has set a new low in this fight while hittable (at is that time)
+        bool hittable = false; // ... on its last read: attackable or a party member's victim
+        bool inRead = false;   // ... and it was in the last tick's read
     };
     std::unordered_map<std::uint64_t, HpLow> fightHp;
     std::uint32_t fightHpMs = 0;
@@ -9099,13 +9101,16 @@ enum class FightProgress
 // One fight tick of the hp watch behind the progress-aware fight ceiling (kFightProgressWindowMs; Dragonmaw Retreat
 // r25 slot 7: Searistrasz 62072 lost hp from 100 % to 7 % over about 20 min while the 180 s ceiling paused four
 // times). Each engaged unit with its hp read keeps a low mark: its hp when first seen, then each new low that stands
-// kFightProgressPermille or more under the mark before. The fight is losing hp while an engaged unit the party can
-// hit (attackable, or a party member's victim) set such a new low within the window. Net loss only, per unit: hp
-// that swings (a healer healing two adds in turn, 60 -> 50 -> 60 % out of phase) sets no new low after its first
-// trough (Opus cold review of fa482263), a fresh add at full hp hides no other unit's loss, and a unit the group
-// cannot attack never holds the ceiling. A unit keeps its mark for the whole fight, also while it drops out of the
-// engaged read for a tick. A rise of the party's dead count (not the count the watch began with) is a member lost
-// in the fight.
+// kFightProgressPermille or more under the mark before. A new low counts (HpLow::fell, at) only when the unit is one
+// the party can hit (attackable, or a party member's victim) when it is seen: loss taken while it could not be hit
+// never counts later (Codex review of b466e9ad), though the mark still moves down. A unit's death counts as a new
+// low on the tick it shows: its hp read at 0, or a unit that was hittable on its last read leaving the read (the
+// glue lists living units only; Opus re-review of b466e9ad: a flat boss with an add killed every 30 s paused at
+// 181 s on the tick an add died). The fight is losing hp while any mark of the fight, read this tick or not, set a
+// new low within the window. Net loss only, per unit: hp that swings (a healer healing two adds in turn, 60 -> 50
+// -> 60 % out of phase) sets no new low after its first trough (Opus cold review of fa482263), and a fresh add at
+// full hp hides no other unit's loss. A unit keeps its mark for the whole fight, also when it comes back to the
+// read. A rise of the party's dead count (not the count the watch began with) is a member lost in the fight.
 inline FightProgress FightProgressTick(Run& r, const Facts& f, std::uint32_t dt)
 {
     bool const fresh = r.fightHpMs == 0;
@@ -9117,14 +9122,21 @@ inline FightProgress FightProgressTick(Run& r, const Facts& f, std::uint32_t dt)
         r.fightHpDeathAt = now;
     }
     r.fightHpDead = f.dead;
+    auto const newLow = [now](Run::HpLow& mark)
+    {
+        mark.at = now;
+        mark.fell = true;
+    };
     bool read = false;
-    bool losing = false;
+    std::unordered_set<std::uint64_t> seen;
     if (f.engagedRead)
         for (const UnitFact& u : f.engagedUnits)
         {
-            if (!u.health || !u.maxHealth)
+            if (!u.maxHealth)
                 continue;
             read = true;
+            seen.insert(u.guid);
+            bool const hittable = u.attackable || u.partyHits;
             std::uint32_t const pm =
                 static_cast<std::uint32_t>(static_cast<std::uint64_t>(u.health) * 1000u / u.maxHealth);
             auto const had = r.fightHp.find(u.guid);
@@ -9132,19 +9144,36 @@ inline FightProgress FightProgressTick(Run& r, const Facts& f, std::uint32_t dt)
             {
                 Run::HpLow mark;
                 mark.low = pm;
+                mark.hittable = hittable;
+                mark.inRead = true;
+                if (!u.health && hittable)
+                    newLow(mark); // seen first at 0 hp: a death in this fight
                 r.fightHp[u.guid] = mark;
                 continue;
             }
             Run::HpLow& mark = had->second;
-            if (pm + kFightProgressPermille <= mark.low)
+            if (pm + kFightProgressPermille <= mark.low || (!u.health && mark.low))
             {
                 mark.low = pm;
-                mark.at = now;
-                mark.fell = true;
+                if (hittable)
+                    newLow(mark);
             }
-            if ((u.attackable || u.partyHits) && mark.fell && now - mark.at <= kFightProgressWindowMs)
-                losing = true;
+            mark.hittable = hittable;
+            mark.inRead = true;
         }
+    // A unit hittable on its last read that left the read: dead (or gone from the fight) on this tick.
+    bool losing = false;
+    for (auto& [guid, mark] : r.fightHp)
+    {
+        if (mark.inRead && !seen.count(guid))
+        {
+            mark.inRead = false;
+            if (mark.hittable && f.engagedRead)
+                newLow(mark);
+        }
+        if (mark.fell && now - mark.at <= kFightProgressWindowMs)
+            losing = true;
+    }
     if (!read)
         return FightProgress::Unread;
     if (r.fightHpDeath && now - r.fightHpDeathAt < kFightProgressWindowMs)

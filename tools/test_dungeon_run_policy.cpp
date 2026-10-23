@@ -15162,6 +15162,22 @@ static void TestFightWithNoHpLossPastTheCeilingPauses()
     }
     CHECK(ua.state == State::Paused && uat == kFightCapMs / kTickMs + 1 &&
         ua.note.find("no engaged unit lost hp in 60 s") != std::string::npos);
+    // Loss taken while it could not be hit never counts later (Codex review of b466e9ad): the unit falls to 50 % in
+    // 130-170 s unattackable and nobody's victim, then turns attackable at that same hp from 170 s on (its last low
+    // within 60 s of the ceiling): paused on the first tick past the ceiling.
+    Run late = Start(&plan);
+    std::uint32_t lt = 0;
+    for (; lt < 1000 && late.state == State::Running; ++lt)
+    {
+        UnitFact unit = HpUnit(0xF130001ED90075B6ull, 7897, lt < 130 ? maxHp : lt < 170 ? maxHp - (lt - 130) * 38 : maxHp / 2, maxHp);
+        unit.attackable = lt >= 170;
+        unit.partyHits = lt >= 170;
+        Tick(late, FightFacts({unit, HpUnit(0xF130001836000001ull, 4300, maxHp, maxHp)}));
+    }
+    CHECK(late.state == State::Paused && lt == kFightCapMs / kTickMs + 1 &&
+        late.note.find("no engaged unit lost hp in 60 s") != std::string::npos);
+    // ... and its mark moved down meanwhile (to about 50 %), so only a later fall under that is a new low.
+    CHECK(late.fightHp.at(0xF130001ED90075B6ull).low <= 520 && !late.fightHp.at(0xF130001ED90075B6ull).fell);
     // ... while the same unit as a party member's victim does hold it.
     Run uh = Start(&plan);
     for (std::uint32_t i = 0; i < 400 && uh.state == State::Running; ++i)
@@ -15171,19 +15187,65 @@ static void TestFightWithNoHpLossPastTheCeilingPauses()
         Tick(uh, FightFacts({bomb, HpUnit(0xF130001836000001ull, 4300, maxHp, maxHp)}));
     }
     CHECK(uh.state == State::Running);
-    // A unit that drops out of the engaged read for a tick keeps its low mark: a swinging add missing at each peak
-    // would otherwise start a fresh mark there and set a "new low" at every trough.
+    // A hittable unit leaving the read counts as its death once (the glue lists living units only); back in the read
+    // it keeps its low mark, so its swing sets no new low after (Opus re-review of b466e9ad). The swinging add is
+    // missing on tick 150 only: held until 60 s after that tick, then paused.
     Run fl = Start(&plan);
     std::uint32_t flt = 0;
     for (; flt < 1000 && fl.state == State::Running; ++flt)
     {
         Facts g = FightFacts({HpUnit(0xF130001836000001ull, 4300, swing(flt), maxHp),
             HpUnit(0xF130001836000002ull, 4300, maxHp, maxHp)});
-        if (flt % 40 == 0)
+        if (flt == 150)
             g.engagedUnits.erase(g.engagedUnits.begin());
         Tick(fl, g);
     }
-    CHECK(fl.state == State::Paused && flt == kFightCapMs / kTickMs + 1);
+    CHECK(fl.state == State::Paused && flt == 212 && fl.note.find("no engaged unit lost hp in 60 s") != std::string::npos);
+    // ... a unit the party could not hit on its last read leaving it is no death of the fight's.
+    Run gone = Start(&plan);
+    std::uint32_t gt = 0;
+    for (; gt < 1000 && gone.state == State::Running; ++gt)
+    {
+        UnitFact bomb = HpUnit(0xF130001ED90075B6ull, 7897, maxHp, maxHp);
+        bomb.attackable = false;
+        bomb.partyHits = false;
+        Facts g = FightFacts({HpUnit(0xF130001836000001ull, 4300, maxHp, maxHp)});
+        if (gt < 170)
+            g.engagedUnits.push_back(bomb);
+        Tick(gone, g);
+    }
+    CHECK(gone.state == State::Paused && gt == kFightCapMs / kTickMs + 1);
+    // Three adds killed one after the other past 180 s beside a boss at flat hp (the glue drops a dead unit from
+    // the read; the second add's hp reads 0 on its last tick): each death is a new low, so the ceiling holds until
+    // 60 s after the last death, then pauses.
+    Run kills = Start(&plan);
+    std::uint32_t kt = 0;
+    for (; kt < 1000 && kills.state == State::Running; ++kt)
+    {
+        Facts g = FightFacts({HpUnit(0xF130001836000001ull, 4300, maxHp / 2, maxHp)});
+        // Add k is fought from 150 + 30 k s at full hp and dies (leaves the read) at 175 + 30 k s; no 2-point low
+        // while it lives (it stays at full hp until it dies), so only its death counts.
+        for (std::uint32_t k = 0; k < 3; ++k)
+        {
+            std::uint32_t const from = 150 + 30 * k;
+            if (kt >= from && kt < from + 25)
+                g.engagedUnits.push_back(HpUnit(0xF13000183600A000ull + k, 4301, maxHp, maxHp));
+            if (k == 1 && kt == from + 25)
+                g.engagedUnits.push_back(HpUnit(0xF13000183600A000ull + k, 4301, 0, maxHp)); // read dead
+        }
+        Tick(kills, g);
+        if (kt == 181)
+            CHECK(kills.state == State::Running);
+    }
+    // A unit read at 0 hp is a death even from under 2 %: 1 % (10 permille, no 2-point fall left) to 0 is a new low.
+    Run z = Start(&plan);
+    Facts z1 = FightFacts({HpUnit(0xF130001836000001ull, 4300, 30, maxHp)});
+    CHECK(FightProgressTick(z, z1, kTickMs) == FightProgress::Young);
+    z1.engagedUnits[0].health = 0;
+    CHECK(FightProgressTick(z, z1, kTickMs) == FightProgress::Losing && z.fightHp.begin()->second.at == 2 * kTickMs);
+    CHECK(FightProgressTick(z, z1, kTickMs) == FightProgress::Losing && z.fightHp.begin()->second.at == 2 * kTickMs);
+    // The last add left the read on tick 235: held through tick 295, paused on tick 296.
+    CHECK(kills.state == State::Paused && kt == 297 && kills.note.find("no engaged unit lost hp in 60 s") != std::string::npos);
     // ResetStep forgets the watch (a step change, a resume).
     Run rs = Start(&plan);
     for (int i = 0; i < 5; ++i)
