@@ -202,6 +202,12 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "DISCOVERY")
   set(TORTOISEBOTS_AI_SRC
     "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIBase.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAI.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIActivity.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIChat.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIItems.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIPackets.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIQuests.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAISpells.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIConfig.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/AiFactory.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/ServerFacade.cpp"
