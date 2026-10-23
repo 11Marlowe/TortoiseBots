@@ -15232,15 +15232,36 @@ static void TestEveryRetryExitThatLeavesThePackAliveGivesItUp()
         Run r = InRetry(plan, 0, 1);
         CHECK(Skip(r) && r.step == 1 && r.deferGivenUp == std::vector<std::size_t>{0});
     }
-    // (f) A pause in the retry, then a resume: no walk back to it; given up, the run is back where it left off.
+    // (f) A pause in the retry, then a resume (the Opus note on d7aca6b5): the lead bot still within 40 yd and 6 yd of
+    // height of the pack at the regroup's end, the retry goes on, no walk back; farther, or too far below, it is given
+    // up and the run is back at the step it left (no walk back to the pack, ever).
     {
         DungeonPlan back;
         back.steps = {Step(PlanStepKind::Move, -200), PullStep(10, {7078}), Step(PlanStepKind::Move, 30),
             Step(PlanStepKind::Move, 40)};
-        Run r = InRetry(back, 1, 3);
-        Pause(r, "fight ceiling");
-        CHECK(Resume(r) && r.step == 3 && r.deferGivenUp == std::vector<std::size_t>{1} && r.notCleared.count(1));
-        // A walk back that comes up while a retry is on (a wipe's regroup) goes to the step it left, never the retry.
+        auto resumed = [&](float x, float z)
+        {
+            Run r = InRetry(back, 1, 3);
+            Pause(r, "fight ceiling");
+            CHECK(Resume(r) && r.step == 1 && DeferRetryOn(r) && r.deferGivenUp.empty());
+            Facts f = Party(x);
+            f.leadZ = z;
+            f.seen = false;
+            f.approachKnown = true;
+            f.approachX = x - 20; // a hop toward the pack, should the step go on in the same tick
+            for (int i = 0; i < 20 && r.state == State::Running && r.regroup; ++i)
+                Tick(r, f);
+            CHECK(!r.regroup);
+            return r;
+        };
+        Run near = resumed(40, 0); // 30 yd from the pack
+        CHECK(near.step == 1 && DeferRetryOn(near) && !near.walkBack && near.deferGivenUp.empty());
+        Run far = resumed(500, 0);
+        CHECK(far.step != 1 && !DeferRetryOn(far) && far.deferGivenUp == std::vector<std::size_t>{1} &&
+            far.notCleared.count(1));
+        Run below = resumed(15, -10); // 11 yd off, 10 yd below
+        CHECK(!DeferRetryOn(below) && below.deferGivenUp == std::vector<std::size_t>{1});
+        // A walk back that comes up while a retry is on goes to the step it left, never the retry.
         Run w = InRetry(back, 1, 3);
         Facts f = Party(500);
         StartWalkBack(w, f);
@@ -15341,6 +15362,28 @@ static void TestGatingPullsAndBossesAreNeverDeferred()
     PlanStep other = hold;
     other.entries = {6};
     CHECK(may({pull, other}));
+    // The Codex review of d7aca6b5: a later boss whose ai_boss_tactic rows name one of its entries (a kill_first
+    // target, an interrupt caster: PlanStep::tacticEntries, filled at load by JoinBossTactics), far away in another leg.
+    PlanStep tactic = At(PlanStepKind::Boss, 5000, 0, 0, 30);
+    tactic.entry = 99;
+    tactic.leg = 3;
+    tactic.tacticEntries = {5};
+    CHECK(!may({pull, move, tactic}));
+    tactic.tacticEntries = {6, 99};
+    CHECK(may({pull, move, tactic}));
+    // ... and such a pull pauses as before instead of being deferred.
+    {
+        PlanStep named = tactic;
+        named.tacticEntries = {5};
+        DungeonPlan keep;
+        keep.steps = {pull, move, named};
+        Run k = Start(&keep);
+        k.restDue = false;
+        Facts kg = FarPack(0);
+        CapApproach(k, kg, 0);
+        CHECK(!ApproachStandFound(k, kg, false, 0, 0, 0));
+        CHECK(k.state == State::Paused && k.step == 0 && k.deferredPulls.empty());
+    }
     // A gating step of the same leg within its radius (40 yd without one) + the pack's 15 yd of the pack.
     CHECK(!may({pull, At(PlanStepKind::Hold, 1040, 0, 0, 30)}));  // 40 <= 45
     CHECK(may({pull, At(PlanStepKind::Hold, 1046, 0, 0, 30)}));   // 46 > 45

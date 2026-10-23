@@ -82,8 +82,8 @@ class ReloadPlansWiring(unittest.TestCase):
         load = body(MGR, "void ai::LoadDungeonPlans()")
         reload = body(MGR, "PlanReloadReport ai::ReloadDungeonPlans(")
         # one row reader for both
-        self.assertIn("ReadDungeonPlanRows(table, counts);", load)
-        self.assertIn("ReadDungeonPlanRows(*next, counts);", reload)
+        self.assertIn("ReadDungeonPlanRows(table, counts, GetBossTactics());", load)
+        self.assertIn("ReadDungeonPlanRows(*next, counts, *nextTactics);", reload) # the boss steps join the new tactics
         # the four data queries and the revision query
         self.assertEqual(MGR.count("WorldDatabase.Query("), 5)
         for select in ("FROM `ai_dungeon_plan`", "FROM `ai_dungeon_leg`", "FROM `ai_dungeon_step`", "FROM `ai_dungeon_boss`"):
@@ -107,8 +107,9 @@ class ReloadPlansWiring(unittest.TestCase):
         reload = body(MGR, "PlanReloadReport ai::ReloadDungeonPlans(")
         before = reload.index("r.before = ReadTableFingerprint(t.table, t.columns);")
         after = reload.index("reads[i].after = ReadTableFingerprint(kReloadTables[i].table, kReloadTables[i].columns);")
-        self.assertLess(before, reload.index("ReadDungeonPlanRows(*next, counts);"))
-        self.assertLess(reload.index("ReadBossTacticRows(*nextTactics, &tacticRowsRead);"), after)
+        # The tactics are read first (the plans' boss steps join them: JoinBossTactics), the plans last.
+        self.assertLess(before, reload.index("ReadBossTacticRows(*nextTactics, &tacticRowsRead);"))
+        self.assertLess(reload.index("ReadDungeonPlanRows(*next, counts, *nextTactics);"), after)
         self.assertLess(after, reload.index("CommitPlanReload("))
         self.assertIn("std::uint64_t const rowsRead[] = {counts.planRows, counts.legRows, counts.stepRows, counts.bossRows, "
                       "tacticRowsRead};", reload)

@@ -883,5 +883,38 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
                       "                            TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,", COMMANDS)
 
 
+
+class BossTacticsJoinWiringTest(unittest.TestCase):
+    """The Codex review of d7aca6b5: the run leader's deferral gate (DungeonRun::PullMayBeDeferred) reads a later boss
+    step's ai_boss_tactic subjects from the sealed plan (PlanStep::tacticEntries). The loader fills them from the tactic
+    rows (DungeonPlanTable::JoinBossTactics, tested in tools/test_dungeon_plan_policy.cpp) before the seal, at startup
+    and on `.bot run reloadplans`, with the tactics read first."""
+
+    MGR = strip_comments((ROOT / "ai/playerbot/DungeonPlanMgr.cpp").read_text())
+
+    def test_the_rows_reader_joins_the_tactics_before_the_seal(self):
+        read = body(self.MGR, "static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts, "
+                              "const BossTacticTable& tactics)", "\n}\n")
+        self.assertIn("table.JoinBossTactics(tactics);", read)
+        self.assertLess(read.index("table.JoinBossTactics(tactics);"), read.index("table.Seal();"))
+        self.assertLess(read.index("FROM `ai_dungeon_step`"), read.index("table.JoinBossTactics(tactics);"))
+
+    def test_startup_reads_the_tactics_first(self):
+        load = body(self.MGR, "void ai::LoadDungeonPlans()", "\n}\n")
+        self.assertIn("ReadDungeonPlanRows(table, counts, GetBossTactics());", load)
+        self.assertLess(load.index("LoadBossTactics();"), load.index("ReadDungeonPlanRows(table, counts, GetBossTactics());"))
+
+    def test_reload_joins_the_new_tactics(self):
+        reload = body(self.MGR, "PlanReloadReport ai::ReloadDungeonPlans(", "    return report;\n}")
+        self.assertIn("ReadDungeonPlanRows(*next, counts, *nextTactics);", reload)
+        self.assertLess(reload.index("ReadBossTacticRows(*nextTactics, &tacticRowsRead);"),
+                        reload.index("ReadDungeonPlanRows(*next, counts, *nextTactics);"))
+
+    def test_the_gate_reads_the_joined_subjects(self):
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        gate = body(policy, "inline bool PullMayBeDeferred(const Run& r)", "\n}\n")
+        self.assertIn("for (std::uint32_t e : n.tacticEntries)", gate)
+
+
 if __name__ == "__main__":
     unittest.main()

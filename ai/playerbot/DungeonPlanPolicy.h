@@ -24,6 +24,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "BossTacticsPolicy.h"
+
 namespace ai
 {
     enum class PlanStepKind : std::uint8_t
@@ -173,6 +175,11 @@ namespace ai
         // The row's kind was "move_hop_exact" (kPlanKindMoveHopExact):
         // a MoveDirect whose launch point is the exact move right before it.
         bool exactLaunch = false;
+        // boss only, filled at load (DungeonPlanTable::JoinBossTactics): the creatures the `ai_boss_tactic` rows of the
+        // plan's map keyed on the step's boss (or one of its entries) are about (TacticSubjectEntry: kill_first targets,
+        // interrupt casters, the boss itself), so the run leader never leaves such a creature alive in an earlier pack
+        // (runtime/DungeonRunPolicy.h PullMayBeDeferred).
+        std::vector<std::uint32_t> tacticEntries;
     };
 
     // The kind text of a step's row: "move_hop_exact" for an exact launch,
@@ -478,6 +485,41 @@ namespace ai
             it->second.steps.push_back(std::move(step));
             ++steps_;
             return PlanStepRefusal::None;
+        }
+
+        // Loading only (before the seal; `tactics` sealed): each boss step gets the subjects of the tactic rows keyed on
+        // (the plan's map, the step's boss entry or one of its entries), once each (PlanStep::tacticEntries). Returns the
+        // entries joined; nothing after the seal or with an unsealed tactic table.
+        std::size_t JoinBossTactics(const BossTacticTable& tactics)
+        {
+            std::size_t joined = 0;
+            if (Sealed() || !tactics.Sealed())
+                return joined;
+            for (auto& entry : plans_)
+                for (PlanStep& step : entry.second.steps)
+                {
+                    if (step.kind != PlanStepKind::Boss)
+                        continue;
+                    std::vector<std::uint32_t> keys = step.entries;
+                    keys.push_back(step.entry);
+                    for (std::uint32_t boss : keys)
+                    {
+                        const std::vector<BossTacticRow>* rows = boss ? tactics.Rows(entry.second.map, boss) : nullptr;
+                        if (!rows)
+                            continue;
+                        for (const BossTacticRow& row : *rows)
+                        {
+                            std::uint32_t const subject = TacticSubjectEntry(row);
+                            if (subject && std::find(step.tacticEntries.begin(), step.tacticEntries.end(), subject) ==
+                                    step.tacticEntries.end())
+                            {
+                                step.tacticEntries.push_back(subject);
+                                ++joined;
+                            }
+                        }
+                    }
+                }
+            return joined;
         }
 
         // Sorts every plan's steps into run order and opens the table to readers.

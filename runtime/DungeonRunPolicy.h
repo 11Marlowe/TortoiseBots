@@ -2547,6 +2547,13 @@ constexpr float kDeferRetryYd = 40.0f;
 constexpr float kDeferRetryDzYd = 6.0f;
 constexpr float kDeferGateYd = 40.0f;
 
+// Whether a spot is near enough a deferred pack to pull it from there: within kDeferRetryYd
+// (3D) and kDeferRetryDzYd of height (StepAfter's retry; a resume that keeps a retry).
+inline bool NearDeferredPack(const PlanStep& d, float x, float y, float z)
+{
+    return ai::PlanDistance(x, y, z, d.x, d.y, d.z) <= kDeferRetryYd && std::fabs(z - d.z) <= kDeferRetryDzYd;
+}
+
 // The current step is the retry of a deferred pull (StepAfter).
 inline bool DeferRetryOn(const Run& r)
 {
@@ -2640,7 +2647,7 @@ inline std::size_t StepAfter(Run& r, std::string& note)
                 continue;
             const PlanStep& d = r.plan->steps[idx];
             float const yd = ai::PlanDistance(r.leadLastX, r.leadLastY, r.leadLastZ, d.x, d.y, d.z);
-            if (yd > kDeferRetryYd || std::fabs(r.leadLastZ - d.z) > kDeferRetryDzYd)
+            if (!NearDeferredPack(d, r.leadLastX, r.leadLastY, r.leadLastZ))
                 continue;
             r.deferredPulls.erase(it);
             r.deferRetryStep = idx;
@@ -2669,8 +2676,9 @@ inline std::size_t StepAfter(Run& r, std::string& note)
     return next;
 }
 
-// The retry of a deferred pull ends without it (a resume, a regroup, a walk back: none
-// walks the party back for a retry): given up, and the run is back at the step it left.
+// The retry of a deferred pull ends without it (a walk back: a resume's or a regroup's with
+// the lead bot no longer beside the pack; none walks the party back for a retry): given up,
+// and the run is back at the step it left.
 inline void AbandonDeferRetry(Run& r)
 {
     if (!DeferRetryOn(r))
@@ -2994,7 +3002,8 @@ inline bool NeverSkipMove(const Run& r)
 // from this floor (DeferUnreachablePack). All of: a pull (never a boss); no no_defer flag
 // on the step (kPlanFlagNoDefer); none of its entries killed first plan-wide or named by a
 // later step of the plan that is not a plain pull or move (a hold's or a wait's units, a
-// boss's adds, a gossip, open, loot or use target); and no later step of its leg that a
+// boss's adds or its ai_boss_tactic subjects (PlanStep::tacticEntries: kill_first targets,
+// interrupt casters), a gossip, open, loot or use target); and no later step of its leg that a
 // pack left alive would stand in the way of (a hold, a wait, an open, a gossip, a loot, a
 // ritual, a use_on, a direct or exact move, a boss) within that step's radius (kDeferGateYd
 // when it has none) plus the pack's radius of the pack (3D). Otherwise the old pause.
@@ -3023,6 +3032,9 @@ inline bool PullMayBeDeferred(const Run& r)
             for (std::uint32_t e : n.entries)
                 if (named(e))
                     return false;
+            for (std::uint32_t e : n.tacticEntries) // a later boss's ai_boss_tactic subjects (JoinBossTactics)
+                if (named(e))
+                    return false;
         }
         if (n.leg != s->leg)
             continue;
@@ -3041,7 +3053,6 @@ inline bool Resume(Run& r)
 {
     if (r.state != State::Paused || !Current(r))
         return false;
-    AbandonDeferRetry(r); // a retry is never walked back to: given up, the run goes on where it left off
     r.state = State::Running;
     r.ceilingPaused = false;
     r.ceilingQuietMs = 0;
@@ -9732,6 +9743,13 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.leadDied = false;
         r.holdDue = false;
         r.note = "regrouped";
+        // A retry of a deferred pull (a resume, a regroup): it goes on only with the lead bot still beside the
+        // pack (NearDeferredPack), with no walk back; otherwise the walk back gives it up (StartWalkBack).
+        if (r.walkBackDue && DeferRetryOn(r) && NearDeferredPack(*Current(r), f.leadX, f.leadY, f.leadZ))
+        {
+            r.walkBackDue = false;
+            r.note = "regrouped beside the deferred pack: its retry goes on";
+        }
         if (r.walkBackDue && ApproachResumeInPlace(r, f))
         {
             r.walkBackDue = false;
