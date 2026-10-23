@@ -837,7 +837,8 @@ void ObservabilityEmitter::OnActionFailed(Player* bot,
 void ObservabilityEmitter::EmitBotActivity(std::string const& event,
                                             std::string const& info1,
                                             std::string const& info2,
-                                            Player* bot)
+                                            Player* bot,
+                                            uint32 targetLevel)
 {
     if (!IsEnabled() || !bot || !IsActivityEvent(event))
         return;
@@ -854,6 +855,8 @@ void ObservabilityEmitter::EmitBotActivity(std::string const& event,
        << ",\"level\":" << static_cast<uint32>(bot->GetLevel())
        << ",\"map\":" << bot->GetMapId()
        << ",\"zone\":" << bot->GetCachedZoneId();
+    if (targetLevel)
+        ss << ",\"target_level\":" << targetLevel;
 
     if (IsItemEvent(event))
     {

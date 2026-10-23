@@ -161,7 +161,8 @@ public:
     void EmitBotActivity(std::string const& event,
                          std::string const& info1,
                          std::string const& info2,
-                         Player* bot);
+                         Player* bot,
+                         uint32 targetLevel = 0);
 
     // turtle: let another module (e.g. mod-turtlebots residents) contribute its
     // own Player* roster to every telemetry cycle. Called on the world thread.

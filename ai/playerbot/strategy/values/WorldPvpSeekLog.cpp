@@ -38,5 +38,5 @@ void WorldPvpSeekLog::LogEngagement(PlayerbotAI* ai, Player* bot, Unit* target)
     }
 
     sObservabilityEmitter.EmitBotActivity("WorldPvpEngage", target->GetName(),
-        enemy && PlayerbotAIStorage::Instance().GetAI(enemy) ? "bot" : "player", bot);
+        enemy && PlayerbotAIStorage::Instance().GetAI(enemy) ? "bot" : "player", bot, target->GetLevel());
 }

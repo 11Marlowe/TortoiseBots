@@ -146,6 +146,7 @@ type Store struct {
 	lootFeed  []model.LootFeedItem
 	questFeed []model.QuestFeedItem
 	levelFeed []model.ActivityLevelItem
+	pvpFeed   []model.PvpFeedItem
 
 	// gear is the daemon's periodic equipped-gear sweep, keyed by GUID.
 	// Replaced wholesale by SetGear on every sweep (it is DB truth, not
@@ -379,6 +380,7 @@ func (s *Store) Snapshot() model.SnapshotPayload {
 		}
 		snap.Activity = s.activityForLocked(snap.GUID)
 		snap.Gear = s.gearForLocked(snap.GUID)
+		snap.WorldPvpFighting = s.worldPvpFightingLocked(snap.GUID, now)
 		bots = append(bots, snap)
 	}
 	sort.Slice(bots, func(i, j int) bool { return bots[i].Name < bots[j].Name })

@@ -417,3 +417,87 @@ func TestRestoreActivityIgnoresMissingAndCorruptFiles(t *testing.T) {
 		t.Fatalf("corrupt restore must leave the store empty: %+v", got.Bots)
 	}
 }
+
+func TestPvpFeedNewestFirstAndBotFilter(t *testing.T) {
+	c := newClock()
+	s := newTestStore(c)
+	s.ApplyBotEvents(events(1,
+		model.BotEvent{Event: "WorldPvpEngage", Info1: "Ganker", Info2: "player", Bot: "Alpha", GUID: 1, Class: "warrior", Level: 40, MapID: 0, ZoneID: 40, TargetLevel: 42},
+	))
+	c.Advance(time.Second)
+	s.ApplyBotEvents(events(1,
+		model.BotEvent{Event: "WorldPvpKill", Info1: "Ganker", Info2: "42", Bot: "Alpha", GUID: 1, Class: "warrior", Level: 40, MapID: 0, ZoneID: 40},
+		model.BotEvent{Event: "WorldPvpDeath", Info1: "Rogue", Info2: "39", Bot: "Beta", GUID: 2, Class: "mage", Level: 38, MapID: 0, ZoneID: 40},
+	))
+
+	feed := s.PvpFeed(PvpFilter{})
+	if len(feed) != 3 {
+		t.Fatalf("want 3 pvp rows, got %d", len(feed))
+	}
+	if feed[0].Event != "death" || feed[0].Bot != "Beta" || feed[0].Target != "Rogue" || feed[0].TargetLevel != 39 {
+		t.Fatalf("newest row wrong: %+v", feed[0])
+	}
+	if feed[1].Event != "kill" || feed[1].TargetLevel != 42 {
+		t.Fatalf("kill row wrong: %+v", feed[1])
+	}
+	if feed[2].Event != "engage" || feed[2].Target != "Ganker" || feed[2].TargetKind != "player" || feed[2].TargetLevel != 42 || feed[2].ZoneID != 40 {
+		t.Fatalf("engage row wrong: %+v", feed[2])
+	}
+	if got := s.PvpFeed(PvpFilter{Bot: "ALPH"}); len(got) != 2 {
+		t.Fatalf("bot filter wrong: %+v", got)
+	}
+	if got := s.PvpFeed(PvpFilter{Bot: "zzz"}); len(got) != 0 {
+		t.Fatalf("bot filter should exclude: %+v", got)
+	}
+	if got := s.PvpFeed(PvpFilter{Limit: 1}); len(got) != 1 {
+		t.Fatalf("limit ignored: %+v", got)
+	}
+
+	act := s.Activity()
+	if act.Summary.Counters.PvpEngagements != 1 || act.Summary.Counters.PvpKills != 1 || act.Summary.Counters.PvpDeaths != 1 {
+		t.Fatalf("pvp counters wrong: %+v", act.Summary.Counters)
+	}
+}
+
+func TestWorldPvpFightingExpiriesAndClears(t *testing.T) {
+	c := newClock()
+	s := newTestStore(c)
+	publishRoster(s, 1, model.BotSnapshot{Name: "Alpha", GUID: 1, Class: "warrior", Level: 40, State: "combat"})
+
+	s.ApplyBotEvents(events(0,
+		model.BotEvent{Event: "WorldPvpEngage", Info1: "Ganker", Info2: "player", Bot: "Alpha", GUID: 1, Class: "warrior", Level: 40, TargetLevel: 42},
+	))
+	if got := fightingOf(s, 1); got != "Ganker" {
+		t.Fatalf("fighting = %q, want Ganker", got)
+	}
+
+	// A kill clears the fight at once.
+	s.ApplyBotEvents(events(0,
+		model.BotEvent{Event: "WorldPvpKill", Info1: "Ganker", Info2: "42", Bot: "Alpha", GUID: 1, Class: "warrior", Level: 40},
+	))
+	if got := fightingOf(s, 1); got != "" {
+		t.Fatalf("fighting = %q after the kill, want empty", got)
+	}
+
+	// Without a kill or death the fight expires after a minute.
+	s.ApplyBotEvents(events(0,
+		model.BotEvent{Event: "WorldPvpEngage", Info1: "Rogue", Info2: "player", Bot: "Alpha", GUID: 1, Class: "warrior", Level: 40, TargetLevel: 39},
+	))
+	c.Advance(59 * time.Second)
+	if got := fightingOf(s, 1); got != "Rogue" {
+		t.Fatalf("fighting = %q before expiry, want Rogue", got)
+	}
+	c.Advance(2 * time.Second)
+	if got := fightingOf(s, 1); got != "" {
+		t.Fatalf("fighting = %q past expiry, want empty", got)
+	}
+}
+
+func fightingOf(s *Store, guid uint32) string {
+	for _, b := range s.Snapshot().Bots {
+		if b.GUID == guid {
+			return b.WorldPvpFighting
+		}
+	}
+	return "<missing>"
+}
