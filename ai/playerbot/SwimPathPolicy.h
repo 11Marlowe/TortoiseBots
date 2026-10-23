@@ -46,10 +46,13 @@ namespace ai
     constexpr std::uint32_t kLiquidInWater = 0x4;
     constexpr std::uint32_t kLiquidUnderWater = 0x8;
 
-    // Samples along a swim line at most this far apart, and never more than
-    // kSwimMaxSamples of them (a longer line samples more sparsely).
+    // Samples along a swim line at most this far apart, always: a line longer
+    // than kSwimMaxLineYd is refused rather than sampled more sparsely (a capped
+    // count let a dry strip narrower than the stretched spacing hide between two
+    // samples; Codex review 2026-10-23). The core's next try then gives a shorter
+    // step, or the move keeps the navmesh path.
     constexpr float kSwimSampleYd = 2.0f;
-    constexpr std::uint32_t kSwimMaxSamples = 40;
+    constexpr float kSwimMaxLineYd = 80.0f;
 
     enum class PathStepVerdict
     {
@@ -81,23 +84,26 @@ namespace ai
         return liquidStatus == kLiquidInWater || liquidStatus == kLiquidUnderWater || liquidStatus == kLiquidWaterWalk;
     }
 
-    // How many samples a line of `length` yd takes (both ends included).
+    // How many samples a line of `length` yd takes (both ends included), at most
+    // kSwimSampleYd apart.
     inline std::uint32_t SwimSampleCount(float length)
     {
         if (!(length > 0.0f))
             return 1;
-        std::uint32_t const steps = static_cast<std::uint32_t>(std::ceil(length / kSwimSampleYd));
-        std::uint32_t const capped = steps < kSwimMaxSamples - 1 ? steps : kSwimMaxSamples - 1;
-        return capped + 1;
+        return static_cast<std::uint32_t>(std::ceil(length / kSwimSampleYd)) + 1;
     }
 
     // Whether the straight line a -> b lies in water: liquidAt(x, y, z) answers
-    // the core's liquid status at a point; every sample must be in water.
+    // the core's liquid status at a point; every sample must be in water, and
+    // the line is at most kSwimMaxLineYd long.
     template <class LiquidAt>
     inline bool SwimLineInWater(float ax, float ay, float az, float bx, float by, float bz, LiquidAt&& liquidAt)
     {
         float const dx = bx - ax, dy = by - ay, dz = bz - az;
-        std::uint32_t const samples = SwimSampleCount(std::sqrt(dx * dx + dy * dy + dz * dz));
+        float const length = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (!(length <= kSwimMaxLineYd))
+            return false;
+        std::uint32_t const samples = SwimSampleCount(length);
         for (std::uint32_t i = 0; i < samples; ++i)
         {
             float const t = samples == 1 ? 0.0f : static_cast<float>(i) / static_cast<float>(samples - 1);

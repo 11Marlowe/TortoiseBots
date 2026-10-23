@@ -124,7 +124,8 @@ static void TestSampling()
     CHECK(SwimSampleCount(2.0f) == 2);
     CHECK(SwimSampleCount(2.1f) == 3);
     CHECK(SwimSampleCount(10.0f) == 6);
-    CHECK(SwimSampleCount(1000.0f) == kSwimMaxSamples);
+    CHECK(SwimSampleCount(80.0f) == 41);
+    CHECK(SwimSampleCount(1000.0f) == 501); // never stretched past 2 yd
     CHECK(SwimSampleInWater(kLiquidInWater));
     CHECK(SwimSampleInWater(kLiquidUnderWater));
     CHECK(SwimSampleInWater(kLiquidWaterWalk));
@@ -134,6 +135,35 @@ static void TestSampling()
     CHECK(!SwimLineInWater(6.0f, 0.0f, -5.0f, 31.0f, 0.0f, -5.0f, Pool));
 }
 
+// Codex review 2026-10-23: a capped sample count stretched the spacing past 2 yd
+// on a long line, so a dry strip could hide between two samples. The spacing stays
+// 2 yd and a line longer than kSwimMaxLineYd is refused.
+static void TestLongLinesAreNeverSampledSparsely()
+{
+    // A long pool (x 0 to 200) with a dry strip of `width` yd starting at `from`.
+    auto strip = [](float from, float width)
+    {
+        return [from, width](float x, float, float z) -> std::uint32_t
+        {
+            if (x < 0.0f || x > 200.0f || (x >= from && x <= from + width) || z > 0.0f || z < -12.0f)
+                return kLiquidNoWater;
+            return kLiquidUnderWater;
+        };
+    };
+    // An 80 yd all-water line: kept.
+    CHECK(SwimLineInWater(0.0f, 0.0f, -5.0f, kSwimMaxLineYd, 0.0f, -5.0f, strip(300.0f, 1.0f)));
+    // A narrow strip at 79-81 yd on that 80 yd line: refused.
+    CHECK(!SwimLineInWater(0.0f, 0.0f, -5.0f, kSwimMaxLineYd, 0.0f, -5.0f, strip(79.0f, 2.0f)));
+    // A 2 yd strip anywhere on it is found (the spacing is 2 yd).
+    for (float from = 1.0f; from < 78.0f; from += 0.7f)
+        CHECK(!SwimLineInWater(0.0f, 0.0f, -5.0f, kSwimMaxLineYd, 0.0f, -5.0f, strip(from, 2.0f)));
+    // 100 yd with a 2 yd strip at 31-33, between the old capped samples (2.56 yd
+    // apart: 30.77 and 33.33): refused, and an all-water 100 yd line too (too long).
+    CHECK(!SwimLineInWater(0.0f, 0.0f, -5.0f, 100.0f, 0.0f, -5.0f, strip(31.0f, 2.0f)));
+    CHECK(!SwimLineInWater(0.0f, 0.0f, -5.0f, 100.0f, 0.0f, -5.0f, strip(300.0f, 1.0f)));
+    CHECK(!SwimLineInWater(0.0f, 0.0f, -5.0f, kSwimMaxLineYd + 0.5f, 0.0f, -5.0f, strip(300.0f, 1.0f)));
+}
+
 int main()
 {
     TestSwimAnswersInWaterAreKept();
@@ -141,6 +171,7 @@ int main()
     TestNoPathAndShortcutsAreRefused();
     TestNavmeshPathsAsBefore();
     TestSampling();
+    TestLongLinesAreNeverSampledSparsely();
     std::cout << "swim path policy: all tests passed\n";
     return 0;
 }
