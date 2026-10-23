@@ -9760,6 +9760,62 @@ bool EngagedWithParty(Unit* unit, std::unordered_set<uint64> const& party)
     return false;
 }
 
+// The bot whose attack rules judge a target, as `cmd attack` picks it (CommanderOrder::judge): the lead bot, or
+// while it is dead the first living bot of the party on its map. Null when none is.
+Player* RunJudge(Player* lead, std::vector<Player*> const& bots)
+{
+    if (lead->IsAlive())
+        return lead;
+    for (Player* bot : bots)
+        if (bot->IsAlive() && bot->IsInWorld() && bot->GetMap() == lead->GetMap())
+            return bot;
+    return nullptr;
+}
+
+// Whether the group can attack `unit` (DungeonRun::UnitFact::attackable): the judge's Unit::IsValidAttackTarget,
+// the test ResolveOrderTarget refuses invalid-target "The group cannot attack that target." on (the
+// non-attackable and not selectable flags among it). No judge: true (nothing to read it with).
+bool GroupCanAttack(Player* judge, Unit* unit)
+{
+    return !judge || !unit || judge->IsValidAttackTarget(unit);
+}
+
+// In combat: the living, not friendly units engaged with the party (DungeonRun::Facts::engagedUnits), each once:
+// those on each living bot's and its pet's attacker set, and their victims. The same units the stale test read
+// before (Facts::staleCombat: none of them), now each with whether the group can attack it. No grid or world scan.
+void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
+{
+    Player* const judge = RunJudge(lead, bots);
+    std::unordered_set<uint64> seen;
+    auto const add = [&](Unit* other)
+    {
+        if (!other || !other->IsAlive() || sServerFacade.IsFriendlyTo(other, lead) ||
+            !seen.insert(other->GetObjectGuid().GetRawValue()).second)
+            return;
+        TortoiseBots::DungeonRun::UnitFact fact;
+        fact.guid = other->GetObjectGuid().GetRawValue();
+        fact.entry = other->GetEntry();
+        fact.distLead = other->GetMap() == lead->GetMap() ? lead->GetDistance(other) : 1000.0f;
+        fact.engaged = true;
+        fact.attackable = GroupCanAttack(judge, other);
+        f.engagedUnits.push_back(fact);
+    };
+    auto const read = [&](Unit* unit)
+    {
+        for (Unit* attacker : unit->GetAttackers())
+            add(attacker);
+        add(unit->GetVictim());
+    };
+    for (Player* bot : bots)
+        if (bot->IsAlive() && bot->IsInWorld())
+        {
+            read(bot);
+            if (Pet* pet = bot->GetPet())
+                read(pet);
+        }
+    f.engagedRead = true;
+}
+
 // The plan's kill_first units of this fight, from the bots' cached
 // "attackers" lists (no scan): each with whether it is engaged with the party
 // and, for a summoned one (a healing ward), whether its owner is. The creatures
@@ -9774,6 +9830,7 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
         party.insert(bot->GetObjectGuid().GetRawValue());
     std::unordered_set<uint64> seen;
     std::unordered_set<uint64> auraWalked; // attackers whose aura holders this read walked
+    Player* const judge = RunJudge(lead, bots);
     auto add = [&](Unit* unit, bool auraOnEngaged)
     {
         if (!unit || !unit->IsAlive() || !seen.insert(unit->GetObjectGuid().GetRawValue()).second)
@@ -9787,6 +9844,7 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
         fact.stealthed = IsStealthed(unit);
         fact.evading = unit->IsCreature() && static_cast<Creature*>(unit)->IsInEvadeMode();
         fact.engaged = EngagedWithParty(unit, party);
+        fact.attackable = GroupCanAttack(judge, unit); // never focused when it cannot be attacked
         fact.auraOnEngaged = auraOnEngaged;
         ObjectGuid owner = unit->GetOwnerGuid();
         if (owner.IsEmpty())
@@ -9955,6 +10013,7 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
         fact.polymorphed = RunCcHeld(nearestHit);
         fact.engaged = true;
         fact.hitting = true;
+        fact.attackable = GroupCanAttack(lead, nearestHit); // never engaged when it cannot be attacked
         f.leadHasAttacker = true;
     }
     std::unordered_set<uint64> seen;
@@ -9978,6 +10037,7 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
                 (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
             fact.victimHealer = healer;
             fact.victimPet = petVictim;
+            fact.attackable = GroupCanAttack(lead, attacker); // never picked up when it cannot be attacked
             if (hold)
                 fact.distSpot = DistanceTo(attacker, hold->x, hold->y, hold->z);
             f.partyAttackers.push_back(fact);
@@ -10445,6 +10505,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             f.leadLeadsGroup = leadGroup->IsLeader(lead->GetObjectGuid());
         }
     f.leadAlive = lead->IsAlive();
+    // Whose attack rules say whether the group can attack a unit (UnitFact::attackable), as `cmd attack` judges it.
+    Player* const judge = RunJudge(lead, bots);
     // The instance's doors: a living lead bot raised at another wing's door (DungeonRun::LeadInOtherPart).
     if (f.leadAlive)
         f.doors = InstanceDoors(slot.run.plan->map);
@@ -10574,21 +10636,13 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     // already calculated), resolved by guid. No grid or world scan.
     // In combat by the flag, yet nothing hostile is engaged with any bot or its
     // pet: stale (DungeonRun::Facts::staleCombat).
+    // The same read lists those units with whether the group can attack each (DungeonRun::Facts::engagedUnits):
+    // a fight with only units it cannot attack is no fight (DungeonRun::UnattackableOnlyFight), and the fight
+    // ceiling's pause names them.
     if (f.anyInCombat)
     {
-        bool engaged = false;
-        auto hostileEngaged = [&](Unit* unit)
-        {
-            for (Unit* attacker : unit->GetAttackers())
-                if (attacker && attacker->IsAlive() && !sServerFacade.IsFriendlyTo(attacker, lead))
-                    return true;
-            Unit* victim = unit->GetVictim();
-            return victim && victim->IsAlive() && !sServerFacade.IsFriendlyTo(victim, lead);
-        };
-        for (Player* bot : bots)
-            if (!engaged && bot->IsAlive() && bot->IsInWorld())
-                engaged = hostileEngaged(bot) || (bot->GetPet() && hostileEngaged(bot->GetPet()));
-        f.staleCombat = !engaged;
+        ReadEngagedUnits(lead, bots, f);
+        f.staleCombat = f.engagedUnits.empty();
     }
     if (f.anyInCombat && slot.run.plan && !slot.run.plan->killFirst.empty())
         ReadKillFirst(*slot.run.plan, lead, bots, f);
@@ -10717,6 +10771,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.polymorphed = RunCcHeld(creature);
                     unit.creatureType = creature->GetCreatureType(); // which run cc fits it (DungeonRun::CcFits)
                     unit.ccImmune = RunCcImmune(creature);
+                    unit.attackable = GroupCanAttack(judge, creature); // never pulled when it cannot be attacked
                     // The pull stand: can the tank shoot it from where it stands (one ray, key on only).
                     if (f.pullStand)
                         unit.losLead = lead->IsWithinLOSInMap(creature);
@@ -10810,6 +10865,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 fact.distLead = lead->GetDistance(unit);
                 fact.stealthed = IsStealthed(unit);
                 fact.evading = unit->IsCreature() && static_cast<Creature*>(unit)->IsInEvadeMode();
+                fact.attackable = GroupCanAttack(judge, unit); // never pulled when it cannot be attacked
                 if (f.pullStand)
                     fact.losLead = lead->IsWithinLOSInMap(unit);
                 f.hopUnits.push_back(fact);
@@ -10894,6 +10950,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.polymorphed = RunCcHeld(creature);
                     unit.creatureType = creature->GetCreatureType(); // which run cc fits it (DungeonRun::CcFits)
                     unit.ccImmune = RunCcImmune(creature);
+                    unit.attackable = GroupCanAttack(judge, creature); // never engaged when it cannot be attacked
                     // Awake and fighting: the unit the tank takes (DungeonRun::HoldEngageTarget).
                     Unit* const victim = creature->GetVictim();
                     unit.engaged = unit.hostile && creature->IsInCombat() && victim;
@@ -11322,13 +11379,22 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             if (lead->IsInWorld() && lead->GetMapId() == slot.run.plan->map)
             {
                 bool partyInCombat = false;
-                for (Player* bot : CommandedBots(lead->GetGroup(), lead))
+                std::vector<Player*> const pausedBots = CommandedBots(lead->GetGroup(), lead);
+                for (Player* bot : pausedBots)
                     if (bot->IsAlive() && bot->IsInWorld())
                     {
                         Pet* pet = bot->GetPet();
                         partyInCombat = partyInCombat || bot->IsInCombat() ||
                             (pet && pet->IsAlive() && pet->IsInWorld() && pet->IsInCombat());
                     }
+                // Combat with units the group cannot attack only is quiet too (DungeonRun::FightOn).
+                if (partyInCombat)
+                {
+                    TortoiseBots::DungeonRun::Facts engaged;
+                    engaged.anyInCombat = true;
+                    ReadEngagedUnits(lead, pausedBots, engaged);
+                    partyInCombat = TortoiseBots::DungeonRun::FightOn(slot.run, engaged);
+                }
                 if (TortoiseBots::DungeonRun::CeilingFightOverWhilePaused(slot.run, partyInCombat, dt))
                 {
                     TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(),
