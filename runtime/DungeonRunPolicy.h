@@ -3744,13 +3744,15 @@ inline std::string StuckNote(const Run& r, const Facts& f)
 }
 
 // Whether the lead bot's own move failed for want of a path (MoveFailReasonName):
-// dispatch-short (fewer than 2 points), empty-path (no route) or shortcut-empty.
-// The stall's fallback runs only for those. Never for clipped-empty (ClipPath cut the
+// dispatch-short (fewer than 2 points) or empty-path (no route). The stall's fallback
+// runs only for those. shortcut-empty is not among them: MoveTo2 never records it (a
+// path that makeShortCut empties returns true, "rebuild next tick"), so such a stall
+// gets no fallback (a known limit; Codex review 2026-10-23). Never for clipped-empty (ClipPath cut the
 // path at a hostile in reach or a hazard: going straight or around would walk into that
 // pack or AoE), magma, cantmove or any other reason (Opus review 2026-10-23).
 inline bool StallPathFailure(const std::string& reason)
 {
-    return reason == "dispatch-short" || reason == "empty-path" || reason == "shortcut-empty";
+    return reason == "dispatch-short" || reason == "empty-path";
 }
 
 // Whether a stall's `direct` move fits the direct step's limits (kStallDirectMaxYd on the

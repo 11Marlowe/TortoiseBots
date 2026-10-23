@@ -403,8 +403,9 @@ static void TestStalledWalkWithAFailingMoveTriesDirectThenADryStandIn()
 
     // Opus review 2026-10-23: the fallback only for a path failure. clipped-empty (the path
     // cut at a hostile or a hazard), magma, cantmove: the old retries and pause, no direct
-    // move and no stand-in; dispatch-short, empty-path and shortcut-empty: the fallback.
-    for (const char* reason : {"clipped-empty", "magma", "cantmove", "hazard-short", "none", ""})
+    // move and no stand-in; dispatch-short and empty-path: the fallback. shortcut-empty
+    // is never recorded by MoveTo2 (Codex review 2026-10-23), so it is not counted either.
+    for (const char* reason : {"clipped-empty", "magma", "cantmove", "hazard-short", "shortcut-empty", "none", ""})
     {
         Run cut = Start(&plan);
         Facts k = g;
@@ -415,7 +416,7 @@ static void TestStalledWalkWithAFailingMoveTriesDirectThenADryStandIn()
         CHECK(NextOrder(cut, k) == "move 0.0 0.0 0.0");
         CHECK(NextOrder(cut, k).empty() && cut.state == State::Paused && !cut.stallStandInWanted);
     }
-    for (const char* reason : {"dispatch-short", "empty-path", "shortcut-empty"})
+    for (const char* reason : {"dispatch-short", "empty-path"})
     {
         Run path = Start(&plan);
         Facts k = g;
