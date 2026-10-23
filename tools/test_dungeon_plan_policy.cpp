@@ -485,9 +485,9 @@ static void TestBossStepsJoinTheirTacticSubjects()
     CHECK(late.JoinBossTactics(tactics) == 0 && late.Find("p")->steps[0].tacticEntries.empty());
     const DungeonPlan* p = table.Find("p");
     CHECK(p && p->steps.size() == 2 && p->steps[0].kind == PlanStepKind::Pull && p->steps[0].tacticEntries.empty());
-    std::vector<std::uint32_t> got = p->steps[1].tacticEntries;
-    std::sort(got.begin(), got.end());
-    CHECK((got == std::vector<std::uint32_t>{100, 101, 555}));
+    // In entry order whatever order the rows came in (the add's rows first here): a reload reading the same rows in
+    // another order is no change (DungeonPlanReloadPolicy.h SamePlanStep compares the lists).
+    CHECK((p->steps[1].tacticEntries == std::vector<std::uint32_t>{100, 101, 555}));
 }
 
 int main()

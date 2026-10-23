@@ -518,6 +518,8 @@ namespace ai
                             }
                         }
                     }
+                    // In entry order: a reload that reads the same rows in another order is no change (SamePlanStep).
+                    std::sort(step.tacticEntries.begin(), step.tacticEntries.end());
                 }
             return joined;
         }

@@ -939,6 +939,10 @@ struct Run
     std::uint8_t deferLeg = 0;                                     // the leg those retries belong to
     std::vector<std::size_t> deferGivenUp; // still not reachable on the retry: skipped, not cleared (DoneNote lists them)
     std::string deferLog; // a deferral or a give-up, for the glue's log once (the glue clears it)
+    // The boss tactic table the server reads now (the glue sets it before each tick: ai::GetBossTactics()). A
+    // `.bot run reloadplans` swaps it while this run keeps its old plan, whose boss steps joined the old rows
+    // (PlanStep::tacticEntries): PullMayBeDeferred reads both (the Codex review of 7cfcbff6). Null: the plan's only.
+    const ai::BossTacticTable* liveTactics = nullptr;
     // Where the lead bot stood when an approach paused (PauseApproach): a resume that finds it
     // still there searches the stand from that spot, with no walk back (ApproachResumeInPlace).
     bool approachPauseKnown = false;
@@ -3035,6 +3039,17 @@ inline bool PullMayBeDeferred(const Run& r)
             for (std::uint32_t e : n.tacticEntries) // a later boss's ai_boss_tactic subjects (JoinBossTactics)
                 if (named(e))
                     return false;
+            if (k == PlanStepKind::Boss && r.liveTactics) // (Rows answers nothing before the seal)
+            {
+                // ... and the rows the server reads now, by JoinBossTactics' rule (the map, the boss and its adds).
+                std::vector<std::uint32_t> keys = n.entries;
+                keys.push_back(n.entry);
+                for (std::uint32_t boss : keys)
+                    if (const std::vector<ai::BossTacticRow>* rows = boss ? r.liveTactics->Rows(r.plan->map, boss) : nullptr)
+                        for (const ai::BossTacticRow& row : *rows)
+                            if (named(ai::TacticSubjectEntry(row)))
+                                return false;
+            }
         }
         if (n.leg != s->leg)
             continue;

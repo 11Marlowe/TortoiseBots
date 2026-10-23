@@ -60,6 +60,7 @@
 #include "../runtime/CommanderTelemetry.h"
 #include "../runtime/DungeonRunPolicy.h"
 #include "../ai/playerbot/DungeonPlanMgr.h"
+#include "../ai/playerbot/BossTacticsMgr.h"
 #include "../ai/playerbot/PullAggroEstimatePolicy.h"
 #include "CreatureGroups.h"
 #include "Group/CreatureLinkingMgr.h"
@@ -11906,6 +11907,9 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     RetireLostCarrier(slot, lead, bots);
     TortoiseBots::DungeonRun::Facts facts;
     ReadRunFacts(slot, lead, bots, facts);
+    // The tactic rows the server reads now (a reload may have swapped them under this run's old plan): the deferral
+    // gate reads them beside the plan's own (DungeonRun::PullMayBeDeferred), in the tick and in the stand's answer below.
+    slot.run.liveTactics = &ai::GetBossTactics();
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
     // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
     DropUnattackableCombat(lead, bots, slot.run.combatDrops);

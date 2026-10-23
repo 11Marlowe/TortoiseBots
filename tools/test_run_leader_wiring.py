@@ -910,6 +910,15 @@ class BossTacticsJoinWiringTest(unittest.TestCase):
         self.assertLess(reload.index("ReadBossTacticRows(*nextTactics, &tacticRowsRead);"),
                         reload.index("ReadDungeonPlanRows(*next, counts, *nextTactics);"))
 
+    def test_the_glue_hands_the_run_the_live_tactics_before_its_tick(self):
+        # The Codex review of 7cfcbff6: a reload swaps the tactic table under a run that keeps its old plan; the gate
+        # also reads the table the server reads now (DungeonRun::Run::liveTactics), set before the tick each second.
+        tick = body(strip_comments(COMMANDS), "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertIn("slot.run.liveTactics = &ai::GetBossTactics();", tick)
+        self.assertLess(tick.index("slot.run.liveTactics = &ai::GetBossTactics();"),
+                        tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"))
+        self.assertIn('#include "../ai/playerbot/BossTacticsMgr.h"', COMMANDS)
+
     def test_the_gate_reads_the_joined_subjects(self):
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
         gate = body(policy, "inline bool PullMayBeDeferred(const Run& r)", "\n}\n")

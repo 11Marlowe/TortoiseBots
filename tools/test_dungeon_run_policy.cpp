@@ -4,6 +4,7 @@
 #include "../runtime/RemoteCommanderPolicy.h"
 
 #include <cstdlib>
+#include <memory>
 #include <iostream>
 
 #define CHECK(x) do { \
@@ -15371,6 +15372,62 @@ static void TestGatingPullsAndBossesAreNeverDeferred()
     CHECK(!may({pull, move, tactic}));
     tactic.tacticEntries = {6, 99};
     CHECK(may({pull, move, tactic}));
+    // The Codex review of 7cfcbff6: a run in progress keeps its old plan (its boss steps joined the old rows) while a
+    // `.bot run reloadplans` swaps the tactic table; the gate reads the live table too (Run::liveTactics, set by the
+    // glue each tick), by JoinBossTactics' rule: the plan's map, the boss and its adds.
+    {
+        DungeonPlan old;
+        old.map = 48;
+        PlanStep later = At(PlanStepKind::Boss, 5000, 0, 0, 30);
+        later.entry = 4887;
+        later.entries = {4888};
+        later.tacticEntries = {77}; // what the plan joined at its load
+        old.steps = {pull, move, later};
+        auto live = [](std::uint32_t map, std::uint32_t boss, std::uint32_t target)
+        {
+            auto table = std::make_shared<ai::BossTacticTable>();
+            ai::BossTacticRow row;
+            row.map = map;
+            row.bossEntry = boss;
+            row.kind = ai::BossTacticKind::KillFirst;
+            row.targetEntry = target;
+            CHECK(table->Add(row));
+            table->Seal();
+            return table;
+        };
+        Run run = Start(&old);
+        CHECK(PullMayBeDeferred(run)); // the old rows name 77, not the pull's 5
+        auto const added = live(48, 4887, 5);  // the reload made 5 a kill_first target of the boss
+        run.liveTactics = added.get();
+        CHECK(!PullMayBeDeferred(run));
+        auto const viaAdd = live(48, 4888, 5); // keyed on the boss step's add
+        run.liveTactics = viaAdd.get();
+        CHECK(!PullMayBeDeferred(run));
+        auto const otherMap = live(47, 4887, 5);
+        run.liveTactics = otherMap.get();
+        CHECK(PullMayBeDeferred(run));
+        DungeonPlan elsewhere = old; // the same steps on map 47: the map-48 rows are not its
+        elsewhere.map = 47;
+        Run e = Start(&elsewhere);
+        e.liveTactics = added.get();
+        CHECK(PullMayBeDeferred(e));
+        e.liveTactics = otherMap.get();
+        CHECK(!PullMayBeDeferred(e));
+        auto const otherTarget = live(48, 4887, 6);
+        run.liveTactics = otherTarget.get();
+        CHECK(PullMayBeDeferred(run));
+        ai::BossTacticTable unsealed;
+        run.liveTactics = &unsealed;
+        CHECK(PullMayBeDeferred(run));
+        // The active run with the added row: the unreachable pull pauses, never deferred.
+        Run k = Start(&old);
+        k.restDue = false;
+        k.liveTactics = added.get();
+        Facts kg = FarPack(0);
+        CapApproach(k, kg, 0);
+        CHECK(!ApproachStandFound(k, kg, false, 0, 0, 0));
+        CHECK(k.state == State::Paused && k.step == 0 && k.deferredPulls.empty());
+    }
     // ... and such a pull pauses as before instead of being deferred.
     {
         PlanStep named = tactic;
