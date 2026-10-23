@@ -15,8 +15,8 @@
 -- walk it UP from the lower floor (1983.1 1800 75.9, 1976.4 1798.4 74.3, 1969.9 1796.5 72.6, 1963.5 1785.6 70.2, 1975.0
 -- 1769.7 67.0, 1983.8 1774.5 60.7), and the mesh path from the lip to those points is one straight line down the ramp's face.
 -- The lip is where the server's path finder gave up. Leg rotthorn's pull group 14 now has four approach points on the ramp the
--- party walked: 1989.7 1801.5 77.78, 1983.1 1800 76.2, 1976.4 1798.4 74.69 and 1970.9 1797.1 73.09 (hops of 10.0, 6.9, 7.1
--- and 5.9 yd; each a complete path no longer than 1.08x its straight line), so the cut into the descent starts on the ramp top
+-- party walked: 1989.7 1801.5 77.78, 1983.1 1800 76.2, 1976.4 1798.4 74.69 and 1970.9 1797.1 73.09 (hops of 9.9, 7.0, 7.1
+-- and 5.9 yd; each a complete path no longer than 1.10x its straight line), so the cut into the descent starts on the ramp top
 -- instead of the lip (the lip corners 1995.7333 1802.1333 and 1994.6665 1802.6666 are gone; from 1970.9 the rows are
 -- 20261023120000's again, renumbered by one). The Ramtusk boss approach of 20261023100000 (leg overlord_ramtusk, pull group
 -- 13's approach 2129.3 1716 80.9) is unchanged: no boss-approach point is off the mesh (the boss at 2203.13 1640.05 85.9 is on
