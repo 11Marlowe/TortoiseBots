@@ -12701,6 +12701,199 @@ static void TestScarletLibraryR20Replay()
     CHECK(walked && q.state == State::Running && q.hold.size() == 1 && q.hold[0] == "Nightcrest");
 }
 
+// Gnomeregan r21-19z40e step 180: the Alarm-a-bomb 2600 (7897, 0xF130001ED90075B6) kept the party in combat,
+// every `attack` on it was refused invalid-target ("The group cannot attack that target."), and "a fight lasted
+// more than 180 s" paused the run four times on that step. Combat with units the group cannot attack only is no
+// fight: no fight timer, no ceiling pause, and the step goes on.
+static constexpr std::uint64_t kBombGuid = 0xF130001ED90075B6ull;
+
+static UnitFact Bomb()
+{
+    UnitFact u = Engaged(Unit(kBombGuid, 7897, 4));
+    u.attackable = false;
+    return u;
+}
+
+static void TestUnattackableOnlyFightIsNoFight()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {6206}), Step(PlanStepKind::Move, 9)};
+    Facts f = Party(0);
+    f.anyInCombat = true;
+    f.leadInCombat = true;
+    f.engagedRead = true;
+    f.engagedUnits = {Bomb()};
+    // A fight already past the ceiling with only the bomb left: no pause, the fight is over.
+    Run r = Start(&plan);
+    CHECK(UnattackableOnlyFight(f) && UnattackableFightLetGo(r, f) && !FightOn(r, f));
+    r.fighting = true;
+    r.fightMs = kFightCapMs + 5000;
+    Tick(r, f);
+    CHECK(r.state == State::Running && !r.fighting);
+    CHECK(r.note.find("lasted more than") == std::string::npos);
+    CHECK(r.note.find("in combat with units the group cannot attack only (entry 7897 (0xF130001ED90075B6) "
+        "cannot be attacked): not counted as a fight") != std::string::npos);
+    // The pull step (nothing to pull) is done and the run walks on with the bomb still on the party: the next
+    // ticks run no fight timer.
+    for (int i = 0; i < 20 && r.step == 0 && r.state == State::Running; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && !r.fighting);
+    for (int i = 0; i < 5; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.phase == Phase::Walk && !r.fighting);
+    // The note is made once per stretch: a later tick does not add it again.
+    CHECK(r.note.find("cannot attack only") == std::string::npos);
+    // One attackable unit with it: a real fight, its timer runs, and the ceiling pause names both units.
+    Run q = Start(&plan);
+    q.fighting = true;
+    q.fightMs = kFightCapMs + 5000;
+    Facts g = f;
+    g.engagedUnits = {Engaged(Unit(0xF13000183E00763Dull, 6206, 3)), Bomb()};
+    CHECK(!UnattackableOnlyFight(g) && FightOn(q, g));
+    Tick(q, g);
+    CHECK(q.state == State::Paused && q.ceilingPaused);
+    CHECK(q.note == "a fight lasted more than 180 s (kept on by entry 6206 (0xF13000183E00763D) attackable, "
+        "entry 7897 (0xF130001ED90075B6) cannot be attacked)");
+    // Facts without the read (a policy test, an old caller): the old rules and the old note.
+    Run o = Start(&plan);
+    o.fighting = true;
+    o.fightMs = kFightCapMs + 5000;
+    Facts h = f;
+    h.engagedRead = false;
+    CHECK(!UnattackableOnlyFight(h) && FightOn(o, h));
+    Tick(o, h);
+    CHECK(o.state == State::Paused && o.note == "a fight lasted more than 180 s");
+    // Read and nothing engaged is the stale flag's (its grace, then its ceiling), not this rule.
+    Facts e = f;
+    e.engagedUnits.clear();
+    e.staleCombat = true;
+    CHECK(!UnattackableOnlyFight(e) && FightOn(o, e));
+    CHECK(EngagedUnitsNote(e) == "nothing hostile engaged");
+    // Out of combat it is nothing at all.
+    Facts c = f;
+    c.anyInCombat = false;
+    CHECK(!UnattackableOnlyFight(c) && !FightOn(o, c));
+    // The note names at most kEngagedNoteMax units, then counts the rest.
+    Facts many = g;
+    many.engagedUnits.clear();
+    for (std::uint64_t i = 0; i < kEngagedNoteMax + 2; ++i)
+        many.engagedUnits.push_back(Engaged(Unit(100 + i, 6206, 3)));
+    CHECK(EngagedUnitsNote(many).find(", 2 more") != std::string::npos);
+    // The ceiling pause's self-resume reads the fight the same way (the glue passes FightOn): only the bomb
+    // left is quiet.
+    CHECK(CeilingFightOverWhilePaused(q, FightOn(q, f), kCeilingQuietMs));
+    CHECK(q.state == State::Running);
+    // A boss step and an event keep the fight: a boss or an event unit may stand unattackable in its own fight
+    // (a phase); its timer runs and its ceiling pauses, naming the unit.
+    DungeonPlan bossPlan;
+    PlanStep boss = Step(PlanStepKind::Boss);
+    boss.entry = 7897;
+    boss.entries = {7897};
+    bossPlan.steps = {boss};
+    Run b = Start(&bossPlan);
+    CHECK(!UnattackableFightLetGo(b, f) && FightOn(b, f));
+    b.fighting = true;
+    b.fightMs = kBossFightCapMs + 5000;
+    Tick(b, f);
+    CHECK(b.state == State::Paused && b.note == "a fight lasted more than 420 s (kept on by entry 7897 "
+        "(0xF130001ED90075B6) cannot be attacked)");
+    DungeonPlan holdPlan;
+    PlanStep hold = Step(PlanStepKind::Hold);
+    hold.radius = 30;
+    holdPlan.steps = {hold};
+    Run ev = Start(&holdPlan);
+    CHECK(InEvent(ev) && !UnattackableFightLetGo(ev, f) && FightOn(ev, f));
+}
+
+// A unit the group cannot attack is never pulled, picked up, engaged, focused or crowd-controlled by the run,
+// and no wait holds the party for it (the guard's wait on a healer's attacker included).
+static void TestUnattackableUnitIsNeverPulledOrPickedUp()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {7897, 6206}), Step(PlanStepKind::Move, 9)};
+    plan.killFirst = {7897};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    UnitFact bomb = Unit(kBombGuid, 7897, 5);
+    bomb.attackable = false;
+    UnitFact mob = Unit(2, 6206, 20);
+    // The pull picks: the far attackable mob, never the near bomb.
+    f.units = {bomb, mob};
+    CHECK(!Pullable(r, bomb) && Pullable(r, mob));
+    CHECK(PickPull(r, f.units, 0) == &f.units[1]);
+    CHECK(PickPull(r, f.units, 7897) == nullptr);
+    CHECK(PickPackPull(r, f) == &f.units[1]);
+    CHECK(OpenUnits(r, f.units) == 1);
+    // Only the bomb left on the pull step: nothing to pull and nothing open, the step is done (no pullback on it).
+    f.units = {bomb};
+    std::string const order = Tick(r, f);
+    CHECK(order.find(std::to_string(kBombGuid)) == std::string::npos);
+    CHECK(OpenUnits(r, f.units) == 0);
+    // A boss step keeps waiting on its boss while it cannot be attacked yet.
+    DungeonPlan bossPlan;
+    PlanStep boss = Step(PlanStepKind::Boss);
+    boss.entry = 7897;
+    boss.entries = {7897};
+    bossPlan.steps = {boss};
+    Run b = Start(&bossPlan);
+    CHECK(OpenUnits(b, f.units) == 1);
+    // In a fight: the guard does not pick up, nor engage on arrival, a healer's attacker it cannot attack.
+    Facts g = Party(0);
+    g.anyInCombat = true;
+    g.leadIsTank = true;
+    g.leadStaying = true;
+    UnitFact onHealer = Hitter(kBombGuid, 7897, 6, true);
+    onHealer.attackable = false;
+    g.partyAttackers = {onHealer};
+    CHECK(GuardPick(g, 0.0f) == nullptr);
+    CHECK(EngageTarget(r, g) == nullptr);
+    g.partyAttackers[0].attackable = true;
+    CHECK(GuardPick(g, 0.0f) == &g.partyAttackers[0]);
+    CHECK(EngageTarget(r, g) == &g.partyAttackers[0]);
+    // ... nor the tank's own mob in melee reach.
+    Facts t = g;
+    t.partyAttackers.clear();
+    t.leadHasAttacker = true;
+    t.leadAttacker = Hitter(kBombGuid, 7897, 2);
+    t.leadAttacker.attackable = false;
+    CHECK(EngageTarget(r, t) == nullptr);
+    // A kill_first unit it cannot attack is never focused (no skull, no `focus`).
+    Run k = Start(&plan);
+    Facts kf = g;
+    kf.partyAttackers.clear();
+    UnitFact focus = Engaged(Unit(kBombGuid, 7897, 6));
+    focus.attackable = false;
+    kf.killFirst = {focus};
+    CHECK(PickKillFirst(k, kf) == nullptr);
+    kf.killFirst[0].attackable = true;
+    CHECK(PickKillFirst(k, kf) == &kf.killFirst[0]);
+    // In a hold the tank on stay is never sent at an awake event unit it cannot attack.
+    DungeonPlan holdPlan;
+    PlanStep hold = Step(PlanStepKind::Hold);
+    hold.radius = 30;
+    holdPlan.steps = {hold};
+    Run hr = Start(&holdPlan);
+    hr.eventOn = true;
+    Facts hf = g;
+    hf.partyAttackers.clear();
+    UnitFact awake = Engaged(Unit(kBombGuid, 7897, 6));
+    awake.attackable = false;
+    hf.units = {awake};
+    CHECK(HoldEngageTarget(hr, hf) == nullptr);
+    hf.units[0].attackable = true;
+    CHECK(HoldEngageTarget(hr, hf) == &hf.units[0]);
+    // Through Tick: a fight with the bomb on the healer (it cannot be attacked) and an attackable mob on the
+    // tank: no order ever names the bomb.
+    Run w = Start(&plan);
+    Facts wf = g;
+    wf.partyAttackers = {onHealer};
+    wf.engagedRead = true;
+    wf.engagedUnits = {Bomb(), Engaged(Unit(2, 6206, 2))};
+    wf.units = {bomb, Engaged(Unit(2, 6206, 2))};
+    for (int i = 0; i < 60 && w.state == State::Running; ++i)
+        CHECK(Tick(w, wf).find(std::to_string(kBombGuid)) == std::string::npos);
+}
+
 int main()
 {
     TestPatrollerOutsideTheRadiusIsWaitedForThenPulled();
@@ -13025,6 +13218,8 @@ int main()
     TestSignBFromTheMainMeshIsBounded();
     TestWalkBackResendBound();
     TestCeilingPauseResumesByItself();
+    TestUnattackableOnlyFightIsNoFight();
+    TestUnattackableUnitIsNeverPulledOrPickedUp();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }
