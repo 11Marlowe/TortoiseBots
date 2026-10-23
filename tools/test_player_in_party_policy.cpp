@@ -114,6 +114,7 @@ static RC::BindFacts InPartyFacts(std::uint32_t players, std::uint32_t otherBots
     f.lead = Bot();
     f.inParty = true;
     f.leadInCommanderParty = true;
+    f.commanderLeadsParty = true;
     f.leadGrouped = true;
     f.partyPlayers = players;
     f.leadGroupHasRealPlayer = players > 1;
@@ -136,6 +137,17 @@ static void TestBindGate()
     away.leadInCommanderParty = false;
     CHECK(RC::CheckBind(away) == RC::BindRefusal::NotInParty);
     CHECK(std::string(RC::BindRefusalCode(RC::BindRefusal::NotInParty)) == "not-in-party");
+    // Bob, a plain member of Alice's party, binds with inparty: refused before anything moves (the glue checks the
+    // gate before ChangeLeader), so Alice keeps the lead.
+    RC::BindFacts bob = InPartyFacts(2, 2);
+    bob.commanderLeadsParty = false;
+    CHECK(RC::CheckBind(bob) == RC::BindRefusal::NotLeader);
+    CHECK(std::string(RC::BindRefusalCode(RC::BindRefusal::NotLeader)) == "not-leader");
+    // A classic bind does not ask it (the commander leaves the party anyway).
+    RC::BindFacts bobClassic = InPartyFacts(1, 2);
+    bobClassic.inParty = false;
+    bobClassic.commanderLeadsParty = false;
+    CHECK(RC::CheckBind(bobClassic) == RC::BindRefusal::None);
     // A raid is still refused; every bot must still be named and the commander's.
     RC::BindFacts raid = InPartyFacts(2, 1);
     raid.leadGroupIsRaidOrBg = true;
@@ -166,6 +178,10 @@ static void TestBindGate()
     std::vector<std::string> only = {"inparty"};
     CHECK(RC::TakeBindInParty(only));
     CHECK(only.empty());
+    // Only as the last argument: anywhere else it stays a name (and the bind finds no such bot).
+    std::vector<std::string> middle = {"Tanky", "inparty", "Healy"};
+    CHECK(!RC::TakeBindInParty(middle));
+    CHECK(middle.size() == 3 && middle[1] == "inparty");
 }
 
 static void TestBindingRelease()
@@ -187,7 +203,30 @@ static void TestBindingRelease()
     CHECK(RC::CheckBinding(classic, state) == RC::ReleaseReason::PlayerJoined);
     RC::Binding inParty = classic;
     inParty.inParty = true;
+    state.commanderInGroup = true;
     CHECK(RC::CheckBinding(inParty, state) == RC::ReleaseReason::None);
+    // The commander leaves the bound group (he left, was kicked): released at once, the bots taken out; a classic
+    // binding has him outside by design.
+    state.commanderInGroup = false;
+    CHECK(RC::CheckBinding(inParty, state) == RC::ReleaseReason::CommanderLeftParty);
+    CHECK(RC::CheckBinding(classic, state) == RC::ReleaseReason::PlayerJoined);
+    // ... a replacement player joining changes nothing: the commander is still not in it.
+    state.memberCount = 5;
+    CHECK(RC::CheckBinding(inParty, state) == RC::ReleaseReason::CommanderLeftParty);
+    // ... he logs out or loses his connection (a logout takes him out of the party too).
+    state.commanderOnline = false;
+    CHECK(RC::CheckBinding(inParty, state) == RC::ReleaseReason::CommanderLeft);
+    state.commanderOnline = true;
+    // ... the group disbands (the lead bot has no group).
+    state.leadGroupId = 0;
+    CHECK(RC::CheckBinding(inParty, state) == RC::ReleaseReason::GroupChanged);
+    state.leadGroupId = 7;
+    state.commanderInGroup = true;
+    // What the release does with the bots: out of the party when he is not in it, else they stay.
+    CHECK(RC::ReleaseTakesBotsOut(true, false));
+    CHECK(!RC::ReleaseTakesBotsOut(true, true));
+    CHECK(!RC::ReleaseTakesBotsOut(false, false)); // a classic binding: as before
+    CHECK(std::string(RC::ReleaseReasonText(RC::ReleaseReason::CommanderLeftParty)) == "the commander left the party");
     // A player taking the lead still ends it, and so does a raid.
     state.leadIsLeader = false;
     CHECK(RC::CheckBinding(inParty, state) == RC::ReleaseReason::LeaderChanged);
@@ -207,20 +246,25 @@ static void TestBindingRelease()
 static void TestOrderClass()
 {
     using V = RC::RunOrderVerdict;
-    // No run: as before.
-    CHECK(RC::ClassifyRunBoundOrder(false, false, true, true) == V::Obey);
-    CHECK(RC::ClassifyRunBoundOrder(false, false, false, true) == V::Obey);
-    CHECK(RC::ClassifyRunBoundOrder(false, false, false, false) == V::Obey);
+    // Not bound: as before.
+    CHECK(RC::ClassifyRunBoundOrder(false, false, false, true, true) == V::Obey);
+    CHECK(RC::ClassifyRunBoundOrder(false, false, false, false, true) == V::Obey);
+    CHECK(RC::ClassifyRunBoundOrder(false, false, false, false, false) == V::Obey);
+    // Bound, no run yet: the commander is obeyed; another player is refused from the bind on.
+    CHECK(RC::ClassifyRunBoundOrder(true, false, false, true, true) == V::Obey);
+    CHECK(RC::ClassifyRunBoundOrder(true, false, false, true, false) == V::Obey);
+    CHECK(RC::ClassifyRunBoundOrder(true, false, false, false, true) == V::Refuse);
+    CHECK(RC::ClassifyRunBoundOrder(true, false, false, false, false) == V::IgnoreChat);
     // The commander's explicit order (`.bot action`, a whisper): the run pauses, as before.
-    CHECK(RC::ClassifyRunBoundOrder(true, true, true, true) == V::PauseRun);
-    CHECK(RC::ClassifyRunBoundOrder(true, false, true, true) == V::PauseRun);
+    CHECK(RC::ClassifyRunBoundOrder(true, true, true, true, true) == V::PauseRun);
+    CHECK(RC::ClassifyRunBoundOrder(true, true, false, true, true) == V::PauseRun);
     // The commander's party chat: chatting, never a pause; taken as an order only while the run is paused.
-    CHECK(RC::ClassifyRunBoundOrder(true, true, true, false) == V::IgnoreChat);
-    CHECK(RC::ClassifyRunBoundOrder(true, false, true, false) == V::Obey);
-    // Another player: an explicit order is refused, chat is chat.
-    CHECK(RC::ClassifyRunBoundOrder(true, true, false, true) == V::Refuse);
-    CHECK(RC::ClassifyRunBoundOrder(true, false, false, true) == V::Refuse);
-    CHECK(RC::ClassifyRunBoundOrder(true, true, false, false) == V::IgnoreChat);
+    CHECK(RC::ClassifyRunBoundOrder(true, true, true, true, false) == V::IgnoreChat);
+    CHECK(RC::ClassifyRunBoundOrder(true, true, false, true, false) == V::Obey);
+    // Another player during a run: an explicit order is refused, chat is chat.
+    CHECK(RC::ClassifyRunBoundOrder(true, true, true, false, true) == V::Refuse);
+    CHECK(RC::ClassifyRunBoundOrder(true, true, false, false, true) == V::Refuse);
+    CHECK(RC::ClassifyRunBoundOrder(true, true, true, false, false) == V::IgnoreChat);
     CHECK(RC::RunBoundRefusalText("Hypeer").find("Hypeer") != std::string::npos);
 }
 
@@ -249,8 +293,8 @@ static void TestPullHoldsForAFarPlayer()
         std::string const far = ps.back().name;
         Facts f = Party(5 - players, ps);
         f.units = {Unit(11, 4851, 38)};
-        // Held well past the step's idle ceiling: no pull, no pause, a plain note naming him.
-        for (int i = 0; i < 400; ++i)
+        // Held past the step's idle ceiling (under the hold's own 5 min): no pull, no pause, a plain note naming him.
+        for (int i = 0; i < 290; ++i)
         {
             std::string const order = Tick(r, f);
             CHECK(order.find("pullback") == std::string::npos);
@@ -320,7 +364,7 @@ static void TestDeadPlayerHoldsEveryStep()
         Facts f = Party(4, {Player("Hypeer", 30, true)});
         f.players[0].alive = false;
         f.players[0].ghost = ghost;
-        for (int i = 0; i < 300; ++i)
+        for (int i = 0; i < 290; ++i)
         {
             std::string const order = Tick(r, f);
             CHECK(order.empty()); // no walk, no `revive party` for a player, no summon
@@ -457,14 +501,29 @@ static void TestRegroupWaitsForPlayers()
     f.players[0].yd = 12;
     Tick(r, f);
     CHECK(!r.regroup);
-    // A dead player is not waited for here (the step's hold takes over): the regroup ends.
+    // A dead player is a dead member: the regroup waits for him (a resurrection, his corpse run), nothing ordered to
+    // him, at most kPlayerHoldCapMs, then a pause naming him.
     Facts g;
     Run d = RegroupedRun(plan, g, {Player("Hypeer", 300, true)});
     g.players[0].alive = false;
     g.players[0].ghost = true;
+    for (std::uint32_t ms = 0; ms + kTickMs < kPlayerHoldCapMs; ms += kTickMs)
+    {
+        CHECK(Tick(d, g).empty());
+        CHECK(d.regroup && d.state == State::Running);
+    }
     Tick(d, g);
-    CHECK(!d.regroup);
-    CHECK(d.state == State::Running);
+    CHECK(d.state == State::Paused);
+    CHECK(d.note.find("Hypeer") != std::string::npos && d.note.find("ghost") != std::string::npos);
+    CHECK(d.note.find("300") != std::string::npos);
+    // ... up and back within 20 yd: the regroup ends.
+    Run e = RegroupedRun(plan, g, {Player("Hypeer", 3, true)});
+    g.players[0].alive = false;
+    Tick(e, g);
+    CHECK(e.regroup);
+    g.players[0].alive = true;
+    Tick(e, g);
+    CHECK(!e.regroup);
 }
 
 // A player far away is never summoned, walked or revived by name, also while bots are summoned.
@@ -553,12 +612,225 @@ static void TestPartyHealth()
     f.players[0].healthPct = 35;
     f.players[1].healthPct = 20;
     f.players[1].alive = false; // a dead one is not resting
-    ApplyPlayerHealth(f);
+    ApplyPlayerFacts(f);
     CHECK(f.minHealthPct == 35);
+    CHECK(!f.anyInCombat);
     Facts none = Party(5, {});
     none.minHealthPct = 80;
-    ApplyPlayerHealth(none);
+    ApplyPlayerFacts(none);
     CHECK(none.minHealthPct == 80);
+}
+
+// One tick as the glue runs it: the players folded into the facts (ApplyPlayerFacts), then Tick.
+static std::string PTick(Run& r, const Facts& in)
+{
+    Facts f = in;
+    ApplyPlayerFacts(f);
+    return Tick(r, f);
+}
+
+// A living player in a fight puts the party in it: no walk, no hold, no regroup while he fights (a dead one does not).
+static void TestPlayerInCombat()
+{
+    Facts f = Party(4, {Player("Hypeer", 30, true)});
+    f.players[0].inCombat = true;
+    ApplyPlayerFacts(f);
+    CHECK(f.anyInCombat);
+    Facts dead = Party(4, {Player("Hypeer", 30, true)});
+    dead.players[0].inCombat = true;
+    dead.players[0].alive = false;
+    ApplyPlayerFacts(dead);
+    CHECK(!dead.anyInCombat);
+    // The hold never fires on a player who fights, even without the fold.
+    Facts raw = Party(3, {Player("Hypeer", 90, true), Player("Baerthe", 5)});
+    raw.players[1].inCombat = true;
+    Run r;
+    CHECK(PlayerHoldNote(r, raw, PullStep(40, {1})).empty());
+
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 50, 0, 0), Step(PlanStepKind::Move, 90, 0, 0)};
+    Run walk = Start(&plan);
+    Facts w = Party(3, {Player("Hypeer", 5, true), Player("Baerthe", 5)});
+    w.players[1].inCombat = true;
+    for (int i = 0; i < 5; ++i)
+        CHECK(PTick(walk, w).find("move") == std::string::npos);
+    w.players[1].inCombat = false;
+    CHECK(PTick(walk, w) == "move 50.0 0.0 0.0");
+}
+
+// Mixed deaths, end to end (the party's dead drive the wipe regroup, review round 1).
+static void TestMixedDeaths()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), PullStep(60, {1})};
+
+    // 1 player + 4 bots: two bots and the player die: three dead, the run regroups by itself once, revives the bots,
+    // waits for the player and goes on; no second regroup while he was down.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(4, {Player("Hypeer", 5, true)});
+        CHECK(PTick(r, f) == "move 40.0 0.0 0.0");
+        f.dead = 2;
+        f.alive = 2;
+        f.deadNames = {"Stabby", "Zappy"};
+        f.members = {Mem("Tanky", 0), Mem("Healy", 3)};
+        f.players[0].alive = false;
+        PTick(r, f);
+        CHECK(r.regroup);
+        CHECK(r.autoRegroups == 1);
+        CHECK(r.note.find("3 dead") != std::string::npos);
+        CHECK(PTick(r, f) == "revive party");
+        f.dead = 0;
+        f.alive = 4;
+        f.deadNames.clear();
+        f.members = {Mem("Tanky", 0), Mem("Healy", 3), Mem("Stabby", 3), Mem("Zappy", 3)};
+        for (int i = 0; i < 30; ++i)
+        {
+            std::string const order = PTick(r, f);
+            CHECK(!Names(order, f.players));
+            CHECK(order.find("revive") == std::string::npos);
+        }
+        CHECK(r.regroup && r.state == State::Running && r.autoRegroups == 1);
+        CHECK(r.note.find("Hypeer") != std::string::npos);
+        f.players[0].alive = true;
+        PTick(r, f);
+        CHECK(!r.regroup);
+        CHECK(r.autoRegroups == 1);
+    }
+
+    // 4 players + 1 bot: the lead bot dies while the players fight: no regroup, no revive until the fight is over.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(1, {Player("Hypeer", 5, true), Player("Baerthe", 5), Player("Daddycool", 5), Player("Sagiroth", 5)});
+        CHECK(PTick(r, f) == "move 40.0 0.0 0.0");
+        f.dead = 1;
+        f.alive = 0;
+        f.leadAlive = false;
+        f.members.clear();
+        f.deadNames = {"Tanky"};
+        for (PlayerFact& p : f.players)
+            p.inCombat = true;
+        for (int i = 0; i < 10; ++i)
+            CHECK(PTick(r, f).find("revive") == std::string::npos);
+        CHECK(!r.regroup);
+        for (PlayerFact& p : f.players)
+            p.inCombat = false;
+        PTick(r, f);
+        CHECK(r.regroup);
+        CHECK(PTick(r, f) == "revive party");
+    }
+
+    // 2 players + 3 bots: one bot and both players dead: three dead, a regroup; a third death during it starts a
+    // new one only when the count grows.
+    {
+        Run r = Start(&plan);
+        Facts f = Party(3, {Player("Hypeer", 5, true), Player("Baerthe", 5)});
+        CHECK(PTick(r, f) == "move 40.0 0.0 0.0");
+        f.dead = 1;
+        f.alive = 2;
+        f.deadNames = {"Stabby"};
+        f.members = {Mem("Tanky", 0), Mem("Healy", 3)};
+        f.players[0].alive = false;
+        f.players[1].alive = false;
+        PTick(r, f);
+        CHECK(r.regroup && r.autoRegroups == 1);
+        CHECK(r.regroupDead < 0 || r.regroupDead == 3);
+        PTick(r, f);
+        CHECK(r.regroupDead == 3);
+        CHECK(r.wipes == 0 && r.nearWipes == 1);
+    }
+}
+
+// Every player hold is bounded: kPlayerHoldCapMs, then a pause naming the player, the reason and the distance.
+static void TestHoldCap()
+{
+    struct Case { const char* what; bool alive; bool ghost; bool onMap; bool online; float yd; const char* word; };
+    Case const cases[] = {
+        {"dead", false, false, true, true, 25, "dead"},
+        {"ghost", false, true, false, true, 1000, "ghost"},
+        {"outside", true, false, false, true, 1000, "not in the instance"},
+        {"offline", true, false, false, false, 1000, "offline"},
+        {"far", true, false, true, true, 75, "75"},
+    };
+    for (const Case& c : cases)
+    {
+        DungeonPlan plan;
+        plan.steps = {PullStep(40, {4851})};
+        Run r = Start(&plan);
+        Facts f = Party(3, {Player("Hypeer", 5, true), Player("Baerthe", c.yd)});
+        PlayerFact& b = f.players[1];
+        b.alive = c.alive;
+        b.ghost = c.ghost;
+        b.onMap = c.onMap;
+        b.online = c.online;
+        f.units = {Unit(11, 4851, 38)};
+        for (std::uint32_t ms = 0; ms + kTickMs < kPlayerHoldCapMs; ms += kTickMs)
+        {
+            CHECK(PTick(r, f).empty());
+            CHECK(r.state == State::Running);
+        }
+        PTick(r, f);
+        CHECK(r.state == State::Paused);
+        CHECK(r.note.find("Baerthe") != std::string::npos);
+        CHECK(r.note.find(c.word) != std::string::npos);
+        CHECK(r.note.find("5 min") != std::string::npos);
+    }
+    // The clock starts over once the player is back.
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4851})};
+    Run r = Start(&plan);
+    Facts f = Party(4, {Player("Hypeer", 75, true)});
+    f.units = {Unit(11, 4851, 38)};
+    for (int i = 0; i < 200; ++i)
+        PTick(r, f);
+    CHECK(r.playerHoldMs >= 199000);
+    f.players[0].yd = 10;
+    CHECK(PTick(r, f) == "pullback 11");
+    CHECK(r.playerHoldMs == 0);
+}
+
+// The loot step's "a player carries it" end only when no later step needs a bot to hold that item.
+static void TestLootItemNeededLater()
+{
+    PlanStep loot = Step(PlanStepKind::Loot, 10, 0, 0);
+    loot.entry = 7228;
+    loot.item = 7741;
+    PlanStep open = Step(PlanStepKind::Open, 30, 0, 0);
+    open.entry = 124367;
+    open.item = 7741;
+    DungeonPlan plan;
+    plan.steps = {loot, Step(PlanStepKind::Move, 20), open};
+    Run r = Start(&plan);
+    CHECK(LaterStepNeedsItem(r, 7741));
+    CHECK(!LaterStepNeedsItem(r, 1234));
+    Facts f = Party(3, {Player("Hypeer", 3, true), Player("Baerthe", 5)});
+    f.itemPlayer = "Baerthe";
+    std::string const order = Tick(r, f);
+    CHECK(r.step == 0); // not ended: the bots go on as before
+    CHECK(order.compare(0, 5, "loot ") == 0);
+    // use_item names the item in its entry, any task step in its param.
+    PlanStep use = Step(PlanStepKind::UseItem, 30, 0, 0);
+    use.entry = 7741;
+    DungeonPlan p2;
+    p2.steps = {loot, use};
+    CHECK(LaterStepNeedsItem(Start(&p2), 7741));
+    PlanStep useOn = Step(PlanStepKind::UseOn, 30, 0, 0);
+    useOn.param = 7741;
+    DungeonPlan p3;
+    p3.steps = {loot, useOn};
+    CHECK(LaterStepNeedsItem(Start(&p3), 7741));
+    // An earlier step does not count.
+    DungeonPlan p4;
+    p4.steps = {open, loot};
+    Run late = Start(&p4, 1);
+    CHECK(!LaterStepNeedsItem(late, 7741));
+    // The give-up pause tells him to hand it over.
+    Run given = Start(&plan);
+    given.lootRefusal = "refused";
+    Facts g = Party(4, {Player("Hypeer", 3, true)});
+    g.itemPlayer = "Hypeer";
+    LootGivenUp(given, g, loot);
+    CHECK(given.note.find("trade it to Tanky") != std::string::npos);
 }
 
 int main()
@@ -576,6 +848,10 @@ int main()
     TestNoOrderNamesAPlayer();
     TestLoot();
     TestPartyHealth();
+    TestPlayerInCombat();
+    TestMixedDeaths();
+    TestHoldCap();
+    TestLootItemNeededLater();
     std::cout << "test_player_in_party_policy: all checks passed\n";
     return 0;
 }

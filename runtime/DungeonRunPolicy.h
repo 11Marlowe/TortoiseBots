@@ -81,6 +81,7 @@ constexpr std::uint32_t kWipeDead = 3;            // this many dead bots stop th
 // Real players in the bound party (2026-10-23, `.bot commander bind ... inparty`; Facts::players):
 constexpr float kPlayerPullYd = 60.0f;              // no pull or boss while a player is farther than this from the lead bot
 constexpr std::uint32_t kPlayerGatherWaitMs = 60000; // a regroup waits this long for a living player to come within kGatherYd
+constexpr std::uint32_t kPlayerHoldCapMs = 300000;   // a step held (or a regroup waiting) for a player this long pauses
 constexpr std::uint32_t kAutoRegroupsPerStep = 2; // regroups the run does by itself per step, then it pauses
 constexpr std::uint32_t kGatherTries = 2;         // a gather refused this often: the run goes on without it
 constexpr std::uint32_t kWalkBackRetries = 3;     // a walk-back point refused for a passing reason is sent again this often
@@ -635,6 +636,8 @@ struct PlayerFact
     bool alive = true;           // not dead (a body or a ghost)
     bool ghost = false;          // ... released: a ghost on its way back
     bool onMap = true;           // in the world on the plan's map (in the instance)
+    bool online = true;          // ... logged in (a member who logged out stays in the group's slots: onMap false)
+    bool inCombat = false;       // a living player in a fight: the party is in it too (ApplyPlayerFacts)
     float yd = 0.0f;             // from the lead bot (1000 off its map)
     std::uint32_t healthPct = 100;
 };
@@ -902,6 +905,7 @@ struct Run
     std::uint32_t phaseMs = 0;
     std::uint32_t stepIdleMs = 0;
     std::uint32_t playerGatherMs = 0; // a regroup's wait for a living player (RegroupPlayerWait)
+    std::uint32_t playerHoldMs = 0;   // a hold for a player (PlayerHoldNote) or a regroup's wait for a dead one, kPlayerHoldCapMs
     bool restDue = true;     // check the rest lines before the step
     int regroupDead = -1;    // the dead when the regroup was first read (-1 not yet): more than that is a new wipe
     std::uint32_t eatWaitMs = 0; // meal wait used since the last fight (kRestCapMs per fight: it cannot loop)
@@ -2731,6 +2735,7 @@ inline void BeginRegroup(Run& r)
     r.anchorKnown = false; // the party comes back to life elsewhere
     r.regroup = true;
     r.playerGatherMs = 0;
+    r.playerHoldMs = 0;
     r.reviveSent = false;
     r.regroupGatherSent = false;
     r.RestartRegroupClock();
@@ -7566,6 +7571,23 @@ inline void RetireOrder(Run& r)
     r.note = "the bot of the order left the party, died or is off the map: the order goes out again";
 }
 
+// A later step of the plan needs a bot to carry this item (open and use_on take `item`, use_item its `entry`, any
+// of them `param`): a player's copy of it is no use to the carrier.
+inline bool LaterStepNeedsItem(const Run& r, std::uint32_t item)
+{
+    if (!r.plan || !item)
+        return false;
+    for (std::size_t i = r.step + 1; i < r.plan->steps.size(); ++i)
+    {
+        const PlanStep& s = r.plan->steps[i];
+        bool const usesItem = s.kind == PlanStepKind::Open || s.kind == PlanStepKind::UseOn;
+        if ((usesItem && s.item == item) || (s.kind == PlanStepKind::UseItem && s.entry == item) ||
+            ((usesItem || s.kind == PlanStepKind::UseItem) && s.param == item))
+            return true;
+    }
+    return false;
+}
+
 // loot: the next bot to try after a refusal on the loot rules: the one whose
 // round-robin turn the corpse is (f.lootTurn), then each living party bot not
 // tried yet. Never a bot off the lead bot's map (MemberFact::yd 1000). "" for none.
@@ -7594,6 +7616,10 @@ inline void LootGivenUp(Run& r, const Facts& f, const PlanStep& s)
             (s.item ? "item " + std::to_string(s.item) : std::string("the loot")) + ", then .bot run resume (" + text + ")";
     else if (s.item && f.corpseChecked && !f.corpseHasItem)
         text = "loot: item " + std::to_string(s.item) + " not on corpse and not in any bag (" + text + ")";
+    // A player took the item a later step needs on a bot: he hands it over.
+    if (s.item && !f.itemPlayer.empty())
+        text += "; " + f.itemPlayer + " carries item " + std::to_string(s.item) + ": trade it to " + f.carrier +
+            ", then .bot run resume";
     else if (r.lootRights && r.lootTried.size() > 1)
     {
         text += " (tried";
@@ -7789,7 +7815,7 @@ inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& ord
             return;
         }
         // ... or a player of the party took it (his round-robin turn, his quest item).
-        if (s.kind == PlanStepKind::Loot && s.item && !f.itemPlayer.empty())
+        if (s.kind == PlanStepKind::Loot && s.item && !f.itemPlayer.empty() && !LaterStepNeedsItem(r, s.item))
         {
             NextStep(r, kind + ": " + f.itemPlayer + " (a player) carries item " + std::to_string(s.item));
             return;
@@ -9839,13 +9865,20 @@ inline bool PartyAllDead(const Facts& f)
     return true;
 }
 
-// The party's health for the rest gate counts the living players (their mana does not: a player drinks on his own).
-inline void ApplyPlayerHealth(Facts& f)
+// The players as party members in the facts the run judges (the glue calls it after reading them): a living player's
+// health counts for the rest gate (his mana does not: a player drinks on his own), and a living player in a fight
+// puts the party in it (no walk, gather, regroup or revive while he fights; review round 1).
+inline void ApplyPlayerFacts(Facts& f)
 {
     for (const PlayerFact& p : f.players)
         if (p.alive)
+        {
             f.minHealthPct = std::min(f.minHealthPct, p.healthPct);
+            if (p.inCombat)
+                f.anyInCombat = true;
+        }
 }
+
 
 // Why the run holds the step for a real player, or "" (2026-10-23). Out of combat, outside an event, before an order
 // of the step goes out (Begin, Gather, Walk; never mid-pull, mid-task, in a rest or a wait):
@@ -9858,16 +9891,23 @@ inline std::string PlayerHoldNote(const Run& r, const Facts& f, const PlanStep& 
 {
     if (f.players.empty() || f.anyInCombat || InEvent(r))
         return std::string();
+    for (const PlayerFact& p : f.players)
+        if (p.alive && p.inCombat)
+            return std::string();
     if (r.phase != Phase::Begin && r.phase != Phase::Gather && r.phase != Phase::Walk)
         return std::string();
     for (const PlayerFact& p : f.players)
-        if (!p.alive)
-            return "holding: " + p.name + (p.ghost ? " is a ghost: back to the body (or a resurrection) first"
-                                                   : " is dead: a resurrection in the party or a release first");
+        if (!p.alive && p.online)
+            return "holding: " + p.name + (p.ghost ? " is a ghost" : " is dead") + " (" +
+                (p.onMap ? Num(p.yd) + " yd from the lead bot" : std::string("not in the instance")) + "): " +
+                (p.ghost ? "back to the body (or a resurrection) first" : "a resurrection in the party or a release first");
     // A walk whose next point has hostiles near it pulls them first (Facts::hopUnits): that is a pull too.
     bool const hopPull = (s.kind == PlanStepKind::Move || s.kind == PlanStepKind::MoveDirect) && !f.hopUnits.empty();
     if (s.kind != PlanStepKind::Pull && s.kind != PlanStepKind::Boss && !hopPull)
         return std::string();
+    for (const PlayerFact& p : f.players)
+        if (!p.online)
+            return "holding the pull: " + p.name + " is offline";
     for (const PlayerFact& p : f.players)
         if (!p.onMap)
             return "holding the pull: " + p.name + " is not in the instance";
@@ -9883,6 +9923,25 @@ inline std::string PlayerHoldNote(const Run& r, const Facts& f, const PlanStep& 
 // player is not waited for here (PlayerHoldNote holds the steps for him). True when the tick is spent.
 inline bool RegroupPlayerWait(Run& r, const Facts& f, std::uint32_t dt)
 {
+    // A dead player is a dead member: the regroup waits for him to be up (a resurrection in the party, or his own
+    // release and run back), at most kPlayerHoldCapMs, then pauses. Nothing is ordered to him.
+    for (const PlayerFact& p : f.players)
+        if (!p.alive && p.online)
+        {
+            r.playerHoldMs += dt;
+            std::string const why = p.name + (p.ghost ? " (a ghost, " : " (dead, ") +
+                (p.onMap ? Num(p.yd) + " yd from the lead bot)" : std::string("not in the instance)"));
+            if (r.playerHoldMs >= kPlayerHoldCapMs)
+            {
+                r.playerHoldMs = 0;
+                Pause(r, "regroup: waited " + std::to_string(kPlayerHoldCapMs / 60000) + " min for " + why +
+                    ": a resurrection or a corpse run, then .bot run resume");
+                return true;
+            }
+            r.note = "regroup: waiting for " + why + ": a resurrection in the party or a release first";
+            return true;
+        }
+    r.playerHoldMs = 0;
     const PlayerFact* far = nullptr;
     for (const PlayerFact& p : f.players)
         if (p.alive && p.onMap && p.yd > kGatherYd && (!far || p.yd > far->yd))
@@ -10068,10 +10127,11 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     // A fight during the regroup (a pack met on the corpse run) is fought
     // first: the combat block below bounds it, and the regroup goes on after.
     // Deaths in it that make a wipe hand over to the regroup by itself.
+    // The party's dead (bots and players) count (review round 1); a fight a living player is in is a fight.
     if (r.regroup && r.regroupDead < 0)
-        r.regroupDead = static_cast<int>(f.dead);
-    if (r.regroup && !f.anyInCombat && (f.dead >= kWipeDead || allDead) &&
-        static_cast<int>(f.dead) > r.regroupDead)
+        r.regroupDead = static_cast<int>(partyDead);
+    if (r.regroup && !f.anyInCombat && (partyDead >= kWipeDead || allDead) &&
+        static_cast<int>(partyDead) > r.regroupDead)
         r.regroup = false;
     if (r.regroup && !runBackWait && !f.anyInCombat)
     {
@@ -10264,11 +10324,13 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     // A wipe or kWipeDead dead: once the fight is over the run regroups by
     // itself (revive, gather, walk back), kAutoRegroupsPerStep times a step;
     // then it pauses for a regroup by hand.
-    bool const wipe = f.dead >= kWipeDead || allDead;
+    // The party's dead, the players counted: three of them (or every bot) are a wipe the run regroups after. The
+    // regroup waits for a dead player too (RegroupPlayerWait), so it is not started over while he is down.
+    bool const wipe = partyDead >= kWipeDead || allDead;
     bool const autoRegroup = wipe && r.autoRegroups < kAutoRegroupsPerStep;
     if (wipe && !autoRegroup)
     {
-        Pause(r, std::to_string(f.dead) + " dead: regroup (cmd revive party), then .bot run resume (" +
+        Pause(r, std::to_string(partyDead) + " dead: regroup (cmd revive party), then .bot run resume (" +
             std::to_string(kAutoRegroupsPerStep) + " regroups by itself at this step did not hold)");
         return order;
     }
@@ -10287,7 +10349,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         // at the fight spot once it is up away from there (r20-19z39 slot 7:
         // the hunter left the Library after the lead bot's corpse run).
         r.holdDue = deathSpotKnown;
-        r.note = std::to_string(f.dead) + " dead (" + WipeCounts(r) + " this run): regrouping by itself (" +
+        r.note = std::to_string(partyDead) + " dead (" + WipeCounts(r) + " this run): regrouping by itself (" +
             std::to_string(r.autoRegroups) + " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)" +
             (rearmed == static_cast<std::size_t>(-1) ? std::string()
                                                      : "; the event starts again at step " +
@@ -10699,9 +10761,19 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         {
             if (r.phase != Phase::Begin)
                 EnterPhase(r, Phase::Begin);
+            // Bounded (review round 1): kPlayerHoldCapMs of one hold, then a pause with its reason.
+            r.playerHoldMs += dt;
+            if (r.playerHoldMs >= kPlayerHoldCapMs)
+            {
+                r.playerHoldMs = 0;
+                Pause(r, "waited " + std::to_string(kPlayerHoldCapMs / 60000) + " min: " + playerHold +
+                    "; .bot run resume once the party is together");
+                return order;
+            }
             r.note = playerHold;
             return order;
         }
+        r.playerHoldMs = 0;
     }
 
     if (WalkBack(r, f, dt, order))
