@@ -5687,11 +5687,13 @@ struct StandHostile
 // The longest path such a walk takes: the glue's hostile scan around the bot reaches this far plus kHopPullYd, so
 // a longer path could pass a hostile it never saw (Codex review of 6c8297ec).
 constexpr float kBotWalkMaxPathYd = 120.0f;
-// The part of such a path within this far of its start (the bot's own spot) is left out of the pack and hostile
-// checks: the bot stands there already, and walking away from it is no pull (Opus review of 95f66dd8 and 6c8297ec:
-// a rogue whose Sap failed stands at its target, a member of the current pull's pack, and every walk back from
-// there was refused, so the rogue stayed on its own follow, the r26 bug). The rest of the path keeps both checks.
-constexpr float kBotWalkStartFreeYd = 20.0f;
+// A hostile or a pack that is already within its threshold of the bot at the path's start (the bot stands there:
+// a rogue whose Sap failed stands at its target, inside the current pull's pack; Opus review of 95f66dd8 and
+// 6c8297ec, the r26 bug) is exempt from the path's checks only while the path moves away from it: refused once a
+// point within its threshold comes nearer to it than an earlier point did (by more than kBotWalkAwayEpsYd). Every
+// other hostile and pack is checked on the whole path (Codex review of 5a146681: a blanket 20 yd at the start let
+// the walk cross a hostile that began 16-20 yd away, or another pack inside it).
+constexpr float kBotWalkAwayEpsYd = 0.05f;
 constexpr float kBotWalkSampleYd = 0.5f; // the path is checked at points this far apart (and at every corner)
 
 inline std::string BotWalkRefusal(const std::vector<PathPoint>& path, float straightYd, float pathYd,
@@ -5704,15 +5706,8 @@ inline std::string BotWalkRefusal(const std::vector<PathPoint>& path, float stra
         return "detour: the path is " + Num(pathYd) + " yd for " + Num(straightYd) + " yd in a straight line";
     if (path.empty())
         return std::string();
-    // The points of the path farther than kBotWalkStartFreeYd from its start, kBotWalkSampleYd apart.
-    PathPoint const start = path.front();
-    std::vector<PathPoint> checked;
-    auto keep = [&](const PathPoint& q)
-    {
-        if (ai::PlanDistance(q.x, q.y, q.z, start.x, start.y, start.z) > kBotWalkStartFreeYd)
-            checked.push_back(q);
-    };
-    keep(start);
+    // The path's points, kBotWalkSampleYd apart (every corner too), from its start.
+    std::vector<PathPoint> pts = {path.front()};
     for (std::size_t k = 1; k < path.size(); ++k)
     {
         const PathPoint& a = path[k - 1];
@@ -5722,16 +5717,38 @@ inline std::string BotWalkRefusal(const std::vector<PathPoint>& path, float stra
         for (int i = 1; i <= n; ++i)
         {
             float const t = static_cast<float>(i) / static_cast<float>(n);
-            keep(PathPoint{a.x + t * (b.x - a.x), a.y + t * (b.y - a.y), a.z + t * (b.z - a.z)});
+            pts.push_back(PathPoint{a.x + t * (b.x - a.x), a.y + t * (b.y - a.y), a.z + t * (b.z - a.z)});
         }
     }
-    for (const PathPoint& q : checked)
-        if (plan && PathCrossesUnclearedPack(*plan, from, std::vector<PathPoint>{q}, team, notCleared))
-            return "pack: the path passes a pack not cleared yet";
+    // Whether the path comes within `reach` of (cx cy cz): from a start already within it, only by a point within
+    // it that is nearer than an earlier one (it turns back toward it).
+    auto passes = [&](float cx, float cy, float cz, float reach) -> bool
+    {
+        bool const startNear = ai::PlanDistance(pts[0].x, pts[0].y, pts[0].z, cx, cy, cz) <= reach;
+        float farthest = 0.0f;
+        for (const PathPoint& q : pts)
+        {
+            float const d = ai::PlanDistance(q.x, q.y, q.z, cx, cy, cz);
+            if (d <= reach && (!startNear || d < farthest - kBotWalkAwayEpsYd))
+                return true;
+            farthest = d > farthest ? d : farthest;
+        }
+        return false;
+    };
+    if (plan)
+        for (std::size_t i = 0; i < plan->steps.size(); ++i)
+        {
+            if (i < from && !notCleared.count(i))
+                continue; // cleared before (as PathCrossesUnclearedPack)
+            const PlanStep& g = plan->steps[i];
+            if ((g.kind != PlanStepKind::Pull && g.kind != PlanStepKind::Boss) || !ai::StepForTeam(g, team))
+                continue;
+            if (passes(g.x, g.y, g.z, g.radius + kPackClearanceYd))
+                return "pack: the path passes a pack not cleared yet";
+        }
     for (const StandHostile& h : hostiles)
-        for (const PathPoint& q : checked)
-            if (ai::PlanDistance(q.x, q.y, q.z, h.x, h.y, h.z) <= kHopPullYd)
-                return "hostile: the path passes within " + Num(kHopPullYd) + " yd of " + std::to_string(h.entry);
+        if (passes(h.x, h.y, h.z, kHopPullYd))
+            return "hostile: the path passes within " + Num(kHopPullYd) + " yd of " + std::to_string(h.entry);
     return std::string();
 }
 

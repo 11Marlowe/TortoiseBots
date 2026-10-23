@@ -15385,8 +15385,9 @@ static void TestWalkerVerdict()
 
 // Opus review of 95f66dd8 + 6c8297ec (1): the rogue whose Sap failed stands at its target, inside the current
 // pull's pack and beside a living hostile out of combat; the walk back from there was refused by the pack and the
-// hostile checks, so it stayed on its own follow (the r26 bug). The path's first kBotWalkStartFreeYd from the bot's
-// own spot are left out of both checks; a pack or a hostile further along still refuses it.
+// hostile checks, so it stayed on its own follow (the r26 bug). A pack or hostile already within its threshold at
+// the bot's own spot is exempt while the path moves away from it (Codex review of 5a146681: no blanket 20 yd); any
+// other pack or hostile, and the exempt one once the path turns back toward it, still refuses it.
 static void TestBotWalkLeavesTheStartOutOfThePackChecks()
 {
     DungeonPlan plan;
@@ -15394,7 +15395,7 @@ static void TestBotWalkLeavesTheStartOutOfThePackChecks()
     plan.steps[0].radius = 8; // reach 18 yd around (0 0 0), where the rogue stands
     std::unordered_set<std::size_t> none;
     StandHostile target;
-    target.x = 1.0f; // the Sap target beside the rogue
+    target.x = -1.0f; // the Sap target beside the rogue, behind it as it walks back
     target.entry = 3855;
     std::vector<PathPoint> back = {{0, 0, 0}, {30, 0, 0}, {36, 2, 10}};
     CHECK(BotWalkRefusal(back, 37.0f, 37.0f, &plan, 0, 0, none, {target}).empty());
@@ -15414,6 +15415,37 @@ static void TestBotWalkLeavesTheStartOutOfThePackChecks()
     std::vector<PathPoint> shortWay = {{0, 0, 0}, {12, 0, 0}};
     CHECK(BotWalkRefusal(shortWay, 12.0f, 12.0f, &plan, 0, 0, none, {target}).empty());
     // A path that comes back into its start's 20 yd after leaving it: that part is left out too.
+    // Codex review of 5a146681: a hostile 16-20 yd from the start that the walk crosses within 15 yd: refused.
+    for (float x : {16.0f, 18.0f, 20.0f})
+    {
+        StandHostile ahead;
+        ahead.x = x;
+        ahead.y = 3.0f;
+        ahead.entry = 3854;
+        CHECK(BotWalkRefusal(back, 37.0f, 37.0f, &plan, 0, 0, none, {target, ahead}) ==
+            "hostile: the path passes within 15.0 yd of 3854");
+    }
+    // ... and another pack not cleared yet crossed before the path is 20 yd from its start: refused.
+    DungeonPlan near = plan;
+    near.steps[1].x = 15.0f;
+    near.steps[1].radius = 0; // reach 10 yd, 15 yd from the start
+    CHECK(BotWalkRefusal(back, 37.0f, 37.0f, &near, 0, 0, none, {target}).compare(0, 5, "pack:") == 0);
+    // A path that first moves away from its own (exempt) pack and target, then turns back toward them: refused.
+    std::vector<PathPoint> turn = {{0, 0, 0}, {10, 0, 0}, {2, 0, 0}};
+    CHECK(BotWalkRefusal(turn, 2.0f, 18.0f, &plan, 0, 0, none, {}).compare(0, 5, "pack:") == 0);
+    CHECK(BotWalkRefusal(turn, 2.0f, 18.0f, nullptr, 0, 0, none, {target}).compare(0, 8, "hostile:") == 0);
+    // The exemption is for a unit within its threshold at the start only: one just past it (15.02 yd) that the
+    // path dips within 15 yd of, however slightly, is refused.
+    std::vector<PathPoint> dip = {{0, 0, 0}, {0, 0.03f, 0}, {20, 0.03f, 0}};
+    StandHostile edge;
+    edge.y = 15.02f;
+    edge.entry = 7;
+    CHECK(BotWalkRefusal(dip, 20.0f, 20.03f, nullptr, 0, 0, none, {edge}).compare(0, 8, "hostile:") == 0);
+    edge.y = 14.98f; // within it at the start: exempt, and a 0.03 yd dip is within the kBotWalkAwayEpsYd slack
+    CHECK(BotWalkRefusal(dip, 20.0f, 20.03f, nullptr, 0, 0, none, {edge}).empty());
+    // Moving away and then on past it, never nearer: accepted (a sideways step keeps the distance).
+    std::vector<PathPoint> side = {{0, 0, 0}, {0, 20, 0}, {0, 40, 0}};
+    CHECK(BotWalkRefusal(side, 40.0f, 40.0f, &plan, 0, 0, none, {}).empty());
     std::vector<PathPoint> loop = {{0, 0, 0}, {25, 0, 0}, {5, 0, 0}};
     StandHostile far;
     far.x = 25.0f;
