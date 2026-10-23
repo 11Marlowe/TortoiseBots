@@ -51,10 +51,16 @@ command and the reply carries `"id":"<id>"`. Guids are hex strings
 | `.tt q group` | the caller's group: map, position, hp, combat, height above the floor under each |
 | `.tt q inst` | map/instance, players; `saved` = last saved instance data string (unsafe methods) |
 | `.tt q link <0xGUID>` or `db=<n>` | creature_linking master and members, live state of each (unsafe methods) |
-| `.tt quiet <r> [x y z] [w=<s>]` | the owner's quiet rule: no hostile alive within r (2D) now and after w s (default 20, max 60), and no hostile within 80 yd that moved or arrived; two replies, `read` 1 then 2 (`final`, `quiet`) |
-| `.tt clearto <map> <x> <y> <z> <r> [kill] [boss]` | despawn (default) or kill hostile creatures within r of the point; bosses (rank 3/world boss) skipped unless `boss`, pets/guardians always skipped, max 60 |
+| `.tt quiet <r> [x y z] [w=<s>] [dz=<yd>] [skip=<e,e>]` | the owner's quiet rule: no hostile alive within r (2D) now and after w s (default 20, max 60), and no hostile within 80 yd that moved or arrived; two replies, `read` 1 then 2 (`final`, `quiet`). Units more than `dz` yd above/below the point (default 8; `dz=0` = no limit, the old 2D rule) and units whose entry is in `skip=` (e.g. `skip=3849`, Shadowfang's Deathstalker Adamant) never count |
+| `.tt clearto <map> <x> <y> <z> <r> [kill] [boss] [dz=<yd>] [skip=<e,e>] [all=1] [of=<name>]` | despawn (default) or kill hostile creatures within r of the point; bosses (rank 3/world boss) skipped unless `boss`, pets/guardians always skipped, max 60. Same `dz` window (default 8) and `skip=` list as `quiet`. **Friendly NPCs are never touched unless `all=1`**: friendliness is judged from a non-GM member of the caller's group (or of `of=<name>`'s group, which a commander needs), so without such a member on the map it refuses `no_reference`. Skipped units come back in `skipped[]` with `why` = `friendly`/`dz`/`skip`/`boss`/`owned`/`cap` |
 | `.tt place here` / `.tt place <x> <y> <z> [spread=<yd>] [force] [me]` | move every group member on the caller's map onto the floor at the point in one burst (ring of `spread` yd, default 3), facing the centre; refuses members in combat (unless `force`), a floor that does not match z, a caller under the floor; second reply `read` 2 after 4 s with where each landed (`placed` true when all are within 2 yd of z and 5 yd of the spot) |
 | `.tt reset <mapId>` | `UnbindInstance(mapId)` for the caller and online group members; refused while any of them is inside; group binds are NOT reachable from Eluna |
+
+### Tests
+
+`sh check.sh` runs `luac -p`, luacheck and `tests/mock_window_test.lua` (plain Lua with fake
+players and creatures: dz window, skip filter, the friendly rule and its refusals). It does not
+need a server; a live check is still the final proof.
 
 ### Limits worth knowing
 

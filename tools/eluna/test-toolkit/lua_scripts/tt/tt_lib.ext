@@ -40,6 +40,7 @@ TT.CFG = {
     place_max_drop   = 8,     -- caller z minus the floor under it (here mode)
     place_spread     = 3,     -- default ring radius for the members
     place_verify_ms  = 4000,  -- second (verify) reply after a place
+    default_dz       = 8,     -- quiet/clearto vertical window (yd) when dz= is absent; 0 = none
     quiet_wait_max_s = 60,    -- quiet second read cap
     quiet_roam_r     = 80,    -- roamer check radius (owner's quiet rule)
     quiet_roam_moved = 2.0,   -- moved more than this between reads = roamer
@@ -450,6 +451,20 @@ function TT.creaturesAt(center, x, y, z, r, hostile, dead, entry)
         if d <= r and not (gmAll and c:GetOwner()) then out[#out + 1] = { c = c, d = d } end
     end
     table.sort(out, function(a, b) return a.d < b.d end)
+    return out
+end
+
+-- Keep entries of a creaturesAt list that are within dz yd of z (dz <= 0: no limit)
+-- and whose entry is not in the skip set.
+function TT.windowFilter(list, z, dz, skip)
+    if (not dz or dz <= 0) and (not skip or next(skip) == nil) then return list end
+    local out = {}
+    for i = 1, #list do
+        local c = list[i].c
+        if not (skip and skip[c:GetEntry()]) and not (dz and dz > 0 and math.abs(c:GetZ() - z) > dz) then
+            out[#out + 1] = list[i]
+        end
+    end
     return out
 end
 

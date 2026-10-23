@@ -22,8 +22,14 @@ Commands (rank >= TT.CFG.min_gm_rank; anything else is refused):
   .tt q inst                                map/instance; saved instance data*
   .tt q link <0xGUID>                       creature_linking group*  (*needs
                                             Eluna.UseUnsafeMethods = 1)
-  .tt quiet <r> [x y z] [w=<s>]             owner's quiet rule, 2 reads w s apart
-  .tt clearto <map> <x> <y> <z> <r> [kill] [boss]
+  .tt quiet <r> [x y z] [w=<s>] [dz=<yd>] [skip=<e,e>]
+                                           owner's quiet rule, 2 reads w s apart; units more
+                                           than dz (default 8, 0 = no limit) above/below the
+                                           point and entries in skip do not count
+  .tt clearto <map> <x> <y> <z> <r> [kill] [boss] [dz=<yd>] [skip=<e,e>] [all=1] [of=<name>]
+                                           same dz/skip window; friendly NPCs are never
+                                           touched unless all=1 (judged from a non-GM member
+                                           of the caller's group, or of=<name>'s group)
   .tt place here|<x y z> [spread=<yd>] [force] [me]
   .tt reset [mapId]
 Add `#<id>` anywhere to get it echoed back ("id") for request matching.
@@ -401,14 +407,30 @@ function Q.link(player, req)
     return okReply(player, req, t)
 end
 
+-- dz=<yd> (default CFG.default_dz = 8; 0 = no vertical limit, the old 2D rule) and
+-- skip=<entry,entry,...>: shared by quiet and clearto.
+local function windowOf(req)
+    local dz = num(req.kv.dz)
+    if dz == nil then dz = CFG.default_dz end
+    if dz < 0 then dz = -dz end
+    local skip, skiplist = {}, {}
+    for _, e in ipairs(idList(req.kv.skip)) do
+        skip[e] = true
+        skiplist[#skiplist + 1] = e
+    end
+    return { dz = dz, skip = skip, skiplist = skiplist }
+end
+
 -- ---------------------------------------------------------------------------
 -- quiet: the owner's quiet rule (TARGETED-TEST-METHOD.md step 3b)
---   no hostile alive within r (2D, any height), and no hostile within
+--   no hostile alive within r (2D, within dz yd of the point's height; dz=0: any height;
+--   entries in skip= never count), and no hostile within
 --   TT.CFG.quiet_roam_r that moved between two reads w s apart.
 -- ---------------------------------------------------------------------------
-local function quietRead(player, x, y, z, r)
+-- window = { dz = <yd or 0>, skip = { [entry] = true } } (see windowOf)
+local function quietRead(player, x, y, z, r, window)
     local scope = math.max(r, CFG.quiet_roam_r)
-    local list = TT.creaturesAt(player, x, y, z, scope, 1, 1)
+    local list = TT.windowFilter(TT.creaturesAt(player, x, y, z, scope, 1, 1), z, window.dz, window.skip)
     local near, seen = {}, {}
     for i = 1, #list do
         local c, d = list[i].c, list[i].d
@@ -425,13 +447,15 @@ local function cmdQuiet(player, req)
     if not x then x, y, z = player:GetX(), player:GetY(), player:GetZ() end
     local ok, msg = checkPoint(player, x, y)
     if not ok then return fail(player, req, "point_far", msg) end
+    local window = windowOf(req)
     local w = num(req.kv.w) or 20
     if w < 0 then w = 0 end
     if w > CFG.quiet_wait_max_s then w = CFG.quiet_wait_max_s end
-    local near1, seen1, scopeN = quietRead(player, x, y, z, r)
+    local near1, seen1, scopeN = quietRead(player, x, y, z, r, window)
     local mapId, inst = player:GetMapId(), player:GetInstanceId()
     local t = { map = mapId, inst = inst, at = { TT.round(x), TT.round(y), TT.round(z) }, r = r,
-        read = 1, final = (w == 0), quiet_now = (#near1 == 0), n_near = #near1, n_scope = scopeN, near = near1 }
+        read = 1, final = (w == 0), quiet_now = (#near1 == 0), n_near = #near1, n_scope = scopeN, near = near1,
+        dz = window.dz, skip = window.skiplist }
     if w == 0 then t.quiet = (#near1 == 0) end
     okReply(player, req, t)
     if w == 0 then return false end
@@ -444,7 +468,7 @@ local function cmdQuiet(player, req)
                     ok = false, err = "caller_gone", read = 2, final = true })))
                 return
             end
-            local near2, seen2 = quietRead(p, x, y, z, r)
+            local near2, seen2 = quietRead(p, x, y, z, r, window)
             local roamers = {}
             for hex, a in pairs(seen2) do
                 local b = seen1[hex]
@@ -459,7 +483,8 @@ local function cmdQuiet(player, req)
             end
             local quiet = (#near1 == 0) and (#near2 == 0) and (#roamers == 0)
             okReply(p, req, { map = mapId, inst = inst, at = { TT.round(x), TT.round(y), TT.round(z) }, r = r,
-                read = 2, final = true, wait_s = w, quiet = quiet, n_near = #near2, near = near2, roamers = roamers })
+                read = 2, final = true, wait_s = w, quiet = quiet, n_near = #near2, near = near2, roamers = roamers,
+                dz = window.dz, skip = window.skiplist })
         end)
     end, math.floor(w * 1000), 1)
     return false
@@ -473,7 +498,39 @@ end
 -- caller deals the damage: death scripts and links DO fire).
 -- Bosses (rank 3 / world boss) and owned units (pets, guardians) are skipped
 -- unless `boss` is given (owned units are always skipped).
+-- dz=<yd> (default 8; 0 = any height) and skip=<entry,...> leave units untouched like
+-- quiet does. FRIENDLY NPCs (not hostile to a non-GM member of the caller's group, or of
+-- `of=<name>`'s group) are never touched unless `all=1`; without such a member the
+-- command refuses (no_reference) rather than guess.
 -- ---------------------------------------------------------------------------
+local function flagOn(req, name)
+    local v = req.kv[name]
+    return req.flags[name] or (v ~= nil and v ~= "" and v ~= "0" and v:lower() ~= "false")
+end
+
+-- Set of guid hexes hostile to a non-GM group member (a GM caller sees everything as
+-- friendly, and Eluna has no IsHostileTo). nil, code, msg when no usable member.
+local function hostileSetOf(player, of, x, y, z, r)
+    local mapId, inst = player:GetMapId(), player:GetInstanceId()
+    local members = TT.groupMembers(player, of)
+    for i = 1, #members do
+        local m = members[i]
+        if m:GetMapId() == mapId and m:GetInstanceId() == inst and m:IsAlive()
+            and m:GetGMRank() < CFG.min_gm_rank then
+            if TT.dist3(m:GetX(), m:GetY(), m:GetZ(), x, y, z) + r + 30 > CFG.max_search then
+                return nil, "reference_far", string.format("%s is too far from the point to judge friendliness", m:GetName())
+            end
+            local set = {}
+            for _, e in ipairs(TT.creaturesAt(m, x, y, z, r, 1, 1)) do
+                local hex = TT.objHex(e.c)
+                if hex then set[hex] = true end
+            end
+            return set
+        end
+    end
+    return nil, "no_reference", "no non-GM group member on this map to judge friendliness: pass of=<lead bot> or all=1"
+end
+
 local function cmdClearTo(player, req)
     local mapArg = num(req.pos[1])
     local x, y, z = point(req, 2)
@@ -489,13 +546,27 @@ local function cmdClearTo(player, req)
     if not ok then return fail(player, req, "point_far", msg) end
     local kill = req.flags["kill"] and true or false
     local bosses = req.flags["boss"] and true or false
+    local window = windowOf(req)
+    local everything = flagOn(req, "all") and true or false
+    local hostileSet
+    if not everything then
+        local set, code, emsg = hostileSetOf(player, req.kv.of, x, y, z, r)
+        if not set then return fail(player, req, code, emsg) end
+        hostileSet = set
+    end
     local list = TT.creaturesAt(player, x, y, z, r, 1, 1)
     local removed, skipped = {}, {}
     for i = 1, #list do
         local c, d = list[i].c, list[i].d
         local hex = TT.objHex(c)
         local item = { g = hex, e = c:GetEntry(), n = c:GetName(), d = TT.round(d, 1) }
-        if c:GetOwner() then
+        if window.skip[item.e] then
+            item.why = "skip"; skipped[#skipped + 1] = item
+        elseif window.dz > 0 and math.abs(c:GetZ() - z) > window.dz then
+            item.why = "dz"; item.dz = TT.round(c:GetZ() - z, 1); skipped[#skipped + 1] = item
+        elseif hostileSet and not (hex and hostileSet[hex]) then
+            item.why = "friendly"; skipped[#skipped + 1] = item
+        elseif c:GetOwner() then
             item.why = "owned"; skipped[#skipped + 1] = item
         elseif (c:GetRank() >= 3 or c:IsWorldBoss()) and not bosses then
             item.why = "boss"; skipped[#skipped + 1] = item
@@ -507,7 +578,8 @@ local function cmdClearTo(player, req)
         end
     end
     return okReply(player, req, { map = mapArg, inst = player:GetInstanceId(), at = { x, y, z }, r = r,
-        mode = kill and "kill" or "despawn", n = #removed, removed = removed, skipped = skipped })
+        mode = kill and "kill" or "despawn", n = #removed, removed = removed, skipped = skipped,
+        dz = window.dz, skip = window.skiplist, all = everything })
 end
 
 -- ---------------------------------------------------------------------------
@@ -680,7 +752,7 @@ end
 -- ---------------------------------------------------------------------------
 -- dispatch
 -- ---------------------------------------------------------------------------
-local HELP = "tt: q floor|units|unit|gos|group|inst|link, quiet, clearto, place, reset; `#id` echoes; see README"
+local HELP = "tt: q floor|units|unit|gos|group|inst|link, quiet, clearto, place, reset; quiet/clearto take dz=<yd> (default 8, 0=any) and skip=<entry,..>; clearto never touches friendly NPCs unless all=1 (of=<lead> picks the group); `#id` echoes; see README"
 
 local function dispatch(player, req)
     local sub = (req.pos[1] or "help"):lower()
