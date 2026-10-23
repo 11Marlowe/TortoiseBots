@@ -20,6 +20,11 @@ MGR = (PB / "BotAreaTriggers.cpp").read_text()
 CONF_CPP = (PB / "PlayerbotAIConfig.cpp").read_text()
 TEMPLATE = (PB / "aiplayerbot.conf.dist.in").read_text()
 CMAKE = (ROOT / "TortoiseBots.cmake").read_text()
+COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+
+
+def squash(text):
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def body(text, start, end):
@@ -32,27 +37,61 @@ class BotAreaTriggerWiringTest(unittest.TestCase):
         fn = body(AI, "void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)", "\n}\n")
         block = body(fn, "if (areaTriggerCheckDelay > elapsed)", "\n    }\n")
         # The run's question is asked once per throttled check, never per tick; a check runs only with
-        # a listed trigger or a run step that names one.
+        # a listed trigger or one the bot's run has armed.
         throttled = block[block.index("areaTriggerCheckDelay = ai::kBotAreaTriggerCheckMs;"):]
-        self.assertIn("uint32 const runTrigger = TortoiseBots::BotCommands::RunStepAreaTrigger(bot);", throttled)
-        self.assertRegex(throttled, r"if \(!sPlayerbotAIConfig\.botAreaTriggerIds\.empty\(\) \|\| runTrigger\)\s*"
-                                    r"ai::UpdateBotAreaTriggers\(bot, areaTriggerState, runTrigger\);")
+        self.assertIn("std::vector<uint32_t> const* runArmed = TortoiseBots::BotCommands::RunArmedAreaTriggers(bot);", throttled)
+        self.assertRegex(throttled, r"if \(!sPlayerbotAIConfig\.botAreaTriggerIds\.empty\(\) \|\| runArmed\)\s*"
+                                    r"ai::UpdateBotAreaTriggers\(bot, areaTriggerState, runArmed\);")
         self.assertEqual(AI.count("UpdateBotAreaTriggers("), 1)
-        self.assertEqual(AI.count("RunStepAreaTrigger("), 1)
+        self.assertEqual(AI.count("RunArmedAreaTriggers("), 1)
 
-    def test_run_step_names_the_one_extra_trigger(self):
-        # Beyond the allowlist a bot fires only the trigger its active run's CURRENT move step names,
-        # read from the loaded plan (DungeonRun::RunStepAreaTriggerOf), and only that one.
-        commands = (ROOT / "commands/BotCommands.cpp").read_text()
-        fn = body(commands, "uint32_t RunStepAreaTrigger(Player* bot)", "\n}\n")
-        self.assertEqual(re.sub(r"\s+", " ", fn[fn.index("{"):]).strip(),
-                         "{ return TortoiseBots::DungeonRun::RunStepAreaTriggerOf(RunningRunOf(bot, true));")
-        self.assertIn("uint32_t RunStepAreaTrigger(Player* bot);", (ROOT / "runtime/CommandedGroupQuery.h").read_text())
+    def test_run_arms_its_move_triggers_until_fired(self):
+        # Beyond the allowlist a bot fires only what its active run armed (DungeonRun::RunArmedTriggersOf:
+        # move steps' triggers from the step until fired once), read through the O(1) run index.
+        fn = body(COMMANDS, "std::vector<uint32_t> const* RunArmedAreaTriggers(Player* bot)", "\n}\n")
+        self.assertEqual(squash(fn[fn.index("{"):]),
+                         "{ return TortoiseBots::DungeonRun::RunArmedTriggersOf(RunningRunOf(bot, true));")
+        fired = body(COMMANDS, "void NoteRunAreaTriggerFired(Player* bot, uint32_t id)", "\n}\n")
+        self.assertIn("if (DungeonRunSlot* slot = RunSlotOf(bot, true))", fired)
+        self.assertIn("TortoiseBots::DungeonRun::NoteTriggerFired(slot->run, id);", fired)
+        query = (ROOT / "runtime/CommandedGroupQuery.h").read_text()
+        self.assertIn("std::vector<uint32_t> const* RunArmedAreaTriggers(Player* bot);", query)
+        self.assertIn("void NoteRunAreaTriggerFired(Player* bot, uint32_t id);", query)
         update = body(MGR, "void ai::UpdateBotAreaTriggers(", "\n}\n")
         loop = body(update, "for (BotAreaTriggerShape const& shape : itr->second)", "\n    }\n")
-        self.assertLess(loop.index("if (!IsBotAreaTriggerArmed(shape.listed, shape.id, runTrigger))"),
+        self.assertLess(loop.index("if (!IsBotAreaTriggerArmed(shape.listed, shape.id, runArmed))"),
                         loop.index("IsInsideAreaTriggerShape("))
-        self.assertIn("void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, uint32_t runTrigger)", MGR)
+        # Every fire is reported, before the script (which may ungroup or teleport the bot).
+        self.assertLess(update.index("TortoiseBots::BotCommands::NoteRunAreaTriggerFired(bot, id);"),
+                        update.index("sScriptMgr.OnAreaTrigger(bot, at);"))
+        self.assertIn("void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, std::vector<uint32_t> const* runArmed)", MGR)
+        # The run arms in its own tick, before and after the step body.
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        tick = body(policy, "inline std::string Tick(Run& r, const Facts& in,", "\n}\n")
+        self.assertEqual(tick.count("ArmReachedTriggers(r);"), 2)
+        self.assertLess(tick.index("ArmReachedTriggers(r);"), tick.index("order = TickBody("))
+        self.assertGreater(tick.rindex("ArmReachedTriggers(r);"), tick.rindex("order = TickBody("))
+
+    def test_run_of_a_bot_is_one_index_lookup(self):
+        # Codex round 1: no scan over every run per bot. RunSlotOf returns before any lookup without a
+        # group, then asks RunGroups once; RebuildRunGroups is the one writer, called by the run update and
+        # right after a run is stored.
+        slot = body(COMMANDS, "static DungeonRunSlot* RunSlotOf(Player* bot, bool activeOnly)", "\n}\n")
+        self.assertNotIn("for (", slot)
+        self.assertLess(slot.index("if (!group)\n        return nullptr;"), slot.index("RunOfGroup(RunGroups(), groupId)"))
+        self.assertEqual(slot.count("RunGroups()"), 1)
+        self.assertIn("binding->groupId != groupId", slot)
+        running = body(COMMANDS, "static TortoiseBots::DungeonRun::Run const* RunningRunOf(", "\n}\n")
+        self.assertIn("RunSlotOf(bot, activeOnly)", running)
+        self.assertNotIn("DungeonRuns()", running)
+        rebuild = body(COMMANDS, "void RebuildRunGroups()", "\n}\n")
+        self.assertIn("RunGroups().Clear();", rebuild)
+        self.assertIn("RunGroups().Add(binding->groupId, entry.first);", rebuild)
+        self.assertEqual(COMMANDS.count("RunGroups().Clear()") + COMMANDS.count("RunGroups().Add("), 2)
+        update = body(COMMANDS, "static void UpdateDungeonRuns(uint32 diff)", "\n}\n")
+        self.assertTrue(squash(update[update.index("{"):]).startswith("{ RebuildRunGroups();"))
+        self.assertRegex(COMMANDS, r"DungeonRunSlot& stored = DungeonRuns\(\)\[commanderRaw\] = slot;\s*RebuildRunGroups\(\);")
+        self.assertEqual(COMMANDS.count("RebuildRunGroups();"), 2)
 
     def test_index_filter_uses_every_exclusion(self):
         fn = body(MGR, "BotAreaTriggerIndex const& GetIndex()", "\n    }\n}\n")

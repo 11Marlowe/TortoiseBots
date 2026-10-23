@@ -575,15 +575,15 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     // the script of a trigger the bot just walked into, as the client would
     // (dungeons only, not raids).
     // A few position tests against the bot's map's index, twice a second: the listed
-    // triggers, and the one the current move step of the bot's dungeon run names.
+    // triggers, and those the bot's dungeon run has armed (its move steps' triggers until they fired).
     if (areaTriggerCheckDelay > elapsed)
         areaTriggerCheckDelay -= elapsed;
     else
     {
         areaTriggerCheckDelay = ai::kBotAreaTriggerCheckMs;
-        uint32 const runTrigger = TortoiseBots::BotCommands::RunStepAreaTrigger(bot);
-        if (!sPlayerbotAIConfig.botAreaTriggerIds.empty() || runTrigger)
-            ai::UpdateBotAreaTriggers(bot, areaTriggerState, runTrigger);
+        std::vector<uint32_t> const* runArmed = TortoiseBots::BotCommands::RunArmedAreaTriggers(bot);
+        if (!sPlayerbotAIConfig.botAreaTriggerIds.empty() || runArmed)
+            ai::UpdateBotAreaTriggers(bot, areaTriggerState, runArmed);
     }
 
     // revalidate the

@@ -1102,9 +1102,14 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("area trigger 962", walk_in[0]["comment"])
         update = dict(migrations())["20261024000000_world.sql"]
         self.assertLess(name, "20261024000000_world.sql")
-        statements = [s.strip() for s in re.sub(r"(?m)^--.*$", "", update).split(";") if s.strip()]
-        self.assertEqual(statements, ["UPDATE `ai_dungeon_step` SET `entry` = 962\nWHERE `plan` = 'zulfarrak' AND "
-                                      "`leg` = 10 AND `seq` = 101 AND `kind` = 'move'"])
+        statements = [s.strip() for s in re.split(r";\s*$", re.sub(r"(?m)^--.*$", "", update), flags=re.M) if s.strip()]
+        self.assertEqual(len(statements), 1)
+        self.assertTrue(statements[0].startswith("UPDATE `ai_dungeon_step` SET `entry` = 962,\n`comment` = 'area trigger 962: "))
+        self.assertTrue(statements[0].endswith("\nWHERE `plan` = 'zulfarrak' AND `leg` = 10 AND `seq` = 101 AND `kind` = 'move'"))
+        # The row's comment no longer claims the allowlist is needed.
+        comment = re.search(r"`comment` = '((?:[^']|'')*)'", statements[0]).group(1)
+        self.assertNotIn("needs AiPlayerbot.BotAreaTriggers", comment)
+        self.assertIn("no AiPlayerbot.BotAreaTriggers needed", comment)
         # Nothing newer re-inserts the zulfarrak steps (that would drop the entry again).
         later = [n for n, body in migrations() if n > "20261024000000_world.sql" and
                  re.search(r"INSERT INTO `ai_dungeon_step`.*?\('zulfarrak',", body, re.S)]

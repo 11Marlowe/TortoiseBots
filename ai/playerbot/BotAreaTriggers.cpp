@@ -61,7 +61,7 @@ namespace
     }
 }
 
-void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, uint32_t runTrigger)
+void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, std::vector<uint32_t> const* runArmed)
 {
     // Only a living bot in a group, inside a dungeon (not a raid), standing still or
     // walking (not on a taxi, not mid-teleport), the way a client would send it.
@@ -87,7 +87,7 @@ void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, uint32_t
     std::vector<uint32_t> nearNow;
     for (BotAreaTriggerShape const& shape : itr->second)
     {
-        if (!IsBotAreaTriggerArmed(shape.listed, shape.id, runTrigger))
+        if (!IsBotAreaTriggerArmed(shape.listed, shape.id, runArmed))
             continue;
         if (IsInsideAreaTriggerShape(shape, x, y, z, 0.0f))
             insideNow.push_back(shape.id);
@@ -126,6 +126,9 @@ void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, uint32_t
         if (!at)
             continue;
         sLog.outDetail("TortoiseBots: %s fires area trigger %u (map %u).", bot->GetName(), id, bot->GetMapId());
+        // A run-armed trigger fires once for the run (DungeonRun::NoteTriggerFired); noted before
+        // the script, which may ungroup, teleport or kill the bot.
+        TortoiseBots::BotCommands::NoteRunAreaTriggerFired(bot, id);
         sScriptMgr.OnAreaTrigger(bot, at);
         // The script may have teleported, killed or ungrouped the bot.
         if (!bot->IsInWorld() || bot->IsBeingTeleported())

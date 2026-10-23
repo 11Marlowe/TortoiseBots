@@ -60,6 +60,7 @@
 #include "../runtime/GossipOrderPolicy.h"
 #include "../runtime/CommanderTelemetry.h"
 #include "../runtime/DungeonRunPolicy.h"
+#include "../runtime/RunGroupIndex.h"
 #include "../ai/playerbot/DungeonPlanMgr.h"
 #include "../ai/playerbot/BossTacticsMgr.h"
 #include "../ai/playerbot/PullAggroEstimatePolicy.h"
@@ -4596,6 +4597,25 @@ std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
 {
     static std::unordered_map<uint64, DungeonRunSlot> runs;
     return runs;
+}
+
+// The bound group's id -> its run (runtime/RunGroupIndex.h), so a bot's run is one
+// lookup (RunSlotOf), not a scan over every run per bot. RebuildRunGroups is its one
+// owner: the run leader's update calls it each world update, and a run's start
+// right after it is stored; RunSlotOf checks every hit against the live run and
+// binding, so a run erased or unbound in between is never returned.
+TortoiseBots::DungeonRun::RunGroupIndex& RunGroups()
+{
+    static TortoiseBots::DungeonRun::RunGroupIndex index;
+    return index;
+}
+
+void RebuildRunGroups()
+{
+    RunGroups().Clear();
+    for (auto const& entry : DungeonRuns())
+        if (RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(entry.first))
+            RunGroups().Add(binding->groupId, entry.first);
 }
 
 Player* FindCharacter(uint64 raw);
@@ -12383,6 +12403,7 @@ void SyncRunHealOnly()
 
 static void UpdateDungeonRuns(uint32 diff)
 {
+    RebuildRunGroups();
     if (DungeonRuns().empty() && !RunHealOnlyBots().empty())
         SyncRunHealOnly(); // the last run is gone: every listed healer is let go
     if (!RunBackPassive().empty())
@@ -12664,6 +12685,7 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         DungeonRunSlot slot;
         slot.run = Start(plan, startStep);
         DungeonRunSlot& stored = DungeonRuns()[commanderRaw] = slot;
+        RebuildRunGroups();
         s_dungeonRunMs = 0;
         TB_LOG_DETAIL("TortoiseBots: run leader of %s started plan %s at step %u", commander->GetName(), plan->name.c_str(),
             static_cast<uint32>(startStep + 1));
@@ -13241,22 +13263,36 @@ void CommanderAutonomyMapChange(Player* bot, PlayerbotAI* ai)
 
 // The running run of the bot's bound party, or null. activeOnly: a paused run
 // counts too (DungeonRun::HoldsItsDead: running or paused, not done).
+// One lookup in RunGroups by the bot's own group (a bot outside a group returns
+// before any lookup), checked against the live run, its binding and the lead
+// bot's group: constant work per question, whatever the number of runs.
+static DungeonRunSlot* RunSlotOf(Player* bot, bool activeOnly)
+{
+    Group* group = bot ? bot->GetGroup() : nullptr;
+    if (!group)
+        return nullptr;
+    uint32 const groupId = group->GetId();
+    uint64 const commanderRaw = TortoiseBots::DungeonRun::RunOfGroup(RunGroups(), groupId);
+    if (!commanderRaw)
+        return nullptr;
+    auto const it = DungeonRuns().find(commanderRaw);
+    if (it == DungeonRuns().end())
+        return nullptr;
+    if (activeOnly ? !TortoiseBots::DungeonRun::HoldsItsDead(it->second.run)
+                   : it->second.run.state != TortoiseBots::DungeonRun::State::Running)
+        return nullptr;
+    RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(commanderRaw);
+    Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+    Group* leadGroup = lead ? lead->GetGroup() : nullptr;
+    if (!leadGroup || leadGroup->GetId() != binding->groupId || binding->groupId != groupId)
+        return nullptr;
+    return &it->second;
+}
+
 static TortoiseBots::DungeonRun::Run const* RunningRunOf(Player* bot, bool activeOnly = false)
 {
-    if (!bot || !bot->GetGroup() || DungeonRuns().empty())
-        return nullptr;
-    for (auto const& entry : DungeonRuns())
-    {
-        if (activeOnly ? !TortoiseBots::DungeonRun::HoldsItsDead(entry.second.run)
-                       : entry.second.run.state != TortoiseBots::DungeonRun::State::Running)
-            continue;
-        RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(entry.first);
-        Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
-        Group* group = lead ? lead->GetGroup() : nullptr;
-        if (group && group->GetId() == binding->groupId && group->IsMember(bot->GetObjectGuid()))
-            return &entry.second.run;
-    }
-    return nullptr;
+    DungeonRunSlot const* slot = RunSlotOf(bot, activeOnly);
+    return slot ? &slot->run : nullptr;
 }
 
 bool IsInRunningDungeonRun(Player* bot)
@@ -13285,9 +13321,15 @@ static bool IsBoundToActiveDungeonRun(Player* bot)
 static bool const s_runReleaseHoldRegistered =
     (TortoiseBots::RunReleaseHold::Register(&IsBoundToActiveDungeonRun), true);
 
-uint32_t RunStepAreaTrigger(Player* bot)
+std::vector<uint32_t> const* RunArmedAreaTriggers(Player* bot)
 {
-    return TortoiseBots::DungeonRun::RunStepAreaTriggerOf(RunningRunOf(bot, true));
+    return TortoiseBots::DungeonRun::RunArmedTriggersOf(RunningRunOf(bot, true));
+}
+
+void NoteRunAreaTriggerFired(Player* bot, uint32_t id)
+{
+    if (DungeonRunSlot* slot = RunSlotOf(bot, true))
+        TortoiseBots::DungeonRun::NoteTriggerFired(slot->run, id);
 }
 
 bool IsRunKillFirst(Player* bot, uint32_t entry)

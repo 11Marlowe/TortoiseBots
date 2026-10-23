@@ -92,15 +92,13 @@ inline bool IsAllowedNpc(std::set<uint32_t> const& allowed, uint32_t entry)
 // The gossip step of a bot's dungeon run, as the glue reads it from the run's
 // loaded plan (DungeonRun::RunGossipStepOf): bound = the bot is in the party of
 // a running or paused run; atGossip = that run's current step is a gossip step;
-// entry and alternatives = the NPC entries that step names (alternatives: the
-// step's `entries`, one per faction where the plan carries them). Plain data, so
-// this policy needs no plan types.
+// entry = the NPC that step names (GossipStep orders only that entry; a step's
+// `entries` are not read). Plain data, so this policy needs no plan types.
 struct RunGossipStep
 {
     bool bound = false;
     bool atGossip = false;
     uint32_t entry = 0;
-    std::vector<uint32_t> alternatives;
 };
 
 // The current gossip step of the bot's run names this NPC.
@@ -108,12 +106,7 @@ inline bool RunStepNamesNpc(RunGossipStep const& step, uint32_t entry)
 {
     if (!step.bound || !step.atGossip || entry == 0)
         return false;
-    if (entry == step.entry)
-        return true;
-    for (uint32_t alternative : step.alternatives)
-        if (alternative == entry)
-            return true;
-    return false;
+    return entry == step.entry;
 }
 
 // The gate of `cmd gossip` (the order and the act): an NPC in the allowlist, or

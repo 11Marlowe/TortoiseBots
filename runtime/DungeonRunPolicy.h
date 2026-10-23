@@ -877,6 +877,11 @@ struct Run
 {
     const DungeonPlan* plan = nullptr;
     std::size_t step = 0;
+    // Area triggers the plan's move steps name (ArmReachedTriggers): armed from the step on until one
+    // fired for the run (NoteTriggerFired), then never again. triggerScan: the next step index to look at.
+    std::size_t triggerScan = 0;
+    std::vector<std::uint32_t> armedTriggers;
+    std::vector<std::uint32_t> firedTriggers;
     State state = State::Running;
     Phase phase = Phase::Begin;
     std::string note;        // what it does now, or why it paused
@@ -2985,6 +2990,7 @@ inline Run Start(const DungeonPlan* plan, std::size_t fromStep = 0)
     Run r;
     r.plan = plan;
     r.step = fromStep;
+    r.triggerScan = fromStep; // a run started past a move never arms its trigger
     ResetStep(r);
     r.note = "started";
     if (!Current(r))
@@ -3038,22 +3044,46 @@ inline GossipOrder::RunGossipStep RunGossipStepOf(const Run* r)
         return out;
     out.atGossip = true;
     out.entry = s->entry;
-    out.alternatives = s->entries;
     return out;
 }
 
-// The area trigger a run-bound bot may fire beyond AiPlayerbot.BotAreaTriggers
-// (ai::IsBotAreaTriggerArmed): the `entry` of the current move or move_direct step
-// of a running or paused run, read from the loaded plan (no database read).
-// 0 for no run, a done run, or any other step.
-inline std::uint32_t RunStepAreaTriggerOf(const Run* r)
+// The area triggers a run-bound bot may fire beyond AiPlayerbot.BotAreaTriggers
+// (ai::IsBotAreaTriggerArmed): a move or move_direct step's `entry` is armed once the
+// run has reached that step (Tick calls ArmReachedTriggers before and after each
+// step), and it stays armed past the step (the run may go on to the boss before any
+// bot's twice-a-second check ran inside the sphere, or stand in for the point on a
+// detour) until it has fired once for this run (NoteTriggerFired). Read from the
+// loaded plan (no database read). Null for no run, a done run, or nothing armed.
+inline void ArmReachedTriggers(Run& r)
 {
-    if (!r || !HoldsItsDead(*r))
-        return 0;
-    const PlanStep* s = Current(*r);
-    if (!s || (s->kind != PlanStepKind::Move && s->kind != PlanStepKind::MoveDirect))
-        return 0;
-    return s->entry;
+    if (!r.plan)
+        return;
+    for (; r.triggerScan <= r.step && r.triggerScan < r.plan->steps.size(); ++r.triggerScan)
+    {
+        const PlanStep& s = r.plan->steps[r.triggerScan];
+        if ((s.kind != PlanStepKind::Move && s.kind != PlanStepKind::MoveDirect) || s.entry == 0)
+            continue;
+        if (std::find(r.firedTriggers.begin(), r.firedTriggers.end(), s.entry) != r.firedTriggers.end() ||
+            std::find(r.armedTriggers.begin(), r.armedTriggers.end(), s.entry) != r.armedTriggers.end())
+            continue;
+        r.armedTriggers.push_back(s.entry);
+    }
+}
+
+inline void NoteTriggerFired(Run& r, std::uint32_t id)
+{
+    auto const it = std::find(r.armedTriggers.begin(), r.armedTriggers.end(), id);
+    if (it == r.armedTriggers.end())
+        return;
+    r.armedTriggers.erase(it);
+    r.firedTriggers.push_back(id);
+}
+
+inline const std::vector<std::uint32_t>* RunArmedTriggersOf(const Run* r)
+{
+    if (!r || !HoldsItsDead(*r) || r->armedTriggers.empty())
+        return nullptr;
+    return &r->armedTriggers;
 }
 
 // maxMinutes 0 = no limit.
@@ -10189,6 +10219,7 @@ inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, con
     r.unattackableFight = unattackable;
     r.shotGateRan = false;
     SyncCcIcons(r, f);
+    ArmReachedTriggers(r); // a step reached by a skip, a resume or a jump since the last tick
     std::string order;
     bool held = false;
     if (r.state == State::Running && !r.hold.empty())
@@ -10204,6 +10235,7 @@ inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, con
         order = TickBody(r, f, dt, lines);
     if (!r.shotGateRan)
         EndShotHold(r); // the pull stand's hold ends with any tick its gate did not run on
+    ArmReachedTriggers(r); // the steps this tick reached
     if (firstUnattackable && r.state == State::Running)
         r.note += (r.note.empty() ? "" : "; ") + std::string("in combat with units the group cannot attack only (") +
             EngagedUnitsNote(in) + "): not counted as a fight";

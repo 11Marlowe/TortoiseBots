@@ -15,8 +15,8 @@
 // human member close by. This header holds the pure parts: the inside test
 // (the same math as the core's IsPointInAreaTriggerZone), the filters, and the
 // edge detection that fires each trigger once per entry.
-// Since fix/plan-gossip-allow a dungeon run's bots also fired the one unlisted
-// trigger the run's current move step names (IsBotAreaTriggerArmed).
+// Since fix/plan-gossip-allow a dungeon run's bots also fired the unlisted triggers
+// its move steps name, from the step until fired once (IsBotAreaTriggerArmed).
 // Unit-tested in tools/test_bot_area_trigger_policy.cpp.
 
 #include <algorithm>
@@ -79,14 +79,16 @@ inline bool IsBotFireableAreaTrigger(bool listed, bool hasScript, bool dungeonMa
     return listed && IsBotIndexableAreaTrigger(hasScript, dungeonMap, isTeleport, isTavern, isBgEntrance);
 }
 
-// Which indexed trigger a bot's check tests: a listed one, or the one the CURRENT
-// move / move_direct step of the bot's running or paused dungeon run names in its
-// `entry` (runStepTrigger, DungeonRun::RunStepAreaTriggerOf; 0 = none). Plan-driven,
-// so a shipped plan needs no allowlist edit (Zul'Farrak walks into 962, at_zumrah);
-// any other unlisted trigger stays off, in a run or out of one.
-inline bool IsBotAreaTriggerArmed(bool listed, uint32_t id, uint32_t runStepTrigger)
+// Which indexed trigger a bot's check tests: a listed one, or one the bot's running
+// or paused dungeon run has armed (runArmed, DungeonRun::RunArmedTriggersOf; null =
+// none): a move / move_direct step's `entry` the run has reached and that has not
+// fired yet for it. Plan-driven, so a shipped plan needs no allowlist edit
+// (Zul'Farrak walks into 962, at_zumrah); any other unlisted trigger stays off.
+inline bool IsBotAreaTriggerArmed(bool listed, uint32_t id, std::vector<uint32_t> const* runArmed)
 {
-    return listed || (runStepTrigger != 0 && id == runStepTrigger);
+    if (listed)
+        return true;
+    return id != 0 && runArmed && std::find(runArmed->begin(), runArmed->end(), id) != runArmed->end();
 }
 
 template <class List>

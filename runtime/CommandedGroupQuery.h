@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 class Player;
 class PlayerbotAI;
@@ -24,10 +25,13 @@ bool IsInCommandedGroup(Player* bot);
 bool IsInRunningDungeonRun(Player* bot);
 // The running run of the bot's party lists this creature entry kill_first.
 bool IsRunKillFirst(Player* bot, uint32_t entry);
-// The area trigger the current move / move_direct step of the bot's running or
-// paused run names in its `entry` (0 = none): it fires for the bot like a listed
-// one (BotAreaTriggers.cpp). Cheap: a look over the few runs.
-uint32_t RunStepAreaTrigger(Player* bot);
+// The area triggers the bot's running or paused run has armed (null = none): a
+// move / move_direct step's `entry` the run has reached, until it fired once for
+// the run. They fire for the bot like listed ones (BotAreaTriggers.cpp). One
+// lookup (no group: none). The pointer is read before any trigger script runs.
+std::vector<uint32_t> const* RunArmedAreaTriggers(Player* bot);
+// A bot fired an area trigger: the run that armed it disarms it for good.
+void NoteRunAreaTriggerFired(Player* bot, uint32_t id);
 
 // A real player's chat command (whisper, `.bot command`, party chat) reached
 // this bot and passed its authorization: a run leader (`.bot run`) of the

@@ -522,7 +522,7 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # plan's gossip step was refused Deathstalker Adamant, 3849), a dungeon run did
 # not need this list for its own gossip steps: a bot of a running or paused run
 # was let talk to the NPC entry the run's CURRENT gossip step names (the step's
-# entry and its `entries`), read from the loaded plan, and to no other. A manual
+# `entry` only), read from the loaded plan, and to no other. A manual
 # order outside a run, another NPC, or a run at any other step still needed the
 # entry listed here.
 #AiPlayerbot.BotGossipNpcs =
@@ -896,8 +896,8 @@ AiPlayerbot.DungeonRunLootFfa = 0
 #         (nothing else). Opt in with: AiPlayerbot.BotAreaTriggers = 962
 # Since fix/plan-gossip-allow a dungeon run did not need this list for its own
 # plan: a move or move_direct step whose `entry` names a trigger armed it for the
-# run's bots while the run stood at that step (Zul'Farrak's walk into 962), and
-# no other unlisted trigger.
+# run's bots from that step on until it fired once for the run (Zul'Farrak's walk
+# into 962), and no other unlisted trigger.
 # Comma-separated trigger ids; empty (the default) turns the feature off.
 # New automation, so it is off by default.
 # Default: (empty)

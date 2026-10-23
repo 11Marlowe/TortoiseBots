@@ -4212,9 +4212,9 @@ static void TestRunGossipStepOfReadsTheCurrentStep()
     // In the run, but at a step that is not the gossip: refused.
     CHECK(r.step == 0 && RunGossipStepOf(&r).bound && !RunGossipStepOf(&r).atGossip);
     CHECK(!MayTalkTo(none, RunGossipStepOf(&r), 3849));
-    // At the gossip step: its entry and its alternative, nothing else.
+    // At the gossip step: its entry, nothing else (its `entries` are not ordered, so not allowed).
     r.step = 1;
-    CHECK(MayTalkTo(none, RunGossipStepOf(&r), 3849) && MayTalkTo(none, RunGossipStepOf(&r), 3850));
+    CHECK(MayTalkTo(none, RunGossipStepOf(&r), 3849) && !MayTalkTo(none, RunGossipStepOf(&r), 3850));
     CHECK(!MayTalkTo(none, RunGossipStepOf(&r), 7607));
     // Paused at it (the owner's manual retry): still that step.
     Pause(r, "test");
@@ -4222,7 +4222,7 @@ static void TestRunGossipStepOfReadsTheCurrentStep()
     // Past it: refused again.
     r.state = State::Running;
     r.step = 2;
-    CHECK(!MayTalkTo(none, RunGossipStepOf(&r), 3849) && !MayTalkTo(none, RunGossipStepOf(&r), 3850));
+    CHECK(!MayTalkTo(none, RunGossipStepOf(&r), 3849));
     // A finished run binds nothing.
     r.step = 1;
     r.state = State::Done;
@@ -4235,39 +4235,75 @@ static void TestRunGossipStepOfReadsTheCurrentStep()
     CHECK(!MayTalkTo(none, RunGossipStepOf(&past), 3849));
 }
 
-// The area trigger a run-bound bot may fire beyond AiPlayerbot.BotAreaTriggers (RunStepAreaTriggerOf,
-// the glue's RunStepAreaTrigger): the `entry` of the CURRENT move / move_direct step of its running
-// or paused run, read from the loaded plan; 0 for anything else.
-static void TestRunStepAreaTriggerOfReadsTheCurrentMove()
+// The area triggers a run-bound bot may fire beyond AiPlayerbot.BotAreaTriggers (RunArmedTriggersOf, the
+// glue's RunArmedAreaTriggers): a move / move_direct step's `entry` is armed from the tick the run reaches
+// that step UNTIL the trigger has fired once for this run (NoteTriggerFired), so a run that steps past the
+// move (to the boss) before any bot's 500 ms check ran inside the sphere still fires it; it is never armed
+// again after that. Read from the loaded plan.
+static void TestRunArmsAMoveTriggerUntilItFired()
 {
     DungeonPlan plan;
-    PlanStep walkIn = Step(PlanStepKind::Move, 1903, 1014, 11.8f);
+    PlanStep walkIn = Step(PlanStepKind::Move);
     walkIn.entry = 962;
-    PlanStep direct = Step(PlanStepKind::MoveDirect, 1, 1, 1);
-    direct.entry = 963;
-    PlanStep boss = Step(PlanStepKind::Boss, 1, 1, 1);
+    PlanStep boss = Step(PlanStepKind::Boss);
     boss.entry = 7271;
-    plan.steps = {Step(PlanStepKind::Rest), walkIn, direct, boss, Step(PlanStepKind::Move, 2, 2, 2)};
-    CHECK(RunStepAreaTriggerOf(nullptr) == 0);
+    PlanStep again = Step(PlanStepKind::MoveDirect);
+    again.entry = 962; // the same trigger named again later: not re-armed once fired
+    PlanStep other = Step(PlanStepKind::MoveDirect);
+    other.entry = 963;
+    plan.steps = {Step(PlanStepKind::Rest), walkIn, boss, again, other, Step(PlanStepKind::Rest)};
+    CHECK(RunArmedTriggersOf(nullptr) == nullptr);
     Run r = Start(&plan);
-    CHECK(r.step == 0 && RunStepAreaTriggerOf(&r) == 0); // not the move step
-    r.step = 1;
-    CHECK(RunStepAreaTriggerOf(&r) == 962);
+    ArmReachedTriggers(r);
+    CHECK(RunArmedTriggersOf(&r) == nullptr); // step 0: nothing reached yet
+    // The run steps past the move to the boss step within its ticks, before any trigger check ran;
+    // the tick that reaches the move arms its trigger before it returns (no later tick needed).
+    Facts f = Party(0);
+    bool armedOnArrival = false;
+    for (int i = 0; i < 200 && r.step < 1; ++i)
+    {
+        Tick(r, f);
+        if (r.step >= 1)
+            armedOnArrival = RunArmedTriggersOf(&r) != nullptr;
+    }
+    CHECK(r.step >= 1 && armedOnArrival);
+    r.step = 2;   // at the boss step 102
+    r.state = State::Running;
+    ArmReachedTriggers(r);
+    const std::vector<std::uint32_t>* armed = RunArmedTriggersOf(&r);
+    CHECK(armed && *armed == std::vector<std::uint32_t>{962}); // still armed at the boss
     Pause(r, "test");
-    CHECK(RunStepAreaTriggerOf(&r) == 962);              // paused at it
+    CHECK(RunArmedTriggersOf(&r) != nullptr);                  // a paused run keeps it armed
     r.state = State::Running;
-    r.step = 2;
-    CHECK(RunStepAreaTriggerOf(&r) == 963);              // a move_direct names one too
+    // It fired once: never armed again for this run, also not when a later step names it again.
+    NoteTriggerFired(r, 962);
+    CHECK(RunArmedTriggersOf(&r) == nullptr);
     r.step = 3;
-    CHECK(RunStepAreaTriggerOf(&r) == 0);                // a boss step's entry is no trigger
+    ArmReachedTriggers(r);
+    CHECK(RunArmedTriggersOf(&r) == nullptr);
     r.step = 4;
-    CHECK(RunStepAreaTriggerOf(&r) == 0);                // a move without one
-    r.step = 1;
+    ArmReachedTriggers(r);
+    armed = RunArmedTriggersOf(&r);
+    CHECK(armed && *armed == std::vector<std::uint32_t>{963});
+    NoteTriggerFired(r, 5000);                                 // a listed trigger firing changes nothing here
+    CHECK(RunArmedTriggersOf(&r) && RunArmedTriggersOf(&r)->size() == 1);
+    // A done run arms nothing.
     r.state = State::Done;
-    CHECK(RunStepAreaTriggerOf(&r) == 0);                // a finished run binds nothing
-    r.state = State::Running;
-    r.step = 9;
-    CHECK(RunStepAreaTriggerOf(&r) == 0);                // past the end
+    CHECK(RunArmedTriggersOf(&r) == nullptr);
+    // A run started past the move never arms its trigger; a step that is no move arms nothing.
+    Run late = Start(&plan, 2);
+    ArmReachedTriggers(late);
+    CHECK(RunArmedTriggersOf(&late) == nullptr);
+    // The arming runs inside Tick: a run ticked onto the move arms it without a separate call.
+    Run ticked = Start(&plan);
+    ticked.step = 1;
+    Tick(ticked, Party(0));
+    CHECK(RunArmedTriggersOf(&ticked) && RunArmedTriggersOf(&ticked)->front() == 962);
+    // Past the plan's end nothing new is armed, and nothing reads out of range.
+    Run past = Start(&plan);
+    past.step = 99;
+    ArmReachedTriggers(past);
+    CHECK(past.armedTriggers.size() == 2 && past.armedTriggers[0] == 962 && past.armedTriggers[1] == 963);
 }
 
 // The order's immediate ERR: an NPC that AiPlayerbot.BotGossipNpcs does not list pauses naming the key.
@@ -16785,7 +16821,7 @@ static void TestResumeOfTheApproachPauseSearchesInPlaceThenDefers()
 int main()
 {
     TestRunGossipStepOfReadsTheCurrentStep();
-    TestRunStepAreaTriggerOfReadsTheCurrentMove();
+    TestRunArmsAMoveTriggerUntilItFired();
     TestPatrollerOutsideTheRadiusIsWaitedForThenPulled();
     TestPatrollerWaitIsBounded();
     TestPatrollerGiveUpIsRunWide();

@@ -75,14 +75,19 @@ int main()
     CHECK(!IsBotIndexableAreaTrigger(true, true, false, true, false));
     CHECK(!IsBotIndexableAreaTrigger(true, true, false, false, true));
 
-    // Armed: a listed trigger, or the one the CURRENT move step of the bot's active run names
-    // (runStepTrigger, 0 = none). Zul'Farrak's plan walks into 962 at leg 10 seq 101.
-    CHECK(IsBotAreaTriggerArmed(true, 962, 0));          // listed, no run: as before
-    CHECK(!IsBotAreaTriggerArmed(false, 962, 0));        // unlisted, no run (or not at that step): refused
-    CHECK(IsBotAreaTriggerArmed(false, 962, 962));       // unlisted, the run's current step names it
-    CHECK(!IsBotAreaTriggerArmed(false, 1526, 962));     // another trigger during the run: refused
-    CHECK(IsBotAreaTriggerArmed(true, 1526, 962));       // listed stays listed
-    CHECK(!IsBotAreaTriggerArmed(false, 0, 0));          // no id names nothing
+    // Armed: a listed trigger, or one the bot's active run has armed (a move step's `entry` the run has
+    // reached and that has not fired yet; null = none). Zul'Farrak's plan walks into 962 at leg 10 seq 101.
+    std::vector<uint32_t> const runArmed = {962};
+    std::vector<uint32_t> const none;
+    CHECK(IsBotAreaTriggerArmed(true, 962, nullptr));        // listed, no run: as before
+    CHECK(!IsBotAreaTriggerArmed(false, 962, nullptr));      // unlisted, no run: refused
+    CHECK(!IsBotAreaTriggerArmed(false, 962, &none));        // unlisted, the run armed nothing (or it fired)
+    CHECK(IsBotAreaTriggerArmed(false, 962, &runArmed));     // unlisted, the run armed it
+    CHECK(!IsBotAreaTriggerArmed(false, 1526, &runArmed));   // another trigger during the run: refused
+    CHECK(IsBotAreaTriggerArmed(true, 1526, &runArmed));     // listed stays listed
+    std::vector<uint32_t> const two = {963, 962};
+    CHECK(IsBotAreaTriggerArmed(false, 962, &two) && IsBotAreaTriggerArmed(false, 963, &two));
+    CHECK(!IsBotAreaTriggerArmed(false, 0, &two));
 
     // The allowlist: 962 is the audited opt-in; the shipped default is empty.
     std::vector<uint32_t> const defaults = {962};
