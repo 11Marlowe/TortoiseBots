@@ -104,6 +104,7 @@ constexpr float kRouteSpotYd = 10.0f;             // a lead bot this close to wh
 constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point may be stood in for by a
                                                   // reachable one at most this far from it ...
 constexpr float kMoveFallbackYd = 25.0f;          // ... a plain move's point, this far (r22-19z40 Razorfen Kraul step 85)
+constexpr std::size_t kUnreachableSkipsInARow = 3; // moves skipped for want of a path in a row, then pause
 constexpr float kDetourEndYd = 5.0f;              // ... whose navmesh path ends this close to it (DetourPointReachable)
 constexpr float kGatherYd = 20.0f;                // every living bot this close to the lead before a pull
 constexpr float kHopPullYd = 15.0f;               // units this close to the next hop are pulled first
@@ -787,6 +788,9 @@ struct Run
     // ResetStep, so a resume does not start the step's detour over.
     std::size_t moveRefusedStep = static_cast<std::size_t>(-1);
     std::uint32_t moveRefusals = 0;
+    // The moves skipped for want of a path since a step was last done any other
+    // way (MoveRefusedUnreachable; NextStep clears it): kUnreachableSkipsInARow pause.
+    std::vector<std::size_t> unreachableSkips;
     bool fighting = false;
     std::uint32_t fightMs = 0;
     std::uint32_t staleMs = 0;          // all the time in this fight the combat flag stood with nothing hostile engaged (Facts::staleCombat)
@@ -2264,6 +2268,7 @@ inline void BeginRegroup(Run& r)
 inline void NextStep(Run& r, const std::string& note)
 {
     r.pendingMissing = 0;
+    r.unreachableSkips.clear(); // a step done (MoveRefusedUnreachable puts its own skips back)
     ++r.step;
     r.autoRegroups = 0;
     ResetStep(r);
@@ -5728,10 +5733,25 @@ inline bool MoveRefusedUnreachable(Run& r, const std::string& order, const std::
         (r.guardReturn && order == MoveOrder(r.guardX, r.guardY, r.guardZ, false)) || LeadNoProgressRefusal(answer))
         return false;
     ++r.moveRefusals;
+    std::vector<std::size_t> skips = r.unreachableSkips;
+    skips.push_back(r.step);
     NextStep(r, "step " + stepNo + " move to " + point + " skipped: no walkable path; the party goes on to step " +
         std::to_string(next + 1) + (again ? " (refused again after the walk to the nearest reachable point: " :
         " (no reachable point within " + std::to_string(static_cast<int>(kMoveFallbackYd)) + " yd of it: ") +
         answer + ")");
+    r.unreachableSkips = skips;
+    // Three in a row (no step done in between): the lead bot is likely in the
+    // wrong part of the instance, and every next move would be skipped too.
+    if (r.state == State::Running && skips.size() >= kUnreachableSkipsInARow)
+    {
+        std::string steps;
+        for (std::size_t i = 0; i < skips.size(); ++i)
+            steps += (i ? (i + 1 == skips.size() ? " and " : ", ") : "") + std::to_string(skips[i] + 1);
+        r.unreachableSkips.clear();
+        Pause(r, "three moves in a row had no walkable path: the lead bot may be in the wrong part of the instance "
+            "(steps " + steps + " skipped; the lead bot at " + Num(r.leadLastX) + " " + Num(r.leadLastY) + " " +
+            Num(r.leadLastZ) + ")");
+    }
     return true;
 }
 

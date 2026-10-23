@@ -8786,6 +8786,41 @@ static void TestR22SecondRefusalOfTheStepSkips()
     CHECK(s.state == State::Running && s.step == 2 && !s.detour);
 }
 
+// Lead decision: three plain moves skipped in a row (no step done in between) pause the run, naming them and
+// the lead bot's spot; a step done the normal way starts the count over.
+static void TestR22ThreeSkipsInARowPause()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 80), Step(PlanStepKind::Move, 120),
+        Step(PlanStepKind::Move, 160), Step(PlanStepKind::Move, 200), Step(PlanStepKind::Rest)};
+    Facts f = Party(0);
+    Run r = Start(&plan, 0);
+    r.leadLastX = 1.5f;
+    r.leadLastY = 2.0f;
+    r.leadLastZ = 3.0f;
+    GlueRefused(r, "move 40.0 0.0 0.0", kBareUnreachable, false);
+    GlueRefused(r, "move 80.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(r.state == State::Running && r.step == 2 && r.unreachableSkips.size() == 2);
+    GlueRefused(r, "move 120.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(r.state == State::Paused && r.step == 3);
+    CHECK(r.note == "three moves in a row had no walkable path: the lead bot may be in the wrong part of the instance "
+                    "(steps 1, 2 and 3 skipped; the lead bot at 1.5 2.0 3.0)");
+    // After the resume the count starts over: the next skip does not pause.
+    CHECK(Resume(r));
+    CHECK(r.unreachableSkips.empty());
+    // A completed step in between resets it: skip, done, skip, skip = no pause.
+    Run c = Start(&plan, 0);
+    GlueRefused(c, "move 40.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(c.step == 1);
+    f.leadX = 80;
+    for (int i = 0; i < 5 && c.step == 1; ++i)
+        Tick(c, f);
+    CHECK(c.step == 2 && c.unreachableSkips.empty());
+    GlueRefused(c, "move 120.0 0.0 0.0", kBareUnreachable, false);
+    GlueRefused(c, "move 160.0 0.0 0.0", kBareUnreachable, false);
+    CHECK(c.state == State::Running && c.step == 4 && c.unreachableSkips.size() == 2);
+}
+
 static void TestR22PullAndDirectStepsKeepTheirRefusals()
 {
     DungeonPlan plan = RfkS85Plan();
@@ -13143,6 +13178,7 @@ int main()
     TestR22NoStandInSkipsTheMoveWithoutAPause();
     TestR22SecondRefusalOfTheStepSkips();
     TestR22PullAndDirectStepsKeepTheirRefusals();
+    TestR22ThreeSkipsInARowPause();
     TestGoodPathClearsTheRefusalSign();
     TestForwardMoveIslandNeedsSecondSign();
     TestForwardMoveNoPathLedgeEscapes();
