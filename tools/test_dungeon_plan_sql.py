@@ -85,7 +85,7 @@ BOSS_PLANS["frostmane_hollow"] = 822
 SEEDED_BOSSES.update({(822, 63131): "Battlemaster Ubukaz", (822, 63129): "Kan'za the Seer",
                       (822, 63133): "Tan'sha the Sleek", (822, 63130): "Hailar the Frigid"})
 
-# Windhorn Canyon (20261023150100): its map and its seven boss steps, names from the map-820 spawn export
+# Windhorn Canyon (20261023150100, re-exported by 20261023230000): its map and its seven boss steps, names from the map-820 spawn export
 # (all rank 1). Added apart from the dicts above so that this change merges with the other plans' edits of them.
 BOSS_PLANS["windhorn_canyon"] = 820
 SEEDED_BOSSES.update({(820, 62784): "Walgan Bloodcaller", (820, 62783): "Ambassador Vortalus",
@@ -632,19 +632,20 @@ class DungeonPlanSql(unittest.TestCase):
         # The map 48 ai_dungeon_boss rows stay in 20261022210800 (the seed test holds them to one seeding).
 
     def test_windhorn_canyon_is_the_plan_with_the_pack_fixes(self):
-        # 20261023150100 (turtle-agent 0afaeeb, 2026-10-23): the Windhorn Canyon draft with the pack fixes of
-        # PREP-WINDHORN-CANYON-2026-10-23.md, no row hand-set, with the boss rows of map 820. 7 legs, 1890 steps
-        # (1898 rows: 188 pulls (46 + 32 + 17 + 14 + 36 + 9 + 34), the 7 boss rows and approach moves), bosses in
-        # leg order, no door or event step. The plan row has
+        # 20261023230000 (turtle-agent 9985e40, 2026-10-23) re-exports the Windhorn Canyon draft that 20261023150100 (0afaeeb) first
+        # put in, with the pack fixes of PREP-WINDHORN-CANYON-2026-10-23.md and the terrace fix of run 1 (approach stands on the
+        # z 241 terrace of leg 0, reached by the ring route; groups 14 and 15 swapped), no row hand-set. The map-820 boss rows stay in
+        # 20261023150100. 7 legs, 2096 steps (2104 rows: 188 pulls (46 + 32 + 17 + 14 + 36 + 9 + 34), the 7 boss rows and
+        # approach moves), bosses in leg order, no door or event step. The plan row has
         # empty unit lists (the world data has no AI/spell rows for these entries); the packs that stand with a
         # boss are that boss row's entries; co-located packs are merged; radii are cut to the groups' members.
         name, text = newest_plan_text("windhorn_canyon")
-        self.assertEqual(name, "20261023150100_world.sql")
+        self.assertEqual(name, "20261023230000_world.sql")
         rows = [r for r in self.step_rows(text) if r["plan"] == "windhorn_canyon"]
         # leg_rows() matches [A-Za-z0-9_] leg names only; ahgk'tos_the_pure is not a word, so the legs are
         # counted from the step rows (each leg's boss step proves its rows are there).
         self.assertEqual({r["leg"] for r in rows}, {"0", "1", "2", "3", "4", "5", "6"})
-        self.assertEqual(len(rows), 1890)
+        self.assertEqual(len(rows), 2096)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [46, 32, 17, 14, 36, 9, 34])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["62784", "62783", "62780", "62781", "62779", "62782", "62778"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -654,8 +655,20 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["62771", "", "62785", "62985", "", "", "62762"])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["windhorn_canyon"])
-        # The map-820 boss DELETE is scoped to this plan's own entries (it shares no map with another plan).
-        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", text)
+        # The terrace fix: the leg-0 pulls 14 (the Earthkeeper trio) and 15 (the Avenger pair) are swapped, and each terrace pack
+        # that is reached from another layer has a "pull group N approach" stand row on the z 241 floor before its pull.
+        leg0 = leg_steps(rows, 0)
+        pulls0 = [r for r in leg0 if r["kind"] == "pull"]
+        self.assertEqual([p["entries"] for p in pulls0[14:16]], ["62770,62774,62772", "62777,62774"])
+        self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg0 if r["comment"].endswith(" approach") and r["z"].startswith("24")],
+                         [("pull group 14 approach", "-7723.1", "-3423.4", "241.7"), ("pull group 15 approach", "-7668.5", "-3405.1", "241.9"),
+                          ("pull group 27 approach", "-7660.3", "-3404.4", "241.9"), ("pull group 32 approach", "-7786.4", "-3493.8", "240.8"),
+                          ("pull group 33 approach", "-7794.8", "-3450.1", "241"), ("pull group 34 approach", "-7816", "-3446.9", "240.9"),
+                          ("pull group 40 approach", "-7870.2", "-3445.1", "241.6"), ("pull group 44 approach", "-7755.9", "-3437.4", "241.1")])
+        # The map-820 boss DELETE is scoped to this plan's own entries (it shares no map with another plan); it stays in the first file.
+        first = dict(migrations())["20261023150100_world.sql"]
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", first)
+        self.assertNotIn("ai_dungeon_boss", text)
 
     def test_zulfarrak_and_uldaman_final_counts(self):
         # Each plan's newest INSERT follows the DELETE of its old steps and legs, so its rows are the plan after all migrations.
