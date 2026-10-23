@@ -894,6 +894,10 @@ AiPlayerbot.DungeonRunLootFfa = 0
 #   962 - Zul'Farrak, at_zumrah: if Witch Doctor Zum'rah is alive within 30 yd,
 #         he turns hostile, yells, and his encounter is marked in progress
 #         (nothing else). Opt in with: AiPlayerbot.BotAreaTriggers = 962
+# Since fix/plan-gossip-allow a dungeon run did not need this list for its own
+# plan: a move or move_direct step whose `entry` names a trigger armed it for the
+# run's bots while the run stood at that step (Zul'Farrak's walk into 962), and
+# no other unlisted trigger.
 # Comma-separated trigger ids; empty (the default) turns the feature off.
 # New automation, so it is off by default.
 # Default: (empty)

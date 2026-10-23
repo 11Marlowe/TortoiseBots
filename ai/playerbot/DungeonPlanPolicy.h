@@ -31,8 +31,8 @@ namespace ai
     enum class PlanStepKind : std::uint8_t
     {
         None = 0,
-        Move,        // walk (navmesh) to x,y,z
-        MoveDirect,  // straight walk to x,y,z (a gap the navmesh does not bridge)
+        Move,        // walk (navmesh) to x,y,z; `entry` (0 = none): the area trigger it walks into (ai::IsBotAreaTriggerArmed)
+        MoveDirect,  // straight walk to x,y,z (a gap the navmesh does not bridge); `entry` as for Move
         Pull,        // pull and kill the pack of `entries` within `radius` of x,y,z
         Boss,        // kill `entries` in order, then `entry`, near x,y,z
         Loot,        // loot chest or corpse `entry` near x,y,z; `item` must end in the bags

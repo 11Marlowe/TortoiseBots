@@ -574,16 +574,16 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     // area trigger (Zum'rah's at_zumrah) never fired for an all-bot party. Run
     // the script of a trigger the bot just walked into, as the client would
     // (dungeons only, not raids).
-    // A few position tests against the bot's map's index, twice a second.
-    if (!sPlayerbotAIConfig.botAreaTriggerIds.empty())
+    // A few position tests against the bot's map's index, twice a second: the listed
+    // triggers, and the one the current move step of the bot's dungeon run names.
+    if (areaTriggerCheckDelay > elapsed)
+        areaTriggerCheckDelay -= elapsed;
+    else
     {
-        if (areaTriggerCheckDelay > elapsed)
-            areaTriggerCheckDelay -= elapsed;
-        else
-        {
-            areaTriggerCheckDelay = ai::kBotAreaTriggerCheckMs;
-            ai::UpdateBotAreaTriggers(bot, areaTriggerState);
-        }
+        areaTriggerCheckDelay = ai::kBotAreaTriggerCheckMs;
+        uint32 const runTrigger = TortoiseBots::BotCommands::RunStepAreaTrigger(bot);
+        if (!sPlayerbotAIConfig.botAreaTriggerIds.empty() || runTrigger)
+            ai::UpdateBotAreaTriggers(bot, areaTriggerState, runTrigger);
     }
 
     // revalidate the

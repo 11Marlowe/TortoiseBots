@@ -25,16 +25,17 @@ namespace
         built = true;
 
         uint32 count = 0;
+        uint32 listed = 0;
         for (auto const& itr : sObjectMgr.GetAreaTriggersMap())
         {
             AreaTriggerEntry const& at = itr.second;
             MapEntry const* map = sMapStorage.LookupEntry<MapEntry>(at.mapid);
-            if (!IsBotFireableAreaTrigger(IsListedAreaTrigger(sPlayerbotAIConfig.botAreaTriggerIds, at.id),
-                                          sScriptMgr.GetAreaTriggerScriptId(at.id) != 0,
-                                          map && map->IsNonRaidDungeon(),
-                                          sObjectMgr.GetAreaTriggerTeleport(at.id) != nullptr,
-                                          sObjectMgr.IsTavernAreaTrigger(at.id),
-                                          sObjectMgr.GetBattlegroundEntranceTrigger(at.id) != nullptr))
+            // Listed or not: an unlisted one is armed only while a run's current move step names it.
+            if (!IsBotIndexableAreaTrigger(sScriptMgr.GetAreaTriggerScriptId(at.id) != 0,
+                                           map && map->IsNonRaidDungeon(),
+                                           sObjectMgr.GetAreaTriggerTeleport(at.id) != nullptr,
+                                           sObjectMgr.IsTavernAreaTrigger(at.id),
+                                           sObjectMgr.GetBattlegroundEntranceTrigger(at.id) != nullptr))
                 continue;
 
             BotAreaTriggerShape shape;
@@ -47,16 +48,20 @@ namespace
             shape.boxY = at.box_y;
             shape.boxZ = at.box_z;
             shape.boxOrientation = at.box_orientation;
+            shape.listed = IsListedAreaTrigger(sPlayerbotAIConfig.botAreaTriggerIds, at.id);
             index[at.mapid].push_back(shape);
             ++count;
+            if (shape.listed)
+                ++listed;
         }
-        sLog.outString("TortoiseBots: %u listed area triggers on %u dungeon maps can fire for bots.",
-                       count, uint32(index.size()));
+        sLog.outString("TortoiseBots: %u listed area triggers on %u dungeon maps can fire for bots "
+                       "(%u scripted in all; an unlisted one only at a run's move step that names it).",
+                       listed, uint32(index.size()), count);
         return index;
     }
 }
 
-void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state)
+void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, uint32_t runTrigger)
 {
     // Only a living bot in a group, inside a dungeon (not a raid), standing still or
     // walking (not on a taxi, not mid-teleport), the way a client would send it.
@@ -82,6 +87,8 @@ void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state)
     std::vector<uint32_t> nearNow;
     for (BotAreaTriggerShape const& shape : itr->second)
     {
+        if (!IsBotAreaTriggerArmed(shape.listed, shape.id, runTrigger))
+            continue;
         if (IsInsideAreaTriggerShape(shape, x, y, z, 0.0f))
             insideNow.push_back(shape.id);
         if (IsInsideAreaTriggerShape(shape, x, y, z, kBotAreaTriggerLeaveMargin))

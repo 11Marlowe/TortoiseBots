@@ -30,14 +30,35 @@ def body(text, start, end):
 class BotAreaTriggerWiringTest(unittest.TestCase):
     def test_update_ai_gates_and_throttles_the_check(self):
         fn = body(AI, "void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)", "\n}\n")
-        block = body(fn, "if (!sPlayerbotAIConfig.botAreaTriggerIds.empty())", "\n    }\n")
-        self.assertIn("areaTriggerCheckDelay = ai::kBotAreaTriggerCheckMs;", block)
-        self.assertIn("ai::UpdateBotAreaTriggers(bot, areaTriggerState);", block)
+        block = body(fn, "if (areaTriggerCheckDelay > elapsed)", "\n    }\n")
+        # The run's question is asked once per throttled check, never per tick; a check runs only with
+        # a listed trigger or a run step that names one.
+        throttled = block[block.index("areaTriggerCheckDelay = ai::kBotAreaTriggerCheckMs;"):]
+        self.assertIn("uint32 const runTrigger = TortoiseBots::BotCommands::RunStepAreaTrigger(bot);", throttled)
+        self.assertRegex(throttled, r"if \(!sPlayerbotAIConfig\.botAreaTriggerIds\.empty\(\) \|\| runTrigger\)\s*"
+                                    r"ai::UpdateBotAreaTriggers\(bot, areaTriggerState, runTrigger\);")
         self.assertEqual(AI.count("UpdateBotAreaTriggers("), 1)
+        self.assertEqual(AI.count("RunStepAreaTrigger("), 1)
+
+    def test_run_step_names_the_one_extra_trigger(self):
+        # Beyond the allowlist a bot fires only the trigger its active run's CURRENT move step names,
+        # read from the loaded plan (DungeonRun::RunStepAreaTriggerOf), and only that one.
+        commands = (ROOT / "commands/BotCommands.cpp").read_text()
+        fn = body(commands, "uint32_t RunStepAreaTrigger(Player* bot)", "\n}\n")
+        self.assertEqual(re.sub(r"\s+", " ", fn[fn.index("{"):]).strip(),
+                         "{ return TortoiseBots::DungeonRun::RunStepAreaTriggerOf(RunningRunOf(bot, true));")
+        self.assertIn("uint32_t RunStepAreaTrigger(Player* bot);", (ROOT / "runtime/CommandedGroupQuery.h").read_text())
+        update = body(MGR, "void ai::UpdateBotAreaTriggers(", "\n}\n")
+        loop = body(update, "for (BotAreaTriggerShape const& shape : itr->second)", "\n    }\n")
+        self.assertLess(loop.index("if (!IsBotAreaTriggerArmed(shape.listed, shape.id, runTrigger))"),
+                        loop.index("IsInsideAreaTriggerShape("))
+        self.assertIn("void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, uint32_t runTrigger)", MGR)
 
     def test_index_filter_uses_every_exclusion(self):
         fn = body(MGR, "BotAreaTriggerIndex const& GetIndex()", "\n    }\n}\n")
-        self.assertIn("IsListedAreaTrigger(sPlayerbotAIConfig.botAreaTriggerIds, at.id)", fn)
+        # Every scripted dungeon trigger is indexed with its listed flag; the per-check arming decides.
+        self.assertIn("IsBotIndexableAreaTrigger(sScriptMgr.GetAreaTriggerScriptId(at.id) != 0,", fn)
+        self.assertIn("shape.listed = IsListedAreaTrigger(sPlayerbotAIConfig.botAreaTriggerIds, at.id);", fn)
         self.assertIn("sScriptMgr.GetAreaTriggerScriptId(at.id) != 0", fn)
         self.assertIn("map && map->IsNonRaidDungeon()", fn)
         self.assertNotIn("map->IsDungeon()", fn)

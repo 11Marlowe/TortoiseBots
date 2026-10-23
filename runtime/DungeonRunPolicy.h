@@ -3042,6 +3042,20 @@ inline GossipOrder::RunGossipStep RunGossipStepOf(const Run* r)
     return out;
 }
 
+// The area trigger a run-bound bot may fire beyond AiPlayerbot.BotAreaTriggers
+// (ai::IsBotAreaTriggerArmed): the `entry` of the current move or move_direct step
+// of a running or paused run, read from the loaded plan (no database read).
+// 0 for no run, a done run, or any other step.
+inline std::uint32_t RunStepAreaTriggerOf(const Run* r)
+{
+    if (!r || !HoldsItsDead(*r))
+        return 0;
+    const PlanStep* s = Current(*r);
+    if (!s || (s->kind != PlanStepKind::Move && s->kind != PlanStepKind::MoveDirect))
+        return 0;
+    return s->entry;
+}
+
 // maxMinutes 0 = no limit.
 inline bool RunTimeLimitReached(std::uint64_t elapsedMs, std::uint32_t maxMinutes)
 {

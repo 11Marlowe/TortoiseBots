@@ -66,6 +66,24 @@ int main()
     CHECK(!IsBotFireableAreaTrigger(true, true, true, false, true, false));   // tavern
     CHECK(!IsBotFireableAreaTrigger(true, true, true, false, false, true));   // BG entrance
 
+    // The index holds every trigger that could fire (scripted, dungeon, no teleport, tavern or BG
+    // entrance), listed or not; which of them fire is decided per check (IsBotAreaTriggerArmed).
+    CHECK(IsBotIndexableAreaTrigger(true, true, false, false, false));
+    CHECK(!IsBotIndexableAreaTrigger(false, true, false, false, false));
+    CHECK(!IsBotIndexableAreaTrigger(true, false, false, false, false));
+    CHECK(!IsBotIndexableAreaTrigger(true, true, true, false, false));
+    CHECK(!IsBotIndexableAreaTrigger(true, true, false, true, false));
+    CHECK(!IsBotIndexableAreaTrigger(true, true, false, false, true));
+
+    // Armed: a listed trigger, or the one the CURRENT move step of the bot's active run names
+    // (runStepTrigger, 0 = none). Zul'Farrak's plan walks into 962 at leg 10 seq 101.
+    CHECK(IsBotAreaTriggerArmed(true, 962, 0));          // listed, no run: as before
+    CHECK(!IsBotAreaTriggerArmed(false, 962, 0));        // unlisted, no run (or not at that step): refused
+    CHECK(IsBotAreaTriggerArmed(false, 962, 962));       // unlisted, the run's current step names it
+    CHECK(!IsBotAreaTriggerArmed(false, 1526, 962));     // another trigger during the run: refused
+    CHECK(IsBotAreaTriggerArmed(true, 1526, 962));       // listed stays listed
+    CHECK(!IsBotAreaTriggerArmed(false, 0, 0));          // no id names nothing
+
     // The allowlist: 962 is the audited opt-in; the shipped default is empty.
     std::vector<uint32_t> const defaults = {962};
     CHECK(IsListedAreaTrigger(defaults, 962));

@@ -15,6 +15,8 @@
 // human member close by. This header holds the pure parts: the inside test
 // (the same math as the core's IsPointInAreaTriggerZone), the filters, and the
 // edge detection that fires each trigger once per entry.
+// Since fix/plan-gossip-allow a dungeon run's bots also fired the one unlisted
+// trigger the run's current move step names (IsBotAreaTriggerArmed).
 // Unit-tested in tools/test_bot_area_trigger_policy.cpp.
 
 #include <algorithm>
@@ -33,6 +35,9 @@ struct BotAreaTriggerShape
     float radius = 0.0f;
     float boxX = 0.0f, boxY = 0.0f, boxZ = 0.0f;
     float boxOrientation = 0.0f;
+    // On AiPlayerbot.BotAreaTriggers. An unlisted one fires only while the bot's run's
+    // current move step names it (IsBotAreaTriggerArmed).
+    bool listed = false;
 };
 
 // A sphere when radius > 0, else a box rotated about z (the core's rule).
@@ -64,9 +69,24 @@ inline bool IsInsideAreaTriggerShape(BotAreaTriggerShape const& at, float px, fl
 // the core's handler also treats as a teleport (instance entrances and exits),
 // a tavern or a battleground entrance. Those need the client's own checks and
 // replies, and a bot following its leader must never be ported.
+inline bool IsBotIndexableAreaTrigger(bool hasScript, bool dungeonMap, bool isTeleport, bool isTavern, bool isBgEntrance)
+{
+    return hasScript && dungeonMap && !isTeleport && !isTavern && !isBgEntrance;
+}
+
 inline bool IsBotFireableAreaTrigger(bool listed, bool hasScript, bool dungeonMap, bool isTeleport, bool isTavern, bool isBgEntrance)
 {
-    return listed && hasScript && dungeonMap && !isTeleport && !isTavern && !isBgEntrance;
+    return listed && IsBotIndexableAreaTrigger(hasScript, dungeonMap, isTeleport, isTavern, isBgEntrance);
+}
+
+// Which indexed trigger a bot's check tests: a listed one, or the one the CURRENT
+// move / move_direct step of the bot's running or paused dungeon run names in its
+// `entry` (runStepTrigger, DungeonRun::RunStepAreaTriggerOf; 0 = none). Plan-driven,
+// so a shipped plan needs no allowlist edit (Zul'Farrak walks into 962, at_zumrah);
+// any other unlisted trigger stays off, in a run or out of one.
+inline bool IsBotAreaTriggerArmed(bool listed, uint32_t id, uint32_t runStepTrigger)
+{
+    return listed || (runStepTrigger != 0 && id == runStepTrigger);
 }
 
 template <class List>

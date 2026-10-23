@@ -4235,6 +4235,41 @@ static void TestRunGossipStepOfReadsTheCurrentStep()
     CHECK(!MayTalkTo(none, RunGossipStepOf(&past), 3849));
 }
 
+// The area trigger a run-bound bot may fire beyond AiPlayerbot.BotAreaTriggers (RunStepAreaTriggerOf,
+// the glue's RunStepAreaTrigger): the `entry` of the CURRENT move / move_direct step of its running
+// or paused run, read from the loaded plan; 0 for anything else.
+static void TestRunStepAreaTriggerOfReadsTheCurrentMove()
+{
+    DungeonPlan plan;
+    PlanStep walkIn = Step(PlanStepKind::Move, 1903, 1014, 11.8f);
+    walkIn.entry = 962;
+    PlanStep direct = Step(PlanStepKind::MoveDirect, 1, 1, 1);
+    direct.entry = 963;
+    PlanStep boss = Step(PlanStepKind::Boss, 1, 1, 1);
+    boss.entry = 7271;
+    plan.steps = {Step(PlanStepKind::Rest), walkIn, direct, boss, Step(PlanStepKind::Move, 2, 2, 2)};
+    CHECK(RunStepAreaTriggerOf(nullptr) == 0);
+    Run r = Start(&plan);
+    CHECK(r.step == 0 && RunStepAreaTriggerOf(&r) == 0); // not the move step
+    r.step = 1;
+    CHECK(RunStepAreaTriggerOf(&r) == 962);
+    Pause(r, "test");
+    CHECK(RunStepAreaTriggerOf(&r) == 962);              // paused at it
+    r.state = State::Running;
+    r.step = 2;
+    CHECK(RunStepAreaTriggerOf(&r) == 963);              // a move_direct names one too
+    r.step = 3;
+    CHECK(RunStepAreaTriggerOf(&r) == 0);                // a boss step's entry is no trigger
+    r.step = 4;
+    CHECK(RunStepAreaTriggerOf(&r) == 0);                // a move without one
+    r.step = 1;
+    r.state = State::Done;
+    CHECK(RunStepAreaTriggerOf(&r) == 0);                // a finished run binds nothing
+    r.state = State::Running;
+    r.step = 9;
+    CHECK(RunStepAreaTriggerOf(&r) == 0);                // past the end
+}
+
 // The order's immediate ERR: an NPC that AiPlayerbot.BotGossipNpcs does not list pauses naming the key.
 static void TestGossipNotAllowedNamesTheConfigKey()
 {
@@ -16750,6 +16785,7 @@ static void TestResumeOfTheApproachPauseSearchesInPlaceThenDefers()
 int main()
 {
     TestRunGossipStepOfReadsTheCurrentStep();
+    TestRunStepAreaTriggerOfReadsTheCurrentMove();
     TestPatrollerOutsideTheRadiusIsWaitedForThenPulled();
     TestPatrollerWaitIsBounded();
     TestPatrollerGiveUpIsRunWide();

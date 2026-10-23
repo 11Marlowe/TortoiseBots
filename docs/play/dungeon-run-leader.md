@@ -73,8 +73,8 @@ One row is one thing to do. Steps run in `(leg, seq)` order; the primary key is 
 
 | Kind | Columns used | What it means |
 | :--- | :--- | :--- |
-| `move` | `x y z`, `flags` (`64` exact) | Walk on the navmesh to the point. A plan leg's `to` and every via point of the route are moves. With flag `64` the lead bot must stand on the point (1.5 yd, 2 s still) before the next step goes out: [Exact waypoints](#exact-waypoints). |
-| `move_direct` | `x y z` | Walk a straight line to the point (a short gap the navmesh does not bridge). |
+| `move` | `x y z`, `flags` (`64` exact), `entry` (an area trigger) | Walk on the navmesh to the point. A plan leg's `to` and every via point of the route are moves. With flag `64` the lead bot must stand on the point (1.5 yd, 2 s still) before the next step goes out: [Exact waypoints](#exact-waypoints). Since fix/plan-gossip-allow `entry` named the area trigger the step walks into (0 = none): while the run stood at the step, its bots fired that trigger's script although `AiPlayerbot.BotAreaTriggers` did not list it (Zul'Farrak leg 10 seq 101, `962` at_zumrah, migration 20261024000000), and no other unlisted trigger. |
+| `move_direct` | `x y z`, `entry` (an area trigger) | Walk a straight line to the point (a short gap the navmesh does not bridge). `entry` as for `move`. |
 | `move_hop_exact` | `x y z` | A `move_direct` launched from the exact `move` (flag `64`) right before it in its leg: it goes out only on that point's proof. Its own kind so that a module without exact waypoints skips the row and sends no direct order for it (the migration and the module are deployed together): [Exact waypoints](#exact-waypoints). |
 | `pull` | `x y z` (centre), `radius` (0: 15), `entries`, `flags` | The pack: every living unit of `entries` within `radius` of the centre. `flags 1`: the pack is stealthed; the party walks through it and fights what shows. |
 | `boss` | `entry`, `x y z`, `entries`, `radius` (0: 30), `flags` | Kill `entries` in that order, then the boss `entry`. |

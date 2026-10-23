@@ -13285,6 +13285,11 @@ static bool IsBoundToActiveDungeonRun(Player* bot)
 static bool const s_runReleaseHoldRegistered =
     (TortoiseBots::RunReleaseHold::Register(&IsBoundToActiveDungeonRun), true);
 
+uint32_t RunStepAreaTrigger(Player* bot)
+{
+    return TortoiseBots::DungeonRun::RunStepAreaTriggerOf(RunningRunOf(bot, true));
+}
+
 bool IsRunKillFirst(Player* bot, uint32_t entry)
 {
     TortoiseBots::DungeonRun::Run const* run = RunningRunOf(bot);
