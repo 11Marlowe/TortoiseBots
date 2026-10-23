@@ -103,6 +103,7 @@ constexpr float kRouteSpotYd = 10.0f;             // a lead bot this close to wh
                                                   // still on its route checkpoint's stretch (Run::routeKnown)
 constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point may be stood in for by a
                                                   // reachable one at most this far from it ...
+constexpr float kMoveFallbackYd = 25.0f;          // ... a plain move's point, this far (r22-19z40 Razorfen Kraul step 85)
 constexpr float kDetourEndYd = 5.0f;              // ... whose navmesh path ends this close to it (DetourPointReachable)
 constexpr float kGatherYd = 20.0f;                // every living bot this close to the lead before a pull
 constexpr float kHopPullYd = 15.0f;               // units this close to the next hop are pulled first
@@ -781,6 +782,11 @@ struct Run
     // reachable point near it instead (UseDetour).
     bool detour = false;
     float detourX = 0.0f, detourY = 0.0f, detourZ = 0.0f;
+    // The step whose own move (or its detour) was last refused for want of a
+    // path, and how many such refusals it had (MoveRefusedUnreachable). Kept by
+    // ResetStep, so a resume does not start the step's detour over.
+    std::size_t moveRefusedStep = static_cast<std::size_t>(-1);
+    std::uint32_t moveRefusals = 0;
     bool fighting = false;
     std::uint32_t fightMs = 0;
     std::uint32_t staleMs = 0;          // all the time in this fight the combat flag stood with nothing hostile engaged (Facts::staleCombat)
@@ -5613,9 +5619,17 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
     }
 }
 
+// How far from a move step's point a stand-in may be (UseDetour, the glue's
+// NearestReachablePoint): kMoveFallbackYd for a plain move, kDetourMaxYd for a
+// direct step (its line is over a navmesh hole).
+inline float MoveFallbackYd(const PlanStep& s)
+{
+    return s.kind == PlanStepKind::Move ? kMoveFallbackYd : kDetourMaxYd;
+}
+
 // The glue found that the current move step's point cannot be reached (its
 // `cmd move` was refused unreachable or off-mesh) and that (x,y,z), within
-// kDetourMaxYd of it, can: the step walks there instead, by the navmesh path
+// MoveFallbackYd of it, can: the step walks there instead, by the navmesh path
 // around whatever is in the way. False (nothing changes) when the step is not
 // a move, a detour is already on, or the point is too far from the plan's.
 inline bool UseDetour(Run& r, float x, float y, float z)
@@ -5628,13 +5642,96 @@ inline bool UseDetour(Run& r, float x, float y, float z)
     // is the very thing the flag forbids. The refusal pauses the run.
     if (IsExactPoint(r.plan, r.step) || ExactLaunch(r.plan, r.step) != static_cast<std::size_t>(-1))
         return false;
-    if (ai::PlanDistance(x, y, z, s->x, s->y, s->z) > kDetourMaxYd)
+    if (ai::PlanDistance(x, y, z, s->x, s->y, s->z) > MoveFallbackYd(*s))
         return false;
     r.detour = true;
     r.detourX = x;
     r.detourY = y;
     r.detourZ = z;
     EnterPhase(r, Phase::Begin);
+    return true;
+}
+
+// The refused order is the current move step's own `cmd move`, or its detour's
+// (UseDetour), and not a walk back's.
+inline bool OwnMoveOrder(const Run& r, const std::string& order)
+{
+    const PlanStep* s = Current(r);
+    if (!s || (s->kind != PlanStepKind::Move && s->kind != PlanStepKind::MoveDirect) ||
+        (r.walkBack && r.walkBackIdx < r.step))
+        return false;
+    return order == MoveOrder(s->x, s->y, s->z, s->kind == PlanStepKind::MoveDirect) ||
+        (r.detour && order == MoveOrder(r.detourX, r.detourY, r.detourZ, false));
+}
+
+// The answer of a `cmd move` the server refused for want of a path to the point.
+inline bool UnreachableAnswer(const std::string& answer)
+{
+    return answer.compare(0, 11, "unreachable") == 0 || answer.compare(0, 8, "off-mesh") == 0;
+}
+
+// Whether the glue searches a stand-in (NearestReachablePoint) for the step's
+// refused move: no detour on yet, and none used for this step before.
+inline bool MoveFallbackWanted(const Run& r)
+{
+    return Current(r) && !r.detour && !(r.moveRefusedStep == r.step && r.moveRefusals > 0);
+}
+
+// The glue's words after a refused move that found no stand-in either.
+inline std::string NoStandInNote(const PlanStep& s)
+{
+    return " (no reachable point within " + std::to_string(static_cast<int>(MoveFallbackYd(s))) + " yd of it either)";
+}
+
+// Razorfen Kraul r22-19z40 step 85: the plan's move to 2180 1604 81.2 lay in a
+// navmesh pocket of its own. The run leader walked around to a stand-in point,
+// the move was refused unreachable again, and the run paused; each resume
+// walked back to steps 66-81 and paused on the same refusal (3 times). Now the
+// glue hands a refused own move (OwnMoveOrder, UnreachableAnswer) here, with the
+// stand-in it found (found, dx dy dz; MoveFallbackWanted): its first refusal
+// walks to the stand-in (UseDetour, within kMoveFallbackYd), or else hops the
+// lead bot off a navmesh island (RefusedFromIsland, its own caps); a plain move
+// with neither, or refused a second time this step, is skipped with a note and
+// the party goes on to the next step. True: handled. False (OrderRefused
+// pauses or goes on as before): a direct step, an exact point or the step
+// before a direct one (the hole's crossing needs them), the guard's walk back
+// to its stand point, or a refusal from the lead bot's own spot
+// (LeadNoProgressRefusal: the next point would be refused the same way).
+inline bool MoveRefusedUnreachable(Run& r, const std::string& order, const std::string& answer, bool found,
+    float dx, float dy, float dz)
+{
+    const PlanStep* s = Current(r);
+    if (!s || r.state != State::Running || !OwnMoveOrder(r, order) || !UnreachableAnswer(answer))
+        return false;
+    if (r.moveRefusedStep != r.step)
+    {
+        r.moveRefusedStep = r.step;
+        r.moveRefusals = 0;
+    }
+    std::string const stepNo = std::to_string(r.step + 1);
+    std::string const point = Num(s->x) + " " + Num(s->y) + " " + Num(s->z);
+    bool const again = r.moveRefusals > 0;
+    if (!again && found && UseDetour(r, dx, dy, dz))
+    {
+        ++r.moveRefusals;
+        r.note = "step " + stepNo + ": cmd move to the plan's point " + point + " refused (" + answer +
+            "): walking to the nearest reachable point " + Num(dx) + " " + Num(dy) + " " + Num(dz) + ", " +
+            Num(ai::PlanDistance(dx, dy, dz, s->x, s->y, s->z)) + " yd from it, and going on from there";
+        return true;
+    }
+    if (!again && RefusedFromIsland(r, order, answer))
+        return true;
+    std::size_t const next = r.step + 1;
+    bool const beforeDirect = r.plan && next < r.plan->steps.size() &&
+        r.plan->steps[next].kind == PlanStepKind::MoveDirect;
+    if (s->kind != PlanStepKind::Move || IsExactPoint(r.plan, r.step) || beforeDirect ||
+        (r.guardReturn && order == MoveOrder(r.guardX, r.guardY, r.guardZ, false)) || LeadNoProgressRefusal(answer))
+        return false;
+    ++r.moveRefusals;
+    NextStep(r, "step " + stepNo + " move to " + point + " skipped: no walkable path; the party goes on to step " +
+        std::to_string(next + 1) + (again ? " (refused again after the walk to the nearest reachable point: " :
+        " (no reachable point within " + std::to_string(static_cast<int>(kMoveFallbackYd)) + " yd of it: ") +
+        answer + ")");
     return true;
 }
 

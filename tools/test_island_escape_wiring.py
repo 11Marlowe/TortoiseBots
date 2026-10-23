@@ -176,13 +176,18 @@ class IslandEscapeWiringTest(unittest.TestCase):
         # a ramp's dead-end tip, no ring point passed, and the run paused although the
         # escape had not run. The glue asks RefusedFromIsland after the detour search
         # and before OrderRefused (the pause), and only for an own-move path refusal.
+        # Since r22-19z40 the order lives in DungeonRun::MoveRefusedUnreachable, which the glue asks
+        # before OrderRefused (test_run_leader_wiring.py pins the glue's side).
         f = body(COMMANDS, "        if (!accepted)\n        {", "\n        }\n")
-        detour = at(f, "NearestReachablePoint(lead, step->x, step->y, step->z, dx, dy, dz) &&")
-        use = at(f, "TortoiseBots::DungeonRun::UseDetour(it->second.run, dx, dy, dz)) &&")
-        island = at(f, "!(unreachable && TortoiseBots::DungeonRun::RefusedFromIsland(it->second.run, order, answer)))")
+        detour = at(f, "NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::MoveFallbackYd(*step),")
+        handled = at(f, "TortoiseBots::DungeonRun::MoveRefusedUnreachable(it->second.run, order, answer, found, dx, dy, dz)))")
         refused = at(f, "TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +")
-        self.assertTrue(detour < use < island < refused)
+        self.assertTrue(detour < handled < refused)
         self.assertEqual(f.count("OrderRefused("), 1)
+        m = body(POLICY, "inline bool MoveRefusedUnreachable(", "\n}\n")
+        use = at(m, "if (!again && found && UseDetour(r, dx, dy, dz))")
+        island = at(m, "if (!again && RefusedFromIsland(r, order, answer))")
+        self.assertTrue(use < island < at(m, "NextStep(r,"))
         p = body(POLICY, "inline bool PathRefusalIslandSign(", "\n}\n")
         at(p, "LeadNoProgressRefusal(answer)")
         # The source-side evidence: CommanderMove marks the no-progress refusal (RemoteCommander::NoProgressFromLead).
