@@ -690,6 +690,10 @@ struct Facts
     // for the next hop passes an uncleared pull or boss group
     // (PathCrossesUnclearedPack); the shortcut is dropped for the replay.
     bool directPathCrossesPack = false;
+    // ... and the navmesh path the glue read for that hop is partial (PATHFIND_INCOMPLETE: it ends short of the
+    // point, on a ledge or a dead end). A straight walk back then replays the plan's own points (Razorfen Kraul r27
+    // slot 8: the hops toward the den at z 63 climbed to a ledge at z 104 with no way down, three times).
+    bool approachIncomplete = false;
     // In a fight, when the plan has kill_first: its living, not friendly units
     // from the bots' own attacker lists (a summoned healing ward included).
     std::vector<UnitFact> killFirst;
@@ -841,6 +845,9 @@ struct Facts
     // pack is cleared (Frostmane Hollow r20-19z39: the party ran back from each
     // boss and pack, 2-3 s a pull, and walked forward again).
     bool walkBackAfterWonFight = false;
+    // AiPlayerbot.DungeonRunRetreatAt2Dead (RetreatTick): on (1), two dead in a fight the party is losing pull the
+    // living back to the last stand once. Off (0, the default): nothing changes.
+    bool retreatAt2Dead = false;
     // The lead bot's ranged weapon shot range (its PullStrategy::GetRange(),
     // pull action "shoot" only); 0 for a spell pull, a body pull ("reach pull":
     // no ranged weapon, skill, spell or ammo) or when it could not be read. At or
@@ -1258,6 +1265,20 @@ struct Run
     std::size_t walkBackStart = 0; // the plan step the walk back began at (the straight target, or the replay's start)
     bool walkBackRestarted = false; // a replay that could not begin went back to the first point the route allows, once
     std::size_t walkBackIdx = 0; // the plan step whose point is walked now
+    // The step the run started at (`.bot run start ... from`, a placed run; 0 from the beginning; the glue sets it
+    // next to Start, whose `fromStep` the policy tests also use for a run that walked the steps before it). A walk back never
+    // goes to a point before it: the party never walked those steps in this run (Gnomeregan r27 slot 4, placed at
+    // step 543: after the wipe at step 615 the walk back replayed the plan's points from step 53, 23 minutes).
+    std::size_t startStep = 0;
+    // Times a straight walk back moved its target to an earlier point after its path passed an uncleared pack
+    // (ClearPointBefore, kStraightBackoffs), this walk back.
+    std::uint32_t straightBackoffs = 0;
+    // The retreat at two dead (RetreatTick, AiPlayerbot.DungeonRunRetreatAt2Dead): under way, its clock, the orders
+    // it sent, and whether this fight had its one retreat.
+    bool retreatOn = false;
+    std::uint32_t retreatMs = 0;
+    std::uint32_t retreatOrders = 0;
+    bool retreatDone = false;
     // The route checkpoint (run-wide: kept across steps, wipes and regroups):
     // the plan index of the move or direct step point the lead bot reached
     // last, its step done or a walk back's point (npos: none yet). The lead
@@ -4088,6 +4109,14 @@ inline void StrandFailed(Run& r, const std::string& why)
 
 inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)
 {
+    // The retreat at two dead (RetreatTick): a refused move ends it, the fight goes on as the bots' own; no pause.
+    if (r.retreatOn && order == MoveOrder(r.anchorX, r.anchorY, r.anchorZ, false))
+    {
+        r.retreatOn = false;
+        r.retreatDone = true;
+        r.note = "retreat refused (" + answer + "): fighting";
+        return;
+    }
     // The stranded lead bot's teleport (StrandedTeleportTick): nothing changed on
     // the lead bot. "wait" (a fight, the lead bot moved since the facts were read)
     // keeps it due, kStrandWaits times a step, then pauses; any other refusal is a
@@ -4574,6 +4603,41 @@ inline bool StallFallback(Run& r, const Facts& f, float x, float y, float z, boo
     return false;
 }
 
+// A walk back whose lead bot is stuck short of its point (the walk's tries spent) is not paused: the lead bot is
+// teleported to the last point it reached on the plan (LastReachedBefore: the route checkpoint, else the last move
+// point before the step) by the stranded lead bot's rescue (StrandedTeleportTick), and the walk back goes on from
+// there. Razorfen Kraul r27 slot 8: after each of three wipes the walk back's hops ended on a ledge at z 104, 37-50 yd
+// above the den, and paused "the lead bot is stuck 51.7 yd from 2078.0 1961.0 63.1"; a resume did nothing. Out of
+// combat only, at most once a step and kStrandTries failed tries a step (as StrandedLead), and never with the lead
+// bot at that point already. True when the rescue is due.
+inline bool WalkBackStuckRescue(Run& r, const Facts& f, float dist, float x, float y, float z)
+{
+    if (r.state != State::Running || !r.plan || !r.walkBack || r.walkBackIdx >= r.step || f.anyInCombat ||
+        r.strandDue || r.strandOn || r.strandStep == r.step ||
+        (r.strandCountStep == r.step && r.strandTries >= kStrandTries))
+        return false;
+    std::size_t const last = LastReachedBefore(r, r.step);
+    if (last == static_cast<std::size_t>(-1) || last >= r.plan->steps.size())
+        return false;
+    const PlanStep& p = r.plan->steps[last];
+    if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) <= kArriveYd)
+        return false;
+    StrandCountsForStep(r);
+    r.strandDue = true;
+    r.strandIdx = last;
+    r.strandX = f.leadX;
+    r.strandY = f.leadY;
+    r.strandZ = f.leadZ;
+    r.walkBackIdx = r.walkBackStart = last; // the walk back goes on from the point it is teleported to
+    r.walkBackDirect = false;
+    r.approachHops = 0;
+    EnterPhase(r, Phase::Begin);
+    r.note = "walk back: the lead bot is stuck " + Num(dist) + " yd from " + Num(x) + " " + Num(y) + " " + Num(z) +
+        StuckNote(r, f) + ": it is teleported to the last reached point (step " + std::to_string(last + 1) +
+        ") out of combat";
+    return true;
+}
+
 // Walks the party to a point. True once the lead bot is there; otherwise
 // `order` may hold the move to send. Pauses after kWalkTries moves without
 // progress.
@@ -4670,6 +4734,8 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
             return false;
         if (r.walkTries >= kWalkTries)
         {
+            if (WalkBackStuckRescue(r, f, dist, x, y, z))
+                return false;
             Pause(r, "the lead bot is stuck " + Num(dist) + " yd from " + Num(x) + " " + Num(y) + " " + Num(z) +
                 StuckNote(r, f));
             return false;
@@ -6372,18 +6438,19 @@ inline int PickApproachStand(const Run& r, const PlanStep& s, const std::vector<
 
 // The lowest plan index a walk back may start at: the checkpoint when it is
 // known (a point before it can lie behind a hole the lead bot crossed since),
-// else 0 (as at the entrance: before every hole).
+// else 0 (as at the entrance: before every hole). Never before the step the
+// run started at (Run::startStep: a placed run never walked the steps before it).
 inline std::size_t ReplayFloor(const Run& r)
 {
-    return CheckpointKnown(r) ? r.checkpoint : 0;
+    return std::max(CheckpointKnown(r) ? r.checkpoint : static_cast<std::size_t>(0), r.startStep);
 }
 
 // The first direct step before the current step that the lead bot has not
 // crossed (npos for none): after the checkpoint when it is known, else the
-// plan's first direct step.
+// plan's first direct step; never one before the run's start step.
 inline std::size_t FirstUncrossedDirect(const Run& r)
 {
-    std::size_t const from = CheckpointKnown(r) ? r.checkpoint + 1 : 0;
+    std::size_t const from = std::max(CheckpointKnown(r) ? r.checkpoint + 1 : static_cast<std::size_t>(0), r.startStep);
     for (std::size_t i = from; i < r.step && i < r.plan->steps.size(); ++i)
         if (r.plan->steps[i].kind == PlanStepKind::MoveDirect)
             return i;
@@ -6498,7 +6565,7 @@ inline std::size_t LastReachedBefore(const Run& r, std::size_t idx)
     if (r.routeKnown && r.checkpoint != static_cast<std::size_t>(-1) && r.checkpoint < idx)
         return r.checkpoint;
     std::size_t last = static_cast<std::size_t>(-1);
-    for (std::size_t i = 0; i < idx && i < r.plan->steps.size(); ++i)
+    for (std::size_t i = r.startStep; i < idx && i < r.plan->steps.size(); ++i)
         if (IsMovePoint(r.plan->steps[i]))
             last = i;
     return last;
@@ -6518,6 +6585,120 @@ inline std::size_t LastClearedFight(const Run& r, std::uint32_t team, std::size_
             found = i;
     }
     return found;
+}
+
+// ---------------------------------------------------------------------------
+// The walk back's way (time sinks 2026-10-23, WASTED-TIME sink 5; Gnomeregan r26 slot 4 and r27 slot 4).
+// r26: after the wipe at step 627 the straight walk back to step 623's point "passed an uncleared pack" (that point
+// is the stand beside the very pack that wiped the party: the path's last leg always comes that close), so the
+// replay began at the point nearest the lead bot, at the entrance (step 47), and walked every point up to step 277
+// in 14 min until the 3 h cap. r27 (placed at step 543): the same replay from step 53, 23 min to step 118.
+//   - A straight walk back aims at the latest point (from the last move point back, never before ReplayFloor) that
+//     lies out of every live pack's reach (StraightWalkBackTarget), so its path does not end beside one; the plan's
+//     points from there to the step are replayed.
+//   - A straight path that still passes an uncleared pack moves its target back to such a point at least
+//     kStraightBackoffYd before it, at most kStraightBackoffs times, before the replay of the plan's points.
+//   - The replay leaves out a stretch of the route that comes back within kRouteLinkYd (and kRouteLinkDzYd up or
+//     down) of the point just reached (RouteShortcut): an out-and-back side room's points are not walked twice.
+//     Only plain move points; never past a direct step, an exact point or its launch, or a pack left uncleared.
+//   - Steps before the run's start step count as uncleared for the path check (UnclearedForPath): a placed run
+//     never fought there.
+constexpr std::uint32_t kStraightBackoffs = 2;
+constexpr float kStraightBackoffYd = 40.0f;
+constexpr float kRouteLinkYd = 12.0f;
+constexpr float kRouteLinkDzYd = 3.0f;
+
+// Whether plan step `i` (a pull or boss of the party's team) is a live pack for the walk back: the current step and
+// later ones (LiveFrom), one left uncleared, or one before the run's start step.
+inline bool WalkBackPackLive(const Run& r, std::size_t i)
+{
+    return i >= LiveFrom(r, true) || r.notCleared.count(i) || i < r.startStep;
+}
+
+// Whether (x, y, z) lies within a live pull or boss group's radius plus kPackClearanceYd (PathCrossesUnclearedPack's
+// reach), for the party's team.
+inline bool PointNearLivePack(const Run& r, std::uint32_t team, float x, float y, float z)
+{
+    if (!r.plan)
+        return false;
+    for (std::size_t i = 0; i < r.plan->steps.size(); ++i)
+    {
+        const PlanStep& g = r.plan->steps[i];
+        if ((g.kind != PlanStepKind::Pull && g.kind != PlanStepKind::Boss) || !ai::StepForTeam(g, team) ||
+            !WalkBackPackLive(r, i))
+            continue;
+        if (ai::PlanDistance(x, y, z, g.x, g.y, g.z) <= g.radius + kPackClearanceYd)
+            return true;
+    }
+    return false;
+}
+
+// The steps the glue's straight-path check counts as not cleared besides those from LiveFrom on: notCleared, and
+// every step before the run's start step (PathCrossesUnclearedPack's `notCleared`).
+inline std::unordered_set<std::size_t> UnclearedForPath(const Run& r)
+{
+    std::unordered_set<std::size_t> out = r.notCleared;
+    for (std::size_t i = 0; i < r.startStep && r.plan && i < r.plan->steps.size(); ++i)
+        out.insert(i);
+    return out;
+}
+
+// The latest plain move point at or before `from` and at or after ReplayFloor that is out of every live pack's
+// reach and, when `minYd` > 0, at least that far from point `from` (npos for none).
+inline std::size_t ClearPointBefore(const Run& r, std::uint32_t team, std::size_t from, float minYd)
+{
+    if (!r.plan || from >= r.plan->steps.size())
+        return static_cast<std::size_t>(-1);
+    const PlanStep& t = r.plan->steps[from];
+    std::size_t const floor = ReplayFloor(r);
+    for (std::size_t j = from + 1; j-- > floor;)
+    {
+        const PlanStep& p = r.plan->steps[j];
+        if (p.kind == PlanStepKind::MoveDirect)
+            break; // never back over a hole
+        if (p.kind != PlanStepKind::Move)
+            continue;
+        if (minYd > 0.0f && ai::PlanDistance(p.x, p.y, p.z, t.x, t.y, t.z) < minYd)
+            continue;
+        if (!PointNearLivePack(r, team, p.x, p.y, p.z))
+            return j;
+    }
+    return static_cast<std::size_t>(-1);
+}
+
+// The straight walk back's target: the last move point `last` when no live pack is near it, else the latest plain
+// move point before it that is clear (ClearPointBefore); `last` when there is none.
+inline std::size_t StraightWalkBackTarget(const Run& r, std::uint32_t team, std::size_t last)
+{
+    if (!r.plan || last >= r.plan->steps.size())
+        return last;
+    const PlanStep& p = r.plan->steps[last];
+    if (!PointNearLivePack(r, team, p.x, p.y, p.z))
+        return last;
+    std::size_t const clear = ClearPointBefore(r, team, last, 0.0f);
+    return clear == static_cast<std::size_t>(-1) ? last : clear;
+}
+
+// The point a replayed walk back goes on to after reaching point `i`: the latest plain move point k > i, before the
+// current step, within kRouteLinkYd on the ground and kRouteLinkDzYd up or down of point i, with no direct step, exact
+// point (or its launch) or uncleared pack between them; i + 1's turn (i itself) when there is none.
+inline std::size_t RouteShortcut(const Run& r, std::size_t i)
+{
+    if (!r.plan || i >= r.plan->steps.size())
+        return i;
+    const PlanStep& a = r.plan->steps[i];
+    std::size_t best = i;
+    for (std::size_t k = i + 1; k < r.step && k < r.plan->steps.size(); ++k)
+    {
+        const PlanStep& p = r.plan->steps[k];
+        if (p.kind == PlanStepKind::MoveDirect || IsExactPoint(r.plan, k) || r.notCleared.count(k))
+            break;
+        if (p.kind != PlanStepKind::Move || ExactLaunch(r.plan, k) != static_cast<std::size_t>(-1))
+            continue;
+        if (GroundDistance(a.x, a.y, p.x, p.y) <= kRouteLinkYd && std::fabs(a.z - p.z) <= kRouteLinkDzYd)
+            best = k;
+    }
+    return best;
 }
 
 // After a regroup: the way back to the current step. The rule (route topology,
@@ -6554,11 +6735,12 @@ inline void StartWalkBack(Run& r, const Facts& f)
     r.walkBackDue = false;
     r.walkBack = false;
     r.walkBackDirect = false;
+    r.straightBackoffs = 0;
     const PlanStep* cur = Current(r);
     if (!cur)
         return;
     std::size_t last = r.step;
-    for (std::size_t i = 0; i < r.step; ++i)
+    for (std::size_t i = r.startStep; i < r.step; ++i) // never a point before the run's start step
         if (IsMovePoint(r.plan->steps[i]))
             last = i;
     // After a 'three moves in a row had no walkable path' pause (Run::noPathSkips, the run
@@ -6611,10 +6793,16 @@ inline void StartWalkBack(Run& r, const Facts& f)
     float const toStep = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, cur->x, cur->y, cur->z);
     if (toStep <= kApproachYd && toStep <= toLast)
         return; // back near the step already
+    // The straight target clear of every live pack (StraightWalkBackTarget): the last point when it is, else the
+    // latest point before it that is; the plan's points from there on are replayed.
+    std::size_t const target = StraightWalkBackTarget(r, f.team, last);
     r.walkBack = true;
     r.walkBackDirect = true;
-    r.walkBackIdx = last;
-    r.walkBackStart = last;
+    r.walkBackIdx = target;
+    r.walkBackStart = target;
+    if (target != last)
+        r.note = "walk back: the point of step " + std::to_string(last + 1) + " lies by an uncleared pack: straight to " +
+            "step " + std::to_string(target + 1) + ", then the plan's points";
     r.walkBackRestarted = false;
     r.approachHops = 0;
     EnterPhase(r, Phase::Begin);
@@ -6842,10 +7030,35 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
             IslandEscape(r, f, p.x, p.y, p.z, what, order);
             return true;
         }
+        if (r.walkBackDirect && f.approachKnown && f.approachIncomplete)
+        {
+            // No complete navmesh path reaches the point from here: hops along it end on a ledge or a dead end
+            // (Razorfen Kraul r27 slot 8). The plan's own points instead, the way the run came.
+            if (ReplayWalkBack(r, f))
+                r.note = "walk back: no complete path to " + what + " from here: replaying the plan's points";
+            else
+                r.note = "walk back: no complete path to " + what + " from here";
+            return true;
+        }
         if (r.walkBackDirect && f.directPathCrossesPack)
         {
-            // The shortest way passes a pack not cleared yet: the plan's own
-            // points instead (the way the run came, its packs cleared).
+            // The shortest way passes a pack not cleared yet: first a straight target farther back that no live pack
+            // is near (kStraightBackoffs times), then the plan's own points instead (the way the run came, its packs
+            // cleared).
+            if (r.straightBackoffs < kStraightBackoffs && r.walkBackIdx == r.walkBackStart)
+            {
+                std::size_t const back = ClearPointBefore(r, f.team, r.walkBackIdx, kStraightBackoffYd);
+                if (back != static_cast<std::size_t>(-1))
+                {
+                    ++r.straightBackoffs;
+                    r.walkBackIdx = r.walkBackStart = back;
+                    r.approachHops = 0;
+                    r.note = "walk back: the straight way to " + what + " passes an uncleared pack: straight to step " +
+                        std::to_string(back + 1) + " instead (" + std::to_string(r.straightBackoffs) + " of " +
+                        std::to_string(kStraightBackoffs) + ")";
+                    return true;
+                }
+            }
             if (ReplayWalkBack(r, f))
                 r.note = "walk back: the straight way to " + what + " passes an uncleared pack: replaying the plan's points";
             else
@@ -6978,7 +7191,16 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         // on (the hole's direct steps, then the rest), each one a hop of its
         // own, not a straight walk with the straight walk's cap.
         NoteReached(r, f, r.walkBackIdx);
+        // A stretch of the route that comes back by this point is left out (RouteShortcut): its points are the
+        // next ones after it.
+        std::size_t const reached = r.walkBackIdx;
+        std::size_t const on = direct ? reached : RouteShortcut(r, reached);
+        r.walkBackIdx = on > reached + 1 ? on - 1 : reached; // the next point is `on` itself
         NextWalkBackPoint(r);
+        if (on > reached + 1)
+            r.note = "walk back: the route comes back by the point of step " + std::to_string(reached + 1) +
+                " at step " + std::to_string(on + 1) + ": steps " + std::to_string(reached + 2) + "-" +
+                std::to_string(on) + " left out";
         if (reachedStraightTarget)
             r.walkBackDirect = false;
     }
@@ -10126,6 +10348,7 @@ inline Facts HoldView(const Run& r, const Facts& f)
 }
 
 inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines);
+inline void EndRetreat(Run& r);
 
 inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, const RestLines& lines = RestLines())
 {
@@ -10148,6 +10371,7 @@ inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, con
     {
         r.hpWatch.clear(); // HpHeldTick watches one fight
         ClearFightProgress(r); // ... and so does FightProgressTick
+        EndRetreat(r);         // ... and the retreat at two dead (RetreatTick)
     }
     bool const firstUnattackable = unattackable && !r.unattackableFight;
     r.unattackableFight = unattackable;
@@ -10189,6 +10413,91 @@ inline void ForgetUnitsThatCame(Run& r, const Facts& f)
         r.neverCame.erase(u.guid);
     if (f.leadHasAttacker)
         r.neverCame.erase(f.leadAttacker.guid);
+}
+
+// ---------------------------------------------------------------------------
+// The retreat at two dead (AiPlayerbot.DungeonRunRetreatAt2Dead, default 0; WASTED-TIME 2026-10-23 sink 5: 30 notes
+// "3 dead: fighting on, a regroup follows", each a wipe and a corpse walk back of 4-28 min). On: in a fight with
+// exactly kWipeDead - 1 members dead (two in a party of five), the lead bot alive and the fight being lost (the
+// progress watch behind the fight ceiling, FightProgressTick, read and no engaged unit set a new low in the last
+// kRetreatQuietMs), the living walk back to the run's last stand (Run::anchor, at most kRetreatMaxYd away) with one
+// `move` (sent again once after kRetreatResendMs), for at most kRetreatCapMs, once per fight; then the fight is the
+// bots' own again. Never inside a scripted event, on the steps leading into one, on a hold step, or on a boss step
+// that is an event (an encounter, or done by instance data or an object). A refused order ends it (OrderRefused).
+constexpr std::uint32_t kRetreatQuietMs = 15000;
+constexpr float kRetreatMaxYd = 40.0f;
+constexpr std::uint32_t kRetreatResendMs = 5000;
+constexpr std::uint32_t kRetreatCapMs = 20000;
+
+// The fight is being lost: the progress watch read engaged units for at least kRetreatQuietMs and none set a new low
+// in that time (FightProgressTick's marks).
+inline bool FightBeingLost(const Run& r)
+{
+    if (r.fightHp.empty() || r.fightHpMs < kRetreatQuietMs)
+        return false;
+    for (const auto& entry : r.fightHp)
+        if (entry.second.fell && r.fightHpMs - entry.second.at < kRetreatQuietMs)
+            return false;
+    return true;
+}
+
+// Whether the retreat may run on step `s` at all: no event (InEvent, a hold ahead, a hold step) and no event boss.
+inline bool RetreatAllowedOn(const Run& r, const PlanStep& s)
+{
+    if (InEvent(r) || EventHoldAhead(r) || s.kind == PlanStepKind::Hold)
+        return false;
+    std::uint32_t const eventFlags = ai::kPlanFlagEncounter | ai::kPlanFlagDoneData | ai::kPlanFlagDoneObject;
+    return !(s.kind == PlanStepKind::Boss && (s.flags & eventFlags));
+}
+
+// One fight tick of the retreat. True while it holds the tick (the guard, crowd control and focus wait).
+inline bool RetreatTick(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& order)
+{
+    if (!f.retreatAt2Dead)
+        return false;
+    if (r.retreatOn)
+    {
+        r.retreatMs += dt;
+        float const away = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.anchorX, r.anchorY, r.anchorZ);
+        if (away <= kArriveYd || r.retreatMs >= kRetreatCapMs || !f.leadAlive || f.dead >= kWipeDead)
+        {
+            r.retreatOn = false;
+            r.retreatDone = true;
+            r.note = "retreat over (" + Num(away) + " yd from the last stand): fighting";
+            return false;
+        }
+        if (r.retreatOrders < 2 && r.retreatMs >= kRetreatResendMs * r.retreatOrders)
+        {
+            ++r.retreatOrders;
+            order = MoveOrder(r.anchorX, r.anchorY, r.anchorZ, false);
+        }
+        r.note = "retreat: " + std::to_string(f.dead) + " dead, the living pull back to the last stand at " +
+            Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ) + " (" + Num(away) + " yd)";
+        return true;
+    }
+    if (r.retreatDone || f.dead + 1 != kWipeDead || f.alive == 0 || !f.leadAlive || !r.anchorKnown ||
+        !RetreatAllowedOn(r, s) || !FightBeingLost(r))
+        return false;
+    float const away = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.anchorX, r.anchorY, r.anchorZ);
+    if (away <= kArriveYd || away > kRetreatMaxYd)
+        return false;
+    r.retreatOn = true;
+    r.retreatMs = 0;
+    r.retreatOrders = 1;
+    order = MoveOrder(r.anchorX, r.anchorY, r.anchorZ, false);
+    r.note = "retreat: " + std::to_string(f.dead) + " dead and no engaged unit lost hp in " +
+        std::to_string(kRetreatQuietMs / 1000) + " s: the living pull back to the last stand at " + Num(r.anchorX) +
+        " " + Num(r.anchorY) + " " + Num(r.anchorZ) + " (" + Num(away) + " yd)";
+    return true;
+}
+
+// The retreat's state ends with the fight.
+inline void EndRetreat(Run& r)
+{
+    r.retreatOn = false;
+    r.retreatMs = 0;
+    r.retreatOrders = 0;
+    r.retreatDone = false;
 }
 
 inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines)
@@ -10646,6 +10955,9 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             r.ceilingQuietMs = 0;
             return order;
         }
+        // Two dead in a fight being lost: the living pull back to the last stand once (RetreatTick, key off by default).
+        if (RetreatTick(r, f, *s, dt, order))
+            return order;
         r.note = autoRegroup ? std::to_string(f.dead) + " dead: fighting on, a regroup follows"
                : !f.leadAlive ? std::string("the lead bot is dead: the others fight on") : std::string("fighting");
         if (runBackWait && !autoRegroup)

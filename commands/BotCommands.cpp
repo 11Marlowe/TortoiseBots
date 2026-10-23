@@ -9460,13 +9460,17 @@ bool GoodSpotCutOff(Player* lead, TortoiseBots::DungeonRun::Run const& run)
 // path is what `cmd move` accepts; a straight-line guess can sit off the mesh.
 // With `way`, the same path gives the island escape's facts (NoteLeadWay).
 bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& oy, float& oz,
-    std::vector<TortoiseBots::DungeonRun::PathPoint>* whole = nullptr, TortoiseBots::DungeonRun::Facts* way = nullptr)
+    std::vector<TortoiseBots::DungeonRun::PathPoint>* whole = nullptr, TortoiseBots::DungeonRun::Facts* way = nullptr,
+    bool* incomplete = nullptr)
 {
     using namespace TortoiseBots::DungeonRun;
     PathFinder path(lead);
     path.calculate(x, y, z, false);
     if (way)
         NoteLeadWay(path, lead, x, y, z, *way);
+    // A partial path (it ends short of the point): DungeonRun::Facts::approachIncomplete.
+    if (incomplete)
+        *incomplete = (static_cast<uint32>(path.getPathType()) & PATHFIND_INCOMPLETE) != 0;
     if (path.getPathType() & PATHFIND_NOPATH)
         return false;
     Movement::PointsArray const& points = path.getPath();
@@ -11095,6 +11099,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     // The guard's walk back after a won fight (DungeonRun::GuardWalkBackWanted): read every tick, so a config
     // reload switches it mid-run.
     f.walkBackAfterWonFight = sPlayerbotAIConfig.dungeonRunWalkBackAfterWonFight;
+    f.retreatAt2Dead = sPlayerbotAIConfig.dungeonRunRetreatAt2Dead;
     // A loot step's free-for-all detour (DungeonRun::LootFfaStep, AiPlayerbot.DungeonRunLootFfa): off, and no detour
     // left the method on ffa, no group is read. The method is read while a detour is live even when the key was
     // switched off meanwhile (a config reload): -1 means only "no group".
@@ -11451,11 +11456,12 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     std::vector<PathPoint> whole;
                     bool const direct = slot.run.walkBack && slot.run.walkBackDirect;
                     f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY,
-                        f.approachZ, direct ? &whole : nullptr, step->kind == ai::PlanStepKind::Move ? &f : nullptr);
+                        f.approachZ, direct ? &whole : nullptr, step->kind == ai::PlanStepKind::Move ? &f : nullptr,
+                        direct ? &f.approachIncomplete : nullptr);
                     if (direct && f.approachKnown)
                         f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan,
                             TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,
-                            slot.run.notCleared);
+                            TortoiseBots::DungeonRun::UnclearedForPath(slot.run));
                 }
                 if (!slot.run.walkBack)
                     break;
@@ -12651,6 +12657,7 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         }
         DungeonRunSlot slot;
         slot.run = Start(plan, startStep);
+        slot.run.startStep = startStep; // a walk back never goes before it (DungeonRun::ReplayFloor)
         DungeonRunSlot& stored = DungeonRuns()[commanderRaw] = slot;
         s_dungeonRunMs = 0;
         TB_LOG_DETAIL("TortoiseBots: run leader of %s started plan %s at step %u", commander->GetName(), plan->name.c_str(),

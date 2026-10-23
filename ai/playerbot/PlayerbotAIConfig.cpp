@@ -141,6 +141,7 @@ void PlayerbotAIConfig::LoadDungeonRunKeys()
     dungeonRunRezHold = config.GetBoolDefault("AiPlayerbot.DungeonRunRezHold", false);
     dungeonRunPullStand = config.GetBoolDefault("AiPlayerbot.DungeonRunPullStand", false);
     dungeonRunWalkBackAfterWonFight = config.GetBoolDefault("AiPlayerbot.DungeonRunWalkBackAfterWonFight", false);
+    dungeonRunRetreatAt2Dead = config.GetBoolDefault("AiPlayerbot.DungeonRunRetreatAt2Dead", false);
     dungeonRunLootFfa = config.GetBoolDefault("AiPlayerbot.DungeonRunLootFfa", false);
 }
 

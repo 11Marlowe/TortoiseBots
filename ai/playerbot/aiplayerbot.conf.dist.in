@@ -813,6 +813,15 @@ AiPlayerbot.DungeonSelfClear = 0
 # Only read while AiPlayerbot.DungeonSelfClear = 1.
 AiPlayerbot.DungeonRunWalkBackAfterWonFight = 0
 
+# The run leader's retreat at two dead. In a fight with two members dead, the lead
+# bot alive and no engaged unit losing hp for 15 s, the living walk back to the
+# run's last stand (at most 40 yd away) once, for at most 20 s, before a third
+# death makes it a wipe. Never in a scripted event or against an event boss.
+# 0 - off: the party fights on as before (Default)
+# 1 - on
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunRetreatAt2Dead = 0
+
 # The run leader's time limit, in minutes from `.bot run start` (a pause counts).
 # At the limit the run ends and its status line says "time limit reached (3h)".
 # 0 - no limit

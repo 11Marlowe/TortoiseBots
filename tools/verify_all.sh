@@ -85,6 +85,7 @@ python3 -m unittest tools/test_move_fail_note_wiring.py
 python3 -m unittest tools/test_stall_fallback_wiring.py
 python3 -m unittest tools/test_approach_walkback_wiring.py
 python3 -m unittest tools/test_ledge_chase_wiring.py
+python3 -m unittest tools/test_time_sinks_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -280,6 +281,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_run_release_hold_policy
         test_run_trace_records
         test_run_trace_summary
+        test_run_time_sinks_policy
         test_sapphiron_ice_policy
         test_seduction_policy
         test_service_trip_policy
