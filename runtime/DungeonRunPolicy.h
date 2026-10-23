@@ -930,6 +930,19 @@ struct Run
     // Pull and boss steps left without being cleared (skipped, out of reach):
     // a direct walk back keeps clear of them too.
     std::unordered_set<std::size_t> notCleared;
+    // Windhorn Canyon r26 slot 5b step 68: pull steps whose pack was judged not reachable
+    // from the floor the party stood on (DeferUnreachablePack) were deferred, not paused:
+    // each is tried once more at the end of its leg (StepAfter), from where the party is then.
+    std::vector<std::size_t> deferredPulls;                        // deferred, their retry still to come
+    std::size_t deferRetryStep = static_cast<std::size_t>(-1);     // the current step is that retry
+    std::size_t deferReturnStep = static_cast<std::size_t>(-1);    // the step the run goes on with after the retries
+    std::uint8_t deferLeg = 0;                                     // the leg those retries belong to
+    std::vector<std::size_t> deferGivenUp; // still not reachable on the retry: skipped, not cleared (DoneNote lists them)
+    std::string deferLog; // a deferral or a give-up, for the glue's log once (the glue clears it)
+    // Where the lead bot stood when an approach paused (PauseApproach): a resume that finds it
+    // still there searches the stand from that spot, with no walk back (ApproachResumeInPlace).
+    bool approachPauseKnown = false;
+    float approachPauseX = 0.0f, approachPauseY = 0.0f, approachPauseZ = 0.0f;
     // Walk.
     float walkX = 0.0f, walkY = 0.0f, walkZ = 0.0f;
     std::uint32_t walkTries = 0;
@@ -1766,10 +1779,33 @@ inline std::string WipeCounts(const Run& r)
     return out;
 }
 
+// The deferred pulls still not reachable on their retry (Run::deferGivenUp), for the
+// run's end: "" when there are none.
+inline std::string DeferredReport(const Run& r)
+{
+    if (r.deferGivenUp.empty() || !r.plan)
+        return std::string();
+    std::string out = std::to_string(r.deferGivenUp.size()) + (r.deferGivenUp.size() == 1 ? " pack" : " packs") +
+        " not reached (deferred, then skipped on the retry):";
+    for (std::size_t i = 0; i < r.deferGivenUp.size(); ++i)
+    {
+        std::size_t const idx = r.deferGivenUp[i];
+        out += std::string(i ? "," : "") + " step " + std::to_string(idx + 1);
+        if (idx < r.plan->steps.size())
+        {
+            const PlanStep& s = r.plan->steps[idx];
+            out += " at " + Num(s.x) + " " + Num(s.y) + " " + Num(s.z);
+        }
+    }
+    return out;
+}
+
 inline std::string DoneNote(const Run& r)
 {
     std::string const counts = WipeCounts(r);
-    return counts.empty() ? std::string("plan done") : "plan done (" + counts + ")";
+    std::string const deferred = DeferredReport(r);
+    std::string const all = counts.empty() ? deferred : deferred.empty() ? counts : counts + "; " + deferred;
+    return all.empty() ? std::string("plan done") : "plan done (" + all + ")";
 }
 
 // Each bot's distance to the lead bot now: the sample a gather's ceiling
@@ -2484,6 +2520,7 @@ inline void ClearApproachStand(Run& r)
     r.approachStandResumed = false;
     r.approachStandResumedSearch = false;
     r.approachStandWhy.clear();
+    r.approachPauseKnown = false;
 }
 
 // A rewind of the run to an earlier step (EventFailed, RearmEventOnWipe): the approach
@@ -2496,16 +2533,66 @@ inline void ForgetRewoundRoute(Run& r)
     r.noPathSkips.clear();
 }
 
+// The point of a step as a note shows it ("1000.0 0.0 0.0").
+inline std::string StepPoint(const PlanStep& s)
+{
+    return Num(s.x) + " " + Num(s.y) + " " + Num(s.z);
+}
+
+// The step after the current one (NextStep). A step that ends its leg (the plan's last
+// too) first hands the run to the pulls deferred in that leg (Run::deferredPulls,
+// DeferUnreachablePack), one at a time and once each: the deferred step is current
+// again, out of notCleared until its retry ends; once the last retry is done the run
+// goes on with the step it would have taken (Run::deferReturnStep). A run taken
+// elsewhere during a retry (a rewind) ends the retry; its pull comes up again in order.
+// `note` gets the retry's note.
+inline std::size_t StepAfter(Run& r, std::string& note)
+{
+    std::size_t const npos = static_cast<std::size_t>(-1);
+    std::size_t const total = r.plan ? r.plan->steps.size() : 0;
+    if (r.step >= total)
+        return r.step + 1;
+    bool retried = false;
+    if (r.deferRetryStep != npos)
+    {
+        retried = r.deferRetryStep == r.step;
+        r.deferRetryStep = npos;
+    }
+    std::size_t const next = retried ? r.deferReturnStep : r.step + 1;
+    std::uint8_t const leg = retried ? r.deferLeg : r.plan->steps[r.step].leg;
+    if (!retried && next < total && r.plan->steps[next].leg == leg)
+        return next;
+    for (auto it = r.deferredPulls.begin(); it != r.deferredPulls.end(); ++it)
+    {
+        std::size_t const idx = *it;
+        if (idx >= total || r.plan->steps[idx].leg != leg)
+            continue;
+        r.deferredPulls.erase(it);
+        r.deferRetryStep = idx;
+        r.deferReturnStep = next;
+        r.deferLeg = leg;
+        r.notCleared.erase(idx); // the retry's own end says whether it was cleared
+        std::string legName = r.plan->LegName(leg);
+        if (legName.empty())
+            legName = std::to_string(leg);
+        note += "; the end of leg " + legName + ": the deferred pack of step " + std::to_string(idx + 1) + " at " +
+            StepPoint(r.plan->steps[idx]) + " is tried again from here";
+        return idx;
+    }
+    return next;
+}
+
 inline void NextStep(Run& r, const std::string& note)
 {
     r.pendingMissing = 0;
     r.unreachableSkips.clear(); // a step done (MoveRefusedUnreachable puts its own skips back)
     ClearApproachStand(r);
-    ++r.step;
+    std::string full = note;
+    r.step = StepAfter(r, full);
     r.autoRegroups = 0;
     ResetStep(r);
     r.fightMs = 0; // a fight that goes on into the next step starts its ceiling over (the hold's 400 s were the wait step's)
-    r.note = note;
+    r.note = full;
     if (!Current(r))
     {
         r.state = State::Done;
@@ -2787,6 +2874,27 @@ inline bool NeverSkipMove(const Run& r)
             k == PlanStepKind::Hold;
     }
     return false;
+}
+
+// Whether the current step is a pull the run may defer when its pack is not reachable
+// from this floor (DeferUnreachablePack). Never a boss, never a pull that gates a later
+// step: looking past rests, item uses and plain moves (an exact move launches a direct
+// hop), the next step must be another pull, or the plan must end. A pull before a boss,
+// a hold, a wait, an object or gossip step, a loot or a direct step keeps the pause.
+inline bool PullMayBeDeferred(const Run& r)
+{
+    const PlanStep* s = Current(r);
+    if (!s || s->kind != PlanStepKind::Pull)
+        return false;
+    for (std::size_t i = r.step + 1; i < r.plan->steps.size(); ++i)
+    {
+        PlanStepKind const k = r.plan->steps[i].kind;
+        if (k == PlanStepKind::Rest || k == PlanStepKind::UseItem ||
+            (k == PlanStepKind::Move && !IsExactPoint(r.plan, i)))
+            continue;
+        return k == PlanStepKind::Pull;
+    }
+    return true;
 }
 
 inline bool Resume(Run& r)
@@ -5117,6 +5225,72 @@ inline bool IsStepTarget(const PlanStep& s, std::uint32_t entry)
     return entry && (entry == s.entry || std::find(s.entries.begin(), s.entries.end(), entry) != s.entries.end());
 }
 
+// A pause of the approach (the hops, the stand): where the lead bot stood is kept, so a
+// resume that finds it still there skips the walk back (ApproachResumeInPlace).
+inline void PauseApproach(Run& r, const Facts& f, const std::string& why)
+{
+    Pause(r, why);
+    r.approachPauseKnown = true;
+    r.approachPauseX = f.leadX;
+    r.approachPauseY = f.leadY;
+    r.approachPauseZ = f.leadZ;
+}
+
+// How far the lead bot may stand from the approach pause's spot for a resume to search
+// the stand from where it is, with no walk back first.
+constexpr float kApproachResumeInPlaceYd = 20.0f;
+
+// Windhorn Canyon r26 slot 5b step 68: each resume of the approach pause walked back to
+// step 59 and hopped the same way into the same pause (4 pauses, ~100 s each). A resume
+// whose lead bot still stands where that pause left it (the regroup's end) skips the walk
+// back: the stand search goes out from there (ApproachStand), and for a pull that may be
+// deferred, none found defers it (ApproachStandFound).
+inline bool ApproachResumeInPlace(const Run& r, const Facts& f)
+{
+    return r.approachStandResumed && r.approachStandStep == r.step && r.approachPauseKnown &&
+        ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.approachPauseX, r.approachPauseY, r.approachPauseZ) <=
+        kApproachResumeInPlaceYd;
+}
+
+// Windhorn Canyon r26 slot 5b (2026-10-23): step 68's pack stood on the z 242 terrace,
+// the party fought on the z 195-222 floor below; '8 approach hops did not bring the party
+// within 60.0 yd of the pack; ... not reachable from this floor: no safe stand 15.0-25.0
+// yd from it the lead bot has a path to' paused the run 4 times, and the stop rule ended
+// it at step 68 of 1890. A pull whose pack is judged not reachable from this floor (no
+// safe stand after hops that got no nearer, or a stand that did not bring it in sight) is
+// deferred instead when PullMayBeDeferred: the run notes it, counts it not cleared (a
+// walk back keeps clear of it) and goes on; at the end of the leg it is tried once more
+// (StepAfter) with a fresh approach and stand search from where the party is then. Still
+// not reachable on that retry: skipped with a note, listed at the run's end (DoneNote).
+// False: not deferred (a boss, a gating pull): the caller pauses as before.
+inline bool DeferUnreachablePack(Run& r, const PlanStep& s, const std::string& why)
+{
+    bool const retry = r.deferRetryStep == r.step;
+    if (!retry && !PullMayBeDeferred(r))
+        return false;
+    std::size_t const idx = r.step;
+    std::string const pack = "pack at " + StepPoint(s);
+    std::string note;
+    r.notCleared.insert(idx);
+    if (retry)
+    {
+        if (std::find(r.deferGivenUp.begin(), r.deferGivenUp.end(), idx) == r.deferGivenUp.end())
+            r.deferGivenUp.push_back(idx);
+        note = pack + " skipped, not cleared: still not reachable from this floor on its retry at the end of the leg (" +
+            why + ")";
+    }
+    else
+    {
+        if (std::find(r.deferredPulls.begin(), r.deferredPulls.end(), idx) == r.deferredPulls.end())
+            r.deferredPulls.push_back(idx);
+        note = pack + " deferred: not reachable from this floor; the run goes on (" + why +
+            "); it is tried again at the end of the leg";
+    }
+    r.deferLog = "step " + std::to_string(idx + 1) + ": " + note;
+    NextStep(r, note);
+    return true;
+}
+
 // Whether a step whose approach hops got no nearer asks the glue for a stand
 // (ApproachStand): a pull or boss step, its stand not tried yet this step.
 inline bool ApproachStandWanted(const Run& r, const PlanStep& s)
@@ -5171,10 +5345,13 @@ inline bool ApproachStand(Run& r, const PlanStep& s, std::uint32_t dt, const Fac
     {
         // The walk ended (WalkTo, the Walk phase above) and the pack is still out of sight.
         r.approachStand = 3;
-        Pause(r, (r.approachStandWhy.empty() ? std::string() : r.approachStandWhy + "; ") + pack +
-            " is not reachable from this floor: the stand " + Num(r.approachStandX) + " " +
-            Num(r.approachStandY) + " " + Num(r.approachStandZ) + " did not bring it within " + Num(kSeeYd) +
-            " yd (the lead bot " + Num(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s.x, s.y, s.z)) + " yd from it)");
+        std::string const why = "the stand " + Num(r.approachStandX) + " " + Num(r.approachStandY) + " " +
+            Num(r.approachStandZ) + " did not bring it within " + Num(kSeeYd) + " yd (the lead bot " +
+            Num(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s.x, s.y, s.z)) + " yd from it)";
+        if (DeferUnreachablePack(r, s, why))
+            return true;
+        PauseApproach(r, f, (r.approachStandWhy.empty() ? std::string() : r.approachStandWhy + "; ") + pack +
+            " is not reachable from this floor: " + why);
         return true;
     }
     if (r.approachStandResumed && r.approachStand == 0)
@@ -5207,7 +5384,17 @@ inline bool ApproachStandFound(Run& r, const Facts& f, bool found, float x, floa
     float const ring = found ? ai::PlanDistance(x, y, z, s->x, s->y, s->z) : 0.0f;
     bool const resumedSearch = r.approachStandResumedSearch;
     r.approachStandResumedSearch = false;
-    if ((!found || ring > kApproachStandYd + 0.5f || ring < ApproachStandMinRing(*s) - 0.5f) && resumedSearch)
+    bool const none = !found || ring > kApproachStandYd + 0.5f || ring < ApproachStandMinRing(*s) - 0.5f;
+    std::string const noStand = "no safe stand " + Num(ApproachStandMinRing(*s)) + "-" + Num(kApproachStandYd) +
+        " yd from it the lead bot has a path to (the lead bot " +
+        Num(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s->x, s->y, s->z)) + " yd from it" +
+        (r.approachBestYd > 0.0f ? ", the approach hops got no nearer than " + Num(r.approachBestYd) + " yd" : "") + ")";
+    // A pull that may be deferred (DeferUnreachablePack): no hops again after a resume's
+    // search found none, no pause: deferred (or, on its retry, skipped).
+    if (none && DeferUnreachablePack(r, *s, (resumedSearch ? std::string("resumed: ") : std::string()) +
+            (r.approachStandWhy.empty() ? std::string() : r.approachStandWhy + "; ") + noStand))
+        return false;
+    if (none && resumedSearch)
     {
         // A resume's search from where the party stands now found none (the Opus review of
         // f1fdeb67: a player who moved the party behind a winding ramp had no way out but
@@ -5217,15 +5404,11 @@ inline bool ApproachStandFound(Run& r, const Facts& f, bool found, float x, floa
         r.note = "approach (resumed): no safe stand near " + pack + " from here: approach hops again";
         return false;
     }
-    if (!found || ring > kApproachStandYd + 0.5f || ring < ApproachStandMinRing(*s) - 0.5f)
+    if (none)
     {
         r.approachStand = 3;
-        Pause(r, (r.approachStandWhy.empty() ? std::string() : r.approachStandWhy + "; ") + pack +
-            " is not reachable from this floor: no safe stand " + Num(ApproachStandMinRing(*s)) + "-" +
-            Num(kApproachStandYd) + " yd from it the lead bot has a path to (the lead bot " +
-            Num(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s->x, s->y, s->z)) + " yd from it" +
-            (r.approachBestYd > 0.0f ? ", the approach hops got no nearer than " + Num(r.approachBestYd) + " yd" : "") +
-            ")");
+        PauseApproach(r, f, (r.approachStandWhy.empty() ? std::string() : r.approachStandWhy + "; ") + pack +
+            " is not reachable from this floor: " + noStand);
         return false;
     }
     r.approachStand = 2; // the next tick walks there (ApproachStand)
@@ -5303,7 +5486,10 @@ inline void ApproachHop(Run& r, const Facts& f, const PlanStep& s, std::uint32_t
             r.note = why + ": looking for a stand within " + Num(kApproachStandYd) + " yd of it";
             return;
         }
-        Pause(r, why);
+        if (r.approachStandStep == r.step)
+            PauseApproach(r, f, why); // the stand was tried: a resume searches it again (ApproachStand)
+        else
+            Pause(r, why);
         return;
     }
     r.hopWalk = true;
@@ -9404,6 +9590,11 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.leadDied = false;
         r.holdDue = false;
         r.note = "regrouped";
+        if (r.walkBackDue && ApproachResumeInPlace(r, f))
+        {
+            r.walkBackDue = false;
+            r.note = "regrouped where the approach paused: no walk back, the stand is searched from here";
+        }
         if (r.walkBackDue)
         {
             StartWalkBack(r, f);

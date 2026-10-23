@@ -11934,6 +11934,13 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             ApproachStandSearch(lead, slot.run, *step, facts.team, sx, sy, sz);
         TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);
     }
+    // A pull deferred, or skipped on its retry, as not reachable from this floor
+    // (DungeonRun::DeferUnreachablePack, in the tick or in the stand's answer above): logged once.
+    if (!slot.run.deferLog.empty())
+    {
+        TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(), slot.run.deferLog.c_str());
+        slot.run.deferLog.clear();
+    }
     // While the party rests the lead bot holds where it stands
     // (DungeonRun::LeadStayDueWhileResting, RFC r3-19z20). Before the rest
     // order below, so its own drink or meal follows the stay's reset.

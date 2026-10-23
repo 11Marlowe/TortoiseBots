@@ -849,6 +849,20 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
         self.assertIn("f.leadResting = HasMealAura(lead) || lead->GetStandState() != UNIT_STAND_STATE_STAND;", facts)
         self.assertIn("f.leadCasting = lead->IsNonMeleeSpellCasted(true, false, true);", facts)
         self.assertIn("f.leadInCombat = member.inCombat;", facts)
+    def test_a_deferred_pull_is_logged_once_after_the_stand_answer(self):
+        # Windhorn Canyon r26 slot 5b step 68: a pull not reachable from this floor is deferred, not paused
+        # (DungeonRun::DeferUnreachablePack, tested in tools/test_dungeon_run_policy.cpp). The run keeps running, so
+        # the end-of-tick log of a stopped run never shows it: the glue logs the policy's deferLog once, after both
+        # places a deferral comes from (the tick, and the stand search's answer), and clears it.
+        tick = body(strip_comments(COMMANDS), "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        log = ("if (!slot.run.deferLog.empty())\n    {\n"
+               "        TB_LOG_DETAIL(\"TortoiseBots: run leader of %s: %s\", commander->GetName(), slot.run.deferLog.c_str());\n"
+               "        slot.run.deferLog.clear();\n    }")
+        self.assertIn(log, tick)
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"), tick.index(log))
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);"),
+                        tick.index(log))
+
 
 if __name__ == "__main__":
     unittest.main()
