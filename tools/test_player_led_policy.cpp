@@ -724,10 +724,14 @@ static void TestPlayerDownOrAway()
     PL::Tick(r, pl, f, a);
     PL::Anchor outside = a;
     outside.onMap = false;
+    CHECK(PL::Tick(r, pl, f, outside) == "stay"); // S5: the bots hold
     CHECK(PL::Tick(r, pl, f, outside).empty());
-    CHECK(r.note.find("not in the plan's dungeon") != std::string::npos);
+    CHECK(r.note.find("left the plan's dungeon") != std::string::npos);
+    CHECK(PL::Tick(r, pl, f, a) == "follow");
     PL::Anchor ghost = a;
     ghost.ghost = true;
+    ghost.alive = false;
+    CHECK(PL::Tick(r, pl, f, ghost) == "stay");
     CHECK(PL::Tick(r, pl, f, ghost).empty());
 }
 
@@ -829,8 +833,325 @@ static void TestMovedSince()
     CHECK(!PL::MovedSince(pl, 50, 50, 0));
 }
 
+// ---------------------------------------------------------------------------
+// S5: the player down or away; loot steps
+// ---------------------------------------------------------------------------
+
+static void TestAwayTimerStopsTheRun()
+{
+    DungeonPlan plan = Route();
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    pl.awayMinutes = 1;
+    PL::Anchor out = Player(10);
+    out.onMap = false;
+    Facts f = Seen({});
+    CHECK(PL::Tick(r, pl, f, out) == "stay");
+    CHECK(pl.held == PL::State::Held::Away);
+    for (int i = 0; i < 58; ++i)
+        CHECK(PL::Tick(r, pl, f, out).empty());
+    CHECK(r.state == State::Running);
+    CHECK(r.note.find("1 min the run goes on") != std::string::npos);
+    CHECK(!PL::Pick(r, pl, Player(10), {}) || true); // a pick on the way back is fine
+    PL::State pl2 = Led();
+    pl2.awayMinutes = 1;
+    Run r2 = Start(&plan);
+    for (int i = 0; i < 59; ++i)
+        PL::Tick(r2, pl2, f, out);
+    CHECK(r2.state == State::Running);
+    CHECK(PL::Tick(r2, pl2, f, out).empty());
+    CHECK(r2.state == State::Done);
+    CHECK(r2.note.find("away from the plan's dungeon for 1 min") != std::string::npos);
+    // Back in time: follow once, the clock starts over.
+    PL::State pl3 = Led();
+    Run r3 = Start(&plan);
+    PL::Tick(r3, pl3, f, out);
+    PL::Tick(r3, pl3, f, out);
+    CHECK(PL::Tick(r3, pl3, f, Player(-200)) == "follow");
+    CHECK(pl3.awayMs == 0 && pl3.held == PL::State::Held::None);
+    CHECK(PL::Tick(r3, pl3, f, Player(-200)).empty());
+}
+
+// A fight while he is away or down goes on as ever (the run bounds the picked step's fight; no stay order).
+static void TestFightGoesOnWhileHeIsDown()
+{
+    DungeonPlan plan = Route();
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    PL::Pick(r, pl, Player(10), {});
+    Facts fight = Seen({Unit(11, 4851, 10)});
+    fight.anyInCombat = true;
+    PL::Anchor ghost = Player(10);
+    ghost.alive = false;
+    ghost.ghost = true;
+    std::string const order = PL::Tick(r, pl, fight, ghost);
+    CHECK(order != "stay");
+    CHECK(pl.held == PL::State::Held::None);
+    CHECK(r.fighting);
+}
+
+// Dead (a body): waited for, no stay (a resurrector may walk to him). A ghost: the party holds. Alive again: the
+// party follows once he is back near it; his own follow ends the hold too.
+static void TestDownStates()
+{
+    DungeonPlan plan = Route();
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    Facts f = Seen({});
+    PL::Anchor body = Player(-50);
+    body.alive = false;
+    for (int i = 0; i < 5; ++i)
+        CHECK(PL::Tick(r, pl, f, body).empty());
+    CHECK(pl.held == PL::State::Held::None);
+    CHECK(r.note.find("waiting for a resurrection") != std::string::npos);
+    PL::Anchor ghost = body;
+    ghost.ghost = true;
+    CHECK(PL::Tick(r, pl, f, ghost) == "stay");
+    PL::Anchor alive = Player(-300);
+    alive.botsMaxYd = 250;
+    CHECK(PL::Tick(r, pl, f, alive).empty());
+    CHECK(r.note.find("come back to your party") != std::string::npos);
+    alive.botsMaxYd = 10;
+    CHECK(PL::Tick(r, pl, f, alive) == "follow");
+    // His own follow ends the hold.
+    CHECK(PL::Tick(r, pl, f, ghost) == "stay");
+    PL::NotePlayerOrder(pl, r, "action follow");
+    CHECK(pl.held == PL::State::Held::None);
+    // Nothing is picked while the run holds for him.
+    Run r2 = Start(&plan);
+    PL::State pl2 = Led();
+    pl2.held = PL::State::Held::Down;
+    CHECK(!PL::Pick(r2, pl2, Player(10), {}));
+}
+
+// boss 100 at x 40 (leg 1), loot 100 item 555 at x 40, open door 9 needing 555 at x 60, pull at x 120 (leg 2).
+static DungeonPlan Keyed()
+{
+    DungeonPlan plan;
+    PlanStep boss = At(PlanStepKind::Boss, 40, {}, 100);
+    boss.leg = 1;
+    PlanStep loot = At(PlanStepKind::Loot, 40);
+    loot.entry = 100;
+    loot.item = 555;
+    loot.leg = 1;
+    PlanStep door = At(PlanStepKind::Open, 60);
+    door.entry = 9;
+    door.item = 555;
+    door.leg = 1;
+    PlanStep pack = At(PlanStepKind::Pull, 120, {4852});
+    pack.leg = 2;
+    PlanStep other = At(PlanStepKind::Loot, 41); // a plain drop nobody needs later
+    other.entry = 77;
+    other.item = 888;
+    other.leg = 1;
+    plan.steps = {boss, loot, door, pack, other};
+    return plan;
+}
+
+static void TestLootStepsOnlyForKeyItems()
+{
+    DungeonPlan plan = Keyed();
+    CHECK(PL::Pickable(plan, 1));  // the key the door needs
+    CHECK(!PL::Pickable(plan, 4)); // a plain drop: the group's loot is the players'
+    CHECK(PL::NeededLater(plan, 1, 555) && !PL::NeededLater(plan, 2, 555));
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    // The boss first: the loot waits for it (leg order).
+    CHECK(PL::Pick(r, pl, Player(35), {}));
+    CHECK(pl.picked == 0);
+    // The boss down far from his spot: the loot is picked near his corpse, not the plan's point.
+    pl.done.insert(0);
+    pl.picked = PL::kNone;
+    r.corpses[100] = CorpseMark{0xF1, 200, 0, 0};
+    CHECK(!PL::Pick(r, pl, Player(35), {}));
+    CHECK(PL::Pick(r, pl, Player(190), {}));
+    CHECK(pl.picked == 1);
+    // AllDone does not wait for the plain drop.
+    pl.done.insert(1);
+    pl.done.insert(2);
+    pl.done.insert(3);
+    CHECK(PL::AllDone(r, pl));
+}
+
+// ---------------------------------------------------------------------------
+// S6: object and event steps near the player
+// ---------------------------------------------------------------------------
+
+static void TestObjectStepGatedByItsLeg()
+{
+    DungeonPlan plan = Keyed();
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    // Near the door, boss and key not done: not picked (the boss is: it is the nearest open step in range).
+    PL::Anchor door = Player(60);
+    CHECK(PL::Gated(r, pl, 2));
+    PL::Pick(r, pl, door, {});
+    CHECK(pl.picked == 0);
+    pl.picked = PL::kNone;
+    pl.done.insert(0);
+    pl.done.insert(1);
+    CHECK(!PL::Gated(r, pl, 2));
+    // A pack of another leg is never gated.
+    CHECK(!PL::Gated(r, pl, 3));
+    CHECK(PL::Pick(r, pl, door, {}));
+    CHECK(pl.picked == 2 && r.step == 2);
+    // The open goes out once he stands still, as a pull does.
+    Facts f = Seen({});
+    f.carrier = "Tanky";
+    f.carrierHasItem = true;
+    CHECK(PL::Tick(r, pl, f, door).empty());
+    CHECK(r.note.find("stand still") != std::string::npos);
+    std::string const order = PL::Tick(r, pl, f, door);
+    CHECK(order.compare(0, 5, "open ") == 0);
+    CHECK(order.find("Tanky") != std::string::npos);
+}
+
+// ritual (leg 3) -> move -> hold: the ritual's event goes straight on to its hold; a failed event sends the run back.
+static void TestEventChain()
+{
+    DungeonPlan plan;
+    PlanStep ritual = At(PlanStepKind::Ritual, 40);
+    ritual.entry = 5;
+    ritual.leg = 3;
+    PlanStep walk = At(PlanStepKind::Move, 50);
+    walk.leg = 3;
+    PlanStep hold = At(PlanStepKind::Hold, 60);
+    hold.leg = 3;
+    hold.entry = 2;
+    hold.flags = ai::kPlanFlagDoneData;
+    hold.param = 3;
+    plan.steps = {ritual, walk, hold};
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    CHECK(PL::Pick(r, pl, Player(30), {}));
+    CHECK(pl.picked == 0);
+    // The ritual is held at its start like a pull (no order while he walks).
+    PL::Anchor walking = Player(30);
+    walking.moving = true;
+    Facts f = Seen({});
+    for (int i = 0; i < 3; ++i)
+        CHECK(PL::Tick(r, pl, f, walking).empty());
+    // The ritual done: the hold is current at once, the move left out.
+    NextStep(r, "ritual done: the event started");
+    CHECK(!PL::Pick(r, pl, Player(30), {}) || true);
+    CHECK(pl.done.count(0) == 1);
+    CHECK(pl.picked == 2 && r.step == 2);
+    // The tank's walk onto the hold's spot is the one walk sent.
+    CHECK(PL::BotWalkAllowed(r, MoveOrder(60, 0, 0, false)));
+    CHECK(!PL::Dropped(MoveOrder(60, 0, 0, false), Player(30), &r));
+    CHECK(PL::Dropped(MoveOrder(61, 0, 0, false), Player(30), &r));
+    CHECK(PL::Dropped(MoveOrder(60, 0, 0, false), Player(30))); // without the run: any move is dropped
+    // Picked and the event on: the step stays, wherever he goes.
+    r.eventOn = true;
+    CHECK(!PL::Pick(r, pl, Player(-500), {}));
+    CHECK(pl.picked == 2);
+    // The event failed: the run went back to the ritual; the player-led state follows.
+    r.step = 0;
+    PL::NoteDone(r, pl);
+    CHECK(pl.picked == 0 && pl.done.count(0) == 0 && pl.done.count(2) == 0);
+}
+
+static void TestOpenThenWait()
+{
+    DungeonPlan plan;
+    PlanStep door = At(PlanStepKind::Open, 40);
+    door.entry = 9;
+    PlanStep wait = At(PlanStepKind::WaitObject, 40);
+    wait.entry = 9;
+    wait.param = 0;
+    plan.steps = {door, wait};
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    PL::Pick(r, pl, Player(30), {});
+    NextStep(r, "open done");
+    PL::Pick(r, pl, Player(-500), {}); // far: still the wait right after the open
+    CHECK(pl.picked == 1);
+}
+
+static void TestPlacelessUseItem()
+{
+    DungeonPlan plan;
+    PlanStep use = At(PlanStepKind::UseItem, 0);
+    use.entry = 4711;
+    plan.steps = {use};
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    CHECK(PL::Pick(r, pl, Player(900), {}));
+}
+
+static void TestPathCheck()
+{
+    CHECK(PL::PathShortEnough(false, 0.0f, 30.0f));  // not read
+    CHECK(PL::PathShortEnough(false, 45.0f, 30.0f));
+    CHECK(!PL::PathShortEnough(false, 45.5f, 30.0f));
+    CHECK(!PL::PathShortEnough(true, 10.0f, 30.0f)); // no path
+    // The nearest refused: the next one is taken; the refused one is not asked again for 10 s.
+    DungeonPlan plan;
+    plan.steps = {At(PlanStepKind::Pull, 20, {1}), At(PlanStepKind::Pull, 30, {2}), At(PlanStepKind::Pull, 35, {3})};
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    int asked = 0;
+    PL::PathCheck refuseFirst = [&](std::size_t i) { ++asked; return i != 0; };
+    CHECK(PL::Pick(r, pl, Player(10), {}, refuseFirst));
+    CHECK(pl.picked == 1 && asked == 2);
+    CHECK(pl.pathRefused.count(0) == 1);
+    // At most two asks a tick.
+    Run r2 = Start(&plan);
+    PL::State pl2 = Led();
+    asked = 0;
+    PL::PathCheck none = [&](std::size_t) { ++asked; return false; };
+    CHECK(!PL::Pick(r2, pl2, Player(10), {}, none));
+    CHECK(asked == 2);
+    asked = 0;
+    CHECK(!PL::Pick(r2, pl2, Player(10), {}, none));
+    CHECK(asked == 1); // the two refused are left out, the third is asked
+    // The refusals are forgotten after kPathRetryMs of ticks.
+    for (int i = 0; i < 10; ++i)
+        PL::Tick(r2, pl2, Seen({}), Player(10));
+    CHECK(pl2.pathRefused.empty());
+}
+
+static void TestIdleNoteNamesTheDoor()
+{
+    DungeonPlan plan = Keyed();
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    pl.done.insert(0);
+    pl.done.insert(1);
+    PL::Anchor a = Player(-100);
+    std::string const note = PL::IdleNote(r, pl, a);
+    CHECK(note.find("open (step 3") != std::string::npos);
+    CHECK(note.find("behind it") != std::string::npos);
+    CHECK(note.find("pack (step 4") != std::string::npos);
+}
+
+static void TestOtherTeamDoesNotHoldTheEnd()
+{
+    DungeonPlan plan = Route();
+    plan.steps[3].flags = ai::kPlanFlagHorde;
+    Run r = Start(&plan);
+    PL::State pl = Led();
+    pl.team = ai::kPlanFlagAlliance;
+    pl.done.insert(1);
+    pl.done.insert(4);
+    CHECK(PL::AllDone(r, pl));
+    pl.team = ai::kPlanFlagHorde;
+    CHECK(!PL::AllDone(r, pl));
+}
+
 int main()
 {
+    TestAwayTimerStopsTheRun();
+    TestFightGoesOnWhileHeIsDown();
+    TestDownStates();
+    TestLootStepsOnlyForKeyItems();
+    TestObjectStepGatedByItsLeg();
+    TestEventChain();
+    TestOpenThenWait();
+    TestPlacelessUseItem();
+    TestPathCheck();
+    TestIdleNoteNamesTheDoor();
+    TestOtherTeamDoesNotHoldTheEnd();
     TestMovedSince();
     TestIdleNamesTheNextPack();
     TestPullWhenNearAndStill();

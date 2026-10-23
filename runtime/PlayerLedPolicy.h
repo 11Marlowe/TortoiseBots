@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
@@ -288,6 +289,18 @@ struct State
     // S4: where the glue last read the player (MovedSince).
     float lastX = 0.0f, lastY = 0.0f, lastZ = 0.0f;
     bool lastKnown = false;
+    // S5: the player away (off the plan's map) or down (a ghost): the run put the bots on stay where they stood
+    // (held, and why); awayMs counts the time away, awayMinutes is AiPlayerbot.DungeonRunPlayerLedAwayMinutes.
+    enum class Held : std::uint8_t { None, Away, Down };
+    Held held = Held::None;
+    std::uint32_t awayMs = 0;
+    std::uint32_t awayMinutes = 10;
+    std::uint32_t team = 0; // the party's team as last read (AllDone leaves the other team's steps out)
+    // S6: the step done last (an event's chain goes on from it) and the steps the path check turned down, with the
+    // time since (they are asked again after kPathRetryMs).
+    std::size_t lastDone = static_cast<std::size_t>(-1);
+    std::set<std::size_t> pathRefused;
+    std::uint32_t pathRefusedMs = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -368,7 +381,10 @@ inline bool NotePlayerOrder(State& pl, DungeonRun::Run& r, const std::string& la
         if (word == "stay")
             pl.stay = true;
         else if (word == "follow" || word == "come")
+        {
             pl.stay = false;
+            pl.held = State::Held::None; // his own follow ends the run's hold too
+        }
     }
     if (c == OrderClass::Fight)
     {
@@ -439,9 +455,63 @@ inline bool MovedSince(State& pl, float x, float y, float z)
     return moved;
 }
 
-inline bool Pickable(const PlanStep& s)
+inline bool IsFight(const PlanStep& s)
 {
     return s.kind == PlanStepKind::Pull || s.kind == PlanStepKind::Boss;
+}
+
+// S6: the plan's object and event steps the run does near the player (owner: "the run does them").
+inline bool IsTask(const PlanStep& s)
+{
+    switch (s.kind)
+    {
+        case PlanStepKind::Open:
+        case PlanStepKind::UseItem:
+        case PlanStepKind::UseOn:
+        case PlanStepKind::Ritual:
+        case PlanStepKind::Gossip:
+        case PlanStepKind::WaitObject:
+        case PlanStepKind::WaitClear:
+        case PlanStepKind::Hold:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// S5: a later step of the plan uses this item (an open or use_on's `item`, a use_item's `entry`, any one's `param`).
+inline bool NeededLater(const ai::DungeonPlan& plan, std::size_t idx, std::uint32_t item)
+{
+    if (!item)
+        return false;
+    for (std::size_t i = idx + 1; i < plan.steps.size(); ++i)
+    {
+        const PlanStep& s = plan.steps[i];
+        bool const usesItem = s.kind == PlanStepKind::Open || s.kind == PlanStepKind::UseOn;
+        if ((usesItem && s.item == item) || (s.kind == PlanStepKind::UseItem && s.entry == item) ||
+            ((usesItem || s.kind == PlanStepKind::UseItem) && s.param == item))
+            return true;
+    }
+    return false;
+}
+
+// The steps a player-led run does: pulls and bosses (S3), object and event steps (S6), and a loot step only for a
+// key item a later step needs (S5: the group's loot is the players'; every other loot step is left out). Moves and
+// rest steps never: the player walks, the rest gate runs before every step.
+inline bool Pickable(const ai::DungeonPlan& plan, std::size_t i)
+{
+    if (i >= plan.steps.size())
+        return false;
+    const PlanStep& s = plan.steps[i];
+    if (IsFight(s) || IsTask(s))
+        return true;
+    return s.kind == PlanStepKind::Loot && NeededLater(plan, i, s.item);
+}
+
+// A use_item step has no place (an item used from the bags): it is near wherever the player stands.
+inline bool Placeless(const PlanStep& s)
+{
+    return s.kind == PlanStepKind::UseItem && s.x == 0.0f && s.y == 0.0f && s.z == 0.0f;
 }
 
 inline bool StepHasEntry(const PlanStep& s, std::uint32_t entry)
@@ -466,13 +536,78 @@ inline float YdFrom(const PlanStep& s, const Anchor& a)
 
 inline bool Near(const PlanStep& s, const Anchor& a, float yd)
 {
-    return Dz(s.z, a.z) <= kNearDz && YdFrom(s, a) <= yd;
+    return Placeless(s) || (Dz(s.z, a.z) <= kNearDz && YdFrom(s, a) <= yd);
 }
 
 inline bool Open(const DungeonRun::Run& r, const State& pl, std::size_t i)
 {
-    return r.plan && i < r.plan->steps.size() && Pickable(r.plan->steps[i]) && !pl.done.count(i);
+    return r.plan && Pickable(*r.plan, i) && !pl.done.count(i);
 }
+
+// S6: an object, event or loot step waits for every pickable step before it in its leg (the plan's leg order): the
+// packs that guard it, the door before the lever, the ritual before its hold. Pulls and bosses wait for nothing.
+inline bool Gated(const DungeonRun::Run& r, const State& pl, std::size_t i)
+{
+    const PlanStep& s = r.plan->steps[i];
+    if (IsFight(s))
+        return false;
+    for (std::size_t j = 0; j < i; ++j)
+        if (r.plan->steps[j].leg == s.leg && Open(r, pl, j))
+            return true;
+    return false;
+}
+
+// Where a step is done: a loot step at the corpse its boss step saw down (Run::corpses), else the plan's point.
+inline void StepSpot(const DungeonRun::Run& r, std::size_t i, float& x, float& y, float& z)
+{
+    const PlanStep& s = r.plan->steps[i];
+    x = s.x;
+    y = s.y;
+    z = s.z;
+    if (s.kind != PlanStepKind::Loot)
+        return;
+    auto const corpse = r.corpses.find(s.entry);
+    if (corpse != r.corpses.end() && corpse->second.guid)
+    {
+        x = corpse->second.x;
+        y = corpse->second.y;
+        z = corpse->second.z;
+    }
+}
+
+inline bool SpotNear(const DungeonRun::Run& r, std::size_t i, const Anchor& a, float yd, float* outYd = nullptr)
+{
+    if (Placeless(r.plan->steps[i]))
+    {
+        if (outYd)
+            *outYd = 0.0f;
+        return true;
+    }
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    StepSpot(r, i, x, y, z);
+    float const d = ai::PlanDistance(x, y, z, a.x, a.y, a.z);
+    if (outYd)
+        *outYd = d;
+    return Dz(z, a.z) <= kNearDz && d <= yd;
+}
+
+// S6: the cheap path check of the pick (the design: a path no longer than 1.5 times the straight line, so a pack
+// behind a wall or on the floor below is not pulled). noPath: no navmesh path; pathYd <= 0: not read (no check).
+constexpr float kPathRatio = 1.5f;
+constexpr std::uint32_t kPathRetryMs = 10000; // a step the check turned down is asked again after this
+constexpr int kPathChecksPerTick = 2;
+
+inline bool PathShortEnough(bool noPath, float pathYd, float straightYd)
+{
+    if (noPath)
+        return false;
+    if (pathYd <= 0.0f)
+        return true;
+    return pathYd <= kPathRatio * std::max(straightYd, 1.0f);
+}
+
+// The glue's path check of one candidate step: true when the party may go there (PathShortEnough). Empty: no check.
+using PathCheck = std::function<bool(std::size_t step)>;
 
 // Rule (a): the unfinished pull or boss step whose units the party fights (by entry, near the step's point). The
 // player pulled it, or it came to him. The nearest such step; kNone when none.
@@ -482,7 +617,7 @@ inline std::size_t EngagedStep(const DungeonRun::Run& r, const State& pl, const 
     float bestYd = 0.0f;
     for (std::size_t i = 0; r.plan && i < r.plan->steps.size(); ++i)
     {
-        if (!Open(r, pl, i))
+        if (!Open(r, pl, i) || !IsFight(r.plan->steps[i]))
             continue;
         const PlanStep& s = r.plan->steps[i];
         float const reach = std::max(s.radius, ai::kPlanDefaultPackRadius) + kEngagedSlackYd;
@@ -501,35 +636,51 @@ inline std::size_t EngagedStep(const DungeonRun::Run& r, const State& pl, const 
     return best;
 }
 
-// Rule (b): the nearest unfinished pull or boss step whose point is within maxYd of the player (straight line,
-// same floor) and is for the party's team. kNone when none.
-inline std::size_t NearestStep(const DungeonRun::Run& r, const State& pl, const Anchor& a, float maxYd)
+// Rule (b): the nearest open step (a pull or boss; an object, event or loot step whose leg gates are done) whose
+// spot is within maxYd of the player (straight line, same floor) and is for the party's team. With a path check the
+// nearest candidates are asked (at most kPathChecksPerTick a tick; a refused one is not asked again for
+// kPathRetryMs). kNone when none.
+inline std::size_t NearestStep(const DungeonRun::Run& r, State& pl, const Anchor& a, float maxYd,
+    const PathCheck& pathOk = PathCheck())
 {
-    std::size_t best = kNone;
-    float bestYd = 0.0f;
+    std::vector<std::pair<float, std::size_t>> candidates;
     for (std::size_t i = 0; r.plan && i < r.plan->steps.size(); ++i)
     {
-        if (!Open(r, pl, i))
+        if (!Open(r, pl, i) || Gated(r, pl, i) || pl.pathRefused.count(i))
             continue;
         const PlanStep& s = r.plan->steps[i];
         if (a.team && !ai::StepForTeam(s, a.team))
             continue;
-        if (!Near(s, a, maxYd))
+        float yd = 0.0f;
+        if (!SpotNear(r, i, a, maxYd, &yd))
             continue;
-        float const yd = YdFrom(s, a);
-        if (best == kNone || yd < bestYd)
-        {
-            best = i;
-            bestYd = yd;
-        }
+        candidates.push_back({yd, i});
     }
-    return best;
+    std::sort(candidates.begin(), candidates.end());
+    int asked = 0;
+    for (const auto& c : candidates)
+    {
+        if (!pathOk || Placeless(r.plan->steps[c.second]))
+            return c.second;
+        if (asked++ >= kPathChecksPerTick)
+            return kNone; // asked enough this tick: the next tick goes on
+        if (pathOk(c.second))
+            return c.second;
+        pl.pathRefused.insert(c.second);
+    }
+    return kNone;
 }
 
+inline bool ForTeam(const DungeonRun::Run& r, const State& pl, std::size_t i)
+{
+    return !pl.team || ai::StepForTeam(r.plan->steps[i], pl.team);
+}
+
+// Every open step for the party's team is done (another team's pack is never pulled, so it does not hold the end).
 inline bool AllDone(const DungeonRun::Run& r, const State& pl)
 {
     for (std::size_t i = 0; r.plan && i < r.plan->steps.size(); ++i)
-        if (Open(r, pl, i))
+        if (Open(r, pl, i) && ForTeam(r, pl, i))
             return false;
     return true;
 }
@@ -548,14 +699,58 @@ inline bool BeforeItsPull(const DungeonRun::Run& r)
     return BetweenPulls(r) && r.pulls == 0;
 }
 
-// The run moved off the picked step (DungeonRun::NextStep: cleared, skipped, left out of reach): it is done.
+// The run moved off the picked step (DungeonRun::NextStep: cleared, skipped, left out of reach): it is done. A run
+// sent back to an earlier step (an event that failed or a wipe in a hold: DungeonRun::EventFailed, RearmEventOnWipe
+// go back to the event's start step) follows it: that step and the ones up to the picked one are open again.
 inline void NoteDone(DungeonRun::Run& r, State& pl)
 {
-    if (pl.picked != kNone && r.step != pl.picked)
+    if (pl.picked == kNone || r.step == pl.picked)
+        return;
+    if (r.step < pl.picked)
     {
-        pl.done.insert(pl.picked);
-        pl.picked = kNone;
+        for (std::size_t i = r.step; i <= pl.picked; ++i)
+            pl.done.erase(i);
+        pl.picked = r.step;
+        return;
     }
+    pl.done.insert(pl.picked);
+    pl.lastDone = pl.picked;
+    pl.picked = kNone;
+}
+
+// S6: an event's chain goes on by itself. When the step just done started an event (a ritual, an open, a use, a
+// gossip) and the run's next step is that event's hold, or the moves leading to it, the hold is the current step
+// at once (the moves are left out: the player brought the party). An open's wait_object right after it is taken
+// the same way. True when it took one.
+inline bool FollowChain(DungeonRun::Run& r, State& pl)
+{
+    if (pl.picked != kNone || pl.lastDone == kNone || r.step != pl.lastDone + 1 || !r.plan ||
+        r.state != DungeonRun::State::Running)
+        return false;
+    const PlanStep& doneStep = r.plan->steps[pl.lastDone];
+    const PlanStep* cur = DungeonRun::Current(r);
+    if (!cur)
+        return false;
+    bool const starts = doneStep.kind == PlanStepKind::Ritual || doneStep.kind == PlanStepKind::Open ||
+        doneStep.kind == PlanStepKind::UseItem || doneStep.kind == PlanStepKind::Gossip ||
+        doneStep.kind == PlanStepKind::UseOn;
+    if (!starts)
+        return false;
+    if (doneStep.kind == PlanStepKind::Open && cur->kind == PlanStepKind::WaitObject && !pl.done.count(r.step))
+    {
+        pl.picked = r.step;
+        return true;
+    }
+    if (!DungeonRun::EventHoldAhead(r) && cur->kind != PlanStepKind::Hold)
+        return false;
+    while ((cur = DungeonRun::Current(r)) != nullptr &&
+        (cur->kind == PlanStepKind::Move || cur->kind == PlanStepKind::MoveDirect))
+        DungeonRun::NextStep(r, "the event's moves are left out: you brought the party");
+    if (!cur || cur->kind != PlanStepKind::Hold || pl.done.count(r.step))
+        return false;
+    pl.picked = r.step;
+    r.note = "the event is on: holding " + std::string("step ") + std::to_string(r.step + 1);
+    return true;
 }
 
 // The run goes to plan step idx (no walk: the party is where the player brought it), fresh as a new step.
@@ -573,7 +768,9 @@ inline std::string StepName(const DungeonRun::Run& r, std::size_t i)
 {
     const PlanStep& s = r.plan->steps[i];
     std::string const& leg = r.plan->LegName(s.leg);
-    return std::string(s.kind == PlanStepKind::Boss ? "boss" : "pack") + " (step " + std::to_string(i + 1) +
+    std::string const what = s.kind == PlanStepKind::Boss ? "boss" : s.kind == PlanStepKind::Pull ? "pack"
+                                                                                                 : ai::PlanStepKindName(s.kind);
+    return what + " (step " + std::to_string(i + 1) +
         ", leg " + (leg.empty() ? std::to_string(s.leg) : leg) + ")";
 }
 
@@ -598,19 +795,26 @@ inline std::string Compass(const Anchor& a, float x, float y)
 //   - None picked: the step of what the party fights, else the nearest open pack or boss within pullYd of the
 //     player (rule b). None: idle (the player walks, Tick only notes the next pack).
 // True when Run::step changed.
-inline bool Pick(DungeonRun::Run& r, State& pl, const Anchor& a, const std::vector<Engaged>& engaged)
+inline bool Pick(DungeonRun::Run& r, State& pl, const Anchor& a, const std::vector<Engaged>& engaged,
+    const PathCheck& pathOk = PathCheck())
 {
     if (!pl.on || !r.plan || r.state != DungeonRun::State::Running)
         return false;
+    std::size_t const stepBefore = r.step;
     NoteDone(r, pl);
     if (!pl.started)
     {
         pl.started = true;
         for (std::size_t i = 0; i < r.step && i < r.plan->steps.size(); ++i)
-            if (Pickable(r.plan->steps[i]))
+            if (Pickable(*r.plan, i))
                 pl.done.insert(i);
     }
-    if (r.fighting || r.regroup || !r.hold.empty() || DungeonRun::InEvent(r))
+    if (FollowChain(r, pl))
+        return r.step != stepBefore;
+    // The event under way or leading in (the picked step is in one): the step stays. With nothing picked the
+    // cursor is stale and says nothing (an event on was taken by FollowChain).
+    if (r.fighting || r.regroup || !r.hold.empty() || (pl.picked != kNone && DungeonRun::InEvent(r)) ||
+        (pl.picked != kNone && r.eventOn))
         return false;
     std::size_t const fought = engaged.empty() ? kNone : EngagedStep(r, pl, engaged);
     if (pl.picked != kNone)
@@ -625,14 +829,14 @@ inline bool Pick(DungeonRun::Run& r, State& pl, const Anchor& a, const std::vect
             return true;
         }
         float const dropYd = std::max(kDropYd, pl.pullYd + 20.0f);
-        if (a.read && !a.partyInCombat && !Near(r.plan->steps[pl.picked], a, dropYd))
+        if (a.read && !a.partyInCombat && !SpotNear(r, pl.picked, a, dropYd))
             pl.picked = kNone; // he walked on: the pack waits for him (not done)
         else
             return false;
     }
     std::size_t idx = fought;
-    if (idx == kNone && a.read && a.onMap && a.alive && !a.ghost)
-        idx = NearestStep(r, pl, a, pl.pullYd);
+    if (idx == kNone && a.read && a.onMap && a.alive && !a.ghost && pl.held == State::Held::None)
+        idx = NearestStep(r, pl, a, pl.pullYd, pathOk);
     if (idx == kNone)
         return false;
     Jump(r, idx);
@@ -670,35 +874,122 @@ inline std::string IdleNote(const DungeonRun::Run& r, const State& pl, const Anc
         return "waiting: where you stand is not known";
     if (!a.onMap)
         return "waiting: you are not in the plan's dungeon";
-    std::size_t best = kNone;
-    float bestYd = 0.0f;
+    // The nearest step the run would take (a pack, or an object step whose gates are done), and the nearest pack.
+    std::size_t best = kNone, pack = kNone;
+    float bestYd = 0.0f, packYd = 0.0f;
     for (std::size_t i = 0; r.plan && i < r.plan->steps.size(); ++i)
     {
         if (!Open(r, pl, i) || (a.team && !ai::StepForTeam(r.plan->steps[i], a.team)))
             continue;
-        float const yd = YdFrom(r.plan->steps[i], a);
-        if (best == kNone || yd < bestYd)
+        float yd = 0.0f;
+        SpotNear(r, i, a, 0.0f, &yd);
+        if (IsFight(r.plan->steps[i]) && (pack == kNone || yd < packYd))
+        {
+            pack = i;
+            packYd = yd;
+        }
+        if (!Gated(r, pl, i) && (best == kNone || yd < bestYd))
         {
             best = i;
             bestYd = yd;
         }
     }
     if (best == kNone)
-        return "waiting: no open pack for your team";
-    const PlanStep& s = r.plan->steps[best];
-    return "next: " + StepName(r, best) + ", " + DungeonRun::Num(bestYd) + " yd " + Compass(a, s.x, s.y) +
-        " (pulled when you stand within " + DungeonRun::Num(pl.pullYd) + " yd of it)";
+        return "waiting: no open step for your team";
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    StepSpot(r, best, x, y, z);
+    std::string note = "next: " + StepName(r, best) + ", " + DungeonRun::Num(bestYd) + " yd " + Compass(a, x, y) +
+        " (the run does it when you stand within " + DungeonRun::Num(pl.pullYd) + " yd of it)";
+    // A door, lever or event between him and the packs: say so (the next packs may lie behind it).
+    if (!IsFight(r.plan->steps[best]) && pack != kNone && pack > best)
+        note += "; the packs of later steps may lie behind it (nearest pack: " + StepName(r, pack) + ", " +
+            DungeonRun::Num(packYd) + " yd)";
+    return note;
 }
 
 // An order the bot-led step machine gave that a player-led run never sends: a walk of the party or the tank
 // (`move`, a bot's `walk`, the island `escape`, the stranded `rescue` teleport): the player owns movement. A `rest`
 // while the player walks is not sent either (the bots follow him; the gate keeps the next pull until rested).
-inline bool Dropped(const std::string& order, const Anchor& a)
+// S6: the one walk a player-led run sends itself (besides the task orders, whose bots walk to their object or NPC
+// on their own: `cmd open`, `use`, `ritual`, `gossip`, `loot`): the tank onto the current hold's own spot, which the
+// event needs (DungeonRun::HoldStep). The player is never moved.
+inline bool BotWalkAllowed(const DungeonRun::Run& r, const std::string& order)
 {
+    const PlanStep* s = DungeonRun::Current(r);
+    return s && s->kind == PlanStepKind::Hold && order == DungeonRun::MoveOrder(s->x, s->y, s->z, false);
+}
+
+inline bool Dropped(const std::string& order, const Anchor& a, const DungeonRun::Run* r = nullptr)
+{
+    if (r && BotWalkAllowed(*r, order))
+        return false;
     for (const char* head : {"move ", "walk ", "escape ", "rescue "})
         if (order.compare(0, std::char_traits<char>::length(head), head) == 0)
             return true;
     return order == "rest" && a.moving;
+}
+
+// S5: the player down (a ghost) or away (off the plan's dungeon). "-" when neither holds the tick (the tick goes
+// on), else the tick's order ("" or one `stay` / `follow`). A fight goes on as ever (the bots' fight, the run's
+// bounds while a step is picked); a body (dead, not released) is waited for without a stay, so a resurrector of
+// the party can reach it.
+inline std::string DownOrAway(DungeonRun::Run& r, State& pl, const DungeonRun::Facts& f, const Anchor& a,
+    std::uint32_t dt)
+{
+    bool const fight = f.anyInCombat && pl.picked != kNone;
+    if (a.read && !a.onMap)
+    {
+        pl.awayMs += dt;
+        std::uint32_t const capMs = pl.awayMinutes * 60000u;
+        if (pl.awayMs >= capMs)
+        {
+            r.state = DungeonRun::State::Done;
+            r.note = "stopped: you were away from the plan's dungeon for " + std::to_string(pl.awayMinutes) +
+                " min (the bots stay where they hold)";
+            return std::string();
+        }
+        if (fight)
+            return "-";
+        std::uint32_t const leftMin = (capMs - pl.awayMs + 59999u) / 60000u;
+        r.note = "paused: you left the plan's dungeon: the bots hold here; back within " + std::to_string(leftMin) +
+            " min the run goes on, then it stops";
+        if (pl.held == State::Held::None)
+        {
+            pl.held = State::Held::Away;
+            return "stay";
+        }
+        return std::string();
+    }
+    if (a.read)
+        pl.awayMs = 0;
+    if (a.read && (a.ghost || !a.alive))
+    {
+        if (fight)
+            return "-";
+        if (!a.ghost)
+        {
+            r.note = "you are dead: waiting for a resurrection (a bot of the party may raise you)";
+            return std::string();
+        }
+        r.note = "you are a ghost: the party holds where you fell; come back to it";
+        if (pl.held == State::Held::None)
+        {
+            pl.held = State::Held::Down;
+            return "stay";
+        }
+        return std::string();
+    }
+    if (pl.held == State::Held::None || !a.read)
+        return "-";
+    // Back: the party follows him again once he stands near it (a ghost's party waits where he fell).
+    if (pl.held == State::Held::Down && a.botsMaxYd > kBotsNearYd)
+    {
+        r.note = "you are alive: come back to your party (" + DungeonRun::Num(a.botsMaxYd) + " yd)";
+        return std::string();
+    }
+    pl.held = State::Held::None;
+    r.note = "you are back: the bots follow you again";
+    return "follow";
 }
 
 // The player-led tick in place of DungeonRun::Tick (the glue calls Pick first, then reads the facts for Run::step).
@@ -713,6 +1004,14 @@ inline std::string Tick(DungeonRun::Run& r, State& pl, const DungeonRun::Facts& 
     pl.stillMs = a.read && !a.moving ? pl.stillMs + dt : 0;
     bool const playerFight = pl.playerFight;
     pl.playerFight = false;
+    if (a.team)
+        pl.team = a.team;
+    pl.pathRefusedMs += dt;
+    if (pl.pathRefusedMs >= kPathRetryMs)
+    {
+        pl.pathRefused.clear();
+        pl.pathRefusedMs = 0;
+    }
     if (r.state != DungeonRun::State::Running)
         return DungeonRun::Tick(r, in, dt, lines);
     // The anchor is the player: no walk back, no anchor walk, no tank walk back to its guard stand.
@@ -721,6 +1020,13 @@ inline std::string Tick(DungeonRun::Run& r, State& pl, const DungeonRun::Facts& 
     r.guardReturn = false;
     r.anchorKnown = false;
     NoteDone(r, pl);
+    FollowChain(r, pl);
+    // S5: away from the plan's dungeon, or a ghost. Out of a fight the bots hold where they stand ("stay" once);
+    // back (or alive again with his bots near), they follow him again ("follow" once). Away longer than
+    // awayMinutes: the run stops with a note (the glue releases the binding; the bots keep their stay).
+    std::string const down = DownOrAway(r, pl, in, a, dt);
+    if (down != "-")
+        return down;
     if (pl.picked == kNone)
     {
         if (AllDone(r, pl))
@@ -737,7 +1043,11 @@ inline std::string Tick(DungeonRun::Run& r, State& pl, const DungeonRun::Facts& 
     DungeonRun::Facts f = in;
     if (a.read)
         f.maxMemberYd = a.botsMaxYd;
-    bool const quiet = !f.anyInCombat && !r.regroup && !r.fighting && r.hold.empty() && !DungeonRun::InEvent(r) &&
+    // The gate holds a step at its start: a pull, and an object or event step before its order (the event's own
+    // waves and its hold are never held).
+    const PlanStep* cur = DungeonRun::Current(r);
+    bool const quiet = !f.anyInCombat && !r.regroup && !r.fighting && r.hold.empty() && !r.eventOn &&
+        cur && cur->kind != PlanStepKind::Hold && !r.orderSent &&
         (r.phase == DungeonRun::Phase::Begin || r.phase == DungeonRun::Phase::Gather) && f.dead == 0 &&
         DungeonRun::PartyDead(f) == 0;
     if (quiet)
@@ -752,7 +1062,7 @@ inline std::string Tick(DungeonRun::Run& r, State& pl, const DungeonRun::Facts& 
         }
     }
     std::string order = DungeonRun::Tick(r, f, dt, lines);
-    if (!order.empty() && Dropped(order, a))
+    if (!order.empty() && Dropped(order, a, &r))
     {
         r.note += (r.note.empty() ? "" : "; ") + std::string("not sent: ") + order.substr(0, order.find(' ')) +
             " (you lead the way)";
@@ -761,6 +1071,7 @@ inline std::string Tick(DungeonRun::Run& r, State& pl, const DungeonRun::Facts& 
     // The bot-led machine ends the run after the plan's last step; a player-led run ends when every pack is down.
     std::size_t const before = pl.picked;
     NoteDone(r, pl);
+    FollowChain(r, pl);
     if (r.state == DungeonRun::State::Done && !AllDone(r, pl))
     {
         r.state = DungeonRun::State::Running;
@@ -780,7 +1091,7 @@ inline bool SkipNearest(DungeonRun::Run& r, State& pl, const Anchor& a)
 {
     if (!pl.on || pl.picked != kNone || !a.read || r.state == DungeonRun::State::Done)
         return false;
-    std::size_t const idx = NearestStep(r, pl, a, 100000.0f);
+    std::size_t const idx = NearestStep(r, pl, a, 100000.0f); // no path check: the player asked
     if (idx == kNone)
         return false;
     pl.done.insert(idx);
