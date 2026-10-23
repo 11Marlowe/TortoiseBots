@@ -151,6 +151,9 @@ public:
     // (the hire path, issue #1043: one pet save per hire, not three racing).
     void InitPet(bool saveToDb = true);
     void InitPetSpells();
+    // Public entry for `.bot train`: learns the class/level quest and trainer
+    // spells only, so a bot can be brought up to date without gear or talent churn.
+    void LearnClassLevelSpells() { InitClassLevelSpells(); }
 
 private:
     void Shuffle(std::vector<uint32>& items);

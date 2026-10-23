@@ -146,6 +146,8 @@ The table below lists all primary commands and links to their authoritative docu
 | [`.bot corpse run`](roster-and-hiring.md#bot-corpse-run) | Roster & Hiring | Commands ghost bots to run back to their corpse. |
 | [`.bot corpserun`](roster-and-hiring.md#bot-corpse-run) | Roster & Hiring | One-word form of `.bot corpse run`. |
 | [`.bot learn`](roster-and-hiring.md#bot-learn) | Roster & Hiring | Commands bots to train spells at nearby trainers. |
+| [`.bot gear`](roster-and-hiring.md#bot-gear) | Roster & Hiring | Re-equips or upgrades a companion's gear, or the party with `all`. |
+| [`.bot train`](roster-and-hiring.md#bot-train) | Roster & Hiring | Teaches a companion its class and level spells instantly. |
 | [`.bot trade`](roster-and-hiring.md#bot-trade) | Roster & Hiring | Opens a trade window with the targeted companion. |
 | [`.bot list`](bot-panel.md#bot-list) | Inspection | Lists online bots you control. |
 | [`.bot status`](bot-panel.md#bot-status) | Inspection | Displays lifecycle and AI state of a controlled bot. |

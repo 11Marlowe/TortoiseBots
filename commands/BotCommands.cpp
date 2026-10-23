@@ -432,6 +432,158 @@ static bool HandlePlayerAutogear(ChatHandler* handler, char const* args)
     return true;
 }
 
+// Shared scope for .bot gear / .bot train: 'all' selects the requester's owned
+// party bots, otherwise only the currently selected bot.
+static void CollectGearTrainScope(BotCommandContext const& context, bool all, std::vector<Player*>& scope)
+{
+    if (all)
+    {
+        scope = context.partyBots;
+        return;
+    }
+    if (context.selectedBot)
+        scope.push_back(context.selectedBot);
+}
+
+// Splits the arguments into the optional 'all' flag and the remaining mode word.
+static bool ParseAllFlag(char const* args, std::string& mode)
+{
+    bool all = false;
+    std::string token;
+    std::stringstream ss(args ? args : "");
+    while (ss >> token)
+    {
+        std::string lower;
+        for (char c : token)
+            lower += static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        if (lower == "all")
+            all = true;
+        else
+            mode = lower;
+    }
+    return all;
+}
+
+// Re-equips or upgrades the selected companion's gear (quality modes), or the
+// whole owned party with 'all'. Available to all players; the scope is limited
+// to bots the requester controls.
+static bool HandleGear(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+
+    std::string mode;
+    bool all = ParseAllFlag(args, mode);
+
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope;
+    CollectGearTrainScope(context, all, scope);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("Target a companion bot, or use '.bot gear all' to gear your whole party.");
+        return true;
+    }
+
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        if (!bot || !bot->IsInWorld() || !PlayerbotAIStorage::Instance().GetAI(bot))
+            continue;
+
+        if (mode.empty())
+        {
+            PlayerbotFactory f(bot, bot->GetLevel());
+            f.EquipGear();
+        }
+        else if (mode == "green" || mode == "uncommon")
+        {
+            PlayerbotFactory f(bot, bot->GetLevel(), ITEM_QUALITY_UNCOMMON);
+            f.EquipGear();
+        }
+        else if (mode == "blue" || mode == "rare")
+        {
+            PlayerbotFactory f(bot, bot->GetLevel(), ITEM_QUALITY_RARE);
+            f.EquipGear();
+        }
+        else if (mode == "purple" || mode == "epic")
+        {
+            PlayerbotFactory f(bot, bot->GetLevel(), ITEM_QUALITY_EPIC);
+            f.EquipGear();
+        }
+        else if (mode == "best")
+        {
+            PlayerbotFactory f(bot, bot->GetLevel());
+            f.EquipGearBest();
+        }
+        else if (mode == "partial")
+        {
+            PlayerbotFactory f(bot, bot->GetLevel());
+            f.EquipGearPartialUpgrade();
+        }
+        else if (mode == "upgrade")
+        {
+            PlayerbotFactory f(bot, requester->GetLevel(), ITEM_QUALITY_NORMAL);
+            f.UpgradeGear(false);
+        }
+        else if (mode == "sync")
+        {
+            PlayerbotFactory f(bot, requester->GetLevel(), ITEM_QUALITY_NORMAL);
+            f.UpgradeGear(true);
+        }
+        else
+        {
+            handler->PSendSysMessage("Unknown gear mode '%s'. Options: (none), green, blue, purple, best, partial, upgrade, sync.", mode.c_str());
+            return true;
+        }
+        ++succeeded;
+    }
+
+    handler->PSendSysMessage("Re-geared %u companion bot(s).", succeeded);
+    return true;
+}
+
+// Teaches the selected companion its class/level spells (quest rewards and
+// trainer spells) instantly, without gear or talent changes. 'all' fans out to
+// the owned party.
+static bool HandleTrain(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+
+    std::string ignored;
+    bool all = ParseAllFlag(args, ignored);
+
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope;
+    CollectGearTrainScope(context, all, scope);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("Target a companion bot, or use '.bot train all' for your whole party.");
+        return true;
+    }
+
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        if (!bot || !bot->IsInWorld() || !PlayerbotAIStorage::Instance().GetAI(bot))
+            continue;
+        PlayerbotFactory f(bot, bot->GetLevel());
+        f.LearnClassLevelSpells();
+        ++succeeded;
+    }
+
+    handler->PSendSysMessage("Commanded %u companion bot(s) to learn their class spells.", succeeded);
+    return true;
+}
+
 // `.bot help` answers with the addon protocol version line; the TBM addon
 // parses it, so the output must stay exactly as it is.
 bool HandleHelp(ChatHandler* handler, char const* /*args*/)
@@ -502,6 +654,8 @@ static BotCommandEntry const botCommands[] = {
     {"corpse", HandleCorpseShortcut, "corpse run", {}, AlwaysVisible},
     {"corpserun", HandleCorpseRun, "corpserun", {}, AlwaysVisible},
     {"learn", HandleLearn, "learn", {}, AlwaysVisible},
+    {"gear", HandleGear, "gear [quality|mode] [all]", {"equip"}, AlwaysVisible},
+    {"train", HandleTrain, "train [all]", {}, AlwaysVisible},
     {"trade", HandleTrade, "trade", {}, AlwaysVisible},
     {"command", HandleMatureCommand, "command <botName> <Playerbot command>", {}, AlwaysVisible},
     {"inv", HandleInventory, "inv <online bot you control>", {"inventory"}, AlwaysVisible},

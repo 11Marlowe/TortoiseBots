@@ -242,6 +242,26 @@ Commands companion bots standing near class trainers to purchase all available, 
 
 Target the trainer NPC you have selected before issuing the command.
 
+### `.bot gear`
+
+Re-equips or upgrades the gear of your selected companion bot; add `all` to run over every bot in your owned party.
+
+```text
+.bot gear [green|blue|purple|best|partial|upgrade|sync] [all]
+```
+
+Without a mode the bot is re-equipped with normal-quality gear for its level. `green`, `blue` and `purple` cap the quality, `best` runs the full best-available pass, `partial` fills only empty or clearly outdated slots, and `upgrade`/`sync` upgrade toward the requester's level.
+
+### `.bot train`
+
+Teaches your selected companion bot every class and level spell it should know (quest rewards and trainer spells) instantly, without touching its gear or talents.
+
+```text
+.bot train [all]
+```
+
+`all` applies it to every bot in your owned party.
+
 ### `.bot trade`
 
 Opens a direct trading window with your targeted companion bot. Also available as `.bot action trade`.
