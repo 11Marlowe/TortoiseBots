@@ -143,7 +143,8 @@ class ReviewRoundOneWiringTest(unittest.TestCase):
         stand = body(POLICY, "inline bool ApproachStand(Run& r, const PlanStep& s,", "\n}\n")
         self.assertIn("r.hopWalk = true;\n        r.hopX = r.approachStandX;", stand)
         fight = body(POLICY, "inline void FightStep(Run& r, const Facts& f, const PlanStep& s,", "\n}\n")
-        self.assertLess(fight.index("if (r.approachStandStep == r.step && r.approachStand == 4)\n        r.approachStand = 3;"),
+        self.assertLess(fight.index("if (r.approachStandStep == r.step && r.approachStand == 4)\n    {\n        r.approachStand = 3;\n"
+                                    "        r.approachHops = 0;\n        r.approachBestYd = 0.0f;"),
                         fight.index("if (FinishHopInSight("))
 
 

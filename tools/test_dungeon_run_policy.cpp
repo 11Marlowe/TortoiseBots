@@ -1881,6 +1881,7 @@ static void TestApproachStandWalkIsAHopAndRewindsForgetIt()
     }
     CHECK(r.anchorKnown && r.anchorX == 40.0f); // the last hop's end
     CHECK(ApproachStandFound(r, g, true, 978, 0, 0));
+    r.approachBestYd = 66.8f; // as near as the hops got (Sunken Temple r25)
     CHECK(Tick(r, g) == "move 978.0 0.0 0.0");
     // In sight at 945, the anchor's way back read Off: the walk to the stand goes on, no gather back.
     Facts in = g;
@@ -1894,14 +1895,21 @@ static void TestApproachStandWalkIsAHopAndRewindsForgetIt()
     in.leadX = 978;
     Tick(r, in);
     CHECK(r.anchorX == 978.0f && r.state == State::Running);
-    // A later tick out of sight: the hops, never the stand's pause.
+    CHECK(r.approachHops == 0 && r.approachBestYd == 0.0f);
+    // A later tick out of sight, the fight having dragged the lead bot 75 yd off: a hop goes
+    // out, never the stand's pause nor the old cap's.
     Facts out = in;
     out.seen = false;
     out.units.clear();
-    out.approachX = 990;
-    for (int i = 0; i < 3; ++i)
-        Tick(r, out);
-    CHECK(r.state == State::Running && r.note.find("did not bring it") == std::string::npos);
+    out.leadX = 925;
+    out.approachX = 965;
+    EnterPhase(r, Phase::Begin); // the pull's fight is over (that pull's own flow is not under test here)
+    r.pullGuid = 0;
+    std::string hop;
+    for (int i = 0; i < 3 && hop.empty() && r.state == State::Running; ++i)
+        hop = Tick(r, out);
+    CHECK(r.state == State::Running && hop == "move 965.0 0.0 0.0");
+    CHECK(r.note.find("did not bring it") == std::string::npos);
     // An event rewind forgets the stand and the no-path pause's moves.
     Run w = Start(&plan);
     w.approachStandStep = 0;

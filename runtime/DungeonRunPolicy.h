@@ -6247,8 +6247,14 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
     }
     // The approach stand did its work once the pack is in sight: spent, so a later tick
     // out of sight hops again instead of the stand's 'did not bring it' pause.
+    // The hops start over too (the Opus re-review of b5576562: the cap was still past 8
+    // and the nearest the old 66-99 yd, so the first tick out of sight paused at once).
     if (r.approachStandStep == r.step && r.approachStand == 4)
+    {
         r.approachStand = 3;
+        r.approachHops = 0;
+        r.approachBestYd = 0.0f;
+    }
     if (FinishHopInSight(r, f, dt, order, s.kind == PlanStepKind::Boss ? "boss" : "pack"))
         return;
     for (const UnitFact& u : f.units)
