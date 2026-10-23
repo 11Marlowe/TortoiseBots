@@ -826,6 +826,24 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
         self.assertIn("slot.run.state = TortoiseBots::DungeonRun::State::Done;", limit)
         self.assertIn("DungeonRuns().erase(it);", limit)
 
+    def test_walk_after_rest_clears_the_lead_before_the_order(self):
+        # Blackfathom Deeps r22 step 85, r23 slot 6b step 8: the lead bot stood on "stay" after eating. The walk sent
+        # again (DungeonRun::Run::leadWalkReset) first stands it up, ends its meal or cast, and clears follow and stay.
+        code = strip_comments(COMMANDS)
+        clear = body(code, "void ClearLeadForWalk(Player* lead)", "\n}\n")
+        self.assertIn("lead->InterruptNonMeleeSpells(false);", clear)
+        self.assertIn("lead->SetStandState(UNIT_STAND_STATE_STAND);", clear)
+        self.assertIn("ai->DropQueuedMovementOrders();", clear)
+        self.assertIn('ai->ChangeStrategy("-follow,-stay", BotState::BOT_STATE_NON_COMBAT);', clear)
+        self.assertIn('ai->ChangeStrategy("-stay", BotState::BOT_STATE_COMBAT);', clear)
+        self.assertIn('Get().erase("stay");', clear)
+        tick = body(code, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertIn("if (slot.run.leadWalkReset)\n    {\n        slot.run.leadWalkReset = false;\n"
+                      "        ClearLeadForWalk(lead);\n    }", tick)
+        # After the policy's tick that set it, before the order goes out.
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"), tick.index("ClearLeadForWalk(lead);"))
+        self.assertLess(tick.index("ClearLeadForWalk(lead);"), tick.index("IssueRunOrder(commander, order, answer,"))
+
 
 if __name__ == "__main__":
     unittest.main()

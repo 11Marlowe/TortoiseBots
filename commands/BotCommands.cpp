@@ -11670,6 +11670,26 @@ void SyncHoldStands(Player* commander, Player* lead, std::vector<Player*> const&
         FormUpOnLead(commander, lead, released, false);
 }
 
+// The walk the lead bot did not take after a rest, sent again (DungeonRun::Run::leadWalkReset): before the order the
+// lead bot stands up and ends its meal, drink or cast (a seated or casting bot is not moved), drops its queued moves
+// and its follow and stay strategies with the old stay point; the walk's `cmd move` then puts its stay on the point.
+// Blackfathom Deeps r22 step 85 and r23 slot 6b step 8: the lead bot stood on "stay" after eating and never took the
+// walk until a resume.
+void ClearLeadForWalk(Player* lead)
+{
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(lead);
+    if (!ai || !lead->IsAlive() || !lead->IsInWorld())
+        return;
+    if (lead->IsNonMeleeSpellCasted(true, false, true))
+        lead->InterruptNonMeleeSpells(false);
+    if (lead->GetStandState() != UNIT_STAND_STATE_STAND)
+        lead->SetStandState(UNIT_STAND_STATE_STAND);
+    ai->DropQueuedMovementOrders();
+    ai->ChangeStrategy("-follow,-stay", BotState::BOT_STATE_NON_COMBAT);
+    ai->ChangeStrategy("-stay", BotState::BOT_STATE_COMBAT);
+    ai->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get().erase("stay");
+}
+
 void TickDungeonRun(uint64 commanderRaw, uint32 dt)
 {
     auto it = DungeonRuns().find(commanderRaw);
@@ -11780,6 +11800,12 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
     // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
     DropUnattackableCombat(lead, bots, slot.run.combatDrops);
+    // The walk after a rest sent again: the lead bot's meal, follow and stay go before the order below.
+    if (slot.run.leadWalkReset)
+    {
+        slot.run.leadWalkReset = false;
+        ClearLeadForWalk(lead);
+    }
     // A stalled walk whose lead bot's own move failed asked for a stand-in on dry ground
     // (DungeonRun::StallFallback): searched once, here, never per tick.
     if (slot.run.stallStandInWanted)

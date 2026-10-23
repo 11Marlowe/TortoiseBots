@@ -3275,6 +3275,76 @@ static void TestMealWaitBeforePull()
     CHECK(v.phase != Phase::Rest);
 }
 
+// Blackfathom Deeps r22 step 85 and r23 slot 6b step 8: after a rest the lead bot stood on "stay" (act "food", then
+// "stay") and never took the next walk; the retries every 12 s did not move it and the run paused stuck until a
+// resume. The first walk after a rest that the lead bot has not started within kRestWalkResendMs is sent again, once,
+// with Run::leadWalkReset (the glue clears its meal, follow and stay first).
+static void TestWalkAfterRestIsSentAgain()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 50, 0, 0)};
+    // A meal wait, then the walk.
+    auto rested = [&](Run& r, Facts& f)
+    {
+        f.minHealthPct = 82;
+        f.eating = 1;
+        CHECK(Tick(r, f).empty());
+        CHECK(r.phase == Phase::Rest && r.restForEating && !r.restWalkDue);
+        f.eating = 0;
+        f.minHealthPct = 100;
+        std::string order;
+        for (int i = 0; i < 3 && order.empty(); ++i)
+            order = Tick(r, f);
+        CHECK(order == "move 50.0 0.0 0.0");
+        CHECK(r.phase == Phase::Walk && r.restWalkDue && !r.leadWalkReset);
+    };
+    // The lead bot does not move: the walk again after kRestWalkResendMs, with the reset, once.
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    rested(r, f);
+    std::string again;
+    std::uint32_t ms = 0;
+    for (; ms < kWalkRetryMs && again.empty(); ms += kTickMs)
+        again = Tick(r, f);
+    CHECK(again == "move 50.0 0.0 0.0" && ms <= kRestWalkResendMs + kTickMs);
+    CHECK(r.leadWalkReset && !r.restWalkDue && r.walkTries == 1);
+    CHECK(r.note == "the lead bot did not take the walk after the rest: the walk again, its follow and stay cleared");
+    r.leadWalkReset = false; // the glue's part
+    // Not again: the next order is the old retry after kWalkRetryMs, without the reset.
+    std::string retry;
+    ms = 0;
+    for (; ms <= kWalkRetryMs + kTickMs && retry.empty(); ms += kTickMs)
+        retry = Tick(r, f);
+    CHECK(retry == "move 50.0 0.0 0.0" && ms >= kWalkRetryMs && !r.leadWalkReset && r.walkTries == 2);
+    // The lead bot takes the walk after the rest: no second order.
+    Run m = Start(&plan);
+    Facts g = Party(0);
+    rested(m, g);
+    g.leadX = 10;
+    for (int i = 0; i < 6; ++i)
+        CHECK(Tick(m, g).empty());
+    CHECK(!m.restWalkDue && !m.leadWalkReset);
+    // No rest before the walk: a stall waits for the old retry (TestWalkStuckIsBounded).
+    Run n = Start(&plan);
+    Facts h = Party(0);
+    CHECK(Tick(n, h) == "move 50.0 0.0 0.0" && !n.restWalkDue);
+    for (std::uint32_t t = 0; t + kTickMs < kWalkRetryMs; t += kTickMs)
+        CHECK(Tick(n, h).empty());
+    // A fight after the rest ends the watch.
+    Run c = Start(&plan);
+    Facts k = Party(0);
+    rested(c, k);
+    k.anyInCombat = true;
+    Tick(c, k);
+    CHECK(!c.restWalkDue);
+    // So does a pause (a resume regroups and walks afresh).
+    Run p = Start(&plan);
+    Facts q = Party(0);
+    rested(p, q);
+    Pause(p, "a player's order");
+    CHECK(!p.restWalkDue);
+}
+
 static void TestWipeAndLeadDeathPause()
 {
     DungeonPlan plan;
@@ -14399,6 +14469,7 @@ int main()
     TestRegroupWaitsForPartyRez();
     TestRegroupRevivePauses();
     TestMealWaitBeforePull();
+    TestWalkAfterRestIsSentAgain();
     TestFightCeiling();
     TestTaskSteps();
     TestOpenWithoutKeyAndTaskError();
