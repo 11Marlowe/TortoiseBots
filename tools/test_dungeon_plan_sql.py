@@ -29,7 +29,8 @@ BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulf
               "scarlet_library": 189,
               "scarlet_armory": 189, "scarlet_cathedral": 189, "scarlet_graveyard": 189,
               "blackfathom_deeps": 48,
-              "shadowfang_keep": 33}
+              "shadowfang_keep": 33,
+              "sunken_temple": 109}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -63,6 +64,8 @@ SEEDED_BOSSES = {
     (33, 3914): "Rethilgore", (33, 3886): "Razorclaw the Butcher", (33, 3887): "Baron Silverlaine",
     (33, 4278): "Commander Springvale", (33, 4279): "Odo the Blindwatcher",
     (33, 4274): "Fenrus the Devourer", (33, 3927): "Wolf Master Nandos", (33, 4275): "Archmage Arugal",
+    (109, 8580): "Atal'alarion", (109, 5720): "Weaver", (109, 5721): "Dreamscythe",
+    (109, 5710): "Jammal'an the Prophet", (109, 5719): "Morphaz", (109, 5709): "Shade of Eranikus",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
 # Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080,
@@ -527,6 +530,73 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((last["entries"], float(last["radius"])), ("1708", 7.0))
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwind_stockade"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
+
+    def test_sunken_temple_is_the_plan_with_the_census_fixes(self):
+        # 20261023170100 (turtle-agent f5c11e81, 2026-10-23): 20261023170000 again, with the five off-mesh rows fixed. The exporter
+        # had cut the hop from -300 to Atal'alarion along Detour's straight 2-point path, so its 50 yd rows left the walkway
+        # (z -172.9) and the ramp for the boss's z -189.7. Leg 0's boss now has a 4-point approach on the floor and leg 1 the same
+        # points as via points back up; nothing else changed. Census unit lists, radii, pulls and boss rows are unchanged. 6 legs,
+        # 2235 steps (16 + 37 + 25 + 8 + 2 + 1 pulls), bosses in leg order, no door or event step.
+        name, text = newest_plan_text("sunken_temple")
+        self.assertEqual(name, "20261023170100_world.sql")
+        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent f5c11e81 dungeons/sunken_temple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(len(re.findall(r"(?m)^\('sunken_temple', \d+, '(?:[^']|'')*', '(?:[^']|'')*'\)[,;]$", text)), 6)
+        self.assertEqual([n.replace("''", "'") for n in re.findall(r"(?m)^\('sunken_temple', \d+, '((?:[^']|'')*)', '(?:[^']|'')*'\)[,;]$", text)],
+                         ["atal'alarion", "weaver", "dreamscythe", "jammal'an_the_prophet", "morphaz", "shade_of_eranikus"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "sunken_temple"]
+        self.assertEqual(len(rows), 2235)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [16, 37, 25, 8, 2, 1])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["8580", "5720", "5721", "5710", "5719", "5709"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(6):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        # The floor points of 20261023170100: leg 0's boss approach runs along the walkway (z -172.9) and down the ramp to the boss
+        # floor (-189.6); leg 1 walks the same points back (via rows) after the boss. Old 20261023170000 had two off-mesh move rows
+        # before the leg-0 boss (-349.73 99.38 -177.16, -399.47 98.23 -182.18) and three in leg 1's opening (-423.45 97.68 -184.60,
+        # -373.72 98.83 -179.58, -323.98 99.98 -174.55) instead.
+        floor_points = [(-349.6, 99.4, -172.86), (-400.0, 98.2, -172.93), (-435.0, 97.4, -181.49), (-460.0, 96.8, -189.58)]
+        approach = [r for r in leg_steps(rows, 0) if r["comment"] == "boss approach"]
+        self.assertEqual([(float(r["x"]), float(r["y"]), float(r["z"])) for r in approach], floor_points)
+        via = [r for r in leg_steps(rows, 1) if r["comment"] == "via"]
+        self.assertEqual([(float(r["x"]), float(r["y"]), float(r["z"])) for r in via],
+                         list(reversed(floor_points)) + [(-300.0, 100.5333, -172.13)])
+        self.assertLessEqual(math.dist((float(approach[-1]["x"]), float(approach[-1]["y"]), float(approach[-1]["z"])),
+                                       (float(leg_steps(rows, 0)[-1]["x"]), float(leg_steps(rows, 0)[-1]["y"]), float(leg_steps(rows, 0)[-1]["z"]))), 50.0)
+        # Jammal'an's Ogom 5711 and Morphaz's Hazzas 5722 are the boss rows' `first` (their creature groups aggro together); the other
+        # four have no linked add.
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "", "5711", "5722", ""])
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        # The three radii that reached the next pack (same entries 14.4-26.8 yd out) and the seven 5291 pulls with its 15 yd wander.
+        self.assertEqual(float([r for r in leg_steps(rows, 0) if r["kind"] == "pull"][5]["radius"]), 17.5)
+        self.assertEqual([float(r["radius"]) for r in leg_steps(rows, 3) if r["kind"] == "pull"][2:4], [14.3, 15.6])
+        self.assertEqual([float(r["radius"]) for r in pulls if r["entries"] == "5291"], [17.0] * 7)
+        # The 23 detour pulls have two approach moves each; the last stands on the pack's own floor, 30 yd or less from the pull
+        # row (a cut path's move rows may lie between the two approach points and the pull, so find the last approach move before
+        # each pull row).
+        approaches = [r for r in rows if r["kind"] == "move" and r["comment"].startswith("pull group ") and r["comment"].endswith(" approach")]
+        self.assertEqual(len(approaches), 46)
+        self.assertEqual(len({(r["leg"], r["comment"].split()[2]) for r in approaches}), 23)
+        for leg in range(6):
+            steps = leg_steps(rows, leg)
+            for i, pull in enumerate(steps):
+                if pull["kind"] != "pull":
+                    continue
+                stand = None
+                for j in range(i - 1, -1, -1):
+                    if steps[j]["kind"] != "move":
+                        break
+                    if steps[j]["comment"].endswith(" approach"):
+                        stand = steps[j]
+                        break
+                if stand is None:
+                    continue
+                d = math.dist((float(stand["x"]), float(stand["y"]), float(stand["z"])),
+                              (float(pull["x"]), float(pull["y"]), float(pull["z"])))
+                self.assertLessEqual(d, 30.0, (leg, pull["comment"]))
+                self.assertLessEqual(abs(float(stand["z"]) - float(pull["z"])), 4.0, (leg, pull["comment"]))
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["sunken_temple"])
+        # Entry-scoped on the shared map: only this plan's six bosses are deleted and replaced (the SM-wing rule on map 189).
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (109) AND `entry` IN (8580, 5720, 5721, 5710, 5719, 5709);", text)
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
         # 20261023160000 (turtle-agent rfk-fix6 0a72713f, 2026-10-23, after live run r24 slot8 run 5 stopped at step 343 in the
