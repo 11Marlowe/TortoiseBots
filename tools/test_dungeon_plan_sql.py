@@ -475,19 +475,21 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
     def test_razorfen_downs_is_the_plan_with_the_census_fixes(self):
-        # 20261023130000 (turtle-agent 984535c, 2026-10-23): the generated Razorfen Downs draft with the census fixes of
-        # PREP-RAZORFEN-DOWNS-2026-10-23.md, no row hand-set, with the boss rows of map 129 scoped to its own four entries. 4 legs,
-        # 399 steps (10 + 30 + 19 + 20 pulls), bosses in leg order, no boss.first. The plan row carries cc_priority and kill_first;
-        # the critters 2110/4076 are out of every pull, Ragglesnout 7354 is in leg 3's pack, Rakameg's four Worshippers are the last
-        # pull of leg 2, and every pull radius stays short of the next pack (<= 16 yd).
+        # 20261023190000 (turtle-agent rfd-fix1 7931a7c, 2026-10-23, after live run r25 slot 5 stopped at step 251): the plan of
+        # 20261023130000 again, with an approach list on the seven leg-3 pulls whose pack stands on another layer. The generated
+        # Razorfen Downs draft with the census fixes of PREP-RAZORFEN-DOWNS-2026-10-23.md, no row hand-set, with the boss rows of
+        # map 129 scoped to its own four entries. 4 legs, 510 steps (10 + 30 + 19 + 20 pulls; 24 of the moves are approach rows),
+        # bosses in leg order, no boss.first. The plan row carries cc_priority and kill_first; the critters 2110/4076 are out of
+        # every pull, Ragglesnout 7354 is in leg 3's pack, Rakameg's four Worshippers are the last pull of leg 2, and every pull
+        # radius stays short of the next pack (<= 16 yd).
         name, text = newest_plan_text("razorfen_downs")
-        self.assertEqual(name, "20261023130000_world.sql")
-        self.assertIn("('razorfen_downs', 129, '62676,7337,7335,62677', '', '7354,7342,7353,7341', 'turtle-agent 984535c dungeons/razorfen_downs.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261023190000_world.sql")
+        self.assertIn("('razorfen_downs', 129, '62676,7337,7335,62677', '', '7354,7342,7353,7341', 'turtle-agent 7931a7c dungeons/razorfen_downs.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "razorfen_downs")
         self.assertEqual([legs[i][0] for i in range(4)],
                          ["mordresh_fire_eye", "glutton", "death_prophet_rakameg", "amnennar_the_coldbringer"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "razorfen_downs"]
-        self.assertEqual(len(rows), 399)
+        self.assertEqual(len(rows), 510)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(4)], [10, 30, 19, 20])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["7357", "8567", "62679", "7358"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -500,6 +502,40 @@ class DungeonPlanSql(unittest.TestCase):
                          [("7347,7346,7342,7344,7354", 10.6)])
         self.assertEqual([r for r in leg_steps(rows, 2) if r["kind"] == "pull"][-1]["entries"], "62676")
         self.assertLessEqual(max(float(r["radius"]) for r in pulls), 16.0)
+        # 20261023190000: the seven leg-3 approach lists (run r25 slot 5: the party stood on the lower floor while the packs of
+        # pull groups 3, 4 and 7 stand on the shelf above, z 39-43). Each list ends on the pack's own layer, within 30 yd of the
+        # pull row; the stands are pinned so a re-export that moves one is caught. The rows of a list lie between the pull before
+        # it and its own pull; the exporter cuts a hop over 60 yd into "path" rows between them.
+        steps3 = leg_steps(rows, 3)
+        pos = {id(r): i for i, r in enumerate(steps3)}
+        approach = {}
+        for r in steps3:
+            if r["kind"] == "move" and r["comment"].endswith(" approach"):
+                approach.setdefault(r["comment"], []).append(r)
+        self.assertEqual(sorted(approach), ["pull group 10 approach", "pull group 13 approach", "pull group 14 approach",
+                                            "pull group 2 approach", "pull group 3 approach", "pull group 4 approach",
+                                            "pull group 6 approach"])
+        order = sorted(approach, key=lambda c: int(c.split()[2]))
+        self.assertEqual([len(approach[c]) for c in order], [3, 1, 4, 4, 4, 4, 4])
+        stands = {c: (float(approach[c][-1]["x"]), float(approach[c][-1]["y"]), float(approach[c][-1]["z"])) for c in order}
+        self.assertEqual(stands, {
+            "pull group 2 approach": (2364.35, 991.682, 39.6645),
+            "pull group 3 approach": (2350.0, 954.0, 42.8389),
+            "pull group 4 approach": (2340.0, 945.0, 28.3757),
+            "pull group 6 approach": (2380.0, 936.0, 42.899),
+            "pull group 10 approach": (2424.0, 1000.0, 49.5571),
+            "pull group 13 approach": (2398.0, 1010.0, 38.3457),
+            "pull group 14 approach": (2352.0, 1010.0, 26.4749),
+        })
+        pulls3 = [r for r in steps3 if r["kind"] == "pull"]
+        for c in order:
+            n = int(c.split()[2])
+            pull = pulls3[n]
+            self.assertEqual(steps3[pos[id(pull)] - 1], approach[c][-1], c)
+            self.assertLessEqual(math.dist(stands[c], (float(pull["x"]), float(pull["y"]), float(pull["z"]))), 30.0, c)
+            lo = pos[id(pulls3[n - 1])] if n else -1
+            hi = pos[id(pull)]
+            self.assertTrue(all(lo < i < hi for i in (pos[id(r)] for r in approach[c])), c)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["razorfen_downs"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
 
