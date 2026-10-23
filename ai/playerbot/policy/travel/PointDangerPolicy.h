@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include "playerbot/policy/pull/PullRegenPolicy.h"
+#include "../pull/PullRegenPolicy.h"
 
 namespace ai
 {

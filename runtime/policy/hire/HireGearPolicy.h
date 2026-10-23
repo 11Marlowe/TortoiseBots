@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <cstring>
 
-#include "HireSpecPolicy.h"
+#include "../../HireSpecPolicy.h"
 
 namespace TortoiseBots
 {
