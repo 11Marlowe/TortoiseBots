@@ -43,12 +43,21 @@ class SwimPathWiringTest(unittest.TestCase):
         self.assertNotIn("|| type == PATHFIND_NORMAL)", self.step)
 
     def test_step_keeps_the_underwater_incomplete_branch(self):
-        self.assertIn("if (type == PATHFIND_INCOMPLETE)", self.step)
-        self.assertIn("lastPoint.isUnderWater() && end.isUnderWater() && lastPoint.IsInLineOfSight(end)", self.step)
+        # Codex review 2026-10-23: the partial path's swim-on step asks the full-line test.
+        self.assertIn("if (type == PATHFIND_INCOMPLETE && !retvec.empty())", self.step)
+        self.assertIn("if (dist < 50.0f && SwimPathFits({ lastPoint, end }, bot))", self.step)
+        self.assertNotIn("isUnderWater()", self.step)
+        self.assertNotIn("IsInLineOfSight(end)", self.step)
 
     def test_fits_samples_water_only_and_asks_sight(self):
-        self.assertIn("MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN", self.fits)
-        self.assertNotIn("MAP_ALL_LIQUIDS", self.fits)
+        # Blackfathom Deeps r26-19z44e: the request goes to the core as the policy's
+        # kSwimLiquidRequest (all liquids; a water | ocean request found no BFD water,
+        # the vmap ANDs it with the WMO's raw liquid id 1), and the answer's type
+        # flags (magma, slime) are handed back for the policy to refuse.
+        self.assertIn("terrain->getLiquidStatus(x, y, z, static_cast<uint8>(request), &data)", self.fits)
+        self.assertIn("typeFlags = status != LIQUID_MAP_NO_WATER ? data.type_flags : 0;", self.fits)
+        self.assertNotIn("MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN", self.fits)
+        self.assertIn("ai::kSwimLiquidRequest == 0,", WORLDPOS)
         self.assertIn("ai::SwimLineInWater(a.getX(), a.getY(), a.getZ(), b.getX(), b.getY(), b.getZ(), liquidAt)", self.fits)
         self.assertIn("            if (!map->isInLineOfSight(a.getX(), a.getY(), a.getZ() + 0.5f, b.getX(), b.getY(), b.getZ() + 0.5f, true))\n                return false;", self.fits)
         self.assertIn("            if (!ai::SwimLineInWater(", self.fits)

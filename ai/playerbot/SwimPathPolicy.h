@@ -46,6 +46,24 @@ namespace ai
     constexpr std::uint32_t kLiquidInWater = 0x4;
     constexpr std::uint32_t kLiquidUnderWater = 0x8;
 
+    // The core's liquid type flags (GridMapDefines.h MAP_LIQUID_TYPE_*), mirrored.
+    constexpr std::uint32_t kLiquidTypeMagma = 0x01;
+    constexpr std::uint32_t kLiquidTypeOcean = 0x02;
+    constexpr std::uint32_t kLiquidTypeSlime = 0x04;
+    constexpr std::uint32_t kLiquidTypeWater = 0x08;
+    // A swim line asks the core for any liquid with no type filter (request 0)
+    // and decides water against magma and slime by the answer's type flags
+    // (GridMapLiquidData::type_flags, from LiquidType.dbc), as
+    // Player::UpdateTerainEnvironmentFlags reads them. A filtered request is
+    // unusable: the vmap test VMapManager2::GetLiquidLevel ANDs the request with
+    // the WMO's raw liquid type id, not a flag (`if (ReqLiquidType && !(type &
+    // ReqLiquidType)) return false;`; the ADT test, GridMap::getLiquidStatus,
+    // skips its filter for 0 too). Every Blackfathom Deeps WMO liquid has raw id
+    // 1, so water | ocean (0x0A) found no water there at all (r26-19z44e, step
+    // 82), and even all liquids (0x0F) would miss a raw id with none of the low
+    // four bits set (16, 32, ...). Codex review 2026-10-23.
+    constexpr std::uint32_t kSwimLiquidRequest = 0;
+
     // Samples along a swim line at most this far apart, always: a line longer
     // than kSwimMaxLineYd is refused rather than sampled more sparsely (a capped
     // count let a dry strip narrower than the stretched spacing hide between two
@@ -79,9 +97,16 @@ namespace ai
     }
 
     // One sample of a swim line: in water at or below the surface.
-    inline bool SwimSampleInWater(std::uint32_t liquidStatus)
+    // One sample of a swim line: in water at or below the surface, and the
+    // liquid there neither magma nor slime (typeFlags: the answer's type flags,
+    // read only when the status is not NO_WATER).
+    inline bool SwimSampleInWater(std::uint32_t liquidStatus, std::uint32_t typeFlags)
     {
-        return liquidStatus == kLiquidInWater || liquidStatus == kLiquidUnderWater || liquidStatus == kLiquidWaterWalk;
+        if (liquidStatus != kLiquidInWater && liquidStatus != kLiquidUnderWater && liquidStatus != kLiquidWaterWalk)
+            return false;
+        // Water or ocean, and neither magma nor slime (a raw id LiquidType.dbc does
+        // not know reads type flags 0x01, magma, and is refused).
+        return (typeFlags & (kLiquidTypeWater | kLiquidTypeOcean)) && !(typeFlags & (kLiquidTypeMagma | kLiquidTypeSlime));
     }
 
     // How many samples a line of `length` yd takes (both ends included), at most
@@ -93,9 +118,10 @@ namespace ai
         return static_cast<std::uint32_t>(std::ceil(length / kSwimSampleYd)) + 1;
     }
 
-    // Whether the straight line a -> b lies in water: liquidAt(x, y, z) answers
-    // the core's liquid status at a point; every sample must be in water, and
-    // the line is at most kSwimMaxLineYd long.
+    // Whether the straight line a -> b lies in water: liquidAt(x, y, z, request,
+    // typeFlags) answers the core's liquid status at a point for the liquid types
+    // `request` (always kSwimLiquidRequest) and sets the answer's type flags;
+    // every sample must be in water, and the line is at most kSwimMaxLineYd long.
     template <class LiquidAt>
     inline bool SwimLineInWater(float ax, float ay, float az, float bx, float by, float bz, LiquidAt&& liquidAt)
     {
@@ -107,7 +133,9 @@ namespace ai
         for (std::uint32_t i = 0; i < samples; ++i)
         {
             float const t = samples == 1 ? 0.0f : static_cast<float>(i) / static_cast<float>(samples - 1);
-            if (!SwimSampleInWater(liquidAt(ax + dx * t, ay + dy * t, az + dz * t)))
+            std::uint32_t typeFlags = 0;
+            std::uint32_t const status = liquidAt(ax + dx * t, ay + dy * t, az + dz * t, kSwimLiquidRequest, typeFlags);
+            if (!SwimSampleInWater(status, typeFlags))
                 return false;
         }
         return true;
