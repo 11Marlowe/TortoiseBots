@@ -1279,6 +1279,8 @@ struct Run
     std::uint32_t retreatMs = 0;
     std::uint32_t retreatOrders = 0;
     bool retreatDone = false;
+    // The rest under way ends at the light lines (RestLinesFor: the next fight is a small pull, or there is none ahead).
+    bool restLight = false;
     // The route checkpoint (run-wide: kept across steps, wipes and regroups):
     // the plan index of the move or direct step point the lead bot reached
     // last, its step done or a walk back's point (npos: none yet). The lead
@@ -4425,6 +4427,63 @@ inline bool NeedsRest(const Facts& f, const RestLines& l)
 inline bool Rested(const Facts& f, const RestLines& l)
 {
     return f.minHealthPct >= l.endHealth && f.minHealerManaPct >= l.endHealerMana && f.minManaPct >= l.endMana;
+}
+
+// ---------------------------------------------------------------------------
+// Rest to what the next step needs (WASTED-TIME 2026-10-23 sink 3: 203 min of rest in 31 runs, 6.5 min a run, 104
+// gates of 30 s or more; many were sips between small packs). The rest gate after a fight and the meal wait use the
+// light lines when the next fight within kRestLookaheadSteps steps is a plain pull (or no fight is ahead: moves,
+// loot, doors), and the full lines (RestLines, unchanged) before a boss, a hold, a ritual, a scripted event or a pull
+// whose aggro estimate read kBigPackJoiners or more, and on a plan `rest` step. The light lines start a rest only under
+// 60 % health, 35 % healer mana or 25 % other mana (the next small pull is within the party's budget above them) and
+// end it at 75 / 60 / 45. The party rests together, all at once (`cmd rest`: every bot eats and drinks what it
+// needs at the same time); nobody walks on while another drinks. Under the light lines a bot still eating or drinking
+// holds the next order only while the lead bot itself is seated or eating (the pull would find the tank seated:
+// Uldaman pulls 17 and 61) or the party is under the light end lines.
+constexpr std::size_t kRestLookaheadSteps = 8;
+constexpr RestLines kLightRestLines{60, 35, 25, 75, 60, 45};
+
+inline RestLines LightLines(const RestLines& full)
+{
+    RestLines l;
+    l.startHealth = std::min(full.startHealth, kLightRestLines.startHealth);
+    l.startHealerMana = std::min(full.startHealerMana, kLightRestLines.startHealerMana);
+    l.startMana = std::min(full.startMana, kLightRestLines.startMana);
+    l.endHealth = std::min(full.endHealth, kLightRestLines.endHealth);
+    l.endHealerMana = std::min(full.endHealerMana, kLightRestLines.endHealerMana);
+    l.endMana = std::min(full.endMana, kLightRestLines.endMana);
+    return l;
+}
+
+inline const PlanStep* EventHoldAhead(const Run& r);
+inline bool InEvent(const Run& r);
+
+// Whether the next fight needs only the light lines (see above). From step `from` on (the current step, or the one
+// after it when the current pull or boss has nothing left: TickBody), at most kRestLookaheadSteps steps.
+inline bool LightRestAhead(const Run& r, std::size_t from)
+{
+    if (!r.plan || InEvent(r) || EventHoldAhead(r))
+        return false;
+    for (std::size_t i = from; i < r.plan->steps.size() && i < from + kRestLookaheadSteps; ++i)
+    {
+        const PlanStep& s = r.plan->steps[i];
+        switch (s.kind)
+        {
+            case PlanStepKind::Boss:
+            case PlanStepKind::Hold:
+            case PlanStepKind::Ritual:
+                return false;
+            case PlanStepKind::Pull:
+                if (i == r.step)
+                    for (const auto& seen : r.joinerSeen)
+                        if (seen.second >= kBigPackJoiners)
+                            return false;
+                return true;
+            default:
+                break; // a move, a loot, a door: the fight after it decides
+        }
+    }
+    return true; // no fight within reach: walking on needs no full party
 }
 
 // How far the lead bot is from a plain walk's point for the stalled arrival
@@ -11094,15 +11153,23 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         return order;
     }
 
-    // Rest gate.
+    // Rest gate. The lines of the next fight (LightRestAhead): the full ones before a boss, an event or a big pull.
+    bool const stepOver = (s->kind == PlanStepKind::Pull || s->kind == PlanStepKind::Boss) &&
+        FightStepEnd(r, f, *s) != FightEnd::NotYet;
+    bool const lightAhead = LightRestAhead(r, stepOver ? r.step + 1 : r.step);
+    RestLines const light = LightLines(lines);
     if (r.phase == Phase::Rest)
     {
         if (r.restForEating)
             r.eatWaitMs += dt;
-        if (Rested(f, lines) || r.phaseMs >= kRestCapMs ||
+        // A light rest ends at the light lines; a meal wait under them as soon as the lead bot is not seated.
+        // (A meal wait whose lead bot is still seated starts again on the next tick: the meal rule below.)
+        bool const lightDone = r.restLight && Rested(f, light);
+        if (Rested(f, lines) || lightDone || r.phaseMs >= kRestCapMs ||
             (r.restForEating && (f.eating == 0 || r.eatWaitMs >= kRestCapMs)))
         {
             r.restForEating = false;
+            r.restLight = false;
             r.restWalkDue = true; // the next walk is watched for a lead bot left on its meal or stay
             EnterPhase(r, Phase::Begin);
         }
@@ -11126,6 +11193,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         {
             EnterPhase(r, Phase::Rest);
             r.restForEating = false;
+            r.restLight = false; // a big pull: the full lines
             r.restForJoiners = true;
             ++r.joinerRests; // a slot is spent by a rest that really starts, not by a pick the party was rested for
             r.restRepeatMs = 0;
@@ -11139,10 +11207,12 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         bool const forced = s->kind == PlanStepKind::Rest && !r.stepRested;
         r.restDue = false;
         r.stepRested = r.stepRested || s->kind == PlanStepKind::Rest;
-        if (forced || NeedsRest(f, lines))
+        bool const lightRest = !forced && lightAhead;
+        if (forced || NeedsRest(f, lightRest ? light : lines))
         {
             EnterPhase(r, Phase::Rest);
             r.restForEating = false;
+            r.restLight = lightRest;
             r.restForJoiners = false;
             r.restRepeatMs = 0;
             r.note = "resting";
@@ -11158,10 +11228,13 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     // kRestCapMs of waiting per fight.
     if ((r.phase == Phase::Begin || r.phase == Phase::Gather) && r.eatWaitMs < kRestCapMs)
     {
-        if (f.eating > 0 && !Rested(f, lines) && !InEvent(r))
+        // Under the light lines only while the lead bot itself is seated or the party is under them.
+        bool const mealHolds = lightAhead ? (f.leadResting && !Rested(f, lines)) || !Rested(f, light) : !Rested(f, lines);
+        if (f.eating > 0 && mealHolds && !InEvent(r))
         {
             EnterPhase(r, Phase::Rest);
             r.restForJoiners = false;
+            r.restLight = lightAhead;
             r.restForEating = true;
             r.restRepeatMs = 0;
             r.note = "resting: " + std::to_string(f.eating) + " eating or drinking";

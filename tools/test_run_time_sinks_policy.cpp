@@ -3,6 +3,7 @@
 //   (A) the walk back after a wipe or a resume: never before the run's start step, a straight target out of every
 //       live pack's reach, a target moved back when the straight path passes an uncleared pack, and the replay
 //       leaving out a stretch of the route that comes back by the point just reached;
+//   (B) the rest gate rests to what the next fight needs;
 //   g++ -std=c++17 -Wall -Wextra tools/test_run_time_sinks_policy.cpp -o /tmp/t && /tmp/t
 #include "../runtime/DungeonRunPolicy.h"
 
@@ -544,6 +545,177 @@ static void TestRetreatAtTwoDead()
     CHECK(refused.state == State::Running && !refused.retreatOn && refused.retreatDone);
 }
 
+// (B) Rest to what the next step needs (WASTED-TIME sink 3). A fight is won on pull step 0; what the rest gate does
+// then depends on the next fight: a small pull or nothing (the light lines), a boss, an event or a big pull (full).
+static PlanStep Boss(float x, std::uint32_t entry)
+{
+    PlanStep s;
+    s.kind = PlanStepKind::Boss;
+    s.x = x;
+    s.entry = entry;
+    s.radius = 15.0f;
+    ai::NormalizePlanStep(s);
+    return s;
+}
+
+// The fight on step 0 is over (its pack gone); the ticks after it with `party`'s health and mana. The first order.
+static std::string AfterFight(Run& r, Facts party, int ticks = 1)
+{
+    Facts f = Party(0);
+    f.seen = true;
+    f.units = {};
+    f.anyInCombat = true;
+    UnitFact u;
+    u.guid = 5;
+    u.entry = 1;
+    f.units = {u};
+    Tick(r, f); // the fight
+    party.seen = true;
+    std::string got;
+    for (int i = 0; i < ticks && got.empty(); ++i)
+        got = Tick(r, party);
+    return got;
+}
+
+static Facts Health(std::uint32_t health, std::uint32_t healerMana = 100, std::uint32_t mana = 100)
+{
+    Facts f = Party(0);
+    f.minHealthPct = health;
+    f.minHealerManaPct = healerMana;
+    f.minManaPct = mana;
+    return f;
+}
+
+static void TestRestLinesFollowTheNextFight()
+{
+    DungeonPlan small;
+    small.steps = {Pull(0, 0, 1), Move(30, 0), Pull(60, 0, 2)};
+    DungeonPlan boss;
+    boss.steps = {Pull(0, 0, 1), Move(30, 0), Boss(60, 3)};
+    // 70 % health: within the budget of a small pull, no rest (the old lines rested under 80 %).
+    Run a = Start(&small);
+    a.fighting = true;
+    CHECK(AfterFight(a, Health(70)) != "rest" && a.phase != Phase::Rest);
+    // ... before a boss: the full lines, the rest as before.
+    Run b = Start(&boss);
+    b.fighting = true;
+    CHECK(AfterFight(b, Health(70)) == "rest" && b.phase == Phase::Rest && !b.restLight);
+    Tick(b, Health(85));
+    CHECK(b.phase == Phase::Rest); // under the full end line (90)
+    Tick(b, Health(90));
+    CHECK(b.phase != Phase::Rest);
+    // Under the light start line before a small pull: a rest, ended at the light end line (75), not 90.
+    Run c = Start(&small);
+    c.fighting = true;
+    CHECK(AfterFight(c, Health(50)) == "rest" && c.restLight);
+    Tick(c, Health(70));
+    CHECK(c.phase == Phase::Rest);
+    Tick(c, Health(76));
+    CHECK(c.phase != Phase::Rest && !c.restLight);
+    // Healer mana: 40 % is within a small pull's budget (35), 30 % rests to 60, never only the healer while the others
+    // walk on: the order is the party's `rest`.
+    Run d = Start(&small);
+    d.fighting = true;
+    CHECK(AfterFight(d, Health(100, 40)) != "rest");
+    Run e = Start(&small);
+    e.fighting = true;
+    CHECK(AfterFight(e, Health(100, 30)) == "rest");
+    Tick(e, Health(100, 55));
+    CHECK(e.phase == Phase::Rest);
+    Tick(e, Health(100, 60));
+    CHECK(e.phase != Phase::Rest);
+    // Nothing but moves ahead: the light lines.
+    DungeonPlan walk;
+    walk.steps = {Pull(0, 0, 1), Move(30, 0), Move(60, 0)};
+    Run w = Start(&walk);
+    w.fighting = true;
+    CHECK(AfterFight(w, Health(70)) != "rest");
+    // A boss beyond the lookahead (kRestLookaheadSteps) does not count yet.
+    DungeonPlan far;
+    far.steps = {Pull(0, 0, 1)};
+    for (std::size_t i = 0; i < kRestLookaheadSteps; ++i)
+        far.steps.push_back(Move(10.0f * (i + 1), 0));
+    far.steps.push_back(Boss(200, 3));
+    Run fr = Start(&far);
+    fr.fighting = true;
+    CHECK(AfterFight(fr, Health(70)) != "rest");
+    // An event ahead (a hold) and a big pull (the aggro estimate's kBigPackJoiners): the full lines.
+    DungeonPlan event;
+    event.steps = small.steps;
+    PlanStep hold;
+    hold.kind = PlanStepKind::Hold;
+    hold.x = 90;
+    hold.radius = 20;
+    hold.timeoutS = 60;
+    hold.entries = {9};
+    ai::NormalizePlanStep(hold);
+    event.steps.push_back(hold);
+    Run h = Start(&event);
+    CHECK(LightRestAhead(h, 1));  // the next fight is the small pull at 60 ...
+    CHECK(!LightRestAhead(h, 3)); // ... and after it the hold: the full lines before it
+    Run on = Start(&small);
+    on.eventOn = true; // inside an event already: the full lines
+    CHECK(!LightRestAhead(on, 1));
+    Run big = Start(&small);
+    big.step = 2;
+    big.joinerSeen[44] = kBigPackJoiners;
+    CHECK(!LightRestAhead(big, 2));
+    big.joinerSeen[44] = kBigPackJoiners - 1;
+    CHECK(LightRestAhead(big, 2));
+    // A plan `rest` step rests to the full lines whatever comes after it.
+    DungeonPlan planned;
+    PlanStep rest;
+    rest.kind = PlanStepKind::Rest;
+    ai::NormalizePlanStep(rest);
+    planned.steps = {rest, Pull(60, 0, 2)};
+    Run pr = Start(&planned);
+    CHECK(Tick(pr, Health(85)) == "rest" && !pr.restLight);
+    Tick(pr, Health(85));
+    CHECK(pr.phase == Phase::Rest);
+}
+
+// The meal wait under the light lines: a bot other than the lead bot still drinking above them does not hold a small
+// pull; the lead bot seated or eating does (the pullback would find the tank seated, Uldaman pulls 17 and 61), and so
+// does a party under them.
+static void TestMealWaitUnderTheLightLines()
+{
+    DungeonPlan plan;
+    plan.steps = {Pull(40, 0, 4852)};
+    UnitFact u;
+    u.guid = 31;
+    u.entry = 4852;
+    u.distLead = 30;
+    Facts f = Health(82, 70);
+    f.seen = true;
+    f.units = {u};
+    f.eating = 1;
+    Run r = Start(&plan);
+    CHECK(Tick(r, f) == "pullback 31"); // the healer sips at 70 %: the pull goes out
+    Run t = Start(&plan);
+    f.leadResting = true;
+    CHECK(Tick(t, f).empty() && t.phase == Phase::Rest && t.restForEating);
+    // The tank stands up: the wait is over at the light lines, the pull goes out with the healer still drinking.
+    f.leadResting = false;
+    std::string order;
+    for (int i = 0; i < 3 && order.empty(); ++i)
+        order = Tick(t, f);
+    CHECK(order == "pullback 31");
+    // Under the light end lines a drinking bot holds the pull as before.
+    Run low = Start(&plan);
+    Facts g = Health(82, 50);
+    g.seen = true;
+    g.units = {u};
+    g.eating = 1;
+    CHECK(Tick(low, g).empty() && low.phase == Phase::Rest);
+    // Before a boss: every drinking bot holds, as before.
+    DungeonPlan boss;
+    boss.steps = {Boss(40, 4852)};
+    Run b = Start(&boss);
+    Facts bf = f;
+    bf.units.clear();
+    CHECK(Tick(b, bf).empty() && b.phase == Phase::Rest && b.restForEating);
+}
+
 int main()
 {
     TestWipeWalkBackOnAGnomereganShapedPlan();
@@ -554,6 +726,8 @@ int main()
     TestIncompletePathToTheTargetReplaysThePlansPoints();
     TestStuckWalkBackIsRescuedNotPaused();
     TestRetreatAtTwoDead();
+    TestRestLinesFollowTheNextFight();
+    TestMealWaitUnderTheLightLines();
     std::cout << "test_run_time_sinks_policy: ok\n";
     return 0;
 }
