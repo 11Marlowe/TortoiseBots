@@ -41,6 +41,17 @@ static PlanStep PullStep(float x, std::vector<std::uint32_t> entries, std::uint3
     return s;
 }
 
+// One tick as the glue runs it (TickDungeonRun) for the approach stand: Tick, then,
+// when it asked for one (Run::approachStandWanted), NearestReachablePoint's answer
+// (`stand`: found at sx sy sz; ApproachStandFound).
+static std::string StandTick(Run& r, const Facts& f, bool stand = false, float sx = 0, float sy = 0, float sz = 0)
+{
+    std::string const order = Tick(r, f);
+    if (r.approachStandWanted)
+        ApproachStandFound(r, f, stand, sx, sy, sz);
+    return order;
+}
+
 static Facts Party(float x = 0)
 {
     Facts f;
@@ -1637,14 +1648,467 @@ static void TestApproachHopCapCountsHopsWithoutProgress()
     for (int i = 0; i < 100 && s.state == State::Running; ++i)
     {
         g.approachX = 40;
-        Tick(s, g);
+        StandTick(s, g);
         g.leadX = 40;
-        Tick(s, g);
+        StandTick(s, g);
         g.leadX = 0; // dragged back
     }
     CHECK(s.state == State::Paused);
     CHECK(s.note.find("8 approach hops did not bring the party within 60.0 yd of the pack") == 0);
     CHECK(s.note.find("nearest it got: 1000.0 yd") != std::string::npos);
+    // Before that pause the glue was asked for a stand near the pack, and found none.
+    CHECK(s.approachStand == 3 && s.note.find("; the pack at 1000.0 0.0 0.0 is not reachable from this floor: "
+        "no safe stand 20.0-25.0 yd from it the lead bot has a path to") != std::string::npos);
+}
+
+// Gnomeregan r24 slot 4 step 412, Sunken Temple r25 slot 4 step 5, Razorfen Kraul r24
+// slot 8 step 299: the hop cap paused ('8 approach hops did not bring the party within
+// 60 yd of the pack', nearest 66.8 to 99.6 yd) and each resume hopped the same way into
+// the same pause. The cap asks the glue once for a stand within 25 yd of the pack
+// (ApproachStand); the party walks there and pulls; the pause only when there is none
+// or it does not bring the pack in sight; a resume searches the stand, never hops first.
+static void TestApproachCapTriesAStandNearThePackBeforeThePause()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(1000, {1})};
+    auto capped = [&](Run& r, Facts& g)
+    {
+        for (int i = 0; i < 100 && r.state == State::Running && !r.approachStandWanted; ++i)
+        {
+            g.approachX = 40;
+            Tick(r, g);
+            if (r.approachStandWanted)
+                break;
+            g.leadX = 40;
+            Tick(r, g);
+            g.leadX = 0; // dragged back
+        }
+    };
+    auto far = [] { Facts g = Party(0); g.seen = false; g.approachKnown = true; return g; };
+    // A stand found: walked to, and the pull goes out from there.
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts g = far();
+    capped(r, g);
+    CHECK(r.state == State::Running && r.approachStandWanted && r.approachStand == 1);
+    CHECK(r.note.find("8 approach hops did not bring the party within 60.0 yd of the pack (nearest it got: 1000.0 yd): "
+        "looking for a stand within 25.0 yd of it") == 0);
+    CHECK(Tick(r, g).empty() && r.state == State::Running); // no hop while the glue searches
+    CHECK(ApproachStandFound(r, g, true, 980, 0, 0));
+    CHECK(r.approachStand == 2 && !r.approachStandWanted && r.state == State::Running);
+    CHECK(Tick(r, g) == "move 980.0 0.0 0.0");
+    CHECK(r.note.find("approach: walking to the stand 980.0 0.0 0.0, 20.0 yd from the pack at 1000.0 0.0 0.0") == 0);
+    Facts there = g;
+    there.leadX = 980;
+    there.seen = true;
+    there.units = {Unit(7, 1, 20)};
+    Tick(r, there);
+    CHECK(r.state == State::Running && r.note.find("approach") == std::string::npos);
+    // A stand that does not bring the pack in sight: the pause, saying so.
+    Run s = Start(&plan);
+    s.restDue = false;
+    Facts h = far();
+    capped(s, h);
+    CHECK(ApproachStandFound(s, h, true, 980, 0, 0));
+    CHECK(Tick(s, h) == "move 980.0 0.0 0.0");
+    h.leadX = 980;
+    Tick(s, h); // arrived, still out of sight (a wall)
+    Tick(s, h);
+    CHECK(s.state == State::Paused && s.approachStand == 3);
+    CHECK(s.note.find("8 approach hops did not bring the party within 60.0 yd of the pack") == 0);
+    CHECK(s.note.find("; the pack at 1000.0 0.0 0.0 is not reachable from this floor: the stand 980.0 0.0 0.0 "
+        "did not bring it within 60.0 yd") != std::string::npos);
+    // A stand farther than 25 yd from the pack is not taken.
+    Run w = Start(&plan);
+    w.restDue = false;
+    Facts k = far();
+    capped(w, k);
+    CHECK(!ApproachStandFound(w, k, true, 970, 0, 0) && w.state == State::Paused);
+    // Resumed with no stand reachable from the new spot: the search first (no hop before
+    // it), then the hops again with a fresh cap (the Opus review of f1fdeb67: a player who
+    // moved the party behind a winding ramp had no way out), and that cap pauses.
+    Run q = Start(&plan);
+    q.restDue = false;
+    Facts m = far();
+    capped(q, m);
+    CHECK(!ApproachStandFound(q, m, false, 0, 0, 0) && q.state == State::Paused);
+    CHECK(Resume(q) && q.approachStandResumed);
+    m.leadX = 0;
+    m.approachX = 40;
+    bool searched = false, hopBeforeSearch = false, hopped = false;
+    for (int i = 0; i < 200 && q.state == State::Running; ++i)
+    {
+        std::string const o = StandTick(q, m);
+        searched = searched || q.note.find("approach (resumed): no safe stand near the pack at 1000.0 0.0 0.0 from here: "
+            "approach hops again") == 0;
+        if (o == "move 40.0 0.0 0.0")
+        {
+            hopBeforeSearch = hopBeforeSearch || !searched;
+            hopped = true;
+            m.leadX = 40;
+            StandTick(q, m);
+            m.leadX = 0; // dragged back again
+        }
+    }
+    CHECK(searched && hopped && !hopBeforeSearch && q.state == State::Paused && q.approachStand == 3);
+    CHECK(q.note.find("8 approach hops did not bring the party within 60.0 yd of the pack") == 0);
+    // Resumed from a spot that has a stand now (a player moved the party): straight to it, no hop.
+    CHECK(Resume(q));
+    std::string first;
+    for (int i = 0; i < 60 && q.state == State::Running && first.empty(); ++i)
+        first = StandTick(q, m, true, 978, 0, 0);
+    CHECK(first == "move 978.0 0.0 0.0" && q.approachStand == 4);
+    // Another step kind (an NPC, the next point) keeps the old pause: no stand asked.
+    DungeonPlan moves;
+    moves.steps = {Step(PlanStepKind::Move, 1000)};
+    Run n = Start(&moves);
+    n.restDue = false;
+    Facts o = far();
+    capped(n, o);
+    CHECK(!n.approachStandWanted && n.state == State::Paused &&
+        n.note.find("approach hops did not bring the party") != std::string::npos);
+    // A step done forgets the stand.
+    Run d = Start(&plan);
+    d.approachStandStep = 0;
+    d.approachStand = 3;
+    NextStep(d, "done");
+    CHECK(d.approachStandStep == static_cast<std::size_t>(-1) && d.approachStand == 0);
+}
+
+// Codex review of f1fdeb67: the approach stand came from the refused move's stand-in
+// search, which takes the plan point itself (the pack's centre) first and looks at no
+// hostile near the stand or on its path. The approach's own search: a ring 15-25 yd out
+// (never inside the target's pull radius + 5), in sight of the pack, no other hostile
+// within 20 yd, its path passing no other uncleared pack; the shortest path wins.
+static void TestApproachStandIsASafeRingSpot()
+{
+    DungeonPlan plan;
+    PlanStep other = PullStep(1000, {9});
+    other.y = 60; // another pack, 60 yd north of the target
+    ai::NormalizePlanStep(other);
+    plan.steps = {PullStep(1000, {1}), other};
+    Run r = Start(&plan);
+    const PlanStep& s = plan.steps[0];
+    CHECK(s.radius == 15.0f && ApproachStandMinRing(s) == 20.0f);
+    auto cand = [](float x, float y, float pathYd, std::vector<PathPoint> path)
+    {
+        StandCandidate c;
+        c.x = x;
+        c.y = y;
+        c.reachable = true;
+        c.los = true;
+        c.pathYd = pathYd;
+        c.path = path;
+        return c;
+    };
+    std::vector<StandHostile> hostiles = {{1000, 0, 0, 1}, {1003, 2, 0, 1}};
+    // The pack's centre (reachable, the shortest path) is never the stand; a ring spot is.
+    std::vector<StandCandidate> c = {cand(1000, 0, 60, {{940, 0, 0}, {1000, 0, 0}}),
+        cand(978, 0, 40, {{940, 0, 0}, {978, 0, 0}})};
+    CHECK(ApproachStandReject(r, s, c[0], hostiles, 0) == "off the ring");
+    CHECK(PickApproachStand(r, s, c, hostiles, 0) == 1);
+    // The shortest path passes the other pack: that candidate is left out for a longer one.
+    std::vector<StandCandidate> d = {cand(1000, 22, 50, {{940, 40, 0}, {1000, 60, 0}, {1000, 22, 0}}),
+        cand(978, -5, 70, {{940, 0, 0}, {978, -5, 0}})};
+    CHECK(ApproachStandReject(r, s, d[0], hostiles, 0) == "its path passes an uncleared pack");
+    CHECK(PickApproachStand(r, s, d, hostiles, 0) == 1);
+    // Two safe ones: the shorter path wins, whatever the order.
+    std::vector<StandCandidate> two = {cand(978, -5, 70, {{940, 0, 0}, {978, -5, 0}}),
+        cand(978, 0, 40, {{940, 0, 0}, {978, 0, 0}})};
+    CHECK(PickApproachStand(r, s, two, hostiles, 0) == 1);
+    // The target's own pack does not count as crossed (the stand is beside it).
+    CHECK(ApproachStandReject(r, s, d[1], hostiles, 0).empty());
+    // A target unit within its pull radius + 5, another hostile within 20 yd, no sight, no path: left out.
+    std::vector<StandHostile> near = {{1000, 0, 0, 1}, {990, 0, 0, 1}};
+    CHECK(ApproachStandReject(r, s, c[1], near, 0) == "inside the target's pull radius");
+    std::vector<StandHostile> stray = {{1000, 0, 0, 1}, {965, 5, 0, 77}};
+    CHECK(ApproachStandReject(r, s, c[1], stray, 0) == "another hostile close by");
+    // Codex review of 8b81efa3: a mob of the target's entry from a neighbouring pack (40 yd
+    // from the step's point, past its 15 yd radius) is no member: it needs the 20 yd too.
+    // A tight pack (radius 10: members keep 15 yd, every other hostile 20 yd).
+    PlanStep tight = s;
+    tight.radius = 10;
+    StandCandidate near17 = cand(983, 0, 40, {{940, 0, 0}, {983, 0, 0}});
+    std::vector<StandHostile> neighbour = {{1000, 0, 0, 1}, {967, 0, 0, 1}}; // same entry, 33 yd from the point, 16 from the stand
+    CHECK(ApproachStandReject(r, tight, near17, neighbour, 0) == "another hostile close by");
+    std::vector<StandHostile> member = {{999, 0, 0, 1}}; // in the pack, 16 yd from the stand
+    CHECK(ApproachStandReject(r, tight, near17, member, 0).empty());
+    StandCandidate blind = c[1];
+    blind.los = false;
+    CHECK(ApproachStandReject(r, s, blind, hostiles, 0) == "no sight of the pack");
+    StandCandidate nopath = c[1];
+    nopath.reachable = false;
+    CHECK(ApproachStandReject(r, s, nopath, hostiles, 0) == "no path");
+    // None safe: -1, and the glue's 'none found' is the pause (TestApproachCapTriesAStandNearThePackBeforeThePause).
+    std::vector<StandCandidate> unsafe = {c[0], blind, nopath};
+    CHECK(PickApproachStand(r, s, unsafe, hostiles, 0) == -1);
+    // A wide pack (radius 22): the ring starts past 25 yd, no stand at all.
+    PlanStep wide = s;
+    wide.radius = 22;
+    CHECK(!ApproachStandReject(r, wide, c[1], hostiles, 0).empty());
+    // The policy refuses a point inside the ring from the glue too.
+    Run g = Start(&plan);
+    g.approachStandStep = 0;
+    g.approachStand = 1;
+    Facts f = Party(900);
+    CHECK(!ApproachStandFound(g, f, true, 1000, 0, 0) && g.state == State::Paused);
+}
+
+// The Opus review of f1fdeb67: the walk to the approach stand was no hop, so crossing
+// the 60 yd line handed it to the pull with the anchor still the last looping hop's end;
+// that anchor read Off (another floor) and the gather walked the lead bot back out of
+// sight, and the next tick paused 'the stand did not bring it within 60 yd'. The stand is
+// walked like a hop (its end the anchor), the stand is spent once the pack is seen, a
+// later tick out of sight hops again; rewinds forget it, and legs never end by a hostile.
+static void TestApproachStandWalkIsAHopAndRewindsForgetIt()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(1000, {1})};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts g = Party(0);
+    g.seen = false;
+    g.approachKnown = true;
+    for (int i = 0; i < 100 && r.state == State::Running && !r.approachStandWanted; ++i)
+    {
+        g.approachX = 40;
+        Tick(r, g);
+        if (r.approachStandWanted)
+            break;
+        g.leadX = 40;
+        Tick(r, g);
+        g.leadX = 0;
+    }
+    CHECK(r.anchorKnown && r.anchorX == 40.0f); // the last hop's end
+    CHECK(ApproachStandFound(r, g, true, 978, 0, 0));
+    r.approachBestYd = 66.8f; // as near as the hops got (Sunken Temple r25)
+    CHECK(Tick(r, g) == "move 978.0 0.0 0.0");
+    // In sight at 945, the anchor's way back read Off: the walk to the stand goes on, no gather back.
+    Facts in = g;
+    in.leadX = 945;
+    in.seen = true;
+    in.units = {Unit(7, 1, 33)};
+    in.anchorPathRead = true;
+    in.anchorReachable = false;
+    std::string const o = Tick(r, in);
+    CHECK(o != "move 40.0 0.0 0.0" && r.state == State::Running && r.approachStand == 3);
+    in.leadX = 978;
+    Tick(r, in);
+    CHECK(r.anchorX == 978.0f && r.state == State::Running);
+    CHECK(r.approachHops == 0 && r.approachBestYd == 0.0f);
+    // A later tick out of sight, the fight having dragged the lead bot 75 yd off: a hop goes
+    // out, never the stand's pause nor the old cap's.
+    Facts out = in;
+    out.seen = false;
+    out.units.clear();
+    out.leadX = 925;
+    out.approachX = 965;
+    EnterPhase(r, Phase::Begin); // the pull's fight is over (that pull's own flow is not under test here)
+    r.pullGuid = 0;
+    std::string hop;
+    for (int i = 0; i < 3 && hop.empty() && r.state == State::Running; ++i)
+        hop = Tick(r, out);
+    CHECK(r.state == State::Running && hop == "move 965.0 0.0 0.0");
+    CHECK(r.note.find("did not bring it") == std::string::npos);
+    // An event rewind forgets the stand and the no-path pause's moves.
+    Run w = Start(&plan);
+    w.approachStandStep = 0;
+    w.approachStand = 3;
+    w.approachStandResumed = true;
+    w.noPathSkips = {1, 2, 3};
+    ForgetRewoundRoute(w);
+    CHECK(w.approachStandStep == static_cast<std::size_t>(-1) && w.approachStand == 0 && !w.approachStandResumed &&
+        w.noPathSkips.empty());
+    // A leg never ends within 15 yd of a hostile: a shorter one; none clear: no leg.
+    std::vector<PathPoint> path = {{0, 0, 0}, {200, 0, 0}};
+    float x = 0, y = 0, z = 0;
+    CHECK(PickSafeLeg(path, 120, {}, x, y, z) && std::fabs(x - 120) < 0.01f);
+    CHECK(PickSafeLeg(path, 120, {{125, 0, 0, 5}}, x, y, z) && std::fabs(x - 90) < 0.01f);
+    CHECK(PickSafeLeg(path, 120, {{125, 0, 0, 5}, {80, 5, 0, 6}}, x, y, z) && std::fabs(x - 60) < 0.01f);
+    CHECK(!PickSafeLeg(path, 120, {{120, 0, 0, 5}, {90, 0, 0, 5}, {60, 0, 0, 5}, {30, 0, 0, 5}}, x, y, z));
+}
+
+// Sunken Temple r25 slot 4 step 5: `cmd move -449.5 25.9 -148.0` from 157 yd away was
+// refused 'too-far: The point is more than 150 yd (AiPlayerbot.ReactDistance) ...' and
+// the run paused. The refused walk's move now goes out in legs of at most 120 yd along
+// the lead bot's navmesh path (the glue's LegOnPath, PointAlongPath on its segments).
+static void TestMoveRefusedTooFarGoesInLegsAlongThePath()
+{
+    std::string const tooFar = "too-far: The point is more than 150 yd (AiPlayerbot.ReactDistance) from the lead bot. "
+        "Move in shorter legs.";
+    // The leg is on the path's segments, not on the straight line to its end.
+    std::vector<PathPoint> path = {{0, 0, 0}, {100, 0, 0}, {100, 100, 0}};
+    float x = 0, y = 0, z = 0;
+    CHECK(PointAlongPath(path, 120, x, y, z) && x == 100 && y == 20 && z == 0);
+    CHECK(PointAlongPath(path, 500, x, y, z) && x == 100 && y == 100); // shorter: its end
+    std::vector<PathPoint> line = {{0, 0, 0}, {200, 0, 10}};
+    CHECK(PointAlongPath(line, 120, x, y, z) && std::fabs(x - 119.8f) < 0.1f && std::fabs(z - 6.0f) < 0.1f);
+    std::vector<PathPoint> stub = {{0, 0, 0}, {2, 0, 0}};
+    CHECK(!PointAlongPath(stub, 120, x, y, z));   // no progress
+    CHECK(!PointAlongPath({{0, 0, 0}}, 120, x, y, z));
+    CHECK(ReactTooFarAnswer(tooFar));
+    CHECK(!ReactTooFarAnswer("too-far: Jinkla is not with Tankkinz (no way onto the line)"));
+    CHECK(!ReactTooFarAnswer("unreachable: The lead bot has no walkable path to that point."));
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 200), Step(PlanStepKind::Move, 210)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts f = Party(0);
+    f.seen = true;
+    std::string const move = Tick(r, f);
+    CHECK(move == "move 200.0 0.0 0.0");
+    CHECK(TooFarLegWanted(r, move, tooFar));
+    CHECK(!TooFarLegWanted(r, "move 200.0 0.0 0.0 direct", tooFar));
+    CHECK(!TooFarLegWanted(r, "move 10.0 0.0 0.0", tooFar)); // not the walk's own point
+    CHECK(!TooFarLegWanted(r, move, "busy: The lead bot is casting."));
+    CHECK(TooFarLegTaken(r, f, 120, 0, 0, true, ""));
+    CHECK(r.state == State::Running && r.legOn && r.walkLegs == 1);
+    CHECK(r.note.find("the move to 200.0 0.0 0.0 is beyond the lead bot's reach: walking a leg of the way first, to "
+        "120.0 0.0 0.0 (leg 1)") == 0);
+    // On its way: no new order; at the leg's end the walk's own point again, not a try.
+    f.leadX = 60;
+    CHECK(Tick(r, f).empty());
+    f.leadX = 119;
+    CHECK(Tick(r, f) == move);
+    CHECK(!r.legOn && r.walkTries == 1 && r.state == State::Running);
+    CHECK(r.note.find("the leg 120.0 0.0 0.0 walked: on to 200.0 0.0 0.0") == 0);
+    // A leg the path winds away on (farther from the point first) is no stall while it gains on the leg.
+    Run w = Start(&plan);
+    w.restDue = false;
+    Facts g = Party(0);
+    CHECK(Tick(w, g) == move);
+    CHECK(TooFarLegTaken(w, g, 0, 100, 0, true, ""));
+    for (int i = 1; i <= 8; ++i)
+    {
+        g.leadY = 10.0f * i; // away from the point (200 0 0), toward the leg
+        CHECK(Tick(w, g).empty());
+    }
+    CHECK(w.legOn);
+    // Stalled on the leg's way: the point again after the short stall.
+    std::string sent;
+    for (int i = 0; i < 4 && sent.empty(); ++i)
+        sent = Tick(w, g);
+    CHECK(sent == move && !w.legOn && w.walkTries == 1);
+    // Codex review of f1fdeb67: a lead bot that does not move on its leg is a stall, not a
+    // leg done: no re-send of the far point after 3 s, no leg spent; after the stall time the
+    // 19z43e StallFallback (its own move failing: the dry stand-in of the step's own walk).
+    Run st = Start(&plan);
+    st.restDue = false;
+    Facts still = Party(0);
+    still.leadMoveFailed = true;
+    still.leadMoveFailReason = "dispatch-short";
+    CHECK(Tick(st, still) == move);
+    CHECK(TooFarLegTaken(st, still, 120, 0, 0, true, ""));
+    int quiet = 0;
+    for (int i = 0; i < 200 && !st.stallStandInWanted; ++i)
+        if (Tick(st, still).empty())
+            ++quiet;
+    CHECK(st.stallStandInWanted && st.stallFallback == 2 && st.walkLegs == 1 && st.legOn);
+    CHECK(quiet >= static_cast<int>(kWalkRetryMs / kTickMs) - 1);
+    // The same leg again (the lead bot made no way): not sent; another one is.
+    CHECK(TooFarLegRepeats(st, 121, 0, 0) && !TooFarLegRepeats(st, 125, 0, 0));
+    CHECK(TooFarLegRepeatNote(st, 121, 0, 0).find("ends where the last one did, 120.0 0.0 0.0") != std::string::npos);
+    Run none = Start(&plan);
+    CHECK(!TooFarLegRepeats(none, 0, 0, 0)); // no leg yet this walk
+    // A leg stalled after real way toward it (5 yd or more) is done: the far point again.
+    Run part = Start(&plan);
+    part.restDue = false;
+    Facts on = Party(0);
+    CHECK(Tick(part, on) == move);
+    CHECK(TooFarLegTaken(part, on, 120, 0, 0, true, ""));
+    on.leadX = 6;
+    std::string again;
+    for (int i = 0; i < 5 && again.empty(); ++i)
+        again = Tick(part, on);
+    CHECK(again == move && !part.legOn);
+    // The leg refused too: the refusal goes on as before (the pause).
+    Run q = Start(&plan);
+    q.restDue = false;
+    Facts h = Party(0);
+    CHECK(Tick(q, h) == move);
+    CHECK(!TooFarLegTaken(q, h, 120, 0, 0, false, "busy: x"));
+    OrderRefused(q, move, tooFar);
+    CHECK(q.state == State::Paused && q.note.find("too-far") != std::string::npos);
+    // Bounded: kMaxTooFarLegs legs a walk, then no more.
+    Run b = Start(&plan);
+    b.restDue = false;
+    Facts k = Party(0);
+    CHECK(Tick(b, k) == move);
+    for (std::uint32_t i = 0; i < kMaxTooFarLegs; ++i)
+    {
+        CHECK(TooFarLegWanted(b, move, tooFar));
+        CHECK(TooFarLegTaken(b, k, 20.0f * (i + 1), 0, 0, true, ""));
+        k.leadX = 20.0f * (i + 1); // the leg walked, the point refused again from here
+        CHECK(Tick(b, k) == move);
+    }
+    CHECK(!TooFarLegWanted(b, move, tooFar));
+    // A fresh walk starts the count over.
+    k.leadX = 200;
+    Tick(b, k);
+    CHECK(b.step == 1);
+    CHECK(Tick(b, k) == "move 210.0 0.0 0.0" && b.walkLegs == 0 && !b.legOn);
+}
+
+// Sunken Temple r25 slot 4 step 5: after the pulls of steps 2-4 every resume sent the
+// lead bot from beside step 4's pack back up the entrance ramp to step 1 ('the straight
+// way to the point of step 1 passes an uncleared pack: replaying the plan's points').
+// A lead bot at the last pull or boss the party cleared after the last move point needs
+// no walk back; farther, on another floor, or with those fights not cleared, as before.
+static void TestResumeWalksBackNoFartherThanTheLastClearedFight()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0), PullStep(100, {1}), PullStep(120, {2}), PullStep(400, {3})};
+    auto resumed = [&](Facts f, const std::unordered_set<std::size_t>& notCleared, bool& walkedBack)
+    {
+        Run r = Start(&plan, 3);
+        r.restDue = false;
+        r.notCleared = notCleared;
+        Pause(r, "8 approach hops did not bring the party within 60.0 yd of the pack");
+        CHECK(Resume(r));
+        f.seen = false;
+        f.approachKnown = true;
+        f.approachX = f.leadX + 40;
+        f.approachZ = f.leadZ;
+        walkedBack = false;
+        std::string first;
+        for (int i = 0; i < 6 && first.empty() && r.state == State::Running; ++i)
+        {
+            first = Tick(r, f);
+            walkedBack = walkedBack || r.walkBack;
+        }
+        return std::make_pair(r, first);
+    };
+    bool walkedBack = true;
+    Facts f = Party(130);
+    auto got = resumed(f, {}, walkedBack);
+    CHECK(!walkedBack && got.first.state == State::Running);
+    CHECK(got.second == "move 170.0 0.0 0.0"); // the step's own approach, from here
+    // The note of the regroup's tick says why.
+    {
+        Run r = Start(&plan, 3);
+        r.restDue = false;
+        Pause(r, "x");
+        CHECK(Resume(r));
+        Facts g = f;
+        g.seen = false;
+        StartWalkBack(r, g);
+        CHECK(!r.walkBack && r.note == "walk back: none, the lead bot stands at the last cleared step (step 3, 10.0 yd "
+            "from its point)");
+    }
+    // Step 3 left out (out of reach): step 2 counts, 30 yd off.
+    got = resumed(f, {2}, walkedBack);
+    CHECK(!walkedBack);
+    // Neither cleared: the walk back to step 1 as before.
+    got = resumed(f, {1, 2}, walkedBack);
+    CHECK(walkedBack && got.first.walkBackStart == 0);
+    // Farther than 60 yd from the last cleared pack: as before.
+    got = resumed(Party(185), {}, walkedBack);
+    CHECK(walkedBack);
+    // Beside it but on another floor (9 yd below): as before.
+    Facts below = Party(125);
+    below.leadZ = -9;
+    got = resumed(below, {}, walkedBack);
+    CHECK(walkedBack);
 }
 
 // Uldaman 19z13, Revelosh loot step 20: the lead bot may not loot the corpse
@@ -9204,9 +9668,10 @@ static void TestR22ThreeSkipsInARowPause()
     GlueRefused(r, "move 80.0 0.0 0.0", kBareUnreachable, false);
     CHECK(r.state == State::Running && r.step == 2 && r.unreachableSkips.size() == 2);
     GlueRefused(r, "move 120.0 0.0 0.0", kBareUnreachable, false);
-    CHECK(r.state == State::Paused && r.step == 3);
+    CHECK(r.state == State::Paused && r.step == 0); // back to the first of them (TestNoPathPauseResumeTriesTheSameMovesAgain)
     CHECK(r.note == "three moves in a row had no walkable path: the lead bot may be in the wrong part of the instance "
-                    "(steps 1, 2 and 3 skipped; the lead bot at 1.5 2.0 3.0)");
+                    "(steps 1, 2 and 3 skipped; the lead bot at 1.5 2.0 3.0): the run went back to step 1; a resume "
+                    "walks the lead bot back to the plan's start, the last point it reached, and tries them again");
     // After the resume the count starts over: the next skip does not pause.
     CHECK(Resume(r));
     CHECK(r.unreachableSkips.empty());
@@ -9221,6 +9686,76 @@ static void TestR22ThreeSkipsInARowPause()
     GlueRefused(c, "move 120.0 0.0 0.0", kBareUnreachable, false);
     GlueRefused(c, "move 160.0 0.0 0.0", kBareUnreachable, false);
     CHECK(c.state == State::Running && c.step == 4 && c.unreachableSkips.size() == 2);
+}
+
+// Razorfen Kraul r24 slot 8 steps 331-343: 'three moves in a row had no walkable path'
+// paused at 334, and each resume skipped three more from the same spot (337, 340, 343;
+// the lead bot never moved). The pause now sends the run back to the first of them; the
+// resume walks the lead bot back to the last point it reached and tries them again; the
+// same three failing again pause with the route note, still at the first of them.
+static void TestNoPathPauseResumeTriesTheSameMovesAgain()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 80), Step(PlanStepKind::Move, 120),
+        Step(PlanStepKind::Move, 160), Step(PlanStepKind::Move, 200), Step(PlanStepKind::Move, 240),
+        Step(PlanStepKind::Move, 280), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan, 1);
+    NoteCheckpoint(r, 0); // step 1 reached
+    r.leadLastX = 52.0f;
+    auto refuse3 = [&](Run& run, int from)
+    {
+        for (int i = from; i < from + 3; ++i)
+            GlueRefused(run, "move " + Num(40.0f * (i + 1)) + " 0.0 0.0", kBareUnreachable, false);
+    };
+    refuse3(r, 1);
+    CHECK(r.state == State::Paused && r.step == 1 && r.noPathSkips == std::vector<std::size_t>({1, 2, 3}));
+    CHECK(r.note.find("three moves in a row had no walkable path: the lead bot may be in the wrong part of the instance "
+        "(steps 2, 3 and 4 skipped; the lead bot at 52.0 0.0 0.0): the run went back to step 2; a resume walks the lead "
+        "bot back to step 1, the last point it reached, and tries them again") == 0);
+    // The resume: the walk back goes to step 1's point, then step 2's move goes out again.
+    CHECK(Resume(r));
+    Facts f = Party(52);
+    std::string const back = Tick(r, f);
+    CHECK(r.walkBack && r.walkBackIdx == 0);
+    std::string sent = back;
+    for (int i = 0; i < 6 && sent != "move 80.0 0.0 0.0"; ++i)
+    {
+        if (sent == "move 40.0 0.0 0.0")
+            f.leadX = 40; // walked back to step 1's point
+        sent = Tick(r, f);
+    }
+    CHECK(sent == "move 80.0 0.0 0.0" && r.step == 1 && !r.walkBack);
+    // The same three refused again: the route note, still at step 2, nothing skipped past them.
+    r.leadLastX = 40.0f;
+    refuse3(r, 1);
+    CHECK(r.state == State::Paused && r.step == 1);
+    CHECK(r.note.find("the same three moves had no walkable path again (steps 2, 3 and 4; the lead bot at 40.0 0.0 0.0): "
+        "the way on from step 1, the last point the lead bot reached, needs a fix in the plan (a ramp or a waypoint); "
+        "the run stays at step 2, a resume tries them again from step 1") == 0);
+    // And again: never past them.
+    CHECK(Resume(r));
+    refuse3(r, 1);
+    CHECK(r.state == State::Paused && r.step == 1 && r.note.find("the same three moves") == 0);
+    // Three others (the party got on): the first pause's note and its rewind, for those.
+    Run o = Start(&plan, 1);
+    o.noPathSkips = {1, 2, 3};
+    o.step = 4;
+    refuse3(o, 4);
+    CHECK(o.state == State::Paused && o.step == 4 && o.note.find("three moves in a row") == 0);
+    CHECK(LastReachedBefore(o, 4) == 3); // no checkpoint known: the last move point before them
+    NoteCheckpoint(o, 0); // the checkpoint when known: steps 2-4 were skipped, never reached
+    CHECK(LastReachedBefore(o, 4) == 0);
+    // The resume's walk back goes to that reached point, not to the never-reached move point 4 before them.
+    Run k = Start(&plan, 4);
+    NoteCheckpoint(k, 0);
+    k.noPathSkips = {4, 5, 6};
+    Facts far = Party(400);
+    StartWalkBack(k, far);
+    CHECK(k.walkBack && k.walkBackIdx == 0);
+    Run n = Start(&plan, 4); // no such pause: the last move point before the step, as before
+    NoteCheckpoint(n, 0);
+    StartWalkBack(n, far);
+    CHECK(n.walkBack && n.walkBackIdx == 3);
 }
 
 static void TestR22PullAndDirectStepsKeepTheirRefusals()
@@ -10302,7 +10837,7 @@ static void TestApproachHopSummonsBeforePause()
     std::string const order = Tick(r, f);
     CHECK(order == "summon Fyran");
     CHECK(r.state == State::Running && r.note.find("approach: Fyran") == 0);
-    CHECK(Tick(r, f).find("summon") == std::string::npos); // Walky moves: not summoned
+    CHECK(StandTick(r, f).find("summon") == std::string::npos); // Walky moves: not summoned (no stand found)
     CHECK(r.state == State::Paused && r.note.find("approach hops") != std::string::npos);
 }
 
@@ -14337,6 +14872,11 @@ int main()
     TestUnseenPackIsApproachedNotCleared();
     TestFarPackHopIsNotUndoneByTheGatherBack();
     TestApproachHopCapCountsHopsWithoutProgress();
+    TestApproachCapTriesAStandNearThePackBeforeThePause();
+    TestApproachStandIsASafeRingSpot();
+    TestApproachStandWalkIsAHopAndRewindsForgetIt();
+    TestMoveRefusedTooFarGoesInLegsAlongThePath();
+    TestResumeWalksBackNoFartherThanTheLastClearedFight();
     TestItemCarrierIsPickedFromTheStepsOwnInputs();
     TestUseItemPausesOnSplitInputs();
     TestLootStepIsDoneWhenAnyPartyBotHasTheItem();
@@ -14572,6 +15112,7 @@ int main()
     TestR22SecondRefusalOfTheStepSkips();
     TestR22PullAndDirectStepsKeepTheirRefusals();
     TestR22ThreeSkipsInARowPause();
+    TestNoPathPauseResumeTriesTheSameMovesAgain();
     TestR22MoveBeforeAFightIsNotSkipped();
     TestR22RewindForgetsMoveRefusals();
     TestR22RealStep85ApproachStandPauses();

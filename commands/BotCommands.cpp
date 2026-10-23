@@ -9469,6 +9469,94 @@ bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& o
     return false;
 }
 
+// A leg toward (x,y,z) for a move refused too-far (DungeonRun::TooFarLegWanted): the
+// point maxYd along the lead bot's own navmesh path to it (the path `cmd move` reads,
+// DungeonRun::PointAlongPath on its segments), never a straight line, and never ending
+// within kHopPullYd of a hostile (DungeonRun::PickSafeLeg: a shorter leg then). False
+// when the navmesh gives no full path built on it (no path, a partial path that may end
+// at a dead end, a shortcut, a path not using the mesh) or every leg ends beside a hostile.
+bool LegOnPath(Player* lead, float x, float y, float z, float maxYd, float& ox, float& oy, float& oz)
+{
+    PathFinder path(lead);
+    path.calculate(x, y, z, false);
+    uint32 const type = static_cast<uint32>(path.getPathType());
+    if (type & (PATHFIND_NOPATH | PATHFIND_INCOMPLETE | PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT))
+        return false;
+    std::vector<TortoiseBots::DungeonRun::PathPoint> points;
+    for (Vector3 const& p : path.getPath())
+        points.push_back(TortoiseBots::DungeonRun::PathPoint{p.x, p.y, p.z});
+    std::vector<TortoiseBots::DungeonRun::StandHostile> hostiles;
+    std::list<Unit*> around;
+    HostileCreaturesAround(lead, maxYd + TortoiseBots::DungeonRun::kHopPullYd, around);
+    for (Unit* unit : around)
+        if (unit->IsAlive())
+            hostiles.push_back(TortoiseBots::DungeonRun::StandHostile{unit->GetPositionX(), unit->GetPositionY(),
+                unit->GetPositionZ(), unit->GetEntry()});
+    return TortoiseBots::DungeonRun::PickSafeLeg(points, maxYd, hostiles, ox, oy, oz);
+}
+
+// The approach stand of a pull or boss step the hops did not reach (DungeonRun::ApproachStand):
+// candidates on rings from ApproachStandMinRing to kApproachStandYd around the step's point (12
+// directions each, put on the ground), each with the lead bot's navmesh path (its end at the
+// candidate, its length capped as the stand-in's: DetourPointReachable) and a sight line to the
+// point; the hostiles within kApproachStandYd + kApproachStandHostileYd of the point, scanned once.
+// DungeonRun::PickApproachStand keeps the safe candidate with the shortest path. Only run when
+// the run asked for it, never per tick.
+bool ApproachStandSearch(Player* lead, TortoiseBots::DungeonRun::Run const& run, ai::PlanStep const& step,
+    uint32 team, float& ox, float& oy, float& oz)
+{
+    using namespace TortoiseBots::DungeonRun;
+    Map* map = lead->GetMap();
+    if (!map)
+        return false;
+    std::vector<StandHostile> hostiles;
+    float const reach = kApproachStandYd + kApproachStandHostileYd;
+    std::list<Unit*> around;
+    HostileCreaturesAround(lead, DistanceTo(lead, step.x, step.y, step.z) + reach, around);
+    for (Unit* unit : around)
+        if (unit->IsAlive() &&
+            ai::PlanDistance(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), step.x, step.y, step.z) <= reach)
+            hostiles.push_back(StandHostile{unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), unit->GetEntry()});
+    std::vector<StandCandidate> candidates;
+    float const minRing = ApproachStandMinRing(step);
+    for (float ring = minRing; ring <= kApproachStandYd + 0.01f; ring += 5.0f)
+        for (int i = 0; i < 12; ++i)
+        {
+            float const angle = static_cast<float>(i) * 3.14159265f / 6.0f;
+            float const px = step.x + ring * std::cos(angle);
+            float const py = step.y + ring * std::sin(angle);
+            float const ground = map->GetHeight(px, py, step.z + 5.0f);
+            if (ground <= INVALID_HEIGHT || std::fabs(ground - step.z) > 10.0f)
+                continue;
+            StandCandidate c;
+            c.x = px;
+            c.y = py;
+            c.z = ground;
+            PathFinder path(lead);
+            path.calculate(px, py, ground, false);
+            uint32 const type = static_cast<uint32>(path.getPathType());
+            Vector3 const end = path.getActualEndPosition();
+            c.reachable = !(type & (PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT)) &&
+                DetourPointReachable((type & PATHFIND_NOPATH) != 0, (type & PATHFIND_INCOMPLETE) != 0,
+                    ai::PlanDistance(end.x, end.y, end.z, px, py, ground), DistanceTo(lead, end.x, end.y, end.z),
+                    DistanceTo(lead, px, py, ground), path.Length());
+            if (!c.reachable)
+                continue;
+            c.pathYd = path.Length();
+            for (Vector3 const& v : path.getPath())
+                c.path.push_back(PathPoint{v.x, v.y, v.z});
+            c.los = map->isInLineOfSight(px, py, ground + 2.0f, step.x, step.y, step.z + 2.0f, true);
+            candidates.push_back(c);
+        }
+    int const best = PickApproachStand(run, step, candidates, hostiles, team);
+    if (best < 0)
+        return false;
+    ox = candidates[static_cast<size_t>(best)].x;
+    oy = candidates[static_cast<size_t>(best)].y;
+    oz = candidates[static_cast<size_t>(best)].z;
+    return true;
+}
+
 // A point the lead bot can walk to on its navmesh, as near as possible to
 // (x,y,z) and at most maxYd from it (DungeonRun::MoveFallbackYd: 25 yd for a
 // plain move, 15 for a direct step): the point itself on the ground first, then
@@ -11746,6 +11834,16 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                 dx, dy, dz, true);
         TortoiseBots::DungeonRun::StallStandIn(slot.run, found, dx, dy, dz);
     }
+    // An approach whose hops got no nearer to a pack or boss asked for a stand near it
+    // (DungeonRun::ApproachStand): its own safe ring search, once, here.
+    if (slot.run.approachStandWanted)
+    {
+        float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+        ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(slot.run);
+        bool const found = step && lead->IsAlive() && lead->IsInWorld() &&
+            ApproachStandSearch(lead, slot.run, *step, facts.team, sx, sy, sz);
+        TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);
+    }
     // While the party rests the lead bot holds where it stands
     // (DungeonRun::LeadStayDueWhileResting, RFC r3-19z20). Before the rest
     // order below, so its own drink or meal follows the stay's reset.
@@ -11792,7 +11890,37 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         // A stalled walk's `direct` move refused: the walk goes on without it (DungeonRun::StallDirectRefused).
         bool const stallDirectRefused = !accepted &&
             TortoiseBots::DungeonRun::StallDirectRefused(it->second.run, order, answer);
-        if (!accepted && !stallDirectRefused)
+        // A walk's move refused too-far (beyond ReactDistance): a leg of at most kTooFarLegYd
+        // along the lead bot's navmesh path goes out instead of the pause (DungeonRun::TooFarLegTaken).
+        bool legTaken = false;
+        std::string legNote;
+        if (!accepted && !stallDirectRefused && TortoiseBots::DungeonRun::TooFarLegWanted(it->second.run, order, answer))
+        {
+            float lx = 0.0f, ly = 0.0f, lz = 0.0f;
+            TortoiseBots::DungeonRun::Run& run = it->second.run;
+            // Never longer than the reach the refusal named (a leg along the path is no
+            // farther from the lead bot in a straight line than along it).
+            float const legYd = std::min(TortoiseBots::DungeonRun::kTooFarLegYd, sPlayerbotAIConfig.reactDistance - 10.0f);
+            bool const legFound = lead->IsAlive() && lead->IsInWorld() && legYd > 0.0f &&
+                LegOnPath(lead, run.walkX, run.walkY, run.walkZ, legYd, lx, ly, lz);
+            // The same leg as the last one (the lead bot made no way toward it): not sent, the pause.
+            if (legFound && TortoiseBots::DungeonRun::TooFarLegRepeats(run, lx, ly, lz))
+                legNote = TortoiseBots::DungeonRun::TooFarLegRepeatNote(run, lx, ly, lz);
+            else if (legFound)
+            {
+                std::string legAnswer;
+                bool const legAccepted = IssueRunOrder(commander, TortoiseBots::DungeonRun::MoveOrder(lx, ly, lz, false),
+                    legAnswer);
+                it = DungeonRuns().find(commanderRaw);
+                if (it == DungeonRuns().end())
+                    return;
+                legTaken = TortoiseBots::DungeonRun::TooFarLegTaken(it->second.run, facts, lx, ly, lz, legAccepted,
+                    legAnswer);
+                if (!legTaken)
+                    legNote = " (a leg of the way was refused too: " + legAnswer + ")";
+            }
+        }
+        if (!accepted && !stallDirectRefused && !legTaken)
         {
             // A move point the navmesh cannot reach (the step's own move or its
             // detour's): DungeonRun::MoveRefusedUnreachable walks to the nearest
@@ -11809,7 +11937,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                     dx, dy, dz);
             if (!(unreachable &&
                     TortoiseBots::DungeonRun::MoveRefusedUnreachable(it->second.run, order, answer, found, dx, dy, dz)))
-                TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +
+                TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer + legNote +
                     (unreachable ? TortoiseBots::DungeonRun::NoStandInNote(*step, searched) : std::string()));
         }
     }

@@ -180,7 +180,7 @@ class IslandEscapeWiringTest(unittest.TestCase):
         # and before OrderRefused (the pause), and only for an own-move path refusal.
         # Since r22-19z40 the order lives in DungeonRun::MoveRefusedUnreachable, which the glue asks
         # before OrderRefused (test_run_leader_wiring.py pins the glue's side).
-        f = body(COMMANDS, "        if (!accepted && !stallDirectRefused)\n        {", "\n        }\n")
+        f = body(COMMANDS, "        if (!accepted && !stallDirectRefused && !legTaken)\n        {", "\n        }\n")
         detour = at(f, "NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::MoveFallbackYd(*step),")
         handled = at(f, "TortoiseBots::DungeonRun::MoveRefusedUnreachable(it->second.run, order, answer, found, dx, dy, dz)))")
         refused = at(f, "TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +")
