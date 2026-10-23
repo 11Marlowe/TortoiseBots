@@ -9784,10 +9784,12 @@ bool GroupCanAttack(Player* judge, Unit* unit)
 // In combat: the living, not friendly units engaged with the party (DungeonRun::Facts::engagedUnits), each once:
 // those on each living bot's and its pet's attacker set, and their victims. The same units the stale test read
 // before (Facts::staleCombat: none of them), now each with whether the group can attack it. No grid or world scan.
-void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
+// The living, not friendly units engaged with `unit` (its attackers and its victim; with threatRefs also every
+// unit that holds it on its threat list, which keeps it in combat without attacking it), each once over `seen`,
+// with whether the group can attack each (GroupCanAttack).
+void ReadEngagedWith(Player* lead, Player* judge, Unit* unit, std::unordered_set<uint64>& seen,
+    std::vector<TortoiseBots::DungeonRun::UnitFact>& out, bool threatRefs = false)
 {
-    Player* const judge = RunJudge(lead, bots);
-    std::unordered_set<uint64> seen;
     auto const add = [&](Unit* other)
     {
         if (!other || !other->IsAlive() || sServerFacade.IsFriendlyTo(other, lead) ||
@@ -9799,22 +9801,77 @@ void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots, TortoiseBo
         fact.distLead = other->GetMap() == lead->GetMap() ? lead->GetDistance(other) : 1000.0f;
         fact.engaged = true;
         fact.attackable = GroupCanAttack(judge, other);
-        f.engagedUnits.push_back(fact);
+        out.push_back(fact);
     };
-    auto const read = [&](Unit* unit)
-    {
-        for (Unit* attacker : unit->GetAttackers())
-            add(attacker);
-        add(unit->GetVictim());
-    };
+    for (Unit* attacker : unit->GetAttackers())
+        add(attacker);
+    add(unit->GetVictim());
+    if (threatRefs)
+        for (HostileReference* ref = sServerFacade.GetHostileRefManager(unit).getFirst(); ref; ref = ref->next())
+            if (ThreatManager* source = ref->GetSource())
+                add(source->getOwner());
+}
+
+void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
+{
+    Player* const judge = RunJudge(lead, bots);
+    std::unordered_set<uint64> seen;
     for (Player* bot : bots)
         if (bot->IsAlive() && bot->IsInWorld())
         {
-            read(bot);
+            ReadEngagedWith(lead, judge, bot, seen, f.engagedUnits);
             if (Pet* pet = bot->GetPet())
-                read(pet);
+                ReadEngagedWith(lead, judge, pet, seen, f.engagedUnits);
         }
     f.engagedRead = true;
+}
+
+// The units engaged with one bot and its pet (DungeonRun::MemberFact::engaged), read while either is in combat,
+// the units holding it on their threat lists included (Gnomeregan r23: the hunter stood in combat 8 min with
+// nothing attacking her):
+// the run drops the combat of a bot held by units the group cannot attack only (DungeonRun::CombatDropTick).
+void ReadMemberEngaged(Player* lead, Player* judge, Player* bot, TortoiseBots::DungeonRun::MemberFact& member)
+{
+    Pet* const pet = bot->GetPet();
+    if (!bot->IsInCombat() && !(pet && pet->IsInCombat()))
+        return;
+    std::unordered_set<uint64> seen;
+    ReadEngagedWith(lead, judge, bot, seen, member.engaged, true);
+    if (pet)
+        ReadEngagedWith(lead, judge, pet, seen, member.engaged, true);
+    member.engagedRead = true;
+}
+
+// Carries out the run's combat drops (DungeonRun::Run::combatDrops) after Tick: a living bound bot of the party
+// (never the commander: `bots` are the group's headless bots) whose engaged units, read again now, are all units
+// the group cannot attack leaves combat, its pet too (CombatStop), and is taken off those units' threat lists
+// (HostileRefManager::deleteReferences), so its own AI follows the lead bot again. Gnomeregan r23 step 181: the
+// Alarm-a-bomb 2600 held the priest in combat 35 yd from the lead bot for 8 min.
+void DropUnattackableCombat(Player* lead, std::vector<Player*> const& bots, std::vector<std::string> const& names)
+{
+    if (names.empty())
+        return;
+    Player* const judge = RunJudge(lead, bots);
+    for (Player* bot : bots)
+    {
+        if (!bot->IsAlive() || !bot->IsInWorld() ||
+            std::find(names.begin(), names.end(), std::string(bot->GetName())) == names.end())
+            continue;
+        TortoiseBots::DungeonRun::MemberFact now;
+        ReadMemberEngaged(lead, judge, bot, now);
+        if (!TortoiseBots::DungeonRun::HeldByUnattackable(now))
+            continue;
+        Pet* const pet = bot->GetPet();
+        if (pet && pet->IsAlive() && pet->IsInWorld())
+        {
+            sServerFacade.GetHostileRefManager(pet).deleteReferences();
+            pet->CombatStop();
+        }
+        sServerFacade.GetHostileRefManager(bot).deleteReferences();
+        bot->CombatStop();
+        TB_LOG_DETAIL("TortoiseBots: run leader: %s dropped combat with units the group cannot attack only",
+            bot->GetName());
+    }
 }
 
 // The plan's kill_first units of this fight, from the bots' cached
@@ -10568,6 +10625,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.y = bot->GetPositionY();
         member.z = bot->GetPositionZ();
         member.inCombat = bot->IsInCombat();
+        // In combat: the units engaged with it and its pet (DungeonRun::CombatDropTick).
+        ReadMemberEngaged(lead, judge, bot, member);
         // A healer or a ranged bot stands behind the tank in a hold (DungeonRun::HoldStands).
         PlayerbotAI* const memberAi = PlayerbotAIStorage::Instance().GetAI(bot);
         member.ranged = PlayerbotAI::IsHeal(bot) || (memberAi && !PlayerbotAI::IsTank(bot) && memberAi->IsRanged(bot));
@@ -11437,6 +11496,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     TortoiseBots::DungeonRun::Facts facts;
     ReadRunFacts(slot, lead, bots, facts);
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
+    // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
+    DropUnattackableCombat(lead, bots, slot.run.combatDrops);
     // While the party rests the lead bot holds where it stands
     // (DungeonRun::LeadStayDueWhileResting, RFC r3-19z20). Before the rest
     // order below, so its own drink or meal follows the stay's reset.

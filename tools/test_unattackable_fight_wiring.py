@@ -42,14 +42,16 @@ class UnattackableFightWiringTest(unittest.TestCase):
         self.assertIn("bot->IsAlive() && bot->IsInWorld() && bot->GetMap() == lead->GetMap()", judge)
 
     def test_engaged_units_feed_the_stale_test_and_the_fight_rule(self):
-        read = body(CODE, "void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots,")
+        party = body(CODE, "void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots,")
+        read = body(CODE, "void ReadEngagedWith(Player* lead, Player* judge, Unit* unit,")
         self.assertIn("fact.attackable = GroupCanAttack(judge, other);", read)
-        self.assertIn("f.engagedUnits.push_back(fact);", read)
-        self.assertIn("f.engagedRead = true;", read)
+        self.assertIn("out.push_back(fact);", read)
+        self.assertIn("f.engagedRead = true;", party)
         # Both a bot's and its pet's attackers and victims, as the stale test read them.
         self.assertIn("for (Unit* attacker : unit->GetAttackers())", read)
         self.assertIn("add(unit->GetVictim());", read)
-        self.assertIn("read(pet);", read)
+        self.assertIn("ReadEngagedWith(lead, judge, bot, seen, f.engagedUnits);", party)
+        self.assertIn("ReadEngagedWith(lead, judge, pet, seen, f.engagedUnits);", party)
         self.assertIn("sServerFacade.IsFriendlyTo(other, lead)", read)
         facts = body(CODE, "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead,")
         self.assertIn("ReadEngagedUnits(lead, bots, f);\n        f.staleCombat = f.engagedUnits.empty();", facts)
@@ -70,6 +72,37 @@ class UnattackableFightWiringTest(unittest.TestCase):
         resume = body(CODE, "bool partyInCombat = false;", "CeilingFightOverWhilePaused(slot.run, partyInCombat, dt)")
         self.assertIn("ReadEngagedUnits(lead, pausedBots, engaged);", resume)
         self.assertIn("partyInCombat = TortoiseBots::DungeonRun::FightOn(slot.run, engaged, dt);", resume)
+
+    def test_member_engaged_read_includes_threat_lists(self):
+        member = body(CODE, "void ReadMemberEngaged(Player* lead, Player* judge, Player* bot,")
+        self.assertIn("if (!bot->IsInCombat() && !(pet && pet->IsInCombat()))\n        return;", member)
+        self.assertIn("ReadEngagedWith(lead, judge, bot, seen, member.engaged, true);", member)
+        self.assertIn("ReadEngagedWith(lead, judge, pet, seen, member.engaged, true);", member)
+        self.assertIn("member.engagedRead = true;", member)
+        read = body(CODE, "void ReadEngagedWith(Player* lead, Player* judge, Unit* unit,")
+        self.assertIn("if (threatRefs)", read)
+        self.assertIn("sServerFacade.GetHostileRefManager(unit).getFirst(); ref; ref = ref->next()", read)
+        self.assertIn("add(source->getOwner());", read)
+        self.assertIn("fact.attackable = GroupCanAttack(judge, other);", read)
+        facts = body(CODE, "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead,")
+        self.assertIn("member.inCombat = bot->IsInCombat();\n\n        ReadMemberEngaged(lead, judge, bot, member);", facts)
+        # The party-wide fight read keeps attackers and victims only.
+        party = body(CODE, "void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots,")
+        self.assertNotIn(", true);", party)
+
+    def test_combat_drop_runs_after_tick_on_rechecked_bots_only(self):
+        self.assertIn("std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);\n\n"
+                      "    DropUnattackableCombat(lead, bots, slot.run.combatDrops);", CODE)
+        drop = body(CODE, "void DropUnattackableCombat(Player* lead, std::vector<Player*> const& bots,")
+        self.assertIn("if (!bot->IsAlive() || !bot->IsInWorld() ||", drop)
+        self.assertIn("ReadMemberEngaged(lead, judge, bot, now);", drop)
+        self.assertIn("if (!TortoiseBots::DungeonRun::HeldByUnattackable(now))\n            continue;", drop)
+        self.assertIn("sServerFacade.GetHostileRefManager(pet).deleteReferences();\n            pet->CombatStop();", drop)
+        self.assertIn("sServerFacade.GetHostileRefManager(bot).deleteReferences();\n        bot->CombatStop();", drop)
+        # `bots` are the group's headless bots (never the commander).
+        self.assertIn("std::vector<Player*> const bots = CommandedBots(group, lead);", CODE)
+        fill = body(CODE, "void FillCommandedBots(Group* group, Player* lead, std::vector<Player*>& bots)")
+        self.assertIn("IsLiveHeadlessBot(member)", fill)
 
 
 if __name__ == "__main__":
