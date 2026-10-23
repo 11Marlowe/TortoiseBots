@@ -13145,7 +13145,7 @@ static void TestBotHeldByUnattackableDropsCombat()
     for (std::uint32_t i = 1; i <= kCombatDropRepeatMs / kTickMs && r.state == State::Running; ++i)
     {
         Tick(r, f);
-        if (!r.combatDrops.empty())
+        if (!r.combatDrops.empty() && again == 0)
             again = i;
     }
     CHECK(again == kCombatDropRepeatMs / kTickMs);
@@ -13282,6 +13282,48 @@ static void TestGatherWaitsForABotHeldByUnattackable()
     n.regroupMs = kGatherCapMs + 1000;
     Tick(n, g);
     CHECK(n.state == State::Paused && n.note.find("regroup: the party did not gather within") != std::string::npos);
+}
+
+// Codex adversarial review of 5017a644: a bot whose pet alone is held by the bomb is a bot in combat (the glue's
+// MemberInCombat: Facts::anyInCombat, MemberFact::inCombat, and the pet's attackers in its count). Before the drop
+// it is not summoned, sent on a run back or pulled past; the regroup waits for it.
+static void TestPetHeldByUnattackableKeepsTheBotInTheFight()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {6206}), Step(PlanStepKind::Move, 9)};
+    Facts f = HeldParty({Bomb()}); // the hunter's pet held: the glue reads her in combat with 1 attacker (the pet's)
+    f.members[1].name = "Helmina";
+    f.units = {Unit(2, 6206, 25)};
+    std::uint32_t const graceTicks = kUnattackableGraceMs / kTickMs;
+    // Not summoned (a bot in combat or with attackers never is).
+    Run s = Start(&plan);
+    std::string order;
+    CHECK(!SummonStraggler(s, f, order) && order.empty());
+    // No pull before the drop: the party is in combat until the grace is over.
+    Run r = Start(&plan);
+    for (std::uint32_t i = 1; i < graceTicks; ++i)
+    {
+        CHECK(Tick(r, f).compare(0, 9, "pullback ") != 0);
+        CHECK(r.combatDrops.empty() && r.runBack.empty());
+    }
+    Tick(r, f);
+    CHECK(r.combatDrops == std::vector<std::string>{"Helmina"});
+    // In a regroup: no run back, no summon, and its ceiling waits for her instead of pausing.
+    Run q = Start(&plan);
+    q.regroup = true;
+    q.reviveSent = true;
+    q.regroupGatherSent = true;
+    q.regroupGatherCapMs = kGatherCapMs;
+    q.regroupMs = kGatherCapMs + 1000;
+    Facts g = f;
+    g.anyInCombat = false; // the party's fight is over; her pet's is not
+    for (std::uint32_t i = 0; i < 3; ++i)
+    {
+        std::string const o = Tick(q, g);
+        CHECK(o.compare(0, 7, "summon ") != 0 && q.runBack.empty() && q.state == State::Running);
+        if (i == 0)
+            CHECK(q.note.find("Helmina (35.0 yd) held in combat") != std::string::npos);
+    }
 }
 
 int main()
@@ -13615,6 +13657,7 @@ int main()
     TestUnattackableUnitIsNeverPulledOrPickedUp();
     TestBotHeldByUnattackableDropsCombat();
     TestGatherWaitsForABotHeldByUnattackable();
+    TestPetHeldByUnattackableKeepsTheBotInTheFight();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

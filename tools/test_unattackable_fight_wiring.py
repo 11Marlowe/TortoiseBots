@@ -75,7 +75,7 @@ class UnattackableFightWiringTest(unittest.TestCase):
 
     def test_member_engaged_read_includes_threat_lists(self):
         member = body(CODE, "void ReadMemberEngaged(Player* lead, Player* judge, Player* bot,")
-        self.assertIn("if (!bot->IsInCombat() && !(pet && pet->IsInCombat()))\n        return;", member)
+        self.assertIn("if (!MemberInCombat(bot))\n        return;", member)
         self.assertIn("ReadEngagedWith(lead, judge, bot, seen, member.engaged, true);", member)
         self.assertIn("ReadEngagedWith(lead, judge, pet, seen, member.engaged, true);", member)
         self.assertIn("member.engagedRead = true;", member)
@@ -85,7 +85,7 @@ class UnattackableFightWiringTest(unittest.TestCase):
         self.assertIn("add(source->getOwner());", read)
         self.assertIn("fact.attackable = GroupCanAttack(judge, other);", read)
         facts = body(CODE, "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead,")
-        self.assertIn("member.inCombat = bot->IsInCombat();\n\n        ReadMemberEngaged(lead, judge, bot, member);", facts)
+        self.assertIn("member.inCombat = fighting;\n\n        ReadMemberEngaged(lead, judge, bot, member);", facts)
         # The party-wide fight read keeps attackers and victims only.
         party = body(CODE, "void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots,")
         self.assertNotIn(", true);", party)
@@ -103,6 +103,17 @@ class UnattackableFightWiringTest(unittest.TestCase):
         self.assertIn("std::vector<Player*> const bots = CommandedBots(group, lead);", CODE)
         fill = body(CODE, "void FillCommandedBots(Group* group, Player* lead, std::vector<Player*>& bots)")
         self.assertIn("IsLiveHeadlessBot(member)", fill)
+
+    def test_a_pet_in_combat_keeps_its_bot_in_combat(self):
+        shared = body(CODE, "bool MemberInCombat(Player* bot)")
+        self.assertIn("bot->IsInCombat() || (pet && pet->IsAlive() && pet->IsInWorld() && pet->IsInCombat())", shared)
+        facts = body(CODE, "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead,")
+        self.assertIn("bool const fighting = MemberInCombat(bot);\n        if (fighting)\n            f.anyInCombat = true;", facts)
+        self.assertIn("member.inCombat = fighting;", facts)
+        self.assertIn("for (Unit* attacker : pet->GetAttackers())", facts)
+        self.assertNotIn("member.inCombat = bot->IsInCombat();", facts)
+        member = body(CODE, "void ReadMemberEngaged(Player* lead, Player* judge, Player* bot,")
+        self.assertIn("if (!MemberInCombat(bot))\n        return;", member)
 
 
 if __name__ == "__main__":

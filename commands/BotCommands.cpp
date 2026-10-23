@@ -9781,9 +9781,6 @@ bool GroupCanAttack(Player* judge, Unit* unit)
     return !judge || !unit || judge->IsValidAttackTarget(unit);
 }
 
-// In combat: the living, not friendly units engaged with the party (DungeonRun::Facts::engagedUnits), each once:
-// those on each living bot's and its pet's attacker set, and their victims. The same units the stale test read
-// before (Facts::staleCombat: none of them), now each with whether the group can attack it. No grid or world scan.
 // The living, not friendly units engaged with `unit` (its attackers and its victim; with threatRefs also every
 // unit that holds it on its threat list, which keeps it in combat without attacking it), each once over `seen`,
 // with whether the group can attack each (GroupCanAttack).
@@ -9812,6 +9809,9 @@ void ReadEngagedWith(Player* lead, Player* judge, Unit* unit, std::unordered_set
                 add(source->getOwner());
 }
 
+// In combat: the living, not friendly units engaged with the party (DungeonRun::Facts::engagedUnits), each once:
+// those on each living bot's and its pet's attacker set, and their victims. The same units the stale test read
+// before (Facts::staleCombat: none of them), now each with whether the group can attack it. No grid or world scan.
 void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
 {
     Player* const judge = RunJudge(lead, bots);
@@ -9826,15 +9826,23 @@ void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots, TortoiseBo
     f.engagedRead = true;
 }
 
+// A party bot is in combat when it or its living pet is (DungeonRun::MemberFact::inCombat, Facts::anyInCombat, and
+// the member read below): a pet held alone keeps its bot in the fight (Codex adversarial review of 5017a644).
+bool MemberInCombat(Player* bot)
+{
+    Pet* const pet = bot->GetPet();
+    return bot->IsInCombat() || (pet && pet->IsAlive() && pet->IsInWorld() && pet->IsInCombat());
+}
+
 // The units engaged with one bot and its pet (DungeonRun::MemberFact::engaged), read while either is in combat,
 // the units holding it on their threat lists included (Gnomeregan r23: the hunter stood in combat 8 min with
 // nothing attacking her):
 // the run drops the combat of a bot held by units the group cannot attack only (DungeonRun::CombatDropTick).
 void ReadMemberEngaged(Player* lead, Player* judge, Player* bot, TortoiseBots::DungeonRun::MemberFact& member)
 {
-    Pet* const pet = bot->GetPet();
-    if (!bot->IsInCombat() && !(pet && pet->IsInCombat()))
+    if (!MemberInCombat(bot))
         return;
+    Pet* const pet = bot->GetPet();
     std::unordered_set<uint64> seen;
     ReadEngagedWith(lead, judge, bot, seen, member.engaged, true);
     if (pet)
@@ -10608,7 +10616,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             continue;
         }
         ++f.alive;
-        if (bot->IsInCombat())
+        bool const fighting = MemberInCombat(bot); // the bot or its living pet
+        if (fighting)
             f.anyInCombat = true;
         float const yd = bot == lead ? 0.0f : bot->GetMap() == lead->GetMap() ? bot->GetDistance(lead) : 1000.0f;
         f.maxMemberYd = std::max(f.maxMemberYd, yd);
@@ -10624,7 +10633,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.x = bot->GetPositionX(); // the stand-still watch (DungeonRun::UpdateStill)
         member.y = bot->GetPositionY();
         member.z = bot->GetPositionZ();
-        member.inCombat = bot->IsInCombat();
+        member.inCombat = fighting;
         // In combat: the units engaged with it and its pet (DungeonRun::CombatDropTick).
         ReadMemberEngaged(lead, judge, bot, member);
         // A healer or a ranged bot stands behind the tank in a hold (DungeonRun::HoldStands).
@@ -10635,12 +10644,18 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.canSap = (member.cc & CcBit(CcFamily::Sap)) && memberAi && memberAi->HasRealPlayerMaster() &&
             !memberAi->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT);
         if (bot == lead)
-            f.leadInCombat = member.inCombat;
+            f.leadInCombat = bot->IsInCombat(); // the lead bot itself
         // Units attacking it: the core's attacker set of that bot (no scan),
         // for a member coming back with attackers (DungeonRun::RunBack).
+        // Its living pet's attackers count too (a pet held alone keeps the bot from a summon).
         for (Unit* attacker : bot->GetAttackers())
             if (attacker && attacker->IsAlive() && !sServerFacade.IsFriendlyTo(attacker, lead))
                 ++member.attackers;
+        if (Pet* const pet = bot->GetPet())
+            if (pet->IsAlive() && pet->IsInWorld())
+                for (Unit* attacker : pet->GetAttackers())
+                    if (attacker && attacker->IsAlive() && !sServerFacade.IsFriendlyTo(attacker, lead))
+                        ++member.attackers;
         // The bots CommanderMoveDirect leaves out of its test stay "with" (it does not refuse for them).
         if (joinWanted && bot != lead && yd <= kGatherYd && bot->IsInWorld() && bot->GetMap() == joinMap &&
             !bot->IsTaxiFlying() && !bot->IsBeingTeleported() && memberAi)

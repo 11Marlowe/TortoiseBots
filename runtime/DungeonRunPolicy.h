@@ -530,9 +530,9 @@ struct MemberFact
     std::string name;
     float yd = 0.0f;        // from the lead bot (1000 on another map)
     bool polymorph = false; // a mage that knows Polymorph (kPolymorphSpells): the run's crowd control
-    bool inCombat = false;
+    bool inCombat = false;  // the bot or its living pet is in combat (the glue's MemberInCombat)
     float dz = 0.0f;        // height difference to the lead bot (another floor)
-    std::uint32_t attackers = 0; // units attacking it (the core's attacker set of that bot, no scan)
+    std::uint32_t attackers = 0; // units attacking it or its living pet (their attacker sets, no scan)
     float x = 0.0f, y = 0.0f, z = 0.0f; // where it stands (the stand-still watch: UpdateStill)
     bool ranged = false;    // a ranged bot or a healer: it stands behind the tank in a hold (HoldStands)
     // With Facts::directJoinRead: the glue's own direct-step test for this bot (the one `cmd move ... direct`
@@ -546,7 +546,8 @@ struct MemberFact
     // master is a live client (PlayerbotAI::HasRealPlayerMaster) and Sap is
     // not switched off ("no sap"). Without it no Sap is ordered.
     bool canSap = false;
-    // In combat: the units engaged with this bot or its pet (their attackers and their victims), each once, with
+    // In combat: the units engaged with this bot or its pet (their attackers, their victims and the units holding
+    // either on their threat lists), each once, with
     // UnitFact::attackable (engagedRead). Gnomeregan r23
     // step 181: the Alarm-a-bomb 2600 (7897) took the priest as its victim; the priest and the hunter stood in
     // combat 35 yd from the lead bot for 8 min, follow orders and the run back did not move them, and the gather
