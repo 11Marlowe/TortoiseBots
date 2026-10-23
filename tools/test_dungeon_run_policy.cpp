@@ -236,7 +236,7 @@ static void TestStandOnALedgeCountsByGroundDistance()
     RunStalledWalk(5.9f, kStandZTolYd, PlanStepKind::Move, arrived, stuck);
     CHECK(arrived && !stuck);
     // A different floor (more than kStandZTolYd above or below) keeps the 3D rule
-    // (beyond the follow deadband on the ground: TestStalledLeadInFollowRangeCountsAsArrived).
+    // (beyond the follow deadband in 3D: TestStalledLeadInFollowRangeCountsAsArrived).
     RunStalledWalk(5.5f, kStandZTolYd + 0.5f, PlanStepKind::Move, arrived, stuck);
     CHECK(!arrived && stuck);
     RunStalledWalk(4.0f, 5.5f, PlanStepKind::Move, arrived, stuck); // 6.8 yd in 3D, steeper than the slope bound
@@ -495,40 +495,55 @@ static void TestStalledWalkWithAFailingMoveTriesDirectThenADryStandIn()
     CHECK(fresh.stallFallback == 0);
 }
 
-// Zul'Farrak r16-19z34 slot 2, step 37 (ZF-STEP37-2026-10-22): after a fight the lead
-// bot stood on the ramp 4.84 yd from the point on the ground and 4.6 yd above it (6.6 yd
-// in 3D). A `cmd move` there never moved it: the executor's "return to stay position"
-// (MoveToPositionAction::isUseful) acts only beyond the dungeon follow range on the ground.
-// The guard's walk back to the stand retried three times and paused the run. A stalled
-// plain walk inside kFollowDeadbandYd on the point's floor is arrived.
+// The follow deadband is the executor's stay rule (StayPointReached, runtime/StayArrivalPolicy.h:
+// raw 3D within kFollowDeadbandYd). Zul'Farrak r16-19z34 slot 2, step 37 (ZF-STEP37-2026-10-22):
+// the lead bot stood on the ramp 4.84 yd from the point on the ground and 4.6 yd above it
+// (6.6 yd in 3D); the executor's old ground rule refused the walk, and the deadband counted the
+// stall as arrived by the same ground rule. Crescent Grove r26 step 272 (MOVE-USELESS-2026-10-23):
+// a tauren lead bot 5.67 yd off on the ground and 6.6 yd below never walked (the old rule took
+// its bounding radius off) and the ground deadband did not count it either: four pauses. The
+// executor now walks any point more than 5.0 yd away in 3D, so neither spot is arrived until the
+// lead bot gets there.
 static void TestStalledLeadInFollowRangeCountsAsArrived()
 {
+    // The rule itself, at the trace's positions and on flat ground.
+    CHECK(!InFollowDeadband(-91.7f, -62.1f, 273.4f, -88.0f, -66.4f, 280.0f)); // Crescent Grove r26 step 272
+    CHECK(!InFollowDeadband(1783.2f, 792.1f, 22.2f, 1787.8f, 790.6f, 17.6f)); // Zul'Farrak r16 step 37
+    CHECK(InFollowDeadband(4.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    CHECK(InFollowDeadband(kFollowDeadbandYd, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    CHECK(!InFollowDeadband(kFollowDeadbandYd + 0.1f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+    CHECK(InFollowDeadband(3.0f, 0.0f, 3.8f, 0.0f, 0.0f, 0.0f));   // 4.84 yd in 3D
+    CHECK(!InFollowDeadband(0.0f, 0.0f, 5.5f, 0.0f, 0.0f, 0.0f));  // straight above, beyond 5.0
+    CHECK(InFollowDeadband(-91.7f, -62.1f, 273.4f, -91.7f, -62.1f, 273.4f + kFollowDeadbandYd));
+
     bool arrived = false, stuck = false;
-    // The step's own walk at the r16 numbers: arrived (it paused before).
+    // Crescent Grove r26: the lead bot 6.6 yd below its point is not there; a stall there is stuck.
+    RunStalledWalk(5.67f, -6.6f, PlanStepKind::Move, arrived, stuck);
+    CHECK(!arrived && stuck);
+    RunStalledWalk(5.67f, 6.6f, PlanStepKind::Move, arrived, stuck);
+    CHECK(!arrived && stuck);
+    // Zul'Farrak r16: 6.6 yd in 3D is beyond the executor's rule now (it walks there), so a stall is stuck.
     RunStalledWalk(4.84f, 4.6f, PlanStepKind::Move, arrived, stuck);
-    CHECK(arrived && !stuck);
+    CHECK(!arrived && stuck);
     RunStalledWalk(-4.84f, -4.6f, PlanStepKind::Move, arrived, stuck);
-    CHECK(arrived && !stuck);
-    // The edge of the deadband counts: 5.0 yd on the ground, 4.6 above.
-    RunStalledWalk(kFollowDeadbandYd, 4.6f, PlanStepKind::Move, arrived, stuck);
-    CHECK(arrived && !stuck);
-    // A rise a little steeper than the ground distance is still the same floor (4.0 on the
-    // ground, 4.8 above: 6.2 yd in 3D, within kSharedFloorRiseYd).
-    RunStalledWalk(4.0f, 4.8f, PlanStepKind::Move, arrived, stuck);
-    CHECK(arrived && !stuck);
-    // Just beyond the follow range on the ground: the executor moves the bot, so a stall is stuck.
-    RunStalledWalk(5.1f, 4.6f, PlanStepKind::Move, arrived, stuck); // 6.9 yd in 3D
+    CHECK(!arrived && stuck);
+    RunStalledWalk(5.1f, 4.6f, PlanStepKind::Move, arrived, stuck);
     CHECK(!arrived && stuck);
     // A real other floor below or above: stuck.
     RunStalledWalk(2.0f, 8.0f, PlanStepKind::Move, arrived, stuck);
     CHECK(!arrived && stuck);
-    RunStalledWalk(4.84f, 4.84f + kSharedFloorRiseYd + 0.2f, PlanStepKind::Move, arrived, stuck);
-    CHECK(!arrived && stuck);
+    // Flat ground within the follow range: arrived after the short stall (no walk, no jitter).
+    RunStalledWalk(4.5f, 0.0f, PlanStepKind::Move, arrived, stuck);
+    CHECK(arrived && !stuck);
+    RunStalledWalk(3.0f, 3.8f, PlanStepKind::Move, arrived, stuck); // 4.84 yd in 3D
+    CHECK(arrived && !stuck);
     // A direct step keeps the 3D rule.
     RunStalledWalk(4.84f, 4.6f, PlanStepKind::MoveDirect, arrived, stuck);
     CHECK(!arrived && stuck);
 
-    // The r16 replay: the guard's walk back to the stay anchor (the server-snapped z 17.6).
+    // The r16 replay: the guard's walk back to the stay anchor (the server-snapped z 17.6) is not
+    // counted as arrived from the ramp; the move goes out again, and it arrives once the lead bot
+    // has walked there.
     DungeonPlan plan;
     plan.steps = {Step(PlanStepKind::Move, 1787.8f, 790.6f, 17.7f), Step(PlanStepKind::Rest)};
     Run r = Start(&plan);
@@ -542,16 +557,15 @@ static void TestStalledLeadInFollowRangeCountsAsArrived()
     f.leadZ = 22.2f;
     f.walkBackAfterWonFight = true; // the walk back itself (a move step goes on forward at the key's default)
     CHECK(Tick(r, f) == "move 1787.8 790.6 17.6");
-    int ticks = 1;
-    while (ticks < 60 && r.guardReturn && r.state == State::Running)
-    {
-        Tick(r, f);
-        ++ticks;
-    }
+    bool resent = false;
+    for (int ticks = 1; ticks < static_cast<int>(kWalkRetryMs / kTickMs) + 2 && r.state == State::Running; ++ticks)
+        resent = Tick(r, f) == "move 1787.8 790.6 17.6" || resent;
+    CHECK(r.state == State::Running && r.guardReturn && resent);
+    f.leadX = 1787.6f;
+    f.leadY = 790.7f;
+    f.leadZ = 17.6f;
+    Tick(r, f);
     CHECK(r.state == State::Running && !r.guardReturn);
-    CHECK(ticks <= static_cast<int>(kShortStallMs / kTickMs) + 2);
-    CHECK(r.anchorKnown && r.anchorX == f.leadX && r.anchorZ == f.leadZ);
-    // The step's own walk to the plan point goes on from there and arrives.
     for (int i = 0; i < 60 && r.step == 0 && r.state == State::Running; ++i)
         Tick(r, f);
     CHECK(r.state == State::Running && r.step == 1 && r.note == "arrived");

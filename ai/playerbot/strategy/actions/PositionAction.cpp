@@ -5,6 +5,7 @@
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "PositionAction.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
+#include "../../../../runtime/StayArrivalPolicy.h"
 
 using namespace ai;
 
@@ -206,6 +207,18 @@ bool ReturnToStayPositionAction::isPossible()
     }
 
     return false;
+}
+
+// The stay walk is useful while the bot is beyond the follow range of its stay point
+// in raw 3D (StayPointReached: no bounding radius, no rounding), the rule its trigger
+// and the run leader's deadband use. The inherited 2D rule minus the bounding radius
+// refused a tauren lead bot 5.67 yd from its point on the ground and 6.6 yd below it
+// (Crescent Grove r26 step 272) while the trigger fired every tick.
+bool ReturnToStayPositionAction::isUseful()
+{
+    PositionEntry stayPosition = AI_VALUE(PositionMap&, "position")["stay"];
+    return stayPosition.isSet() && !TortoiseBots::StayPointReached(bot->GetPositionX() - stayPosition.x, bot->GetPositionY() - stayPosition.y,
+        bot->GetPositionZ() - stayPosition.z, ai->GetRange("follow")) && ai->CanMove();
 }
 
 bool ReturnToPullPositionAction::isPossible()

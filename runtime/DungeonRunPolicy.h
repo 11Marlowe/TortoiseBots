@@ -56,6 +56,7 @@
 #include "../ai/playerbot/RangedApproachPolicy.h"
 #include "RemoteCommanderTasks.h"
 #include "RezHoldPolicy.h"
+#include "StayArrivalPolicy.h"
 
 #include <algorithm>
 #include <cctype>
@@ -4134,25 +4135,22 @@ inline float StandDistance(float lx, float ly, float lz, float x, float y, float
 }
 
 // The executor's deadband for a `cmd move`: the order puts the lead bot on stay and
-// runs "return to stay position", whose MoveToPositionAction::isUseful
+// runs "return to stay position", whose ReturnToStayPositionAction::isUseful
 // (ai/playerbot/strategy/actions/PositionAction.cpp) acts only when the bot is more
-// than GetRange("follow") from the point on the ground; inside a dungeon or raid that
-// range is AiPlayerbot.RaidFollowDistance (PlayerbotAI::GetRange "followraid",
-// default 5.0 in PlayerbotAIConfig.cpp). A lead bot this close does not move at all.
+// than GetRange("follow") from the point; inside a dungeon or raid that range is
+// AiPlayerbot.RaidFollowDistance (PlayerbotAI::GetRange "followraid", default 5.0 in
+// PlayerbotAIConfig.cpp). A lead bot this close does not move at all.
 constexpr float kFollowDeadbandYd = 5.0f;
-// The lead bot and the point share a floor (a ramp, not a ledge over another
-// floor) when the point is at most its ground distance plus this much above or
-// below it: a slope of about 45 degrees.
-constexpr float kSharedFloorRiseYd = 1.0f;
 
-// A stalled plain walk the executor would not move: within kFollowDeadbandYd on the
-// ground and on the point's floor (Zul'Farrak r16-19z34 step 37: 4.84 yd on the
-// ground, 4.6 yd above, 6.6 yd in 3D; the guard's walk back paused the run).
+// A stalled plain walk the executor would not move: within kFollowDeadbandYd of the
+// point by the executor's own rule (StayPointReached, runtime/StayArrivalPolicy.h: raw
+// 3D, no bounding radius). Zul'Farrak r16-19z34 step 37 (4.84 yd on the ground, 4.6 yd
+// above) once counted here by a ground rule; from Crescent Grove r26 step 272 (a tauren
+// lead bot 5.67 yd off on the ground, 6.6 yd below) the executor walks any point more
+// than 5.0 yd away in 3D, and a point that far is not arrived.
 inline bool InFollowDeadband(float lx, float ly, float lz, float x, float y, float z)
 {
-    float const ground = std::sqrt((lx - x) * (lx - x) + (ly - y) * (ly - y));
-    float const dz = lz > z ? lz - z : z - lz;
-    return ground <= kFollowDeadbandYd && dz <= ground + kSharedFloorRiseYd;
+    return StayPointReached(lx - x, ly - y, lz - z, kFollowDeadbandYd);
 }
 
 // A plain `cmd move` the run sent was acked: keep the path type its check saw

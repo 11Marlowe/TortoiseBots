@@ -53,6 +53,8 @@ namespace ai
     public:
         ReturnToStayPositionAction(PlayerbotAI* ai) : MoveToPositionAction(ai, "move to position", "stay") {}
         virtual bool isPossible() override;
+        // The shared stay arrival rule (runtime/StayArrivalPolicy.h), the one its trigger uses.
+        virtual bool isUseful() override;
     };
 
     class ReturnToPullPositionAction : public MoveToPositionAction

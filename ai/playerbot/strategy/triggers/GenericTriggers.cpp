@@ -20,6 +20,7 @@
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "playerbot/strategy/values/HazardsValue.h"
+#include "../../../../runtime/StayArrivalPolicy.h"
 
 #include <regex>
 
@@ -1521,8 +1522,10 @@ bool ReturnToStayPositionTrigger::IsActive()
     PositionEntry stayPosition = AI_VALUE(PositionMap&, "position")["stay"];
     if (stayPosition.isSet())
     {
-        const float distance = bot->GetDistance(stayPosition.x, stayPosition.y, stayPosition.z);
-        return distance > ai->GetRange("follow");
+        // The shared stay arrival rule (runtime/StayArrivalPolicy.h, raw 3D), the one the
+        // walk's isUseful uses: the trigger and the action cannot disagree.
+        return !TortoiseBots::StayPointReached(bot->GetPositionX() - stayPosition.x, bot->GetPositionY() - stayPosition.y,
+        bot->GetPositionZ() - stayPosition.z, ai->GetRange("follow"));
     }
 
     return false;
