@@ -24,7 +24,7 @@
 #include "RandomBotPoolReset.h"
 #include "StartZoneBalance.h"
 #include "BotNameService.h"
-#include "BotAppearancePolicy.h"
+#include "runtime/policy/provision/BotAppearancePolicy.h"
 #include "AccountMgr.h"
 #include "SharedDefines.h"
 #include "Database/DBCStores.h"

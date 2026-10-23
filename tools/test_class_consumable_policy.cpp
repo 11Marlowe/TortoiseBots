@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_class_consumable_policy.cpp -o /tmp/test_class_consumable
 //   /tmp/test_class_consumable
 
-#include "../runtime/ClassConsumablePolicy.h"
+#include "../runtime/policy/provision/ClassConsumablePolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

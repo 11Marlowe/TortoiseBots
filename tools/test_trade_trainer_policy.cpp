@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/values/TradeTrainerPolicy.h"
+#include "../runtime/policy/provision/TradeTrainerPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

@@ -4,14 +4,14 @@
 #include "CraftValues.h"
 #include "playerbot/policy/gear/EquipThresholdPolicy.h"
 #include "MountValues.h"
-#include "AmmoCheatPolicy.h"
+#include "runtime/policy/provision/AmmoCheatPolicy.h"
 #include "BudgetValues.h"
 #include "GuildValues.h"
 
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/policy/quest/QuestLogPolicy.h"
-#include "../../../../runtime/ClassConsumablePolicy.h"
+#include "../../../../runtime/policy/provision/ClassConsumablePolicy.h"
 #include "../../../../runtime/policy/ah/AhReadModelPolicy.h"
 
 using namespace ai;

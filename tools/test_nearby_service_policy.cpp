@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/values/NearbyServicePolicy.h"
+#include "../runtime/policy/provision/NearbyServicePolicy.h"
 
 #include <cstdlib>
 #include <ctime>

@@ -3,7 +3,7 @@
 #include "playerbot/PlayerbotAI.h"
 #include "playerbot/strategy/Action.h"
 #include "UseItemAction.h"
-#include "runtime/MimicConsumablePolicy.h"
+#include "runtime/policy/provision/MimicConsumablePolicy.h"
 
 namespace ai
 {

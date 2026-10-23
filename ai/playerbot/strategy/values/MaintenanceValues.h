@@ -4,7 +4,7 @@
 #include "playerbot/strategy/Value.h"
 #include "ItemUsageValue.h"
 #include "BudgetValues.h"
-#include "NearbyServicePolicy.h"
+#include "runtime/policy/provision/NearbyServicePolicy.h"
 #include "runtime/policy/ah/AhBuyerPolicy.h"
 
 
