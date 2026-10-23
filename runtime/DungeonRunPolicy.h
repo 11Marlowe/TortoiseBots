@@ -974,6 +974,9 @@ struct Run
     // where it is instead of following the lead bot out through the instance's
     // exits (HoldStandsNow; the glue keeps those bots on stay while paused).
     bool holdWhilePaused = false;
+    // The run is paused for it (PauseOtherPart; Pause clears it): `.bot run
+    // resume` with the lead bot still that far is refused (ResumeChecked).
+    bool otherPartPaused = false;
     // Crowd control and kill-first (the plan's cc_priority / cc_always / kill_first).
     std::unordered_set<std::uint64_t> ccSent; // units this step put a `cc <mark>` on (once each)
     // Who holds which unit (issue #1159): one unit per bot and per mark while
@@ -1380,6 +1383,7 @@ inline void Pause(Run& r, const std::string& why)
     r.hold.clear();
     r.holdDue = false;
     r.holdWhilePaused = false;
+    r.otherPartPaused = false; // PauseOtherPart sets it after
     r.holdStands.clear();
     r.holdPlaced = false;
     r.holdFarTicks = 0;
@@ -1846,6 +1850,7 @@ inline void PauseOtherPart(Run& r, const Facts& f)
         (keep.empty() ? std::string() : std::string(" (the party holds where it is)")));
     r.hold = keep;
     r.holdWhilePaused = !keep.empty();
+    r.otherPartPaused = true;
 }
 
 // A gather's ceiling: the farthest straggler, a bot more than kSummonYd from
@@ -2300,6 +2305,18 @@ inline std::string LowerCopy(std::string v)
 
 constexpr std::uint32_t kRunMaxMinutesDefault = 180; // the shipped template and the code fallback agree (3 h)
 
+// A run holds its dead (SM-REVIVE-PATH-2026-10-23 fix 3): while it runs or is
+// paused, a hired bot of its bound party that dies stays at its body (no auto
+// release, runtime/RunReleaseHold.h); the regroup releases it (a resurrection
+// in the party, then `revive party`), or the player does. A done run (the
+// plan's end, `.bot run stop`, the time limit, the switch off) holds nobody,
+// and the glue erases a stopped, timed-out or unbound run, so the bot's own
+// release works again then.
+inline bool HoldsItsDead(const Run& r)
+{
+    return r.plan && r.state != State::Done;
+}
+
 // maxMinutes 0 = no limit.
 inline bool RunTimeLimitReached(std::uint64_t elapsedMs, std::uint32_t maxMinutes)
 {
@@ -2508,6 +2525,7 @@ inline bool Resume(Run& r)
     r.state = State::Running;
     r.ceilingPaused = false;
     r.ceilingQuietMs = 0;
+    r.otherPartPaused = false;
     r.fighting = false;
     r.autoRegroups = 0;
     ResetStep(r);
@@ -2515,6 +2533,42 @@ inline bool Resume(Run& r)
     r.walkBackDue = true; // a party revived at the entrance walks back the plan's way
     r.note = "resumed: regrouping";
     return true;
+}
+
+// The lead bot as `.bot run resume` finds it (ResumeChecked). read: the glue
+// found it in the world; onPlanMap: on the plan's map.
+struct LeadSpot
+{
+    bool read = false;
+    bool alive = false;
+    bool onPlanMap = false;
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+};
+
+// `.bot run resume` from the glue (SM-REVIVE-PATH-2026-10-23 fix 5): a pause for
+// a lead bot in another part of the instance (PauseOtherPart) whose lead bot is
+// still alive on the plan's map and more than kOtherPartYd from every point of
+// the plan is not resumed: Resume would regroup and the next tick would pause
+// again (r21-19z40e slot 7: three times, the same note, no step progress). No
+// recovery exists for it (moving the lead bot by a module summon is an owner
+// decision), so the resume is refused with a plain answer and the pause, its
+// note and its hold stay. Every other case resumes as Resume does. True when
+// the run resumed; refusal is set only when it was refused for this reason.
+inline bool ResumeChecked(Run& r, const LeadSpot& lead, std::string& refusal)
+{
+    refusal.clear();
+    if (r.state == State::Paused && r.otherPartPaused && lead.read && lead.alive && lead.onPlanMap)
+    {
+        float const planYd = PlanNearestYd(r, lead.x, lead.y, lead.z);
+        if (planYd > kOtherPartYd)
+        {
+            refusal = "the lead bot is still in another part of the instance (" + Num(lead.x) + " " + Num(lead.y) +
+                " " + Num(lead.z) + "), " + Num(planYd) +
+                " yd away from the run: bring it to the party first, then .bot run resume";
+            return false;
+        }
+    }
+    return Resume(r);
 }
 
 // `.bot run skip`: leaves the current step out and goes on running (from a
@@ -2539,6 +2593,7 @@ inline bool Skip(Run& r)
     r.state = State::Running;
     r.ceilingPaused = false;
     r.ceilingQuietMs = 0;
+    r.otherPartPaused = false;
     NextStep(r, "skipped step " + std::to_string(skipped));
     if (wasPaused && r.state == State::Running)
         BeginRegroup(r);

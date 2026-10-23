@@ -12435,6 +12435,166 @@ static void TestLeadInOtherPartPausesWithTheTrueReason()
     CHECK(!r.leadOtherPart && r.state != State::Paused); // regrouped, and the step (no units left) is done
 }
 
+// The resume of a pause for a lead bot in another part (SM-REVIVE-PATH-2026-10-23
+// fix 5; r21-19z40e slot 7 paused three times in a row with the same note and no
+// step progress): `.bot run resume` (the agent's dungeon_resume) with the lead bot
+// still far from the plan is refused with a plain answer and the pause, its note
+// and its hold stay; no recovery exists for it (a module summon of the lead bot
+// is an owner decision). With the lead bot brought near the plan it resumes.
+static Run PausedForOtherPart(DungeonPlan& plan, Facts& f)
+{
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+    Run r = Start(&plan, 2);
+    f = Party(210);
+    f.doors = TwoDoors();
+    f.anyInCombat = true;
+    Tick(r, f);
+    f.leadAlive = false;
+    f.dead = 3;
+    f.alive = 2;
+    f.deadNames = {"Tanky", "Healy", "Magey"};
+    Tick(r, f);
+    f.anyInCombat = false;
+    f.members = {Mem("Fyran", 5)};
+    f.members[0].x = 215;
+    f.maxMemberYd = 0;
+    Tick(r, f);
+    Tick(r, f); // revive party
+    f.leadAlive = true;
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.leadX = 2000;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 1785)};
+    f.members[1].x = 215;
+    f.maxMemberYd = 1785;
+    Tick(r, f);
+    return r;
+}
+
+static LeadSpot SpotAt(float x, bool alive = true, bool onPlanMap = true)
+{
+    LeadSpot spot;
+    spot.read = true;
+    spot.alive = alive;
+    spot.onPlanMap = onPlanMap;
+    spot.x = x;
+    return spot;
+}
+
+static void TestOtherPartResumeIsRefusedWhileTheLeadIsAway()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = PausedForOtherPart(plan, f);
+    CHECK(r.state == State::Paused && r.otherPartPaused);
+    std::string const note = r.note;
+    std::string refusal;
+    CHECK(!ResumeChecked(r, SpotAt(2000), refusal));
+    CHECK(refusal == "the lead bot is still in another part of the instance (2000.0 0.0 0.0), 1780.0 yd away from "
+        "the run: bring it to the party first, then .bot run resume");
+    CHECK(r.state == State::Paused && r.otherPartPaused && r.note == note);
+    CHECK(r.hold.size() == 1 && r.hold[0] == "Fyran" && r.holdWhilePaused && HoldStandsNow(r));
+    // Refused again and again: no resume, no re-pause, nothing ordered.
+    for (int i = 0; i < 3; ++i)
+    {
+        CHECK(!ResumeChecked(r, SpotAt(2000), refusal) && !refusal.empty());
+        CHECK(Tick(r, f).empty() && r.state == State::Paused && r.note == note);
+    }
+    // Walked off the door but still in the other wing: still refused.
+    CHECK(!ResumeChecked(r, SpotAt(1900), refusal));
+    CHECK(refusal.find("(1900.0 0.0 0.0), 1680.0 yd away") != std::string::npos);
+    // Brought to the party: it resumes and regroups.
+    CHECK(ResumeChecked(r, SpotAt(214), refusal));
+    CHECK(refusal.empty() && r.state == State::Running && !r.otherPartPaused && r.note == "resumed: regrouping");
+}
+
+static void TestOtherPartResumeRefusalOnlyForThatPause()
+{
+    std::string refusal;
+    // The lead bot not read (between maps), dead, or off the plan's map: resumed as before.
+    {
+        DungeonPlan plan;
+        Facts f;
+        Run r = PausedForOtherPart(plan, f);
+        LeadSpot unread;
+        CHECK(ResumeChecked(r, unread, refusal) && refusal.empty() && r.state == State::Running);
+    }
+    {
+        DungeonPlan plan;
+        Facts f;
+        Run r = PausedForOtherPart(plan, f);
+        CHECK(ResumeChecked(r, SpotAt(2000, false), refusal) && refusal.empty());
+    }
+    {
+        DungeonPlan plan;
+        Facts f;
+        Run r = PausedForOtherPart(plan, f);
+        CHECK(ResumeChecked(r, SpotAt(2000, true, false), refusal) && refusal.empty());
+    }
+    // Another pause with the lead bot far: not this rule (a player's pause resumes as before).
+    {
+        DungeonPlan plan;
+        Facts f;
+        Run r = PausedForOtherPart(plan, f);
+        CHECK(Resume(r));
+        CHECK(PauseForPlayer(r, "follow"));
+        CHECK(!r.otherPartPaused);
+        CHECK(ResumeChecked(r, SpotAt(2000), refusal) && refusal.empty());
+    }
+    // Paused again for another reason without a resume between: that pause is not this rule either.
+    {
+        DungeonPlan plan;
+        Facts f;
+        Run r = PausedForOtherPart(plan, f);
+        Pause(r, "regroup: 2 still dead after 240 s (cmd revive <bot>, then .bot run resume)");
+        CHECK(!r.otherPartPaused);
+        CHECK(ResumeChecked(r, SpotAt(2000), refusal) && refusal.empty());
+    }
+    // A running run: nothing to resume, no refusal text.
+    {
+        DungeonPlan plan;
+        plan.steps = {Step(PlanStepKind::Move, 10)};
+        Run r = Start(&plan);
+        CHECK(!ResumeChecked(r, SpotAt(2000), refusal) && refusal.empty());
+    }
+}
+
+// A run holds its dead (SM-REVIVE-PATH-2026-10-23 fix 3): a hired bot of the
+// bound party stays dead at its body while the run runs or is paused (the
+// regroup's resurrection or `revive party`, or the player, releases it); once
+// the run is done (its plan's end, `.bot run stop`, the time limit, the switch
+// off) the bot's own auto release works again. The glue erases the run on a
+// stop, the time limit and an unbind, so no run is found then either.
+static void TestRunHoldsItsDeadUntilItEnds()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200)};
+    Run r = Start(&plan);
+    CHECK(r.state == State::Running && HoldsItsDead(r));
+    Pause(r, "3 dead: regroup (cmd revive party), then .bot run resume");
+    CHECK(HoldsItsDead(r)); // a paused run still holds its dead
+    PausePlayer(r, "paused by .bot run pause");
+    CHECK(HoldsItsDead(r));
+    CHECK(Resume(r) && HoldsItsDead(r));
+    // `.bot run stop` and the time limit set Done before the glue erases the run.
+    r.state = State::Done;
+    r.note = RunTimeLimitNote(180);
+    CHECK(!HoldsItsDead(r));
+    // The plan's end.
+    Run end = Start(&plan, 1);
+    Facts f = Party(200);
+    for (int i = 0; i < 5 && end.state != State::Done; ++i)
+        Tick(end, f);
+    CHECK(end.state == State::Done && !HoldsItsDead(end));
+    // A plan without steps never ran.
+    DungeonPlan empty;
+    CHECK(!HoldsItsDead(Start(&empty)));
+    Run none;
+    none.plan = nullptr;
+    CHECK(!HoldsItsDead(none));
+}
+
 // A door that is not the plan's entry but lies near the plan (the Uldaman and
 // Gnomeregan back doors: 50-60 yd from their plans' points) is no other part:
 // the walk back goes on as before. And with no doors read, no rule at all.
@@ -12925,6 +13085,9 @@ int main()
     TestLeadDeadAfterTheFightHolds();
     TestNearWipeHoldsTheLivingAtTheFightSpot();
     TestLeadInOtherPartPausesWithTheTrueReason();
+    TestRunHoldsItsDeadUntilItEnds();
+    TestOtherPartResumeIsRefusedWhileTheLeadIsAway();
+    TestOtherPartResumeRefusalOnlyForThatPause();
     TestBackDoorNearThePlanIsNotAnotherPart();
     TestLeadRevivedAwayInOtherPartPauses();
     TestNoSummonTowardALeadInAnotherPart();
