@@ -46,6 +46,7 @@ python3 -m unittest tools/test_outfit_item_parser.py
 python3 -m unittest tools/test_queue_prerequisite_merge.py
 python3 -m unittest tools/test_tactical_stay_release.py
 python3 -m unittest tools/test_stay_anchor_wiring.py
+python3 -m unittest tools/test_stay_arrival_wiring.py
 python3 -m unittest tools/test_magma_guard_wiring.py
 python3 -m unittest tools/test_attack_order_wiring.py
 python3 -m unittest tools/test_bot_area_trigger_wiring.py
@@ -298,6 +299,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_spread_toggle_policy
         test_start_zone_balance
         test_starter_kit_policy
+        test_stay_arrival_policy
         test_summon_restore_policy
         test_survive_policy
         test_swim_path_policy

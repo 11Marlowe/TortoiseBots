@@ -87,7 +87,7 @@ class MoveFailNoteWiringTest(unittest.TestCase):
     def test_run_facts_read_the_lead_bots_water_and_move(self):
         fn = body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead,", "\n}\n")
         self.assertIn("f.leadInWater = lead->IsInWater() || lead->IsUnderwater();", fn)
-        self.assertIn("f.leadMoveFailed = ai::PositionMoveFailing(lastMove.positionMoveFailMs, WorldTimer::getMSTime());", fn)
+        self.assertIn("f.leadMoveFailed = ai::PositionMoveFailing(lastMove.positionMoveFailMs, WorldTimer::getMSTime()) || f.leadStayWalkResting;", fn)
         self.assertIn("f.leadMoveFailReason = ai::MoveFailReasonName(lastMove.moveFailReason);", fn)
 
     def test_stuck_pause_carries_the_note(self):

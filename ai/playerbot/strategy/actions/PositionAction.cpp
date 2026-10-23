@@ -5,6 +5,9 @@
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "PositionAction.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
+#include "playerbot/ServerFacade.h"
+#include "Movement/spline/MoveSpline.h"
+#include "../../../../runtime/StayArrivalPolicy.h"
 
 using namespace ai;
 
@@ -206,6 +209,47 @@ bool ReturnToStayPositionAction::isPossible()
     }
 
     return false;
+}
+
+// The stay walk is due (StayWalkDue): the bot is beyond the follow range of its stay
+// point in raw 3D (StayPointReached: no bounding radius, no rounding) and the walk does
+// not rest after failed walks. Judges the walk under way first: where it took the bot,
+// whether the bot still moves. The walk's isUseful and its trigger both ask this.
+// Crescent Grove r26 step 272: the old 2D rule minus the bounding radius refused a
+// tauren lead bot 5.67 yd from its point on the ground and 6.6 yd below it while the
+// trigger fired every tick.
+bool ai::StayWalkDueNow(PlayerbotAI* ai, Player* bot, PositionEntry const& stayPosition)
+{
+    TortoiseBots::StayWalkBackoff& backoff = ai->GetAiObjectContext()->GetValue<LastMovement&>("last movement")->Get().stayWalk;
+    TortoiseBots::StayWalkTrack(backoff, stayPosition.x, stayPosition.y, stayPosition.z, stayPosition.mapId);
+    float const dx = bot->GetPositionX() - stayPosition.x;
+    float const dy = bot->GetPositionY() - stayPosition.y;
+    float const dz = bot->GetPositionZ() - stayPosition.z;
+    bool const moving = sServerFacade.isMoving(bot) || !bot->movespline->Finalized();
+    return TortoiseBots::StayWalkDue(backoff, TortoiseBots::StayPointReached(dx, dy, dz, ai->GetRange("follow")),
+        TortoiseBots::StayPointDistance(dx, dy, dz), moving, bot->IsInCombat(), bot->GetTransport() != nullptr, WorldTimer::getMSTime());
+}
+
+bool ReturnToStayPositionAction::isUseful()
+{
+    PositionEntry stayPosition = AI_VALUE(PositionMap&, "position")["stay"];
+    if (!stayPosition.isSet() || stayPosition.mapId != bot->GetMapId() || !ai->CanMove())
+        return false;
+    return StayWalkDueNow(ai, bot, stayPosition);
+}
+
+// The walk's dispatch feeds the back-off (StayWalkDispatched): a refused walk failed, an
+// accepted one starts an attempt that StayWalkDueNow judges by where it takes the bot.
+bool ReturnToStayPositionAction::Execute(Event& event)
+{
+    PositionEntry stayPosition = AI_VALUE(PositionMap&, "position")["stay"];
+    bool const moved = MoveToPositionAction::Execute(event);
+    TortoiseBots::StayWalkBackoff& backoff = AI_VALUE(LastMovement&, "last movement").stayWalk;
+    TortoiseBots::StayWalkTrack(backoff, stayPosition.x, stayPosition.y, stayPosition.z, stayPosition.mapId);
+    TortoiseBots::StayWalkDispatched(backoff, moved, TortoiseBots::StayPointDistance(bot->GetPositionX() - stayPosition.x,
+        bot->GetPositionY() - stayPosition.y, bot->GetPositionZ() - stayPosition.z), bot->IsInCombat(),
+        bot->GetTransport() != nullptr, WorldTimer::getMSTime());
+    return moved;
 }
 
 bool ReturnToPullPositionAction::isPossible()
