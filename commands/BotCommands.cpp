@@ -9513,7 +9513,8 @@ bool DirectNavPath(Player* lead, float x, float y, float z, std::vector<Tortoise
     path.calculate(x, y, z, false);
     uint32 const type = static_cast<uint32>(path.getPathType());
     Vector3 const end = path.getActualEndPosition();
-    if (PathEndsShort((type & PATHFIND_NOPATH) != 0, (type & PATHFIND_INCOMPLETE) != 0, end.x, end.y, end.z, x, y, z))
+    if (!NavPathReaches((type & PATHFIND_NOPATH) != 0, (type & PATHFIND_INCOMPLETE) != 0, (type & PATHFIND_SHORTCUT) != 0,
+            (type & PATHFIND_NOT_USING_PATH) != 0, end.x, end.y, end.z, x, y, z))
         return false;
     float length = 0.0f;
     Movement::PointsArray const& way = path.getPath();

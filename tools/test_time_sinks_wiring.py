@@ -88,7 +88,13 @@ class TimeSinksWiringTest(unittest.TestCase):
         self.assertIn("<= kHopPullYd;", reads)
         self.assertIn("f.shortcutOk = DirectNavPath(lead, p.x, p.y, p.z, way);", reads)
         direct = body(COMMANDS, "bool DirectNavPath(", "\n}\n")
-        self.assertIn("PathEndsShort(", direct)
+        # Round 2 (Codex, a4a16e14): a genuine navmesh route only, no SHORTCUT or NOT_USING_PATH fallback.
+        self.assertIn("if (!NavPathReaches((type & PATHFIND_NOPATH) != 0, (type & PATHFIND_INCOMPLETE) != 0, (type & PATHFIND_SHORTCUT) != 0,\n"
+                      "            (type & PATHFIND_NOT_USING_PATH) != 0, end.x, end.y, end.z, x, y, z))", direct)
+        # Both users go through it; LegOnPath keeps its own (stricter: no incomplete path at all) test of the same flags.
+        self.assertEqual(reads.count("DirectNavPath(lead,"), 2)
+        leg = body(COMMANDS, "bool LegOnPath(", "\n}\n")
+        self.assertIn("PATHFIND_NOPATH | PATHFIND_INCOMPLETE | PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT", leg)
         self.assertIn("PathFitsStraight(length, DistanceTo(lead, x, y, z))", direct)
 
     def test_retreat_runs_before_the_guard(self):

@@ -6773,6 +6773,22 @@ inline bool PathEndsShort(bool noPath, bool incomplete, float endX, float endY, 
     return ai::PlanDistance(endX, endY, endZ, x, y, z) > kPathShortYd || std::fabs(endZ - z) > kPathShortDzYd;
 }
 
+// A path finder result that is a fallback, not a navmesh route: PATHFIND_SHORTCUT (a straight line the finder made up)
+// or PATHFIND_NOT_USING_PATH (no navmesh used at all). Neither proves the way (the Codex review of a4a16e14; the glue's
+// LegOnPath refuses both, and any incomplete path, in its own test).
+inline bool NavPathIsFallback(bool shortcut, bool notUsingPath)
+{
+    return shortcut || notUsingPath;
+}
+
+// A genuine navmesh route to the point (fight forward's and the replay shortcut's read, the glue's DirectNavPath): no
+// fallback (NavPathIsFallback) and not ending short (PathEndsShort).
+inline bool NavPathReaches(bool noPath, bool incomplete, bool shortcut, bool notUsingPath, float endX, float endY,
+    float endZ, float x, float y, float z)
+{
+    return !NavPathIsFallback(shortcut, notUsingPath) && !PathEndsShort(noPath, incomplete, endX, endY, endZ, x, y, z);
+}
+
 inline bool PathFitsStraight(float pathYd, float straightYd)
 {
     return pathYd <= kPathDetourFactor * std::max(straightYd, kArriveYd);

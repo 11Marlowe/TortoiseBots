@@ -956,6 +956,17 @@ static void TestPathEndsShortOnlyFarFromThePoint()
     CHECK(PathEndsShort(false, true, 88, 0, 0, 100, 0, 0));      // 12 yd short
     CHECK(PathEndsShort(false, true, 100, 2, 7, 100, 0, 0));     // 7 yd above it: another floor
     CHECK(PathFitsStraight(125, 100) && !PathFitsStraight(135, 100) && PathFitsStraight(3, 0.5f));
+    // Round 2 (the Codex review of a4a16e14): a fallback result proves no navmesh route, for fight forward and the
+    // replay shortcut alike (both read it through DirectNavPath -> NavPathReaches), complete or not.
+    CHECK(NavPathReaches(false, false, false, false, 100, 0, 0, 100, 0, 0));
+    CHECK(NavPathReaches(false, true, false, false, 95, 0, 0, 100, 0, 0));   // the polygon cap, as above
+    CHECK(!NavPathReaches(false, false, true, false, 100, 0, 0, 100, 0, 0)); // PATHFIND_SHORTCUT
+    CHECK(!NavPathReaches(false, false, false, true, 100, 0, 0, 100, 0, 0)); // PATHFIND_NOT_USING_PATH
+    CHECK(!NavPathReaches(false, true, true, false, 95, 0, 0, 100, 0, 0));
+    CHECK(!NavPathReaches(false, true, false, true, 95, 0, 0, 100, 0, 0));
+    CHECK(!NavPathReaches(true, false, false, false, 100, 0, 0, 100, 0, 0)); // no path
+    CHECK(!NavPathReaches(false, true, false, false, 88, 0, 0, 100, 0, 0));  // short
+    CHECK(NavPathIsFallback(true, false) && NavPathIsFallback(false, true) && !NavPathIsFallback(false, false));
     // A long straight walk back whose path stops at the cap 6 yd short stays straight (the glue's read, PathEndsShort).
     DungeonPlan plan;
     plan.steps = {Move(0, 0), Move(400, 0), Pull(600, 200, 9)};
