@@ -742,20 +742,34 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
-        # 20261023130100 (turtle-agent prep/crescent_grove ba00e7c, 2026-10-23): the Crescent Grove draft (map 802) with the census
-        # fixes of PREP-CRESCENT-GROVE-2026-10-23.md, no row hand-set, with the boss rows of map 802. 5 legs, 561 steps (59 + 101 + 53 +
-        # 59 + 27 pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the 14 Deer 883 (critters) are out
-        # of every group, the Elders 92105/92106 are Grovetender Engryss' first (they stood 11 yd from him), and the two pulls at the
-        # patrolling Roaming Felguard 2566320 are one group of four. No pull row stands within 25 yd of a boss.
+        # 20261023210000 (turtle-agent cg-fix1 479dc0d) re-exports the 20261023130100 draft (prep/crescent_grove ba00e7c, the census
+        # fixes of PREP-CRESCENT-GROVE-2026-10-23.md) with pull group 49's approach on dry ground: the exporter's cut from group 48
+        # went through a lake (water-only polygons) and the lead bot cannot make its own move to a water target, so run 1 (r25 slot 6)
+        # stalled at step 367. 5 legs, 559 steps (59 + 101 + 53 + 59 + 27 pulls; leg 2 loses two moves), bosses in leg order, no door or
+        # event step. The plan row has the unit lists; the 14 Deer 883 (critters) are out of every group, the Elders 92105/92106 are
+        # Grovetender Engryss' first (they stood 11 yd from him), and the two pulls at the patrolling Roaming Felguard 2566320 are one
+        # group of four. No pull row stands within 25 yd of a boss.
         name, text = newest_plan_text("crescent_grove")
-        self.assertEqual(name, "20261023130100_world.sql")
-        self.assertIn("('crescent_grove', 802, '92101', '92101', '92124,92123,92119,92125,92126,92114,92121', 'turtle-agent ba00e7c dungeons/crescent_grove.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261023210000_world.sql")
+        self.assertIn("('crescent_grove', 802, '92101', '92101', '92124,92123,92119,92125,92126,92114,92121', 'turtle-agent 479dc0d dungeons/crescent_grove.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "crescent_grove"),
                          {0: ("grovetender_engryss", ""), 1: ("keeper_ranathos", ""), 2: ("high_priestess_a'lathea", ""),
                           3: ("fenektis_the_deceiver", ""), 4: ("master_raxxieth", "")})
         rows = [r for r in self.step_rows(text) if r["plan"] == "crescent_grove"]
-        self.assertEqual(len(rows), 561)
-        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(5)}, {0: 103, 1: 190, 2: 96, 3: 110, 4: 62})
+        self.assertEqual(len(rows), 559)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(5)}, {0: 103, 1: 190, 2: 94, 3: 110, 4: 62})
+        # The walk to pull group 49: three approach moves on the dry shore (the exporter would otherwise cut the hop through the
+        # lake), each hop of at most 50 yd (the cut threshold), then the pull row.
+        leg2 = leg_steps(rows, 2)
+        self.assertEqual([(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg2[73:77]],
+                         [("move", "-240", "-75", "275.39", "pull group 49 approach"),
+                          ("move", "-284", "-95", "273.79", "pull group 49 approach"),
+                          ("move", "-312", "-135", "280.11", "pull group 49 approach"),
+                          ("pull", "-335.39", "-176.91", "292.37", "pull group 49")])
+        hops = [leg2[72]] + leg2[73:77]
+        for a, b in zip(hops, hops[1:]):
+            self.assertLessEqual(math.dist([float(a["x"]), float(a["y"]), float(a["z"])],
+                                           [float(b["x"]), float(b["y"]), float(b["z"])]), 50.0, (a["seq"], b["seq"]))
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [59, 101, 53, 59, 27])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["92107", "92109", "92108", "92111", "92110"])
