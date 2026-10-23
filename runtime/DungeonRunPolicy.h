@@ -176,6 +176,11 @@ constexpr float kGoodPathMinYd = 10.0f;           // a partial path that ends th
                                                   // point) may only cross the island: from 1589.6 1046.9 the path to
                                                   // step 65 ended 3.05 yd away, on it. A good path is complete or ends farther.
 static_assert(kGoodPathMinYd > kIslandSizeYd + kArriveYd, "a path that only crosses the island is no good path");
+// A stalled walk whose lead bot's own move failed (StallFallback) sends `cmd move ... direct`
+// only within the direct step's own limits (RemoteCommander::kDirectMaxDistance and
+// kDirectMaxVertical; BotCommands.cpp static_asserts both).
+constexpr float kStallDirectMaxYd = 25.0f;
+constexpr float kStallDirectMaxVertical = 8.0f;
 constexpr float kEscapeMaxYd = 10.0f;             // the straight hop off it goes to the last good spot this close ...
 constexpr float kEscapeMaxVertical = 8.0f;        // ... and this far up or down (RemoteCommander::kDirectMaxVertical)
 constexpr std::uint32_t kIslandEscapes = 2;       // hops off one island, then pause
@@ -876,6 +881,11 @@ struct Run
     // a plain move was acked since the run started.
     bool movePathKnown = false;
     std::uint32_t movePathType = 0;
+    // A stalled walk whose lead bot's own move failed, out of combat (StallFallback):
+    // 0 not tried, 1 the `direct` move sent (or not possible), 2 a dry stand-in asked
+    // of the glue (stallStandInWanted, StallStandIn), 3 spent. A fresh walk clears it.
+    std::uint8_t stallFallback = 0;
+    bool stallStandInWanted = false;
     float walkBestYd = 0.0f;
     // An exact waypoint's tighten (ExactWalkTo): on once the walk to the point
     // ended (3 yd, or a stall within 6 yd); it brings the lead bot onto the
@@ -3723,6 +3733,70 @@ inline std::string StuckNote(const Run& r, const Facts& f)
                           : std::string("not failing")) + ")";
 }
 
+// Whether a stall's `direct` move fits the direct step's limits (kStallDirectMaxYd on the
+// ground, kStallDirectMaxVertical up or down); the server checks the rest (the floor
+// under the point, the lead bot's sight, every follower's way onto the line).
+inline bool StallDirectFits(const Facts& f, float x, float y, float z)
+{
+    float const ground = std::sqrt((f.leadX - x) * (f.leadX - x) + (f.leadY - y) * (f.leadY - y));
+    return ground <= kStallDirectMaxYd && std::fabs(z - f.leadZ) <= kStallDirectMaxVertical;
+}
+
+// Whether the stalled walk is the current plain move step's own walk, with no stand-in
+// on yet: the walk a stand-in (UseDetour) may replace. Not a walk back's, a pull's, an
+// approach hop's, a stand's or the guard's walk back.
+inline bool StallStandInFits(const Run& r, float x, float y, float z)
+{
+    const PlanStep* s = Current(r);
+    return s && s->kind == PlanStepKind::Move && !r.detour && !(r.walkBack && r.walkBackIdx < r.step) &&
+        s->x == x && s->y == y && s->z == z && !IsExactPoint(r.plan, r.step) &&
+        ExactLaunch(r.plan, r.step) == static_cast<std::size_t>(-1);
+}
+
+// Blackfathom Deeps 2026-10-22/23 (BFD-STUCK-POINTS-2026-10-23): the lead bot stood in
+// a deep pool, its own move FAILED every 2 s, and the walk re-sent the same `cmd move`
+// three times and paused; a resume sent it again. The refusal path's stand-in (UseDetour)
+// never ran, because a stall is no refusal. Now a walk stalled for kWalkRetryMs while the
+// lead bot's own move is failing (Facts::leadMoveFailed) and the party is out of combat
+// first tries what a player would do: the straight `cmd move ... direct` to the point,
+// when it fits the direct step's limits (StallDirectFits); after a further stall, on the
+// current move step's own walk, a stand-in on dry ground (the glue's NearestReachablePoint,
+// dry only; StallStandIn). Each at most once per walk; then the old retries and pause.
+// True: an order (or the glue's search) went out instead of the plain retry.
+inline bool StallFallback(Run& r, const Facts& f, float x, float y, float z, bool direct, std::string& order)
+{
+    if (direct || f.anyInCombat || r.stallFallback >= 3)
+        return false;
+    if (r.stallFallback == 0 && !f.leadMoveFailed)
+        return false;
+    std::string const why = "the lead bot's own move to " + Num(x) + " " + Num(y) + " " + Num(z) + " failed (" +
+        (f.leadMoveFailReason.empty() ? std::string("none") : f.leadMoveFailReason) + (f.leadInWater ? ", in water" : "") + ")";
+    if (r.stallFallback == 0)
+    {
+        r.stallFallback = 1;
+        if (StallDirectFits(f, x, y, z))
+        {
+            r.walkStillMs = 0;
+            order = MoveOrder(x, y, z, true);
+            r.note = why + ": the straight move (direct) instead";
+            return true;
+        }
+    }
+    if (r.stallFallback == 1)
+    {
+        r.stallFallback = 2;
+        if (StallStandInFits(r, x, y, z))
+        {
+            r.walkStillMs = 0;
+            r.stallStandInWanted = true;
+            r.note = why + ": looking for a stand-in on dry ground";
+            return true;
+        }
+    }
+    r.stallFallback = 3;
+    return false;
+}
+
 // Walks the party to a point. True once the lead bot is there; otherwise
 // `order` may hold the move to send. Pauses after kWalkTries moves without
 // progress. `plainWalk`: a Move step's walk or the guard's walk back to the stand
@@ -3754,6 +3828,8 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         r.walkTries = 1;
         r.walkStillMs = 0;
         r.walkBestYd = dist;
+        r.stallFallback = 0;
+        r.stallStandInWanted = false;
         order = MoveOrder(x, y, z, direct);
         return false;
     }
@@ -3782,6 +3858,8 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         return arrived(f.leadX, f.leadY, f.leadZ);
     if (r.walkStillMs >= kWalkRetryMs)
     {
+        if (StallFallback(r, f, x, y, z, direct, order))
+            return false;
         if (r.walkTries >= kWalkTries)
         {
             Pause(r, "the lead bot is stuck " + Num(dist) + " yd from " + Num(x) + " " + Num(y) + " " + Num(z) +
@@ -5961,6 +6039,45 @@ inline bool UseDetour(Run& r, float x, float y, float z)
     r.detourY = y;
     r.detourZ = z;
     EnterPhase(r, Phase::Begin);
+    return true;
+}
+
+// The glue's answer to a stall's stand-in search (StallFallback): found (dx dy dz), a
+// point on dry ground the lead bot has a navmesh path to, within MoveFallbackYd of the
+// step's point. The step walks there (UseDetour); otherwise the walk's retries and its
+// pause go on at the next tick. True: the stand-in is taken.
+inline bool StallStandIn(Run& r, bool found, float dx, float dy, float dz)
+{
+    r.stallStandInWanted = false;
+    const PlanStep* s = Current(r);
+    if (!s || r.state != State::Running)
+        return false;
+    std::string const point = Num(s->x) + " " + Num(s->y) + " " + Num(s->z);
+    if (found && UseDetour(r, dx, dy, dz))
+    {
+        r.note = "step " + std::to_string(r.step + 1) + ": the lead bot's own move to " + point +
+            " kept failing: walking to the stand-in on dry ground " + Num(dx) + " " + Num(dy) + " " + Num(dz) + ", " +
+            Num(ai::PlanDistance(dx, dy, dz, s->x, s->y, s->z)) + " yd from it, and going on from there";
+        return true;
+    }
+    r.stallFallback = 3;
+    r.walkStillMs = kWalkRetryMs;
+    r.note = "the lead bot's own move to " + point + " kept failing: no stand-in on dry ground within " +
+        std::to_string(static_cast<int>(MoveFallbackYd(*s))) + " yd of it";
+    return false;
+}
+
+// The stall's `direct` move (StallFallback) was refused (too-far naming a bot, no-los,
+// no floor under the point ...): no pause for it; the next tick goes on to the stand-in
+// or the walk's own retries. True: it was that order.
+inline bool StallDirectRefused(Run& r, const std::string& order, const std::string& answer)
+{
+    if (r.state != State::Running || r.phase != Phase::Walk || r.stallFallback != 1 ||
+        order != MoveOrder(r.walkX, r.walkY, r.walkZ, true))
+        return false;
+    r.walkStillMs = kWalkRetryMs;
+    r.note = "the straight move (direct) to " + Num(r.walkX) + " " + Num(r.walkY) + " " + Num(r.walkZ) +
+        " was refused (" + answer + "): going on without it";
     return true;
 }
 

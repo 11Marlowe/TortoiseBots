@@ -6119,6 +6119,10 @@ static void NoteRunMagma(Player* lead, float x, float y, float z, RunMagmaNote k
         lead->GetMapId(), lead->GetName());
 }
 
+static_assert(TortoiseBots::DungeonRun::kStallDirectMaxYd == RemoteCommander::kDirectMaxDistance &&
+    TortoiseBots::DungeonRun::kStallDirectMaxVertical == RemoteCommander::kDirectMaxVertical,
+    "a stalled walk's direct move keeps the direct step's limits");
+
 static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std::string const& args,
     std::string const& intent)
 {
@@ -9470,7 +9474,11 @@ bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& o
 // plain move, 15 for a direct step): the point itself on the ground first, then
 // rings of 3, 6, 10, 15, 20 and 25 yd around it, those within maxYd (12
 // directions, each put on the ground). Only run when a move was refused, never per tick.
-bool NearestReachablePoint(Player* lead, float x, float y, float z, float maxYd, float& ox, float& oy, float& oz)
+// dryOnly (a stalled walk's stand-in, DungeonRun::StallFallback): only a point with no
+// liquid at it, reached by a navmesh path (no swim line: the lead bot's own move had
+// failed in the water).
+bool NearestReachablePoint(Player* lead, float x, float y, float z, float maxYd, float& ox, float& oy, float& oz,
+    bool dryOnly = false)
 {
     Map* map = lead->GetMap();
     if (!map)
@@ -9480,9 +9488,13 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float maxYd,
         float const ground = map->GetHeight(px, py, pz + 5.0f);
         if (ground <= INVALID_HEIGHT || std::fabs(ground - pz) > 10.0f)
             return false;
+        if (dryOnly && map->GetTerrain()->getLiquidStatus(px, py, ground + 0.5f, MAP_ALL_LIQUIDS, nullptr) != LIQUID_MAP_NO_WATER)
+            return false;
         PathFinder path(lead);
         path.calculate(px, py, ground, false);
         uint32 const type = static_cast<uint32>(path.getPathType());
+        if (dryOnly && (type & (PATHFIND_UNDERWATER | PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT)))
+            return false;
         Vector3 const end = path.getActualEndPosition();
         // Near the point AND, when partial, leading on (r6-19z24: two ring points
         // whose partial paths ended on the lead bot's island were taken, and refused),
@@ -11701,6 +11713,17 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
     // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
     DropUnattackableCombat(lead, bots, slot.run.combatDrops);
+    // A stalled walk whose lead bot's own move failed asked for a stand-in on dry ground
+    // (DungeonRun::StallFallback): searched once, here, never per tick.
+    if (slot.run.stallStandInWanted)
+    {
+        float dx = 0.0f, dy = 0.0f, dz = 0.0f;
+        ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(slot.run);
+        bool const found = step && lead->IsAlive() && lead->IsInWorld() &&
+            NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::MoveFallbackYd(*step),
+                dx, dy, dz, true);
+        TortoiseBots::DungeonRun::StallStandIn(slot.run, found, dx, dy, dz);
+    }
     // While the party rests the lead bot holds where it stands
     // (DungeonRun::LeadStayDueWhileResting, RFC r3-19z20). Before the rest
     // order below, so its own drink or meal follows the stay's reset.
@@ -11744,7 +11767,10 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             return;
         if (accepted && captured.movePathRead)
             TortoiseBots::DungeonRun::NoteMovePathType(it->second.run, order, captured.movePathType);
-        if (!accepted)
+        // A stalled walk's `direct` move refused: the walk goes on without it (DungeonRun::StallDirectRefused).
+        bool const stallDirectRefused = !accepted &&
+            TortoiseBots::DungeonRun::StallDirectRefused(it->second.run, order, answer);
+        if (!accepted && !stallDirectRefused)
         {
             // A move point the navmesh cannot reach (the step's own move or its
             // detour's): DungeonRun::MoveRefusedUnreachable walks to the nearest
