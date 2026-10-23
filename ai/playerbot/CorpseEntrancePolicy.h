@@ -109,6 +109,23 @@ namespace ai
         return a.triggerId < b.triggerId;
     }
 
+    // A managed bot that releases INSIDE a dungeon never becomes a ghost
+    // outside: the core's RepopAtGraveyard revives it at once at a door
+    // destination (SM-REVIVE-PATH-2026-10-23; core hook GetBotRepopEntrance).
+    // The bot still stands on the dungeon map, so the doors it may take are
+    // the 300 s timeout's: external entrances on the map the instance is
+    // entered from (ghost_entrance_map), the destination nearest the corpse.
+    // entranceMap < 0 (unknown): no door, and the core keeps its own trigger.
+    inline CorpseEntranceRules RepopEntranceRules(std::uint32_t dungeonMap, std::int32_t entranceMap)
+    {
+        CorpseEntranceRules rules;
+        rules.destMap = dungeonMap;
+        rules.ghostMap = dungeonMap;
+        rules.entranceMap = entranceMap;
+        rules.timeout = true;
+        return rules;
+    }
+
     // The index of the eligible door to take, or -1 when there is none.
     inline int PickCorpseEntrance(std::vector<CorpseEntranceCandidate> const& candidates,
         float corpseX, float corpseY, float corpseZ, CorpseEntranceRules const& rules)

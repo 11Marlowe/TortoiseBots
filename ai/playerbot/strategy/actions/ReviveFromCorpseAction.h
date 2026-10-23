@@ -2,8 +2,15 @@
 #include "playerbot/PlayerbotAI.h"
 #include "MovementActions.h"
 
+struct AreaTriggerTeleport;
+
 namespace ai
 {
+    // The door a managed bot released inside a dungeon revives at, nearest its
+    // corpse (CorpseEntrancePolicy.h RepopEntranceRules). False: no answer.
+    bool PickRepopEntrance(Player* bot, uint32 dungeonMapId, float corpseX, float corpseY, float corpseZ,
+                           AreaTriggerTeleport const*& outAt);
+
 	class ReviveFromCorpseAction : public MovementAction
     {
 	public:

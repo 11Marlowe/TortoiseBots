@@ -80,25 +80,16 @@ static constexpr float kSpiritHealerStallProgressYd = 5.0f;
 // wings) is entered where the body lies, not by the door nearest the ghost.
 // Only external entrances count: a trigger on an open-world map that leads onto
 // another map (never an intra-instance teleport, never a door inside another
-// instance). The walk takes the doors on the ghost's own map; the 300 s
-// timeout (it teleports) those on the ghost's map or on the map the instance
-// is entered from (MapEntry::ghostEntranceMap). None: false, the caller keeps
-// its fallback.
-static bool FindInstanceEntranceTrigger(uint32 corpseMapId, uint32 botMapId, WorldPosition const& botPos,
-                                         WorldPosition const& corpsePos, bool timeout,
-                                         AreaTriggerEntry const*& outAtEntry, AreaTriggerTeleport const*& outAt)
+// instance). `rules` say which of those may be taken. None: false, the caller
+// keeps its fallback.
+static bool FindEntranceTriggerByRules(uint32 corpseMapId, WorldPosition const& botPos,
+                                        WorldPosition const& corpsePos, CorpseEntranceRules const& rules,
+                                        AreaTriggerEntry const*& outAtEntry, AreaTriggerTeleport const*& outAt)
 {
     outAtEntry = nullptr;
     outAt = nullptr;
     std::vector<CorpseEntranceCandidate> candidates;
     std::vector<std::pair<AreaTriggerEntry const*, AreaTriggerTeleport const*>> doors;
-
-    CorpseEntranceRules rules;
-    rules.destMap = corpseMapId;
-    rules.ghostMap = botMapId;
-    rules.timeout = timeout;
-    if (MapEntry const* corpseMap = sMapStorage.LookupEntry<MapEntry>(corpseMapId))
-        rules.entranceMap = corpseMap->ghostEntranceMap;
 
     for (uint32 i = 0; i < sAreaTriggerStore.GetNumRows(); ++i)
     {
@@ -114,7 +105,7 @@ static bool FindInstanceEntranceTrigger(uint32 corpseMapId, uint32 botMapId, Wor
             continue;
 
         MapEntry const* sourceMap = sMapStorage.LookupEntry<MapEntry>(atEntry->mapid);
-        bool const onGhostMap = atEntry->mapid == botMapId;
+        bool const onGhostMap = atEntry->mapid == rules.ghostMap;
         CorpseEntranceCandidate c;
         c.triggerId = i;
         c.sourceMap = atEntry->mapid;
@@ -132,6 +123,45 @@ static bool FindInstanceEntranceTrigger(uint32 corpseMapId, uint32 botMapId, Wor
         return false;
     outAtEntry = doors[static_cast<size_t>(pick)].first;
     outAt = doors[static_cast<size_t>(pick)].second;
+    return true;
+}
+
+// The corpse run: the walk takes the doors on the ghost's own map; the 300 s
+// timeout (it teleports) those on the ghost's map or on the map the instance
+// is entered from (MapEntry::ghostEntranceMap).
+static bool FindInstanceEntranceTrigger(uint32 corpseMapId, uint32 botMapId, WorldPosition const& botPos,
+                                         WorldPosition const& corpsePos, bool timeout,
+                                         AreaTriggerEntry const*& outAtEntry, AreaTriggerTeleport const*& outAt)
+{
+    CorpseEntranceRules rules;
+    rules.destMap = corpseMapId;
+    rules.ghostMap = botMapId;
+    rules.timeout = timeout;
+    if (MapEntry const* corpseMap = sMapStorage.LookupEntry<MapEntry>(corpseMapId))
+        rules.entranceMap = corpseMap->ghostEntranceMap;
+    return FindEntranceTriggerByRules(corpseMapId, botPos, corpsePos, rules, outAtEntry, outAt);
+}
+
+// The core's managed-bot repop hook (BotPlayerAdapter::GetBotRepopEntrance):
+// a bot released inside dungeon `dungeonMapId` revives at the door nearest
+// its corpse (RepopEntranceRules). False: no eligible door, the core keeps
+// GetMapEntranceTrigger.
+bool ai::PickRepopEntrance(Player* bot, uint32 dungeonMapId, float corpseX, float corpseY, float corpseZ,
+                           AreaTriggerTeleport const*& outAt)
+{
+    outAt = nullptr;
+    if (!bot)
+        return false;
+    MapEntry const* dungeonMap = sMapStorage.LookupEntry<MapEntry>(dungeonMapId);
+    if (!dungeonMap)
+        return false;
+    AreaTriggerEntry const* atEntry = nullptr;
+    WorldPosition const corpsePos(dungeonMapId, corpseX, corpseY, corpseZ);
+    if (!FindEntranceTriggerByRules(dungeonMapId, WorldPosition(bot), corpsePos,
+            RepopEntranceRules(dungeonMapId, dungeonMap->ghostEntranceMap), atEntry, outAt))
+        return false;
+    sLog.outBasic("[BOT REPOP] %s: released in map %u at %.1f %.1f %.1f, revives at entrance trigger %u",
+        bot->GetName(), dungeonMapId, corpseX, corpseY, corpseZ, atEntry->id);
     return true;
 }
 

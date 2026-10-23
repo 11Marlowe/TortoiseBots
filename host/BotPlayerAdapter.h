@@ -12,6 +12,10 @@ public:
     BotPlayerAdapter();
     bool IsManagedBot(Player* who) override;
     uint8 GetBotRoles(Player* who) override;
+    // SM-REVIVE-PATH-2026-10-23: the core's managed-bot repop in a dungeon
+    // asks for the door; the module answers the one nearest the corpse.
+    bool GetBotRepopEntrance(Player* bot, uint32 mapId, float x, float y, float z,
+        AreaTriggerTeleport const*& entrance) override;
     void OnLogin(Player* player) override;
     void OnMapChanged(Player* player) override;
     // Issue #1043: hands a bot's clearly misplaced pet to

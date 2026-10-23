@@ -242,6 +242,52 @@ static void TestMissingTriggers()
     CHECK(unknown.sourceInstanceable && !ai::IsExternalEntrance(unknown, 189));
 }
 
+// The core's managed-bot repop (SM-REVIVE-PATH-2026-10-23): a bot that releases
+// INSIDE the dungeon is revived at once at a door destination, still on the
+// dungeon map; RepopEntranceRules answer the core hook GetBotRepopEntrance.
+static std::vector<CorpseEntranceCandidate> FromInside(std::vector<CorpseEntranceCandidate> doors)
+{
+    for (CorpseEntranceCandidate& d : doors)
+        d.ghostSqYd = -1.0f; // the bot stands on the dungeon map, not on the doors' map
+    return doors;
+}
+
+static void TestRepopEntrance()
+{
+    using ai::RepopEntranceRules;
+    CorpseEntranceRules const sm = RepopEntranceRules(189, 0);
+    CHECK(sm.destMap == 189 && sm.ghostMap == 189 && sm.entranceMap == 0 && sm.timeout);
+    std::vector<CorpseEntranceCandidate> const scarlet = FromInside(ScarletDoors());
+    // r21-19z40e slot 7: Lucine died in the Library at 229.7 -327.2; the core
+    // picked 45 (the lowest id), the answer is the Library's 614.
+    CHECK(PickBothOrders(scarlet, 229.7f, -327.2f, 18.7f, sm) == 614);
+    CHECK(PickBothOrders(scarlet, 178.8f, -267.8f, 18.7f, sm) == 614);
+    CHECK(PickBothOrders(scarlet, 1730.0f, 1110.0f, 18.7f, sm) == 45);
+    CHECK(PickBothOrders(scarlet, 1640.0f, -250.0f, 18.7f, sm) == 612);
+    CHECK(PickBothOrders(scarlet, 880.0f, 1360.0f, 30.0f, sm) == 610);
+    // Uldaman: a back-half death revives at the back door 902, a front-half one at 286.
+    std::vector<CorpseEntranceCandidate> const uld = FromInside({
+        Door(286, -228.859f, 46.1018f, -46.0186f, 0.0f),
+        Door(902, -212.95f, 382.427f, -38.7486f, 0.0f),
+    });
+    CHECK(PickBothOrders(uld, -160.0f, 330.0f, -45.0f, RepopEntranceRules(70, 0)) == 902);
+    CHECK(PickBothOrders(uld, -180.0f, 90.0f, -50.0f, RepopEntranceRules(70, 0)) == 286);
+    // A single-door map (Ragefire Chasm 389, entered from Kalimdor): its one door, as before.
+    std::vector<CorpseEntranceCandidate> const rfc = FromInside({Door(2230, 0.797643f, -8.23429f, -15.5288f, 0.0f, 1)});
+    CHECK(PickBothOrders(rfc, -300.0f, 200.0f, -60.0f, RepopEntranceRules(389, 1)) == 2230);
+    // No eligible door: no answer, the core keeps GetMapEntranceTrigger.
+    CHECK(PickBothOrders(scarlet, 229.7f, -327.2f, 18.7f, RepopEntranceRules(189, -1)) == 0); // entrance map unknown
+    CHECK(PickBothOrders(scarlet, 229.7f, -327.2f, 18.7f, RepopEntranceRules(189, 1)) == 0);  // doors not on it
+    CHECK(PickCorpseEntrance({}, 229.7f, -327.2f, 18.7f, sm) == -1);
+    // A door inside another instance (Molten Core's 2886 in BRD) is never the answer.
+    std::vector<CorpseEntranceCandidate> const mc = FromInside({
+        Door(2886, 1091.89f, -466.985f, -105.084f, 0.0f, 230, true),
+        Door(3528, 1091.89f, -466.985f, -105.084f, 0.0f, 0, false),
+    });
+    CHECK(PickBothOrders(mc, 1080.0f, -470.0f, -100.0f, RepopEntranceRules(409, 0)) == 3528);
+    CHECK(PickBothOrders({mc[0]}, 1080.0f, -470.0f, -100.0f, RepopEntranceRules(409, 230)) == 0);
+}
+
 int main()
 {
     std::cout << "Starting TortoiseBots corpse entrance policy tests...\n";
@@ -253,6 +299,7 @@ int main()
     TestSingleDoorUnchanged();
     TestTies();
     TestMissingTriggers();
+    TestRepopEntrance();
     std::cout << "All corpse entrance policy tests passed.\n";
     return 0;
 }
