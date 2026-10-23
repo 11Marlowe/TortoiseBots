@@ -6652,6 +6652,10 @@ static bool CommanderSummon(ChatHandler* handler, CommanderOrder const& order, P
 // while no task exists.
 // ---------------------------------------------------------------------------
 
+// The gossip step of the bot's running or paused dungeon run (cmd gossip's gate,
+// BotMayGossipWith; defined beside RunningRunOf, outside this anonymous namespace).
+static GossipOrder::RunGossipStep RunGossipStepOfBot(Player* bot);
+
 namespace {
 
 struct CommanderTask
@@ -7564,10 +7568,18 @@ static_assert(GossipOrder::kIconVendor == GOSSIP_ICON_VENDOR && GossipOrder::kIc
     GossipOrder::kIconTrainer == GOSSIP_ICON_TRAINER && GossipOrder::kIconMoneyBag == GOSSIP_ICON_MONEY_BAG &&
     GossipOrder::kIconTabard == GOSSIP_ICON_TABARD, "GOSSIP_ICON_*");
 
+// The gate of both checks: the allowlist, or the NPC the current gossip step of the
+// bot's active run names (GossipOrder::MayTalkTo; SFK r27 was refused Deathstalker
+// Adamant, 3849, at its plan's own gossip step).
+static bool BotMayGossipWith(Player* bot, uint32 entry)
+{
+    return GossipOrder::MayTalkTo(sPlayerbotAIConfig.botGossipNpcs, RunGossipStepOfBot(bot), entry);
+}
+
 ActStart BeginGossipAct(CommanderTask& task, Player* bot, TaskTarget const& target)
 {
     Creature* npc = target.creature;
-    if (npc && !GossipOrder::IsAllowedNpc(sPlayerbotAIConfig.botGossipNpcs, npc->GetEntry()))
+    if (npc && !BotMayGossipWith(bot, npc->GetEntry()))
         return RefuseAct(task, ActStart::Failed, GossipOrder::kCodeNotAllowed,
             GossipOrder::NotAllowedText(sPlayerbotAIConfig.botGossipNpcs));
     if (!npc || !npc->IsAlive())
@@ -8485,7 +8497,7 @@ static bool CommanderOpen(ChatHandler* handler, CommanderOrder const& order, Pla
 static bool CommanderGossip(ChatHandler* handler, CommanderOrder const& order, Player* bot,
     GossipOrder::Request const& request, std::string const& intent)
 {
-    if (!GossipOrder::IsAllowedNpc(sPlayerbotAIConfig.botGossipNpcs, request.entry))
+    if (!BotMayGossipWith(bot, request.entry))
     {
         SendActionError(handler, intent, GossipOrder::kCodeNotAllowed,
             GossipOrder::NotAllowedText(sPlayerbotAIConfig.botGossipNpcs).c_str());
@@ -13250,6 +13262,13 @@ static TortoiseBots::DungeonRun::Run const* RunningRunOf(Player* bot, bool activ
 bool IsInRunningDungeonRun(Player* bot)
 {
     return RunningRunOf(bot) != nullptr;
+}
+
+// cmd gossip's run allowance (BotMayGossipWith): a running or paused run binds its
+// bots, and its current step, read from the loaded plan, names the NPC.
+static GossipOrder::RunGossipStep RunGossipStepOfBot(Player* bot)
+{
+    return TortoiseBots::DungeonRun::RunGossipStepOf(RunningRunOf(bot, true));
 }
 
 // SM-REVIVE-PATH-2026-10-23 fix 3: a dead hired bot of a bound party whose run is

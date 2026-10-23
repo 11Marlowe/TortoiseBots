@@ -54,6 +54,7 @@
 
 #include "../ai/playerbot/DungeonPlanPolicy.h"
 #include "../ai/playerbot/RangedApproachPolicy.h"
+#include "GossipOrderPolicy.h"
 #include "RemoteCommanderTasks.h"
 #include "RezHoldPolicy.h"
 
@@ -3019,6 +3020,26 @@ constexpr std::uint32_t kRunMaxMinutesDefault = 180; // the shipped template and
 inline bool HoldsItsDead(const Run& r)
 {
     return r.plan && r.state != State::Done;
+}
+
+// The gossip step a run-bound bot may talk at (GossipOrder::MayTalkTo): a running
+// or paused run (HoldsItsDead) binds its bots; its current step, read from the
+// loaded plan (no database read), names the NPC when it is a gossip step. Null
+// (the bot is in no such run), a done run, or a step that is not a gossip step
+// widens nothing.
+inline GossipOrder::RunGossipStep RunGossipStepOf(const Run* r)
+{
+    GossipOrder::RunGossipStep out;
+    if (!r || !HoldsItsDead(*r))
+        return out;
+    out.bound = true;
+    const PlanStep* s = Current(*r);
+    if (!s || s->kind != PlanStepKind::Gossip)
+        return out;
+    out.atGossip = true;
+    out.entry = s->entry;
+    out.alternatives = s->entries;
+    return out;
 }
 
 // maxMinutes 0 = no limit.
@@ -8339,7 +8360,8 @@ inline void RitualStep(Run& r, const Facts& f, const PlanStep& s, std::string& o
 // sight, a plain walk in sight), so the NPC is within the order's search range.
 // ACK ends the step; an ERR pauses with the module's own words (an NPC that
 // AiPlayerbot.BotGossipNpcs does not list is the order's `not-allowed`, which
-// names that key); no answer within the step's timeout pauses too. A step
+// names that key; since fix/plan-gossip-allow the NPC of this step was let
+// through for the run's bots, RunGossipStepOf); no answer within the step's timeout pauses too. A step
 // right before a hold counts as that event's start step (EventHoldAhead).
 inline void GossipStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& order)
 {

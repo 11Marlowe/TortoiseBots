@@ -84,7 +84,7 @@ Allowlist of creature entries the `.bot cmd gossip` order may talk to (issue #10
 <details>
 <summary>How it works in detail</summary>
 
-**Bot gossip allowlist (issue #1012):** comma-separated creature entries that `.bot cmd gossip` may talk to. A gossip option can do anything its script says (take money, give items, teleport), so list only NPCs whose scripts you have read. Empty: every gossip order is refused with `not-allowed` before anything is sent to the NPC. Audited: `7604` Sergeant Bly (starts his fight after the Zul'Farrak pyramid event) and `7607` Weegli Blastfuse (blows the End Door after it), so `7607,7604` opens both. See [`.bot cmd gossip`](../../play/commands/commander.md#bot-cmd-gossip).
+**Bot gossip allowlist (issue #1012):** comma-separated creature entries that `.bot cmd gossip` may talk to. A gossip option can do anything its script says (take money, give items, teleport), so list only NPCs whose scripts you have read. Empty: every gossip order is refused with `not-allowed` before anything is sent to the NPC, except a dungeon run's own gossip step: since fix/plan-gossip-allow a bot of a running or paused run was let talk to the NPC entry its run's current gossip step names (the step's entry and `entries`), read from the loaded plan, so a shipped plan did not need its NPC listed here (Shadowfang Keep r27 had stopped on Deathstalker Adamant, 3849). Audited: `7604` Sergeant Bly (starts his fight after the Zul'Farrak pyramid event) and `7607` Weegli Blastfuse (blows the End Door after it), so `7607,7604` opens both. See [`.bot cmd gossip`](../../play/commands/commander.md#bot-cmd-gossip).
 
 </details>
 

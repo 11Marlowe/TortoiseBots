@@ -518,6 +518,13 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 #   7604 Sergeant Bly (Zul'Farrak): after the pyramid event his one option starts
 #        his fight (he and his crew turn hostile and attack the bot that asked).
 # To allow both: AiPlayerbot.BotGossipNpcs = 7607,7604
+# Since fix/plan-gossip-allow (SFK r27 slot7 stopped at step 130/313 when its
+# plan's gossip step was refused Deathstalker Adamant, 3849), a dungeon run did
+# not need this list for its own gossip steps: a bot of a running or paused run
+# was let talk to the NPC entry the run's CURRENT gossip step names (the step's
+# entry and its `entries`), read from the loaded plan, and to no other. A manual
+# order outside a run, another NPC, or a run at any other step still needed the
+# entry listed here.
 #AiPlayerbot.BotGossipNpcs =
 
 # Bounded AH market population through the native bot/session auction path. Default off.

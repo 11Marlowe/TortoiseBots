@@ -233,6 +233,49 @@ static void TestAllowlist()
     CHECK(NotAllowedText(list).find("not in AiPlayerbot.BotGossipNpcs") != std::string::npos);
 }
 
+// A run-bound bot may talk to the NPC the current gossip step of its run names
+// (the step's entry and its alternatives), on top of the allowlist; nothing else
+// widens: the same NPC outside a run, another NPC during the run, or a run whose
+// current step is not that gossip step is refused as before.
+static void TestRunGossipStep()
+{
+    std::set<uint32_t> const none;
+    std::set<uint32_t> listed;
+    ParseNpcList("7607,7604", listed);
+
+    RunGossipStep step;
+    step.bound = true;
+    step.atGossip = true;
+    step.entry = 3849; // Deathstalker Adamant (Shadowfang Keep)
+    step.alternatives = { 3850 }; // Sorcerer Ashcrombe, the other faction's
+    CHECK(RunStepNamesNpc(step, 3849) && RunStepNamesNpc(step, 3850));
+    CHECK(MayTalkTo(none, step, 3849));
+    CHECK(MayTalkTo(none, step, 3850));
+    // Another NPC during the run: refused (the allowlist still decides it).
+    CHECK(!RunStepNamesNpc(step, 7607));
+    CHECK(!MayTalkTo(none, step, 7607));
+    CHECK(MayTalkTo(listed, step, 7607));
+    CHECK(!MayTalkTo(listed, step, 50000));
+    CHECK(!MayTalkTo(none, step, 0));
+    // Entry 0 is no NPC, even on a step whose entry is unset.
+    RunGossipStep unset = step;
+    unset.entry = 0;
+    unset.alternatives = { 0 };
+    CHECK(!RunStepNamesNpc(unset, 0) && !MayTalkTo(none, unset, 0));
+
+    // The same NPC outside a run: refused.
+    RunGossipStep outside = step;
+    outside.bound = false;
+    CHECK(!RunStepNamesNpc(outside, 3849) && !MayTalkTo(none, outside, 3849) && !MayTalkTo(none, outside, 3850));
+    CHECK(!MayTalkTo(none, RunGossipStep(), 3849));
+    // In the run, but its current step is not a gossip step: refused.
+    RunGossipStep elsewhere = step;
+    elsewhere.atGossip = false;
+    CHECK(!RunStepNamesNpc(elsewhere, 3849) && !MayTalkTo(none, elsewhere, 3849) && !MayTalkTo(none, elsewhere, 3850));
+    // Outside a run the allowlist alone decides, exactly as before.
+    CHECK(MayTalkTo(listed, outside, 7604) && !MayTalkTo(listed, outside, 3849));
+}
+
 // cmd gossip follows a walking NPC once its standing point moved a yard.
 static void TestFollow()
 {
@@ -247,6 +290,7 @@ int main()
 {
     TestParse();
     TestAllowlist();
+    TestRunGossipStep();
     TestFollow();
     TestOrderWiring();
     TestPlain();

@@ -4194,6 +4194,47 @@ static void TestGossipErrPauses()
     CHECK(r.orderSent);
 }
 
+// The NPC a run-bound bot may talk to beyond AiPlayerbot.BotGossipNpcs (RunGossipStepOf, the
+// glue's RunGossipStepOfBot): the entry (and alternatives) of the CURRENT gossip step of its
+// running or paused run, read from the loaded plan. SFK r27 slot7: Deathstalker Adamant (3849)
+// was refused not-allowed although the plan's own gossip step named him.
+static void TestRunGossipStepOfReadsTheCurrentStep()
+{
+    using TortoiseBots::GossipOrder::MayTalkTo;
+    std::set<std::uint32_t> const none;
+    DungeonPlan plan;
+    PlanStep adamant = GossipRow(10, 1, 3849);
+    adamant.entries = {3850};
+    plan.steps = {Step(PlanStepKind::Rest), adamant, Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    // Outside a run (no run): refused.
+    CHECK(!RunGossipStepOf(nullptr).bound && !MayTalkTo(none, RunGossipStepOf(nullptr), 3849));
+    // In the run, but at a step that is not the gossip: refused.
+    CHECK(r.step == 0 && RunGossipStepOf(&r).bound && !RunGossipStepOf(&r).atGossip);
+    CHECK(!MayTalkTo(none, RunGossipStepOf(&r), 3849));
+    // At the gossip step: its entry and its alternative, nothing else.
+    r.step = 1;
+    CHECK(MayTalkTo(none, RunGossipStepOf(&r), 3849) && MayTalkTo(none, RunGossipStepOf(&r), 3850));
+    CHECK(!MayTalkTo(none, RunGossipStepOf(&r), 7607));
+    // Paused at it (the owner's manual retry): still that step.
+    Pause(r, "test");
+    CHECK(r.state == State::Paused && MayTalkTo(none, RunGossipStepOf(&r), 3849));
+    // Past it: refused again.
+    r.state = State::Running;
+    r.step = 2;
+    CHECK(!MayTalkTo(none, RunGossipStepOf(&r), 3849) && !MayTalkTo(none, RunGossipStepOf(&r), 3850));
+    // A finished run binds nothing.
+    r.step = 1;
+    r.state = State::Done;
+    CHECK(!RunGossipStepOf(&r).bound && !MayTalkTo(none, RunGossipStepOf(&r), 3849));
+    // A run without a plan, or a step past the end: nothing.
+    Run empty;
+    CHECK(!MayTalkTo(none, RunGossipStepOf(&empty), 3849));
+    Run past = Start(&plan);
+    past.step = 9;
+    CHECK(!MayTalkTo(none, RunGossipStepOf(&past), 3849));
+}
+
 // The order's immediate ERR: an NPC that AiPlayerbot.BotGossipNpcs does not list pauses naming the key.
 static void TestGossipNotAllowedNamesTheConfigKey()
 {
@@ -16708,6 +16749,7 @@ static void TestResumeOfTheApproachPauseSearchesInPlaceThenDefers()
 
 int main()
 {
+    TestRunGossipStepOfReadsTheCurrentStep();
     TestPatrollerOutsideTheRadiusIsWaitedForThenPulled();
     TestPatrollerWaitIsBounded();
     TestPatrollerGiveUpIsRunWide();
