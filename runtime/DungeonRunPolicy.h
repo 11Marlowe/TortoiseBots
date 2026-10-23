@@ -428,6 +428,13 @@ struct UnitFact
     // Pull step and hop units, when Facts::pullStand is set: the lead bot sees
     // it now (Unit::IsWithinLOSInMap).
     bool losLead = false;
+    // The group can attack it: the same test `cmd attack` refuses invalid-target on ("The group cannot attack
+    // that target.": the judge bot's Unit::IsValidAttackTarget, which covers UNIT_FLAG_NON_ATTACKABLE, the not
+    // selectable flag and a friendly unit). Gnomeregan r21-19z40e step 180: the Alarm-a-bomb 2600 (7897) kept
+    // the party in combat, was refused three times, and the fight ran past the ceiling four times. A unit the
+    // group cannot attack is never pulled, picked up, engaged, focused or crowd-controlled by the run, and a
+    // fight with only such units left is no fight (UnattackableOnlyFight). Unread: true.
+    bool attackable = true;
 };
 
 // The mage's Polymorph (all ranks and forms): the aura the run waits for after
@@ -570,8 +577,13 @@ struct Facts
     // combat flag left standing after the last kill, or a non-attackable add.
     // The fight timer does not run on it (Uldaman run 4, archaedas wait_object).
     bool staleCombat = false;
+    // In a fight (anyInCombat): the living, not friendly units engaged with the party (on a bot's or pet's
+    // attacker set, or a bot's or pet's victim), each once, with entry, guid and UnitFact::attackable. Read
+    // (engagedRead) by the glue on every tick in combat; a policy test that does not set it keeps the old rules.
+    std::vector<UnitFact> engagedUnits;
+    bool engagedRead = false;
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
-    bool leadMoving = false;            // the lead bot is moving now (Unit::IsMoving): an exact point's proof waits
+    bool leadMoving = false;           // the lead bot is moving now (Unit::IsMoving): an exact point's proof waits
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
     // The group's raid icons now (Group::GetTargetIcon, star 0 ... skull 7):
     // a cc order only takes a mark that is free or one the run set itself.
@@ -1127,6 +1139,13 @@ struct Run
     // (CeilingFightOverWhilePaused). Any other pause, Resume and Skip clear it.
     bool ceilingPaused = false;
     std::uint32_t ceilingQuietMs = 0;
+    // The last tick's combat was with units the group cannot attack only (UnattackableOnlyFight): the note
+    // about it is made on the first tick of each such stretch.
+    bool unattackableFight = false;
+    // UnattackableGraceTick: the engaged units (guids, sorted) of the current only-unattackable stretch, and
+    // how long that same set has stood so without a break.
+    std::vector<std::uint64_t> unattackableSet;
+    std::uint32_t unattackableMs = 0;
     std::size_t ceilingResumedStep = static_cast<std::size_t>(-1); // the step that has used its one self-resume (ResetStep keeps it)
     std::uint32_t eventIdleMs = 0; // out of a fight with an awake event unit standing
     std::uint32_t eventUp = 0, eventDown = 0, eventTotal = 0; // the event's units now: awake, dead, all seen
@@ -3740,8 +3759,8 @@ inline bool ExactWalkTo(Run& r, const Facts& f, std::size_t idx, std::uint32_t d
     return false;
 }
 
-// The unit to pull now: hostile, not evading, not passed, not stealthed;
-// nearest to the lead bot. When `entry` is not 0 only that entry. Null for none.
+// The unit to pull now: hostile, attackable by the group (UnitFact::attackable), not evading, not passed, not
+// stealthed; nearest to the lead bot. When `entry` is not 0 only that entry. Null for none.
 // `hop`: a hop pick (Facts::hopUnits), which also leaves out Run::neverCame.
 inline const UnitFact* PickPull(const Run& r, const std::vector<UnitFact>& units, std::uint32_t entry,
     bool hop = false)
@@ -3749,7 +3768,8 @@ inline const UnitFact* PickPull(const Run& r, const std::vector<UnitFact>& units
     const UnitFact* best = nullptr;
     for (const UnitFact& u : units)
     {
-        if (!u.hostile || u.evading || u.stealthed || r.passed.count(u.guid) || r.unreachable.count(u.guid))
+        if (!u.hostile || !u.attackable || u.evading || u.stealthed || r.passed.count(u.guid) ||
+            r.unreachable.count(u.guid))
             continue;
         if (hop && r.neverCame.count(u.guid))
             continue;
@@ -3762,12 +3782,17 @@ inline const UnitFact* PickPull(const Run& r, const std::vector<UnitFact>& units
 }
 
 // Units the step still has to deal with: hostile, alive (the glue lists only
-// living ones), not passed. Evading ones count (they come back).
+// living ones), not passed. Evading ones count (they come back). On any step
+// but a boss step a unit the group cannot attack (UnitFact::attackable) does
+// not: it is never pulled, so the step would wait on it to its idle ceiling. A
+// boss step keeps waiting on its boss while it cannot be attacked yet.
 inline std::size_t OpenUnits(const Run& r, const std::vector<UnitFact>& units)
 {
+    const PlanStep* const s = Current(r);
+    bool const boss = s && s->kind == PlanStepKind::Boss;
     std::size_t n = 0;
     for (const UnitFact& u : units)
-        if (u.hostile && !r.passed.count(u.guid) && !r.unreachable.count(u.guid))
+        if (u.hostile && (u.attackable || boss) && !r.passed.count(u.guid) && !r.unreachable.count(u.guid))
             ++n;
     return n;
 }
@@ -3775,7 +3800,8 @@ inline std::size_t OpenUnits(const Run& r, const std::vector<UnitFact>& units)
 // Whether a unit may be pulled or crowd-controlled now (PickPull's rules).
 inline bool Pullable(const Run& r, const UnitFact& u)
 {
-    return u.hostile && !u.evading && !u.stealthed && !r.passed.count(u.guid) && !r.unreachable.count(u.guid);
+    return u.hostile && u.attackable && !u.evading && !u.stealthed && !r.passed.count(u.guid) &&
+        !r.unreachable.count(u.guid);
 }
 
 // The unit of `guid` among the step's units, null when it is gone (dead, or out of the read).
@@ -4211,7 +4237,7 @@ inline const UnitFact* PickKillFirst(const Run& r, const Facts& f)
     int bestRank = 0;
     for (const UnitFact& u : f.killFirst)
     {
-        if (!u.hostile || u.evading || u.stealthed || r.ccSent.count(u.guid))
+        if (!u.hostile || !u.attackable || u.evading || u.stealthed || r.ccSent.count(u.guid))
             continue;
         // Its focus was refused a moment ago (kFocusRefusedIgnoreMs).
         auto const refused = r.focusRefused.find(u.guid);
@@ -6914,7 +6940,7 @@ inline const UnitFact* GuardPick(const Facts& f, float holdRadius, const Run* ca
     const UnitFact* best = nullptr;
     for (const UnitFact& u : f.partyAttackers)
     {
-        if (!u.hostile || u.evading || u.polymorphed || !u.hitting || u.distLead > kGuardYd)
+        if (!u.hostile || !u.attackable || u.evading || u.polymorphed || !u.hitting || u.distLead > kGuardYd)
             continue;
         if (capped && GuardUnitCapped(*capped, u.guid))
             continue;
@@ -7001,7 +7027,7 @@ inline const UnitFact* HoldEngageTarget(const Run& r, const Facts& f)
         return nullptr;
     auto const awake = [](const UnitFact& u)
     {
-        return u.hostile && u.engaged && !u.evading && !u.polymorphed && u.distLead <= kGuardYd;
+        return u.hostile && u.attackable && u.engaged && !u.evading && !u.polymorphed && u.distLead <= kGuardYd;
     };
     bool holding = f.leadHit;
     for (const UnitFact& u : f.units)
@@ -7038,7 +7064,8 @@ inline const UnitFact* EngageTarget(const Run& r, const Facts& f)
     const UnitFact* best = nullptr;
     for (const UnitFact& u : f.partyAttackers)
     {
-        if (!u.victimHealer || !u.hostile || u.evading || u.polymorphed || !u.hitting || u.distLead > kGuardYd)
+        if (!u.victimHealer || !u.hostile || !u.attackable || u.evading || u.polymorphed || !u.hitting ||
+            u.distLead > kGuardYd)
             continue;
         if (GuardUnitCapped(r, u.guid))
             continue;
@@ -7047,8 +7074,8 @@ inline const UnitFact* EngageTarget(const Run& r, const Facts& f)
     }
     if (best)
         return best;
-    if (f.leadHasAttacker && f.leadAttacker.hostile && !f.leadAttacker.evading && !f.leadAttacker.polymorphed &&
-        !GuardUnitCapped(r, f.leadAttacker.guid))
+    if (f.leadHasAttacker && f.leadAttacker.hostile && f.leadAttacker.attackable && !f.leadAttacker.evading &&
+        !f.leadAttacker.polymorphed && !GuardUnitCapped(r, f.leadAttacker.guid))
         return &f.leadAttacker;
     return nullptr;
 }
@@ -7630,6 +7657,105 @@ inline void UpdateHold(Run& r, const Facts& f)
         }), r.hold.end());
 }
 
+// The party is in combat (Facts::anyInCombat) and every unit engaged with it is one the group cannot attack
+// (Facts::engagedUnits, UnitFact::attackable false). Gnomeregan r21-19z40e step 180: the Alarm-a-bomb 2600
+// (7897) kept the party in combat, every `attack` on it was refused invalid-target, and "a fight lasted more
+// than 180 s" paused the run four times on that step. Such a fight cannot be won, so it is no fight: Tick runs
+// the step on a view with the combat flags cleared (no fight timer, no ceiling, the step goes on), outside boss
+// steps and events (UnattackableFightLetGo), once the same units stood so for kUnattackableGraceMs. Only when the
+// units were read and at least one is engaged: nothing engaged at all is the stale flag's (Facts::staleCombat),
+// with its own grace and its ceiling.
+inline bool UnattackableOnlyFight(const Facts& f)
+{
+    if (!f.anyInCombat || !f.engagedRead || f.engagedUnits.empty())
+        return false;
+    for (const UnitFact& u : f.engagedUnits)
+        if (u.attackable)
+            return false;
+    return true;
+}
+
+// UnattackableOnlyFight on a step where it is let go: not a boss step and not inside a scripted event (a hold,
+// or the steps leading into one), where a boss or an event unit may stand unattackable for a while in its own
+// fight (a phase, a submerge) and the fight must keep its handling, its timer and its ceiling.
+inline bool UnattackableFightLetGo(const Run& r, const Facts& f)
+{
+    const PlanStep* const s = Current(r);
+    return s && s->kind != PlanStepKind::Boss && !InEvent(r) && UnattackableOnlyFight(f);
+}
+
+// One snapshot proves nothing: a live mob can be unattackable for a moment (a burrow, a phase, a scripted
+// transition, spawning in) and come back. The same engaged set (by guid) must stand unattackable-only on a step
+// that lets it go (UnattackableFightLetGo) for this long without a break before the fight counts as no fight.
+constexpr std::uint32_t kUnattackableGraceMs = 10000;
+
+// One tick of that grace (Codex adversarial review of b981daeb): any engaged unit attackable, a step that does
+// not let it go, or a changed set starts it over at once. True once the same set has stood kUnattackableGraceMs.
+inline bool UnattackableGraceTick(Run& r, const Facts& f, std::uint32_t dt)
+{
+    if (!UnattackableFightLetGo(r, f))
+    {
+        r.unattackableSet.clear();
+        r.unattackableMs = 0;
+        return false;
+    }
+    std::vector<std::uint64_t> set;
+    for (const UnitFact& u : f.engagedUnits)
+        set.push_back(u.guid);
+    std::sort(set.begin(), set.end());
+    if (set != r.unattackableSet)
+    {
+        r.unattackableSet = std::move(set);
+        r.unattackableMs = dt;
+    }
+    else
+        r.unattackableMs += dt;
+    return r.unattackableMs >= kUnattackableGraceMs;
+}
+
+// The party is in a fight the run counts as one: in combat, and not one the grace above has let go (it ticks
+// the grace). The glue's self-resume of a ceiling pause asks this (CeilingFightOverWhilePaused).
+inline bool FightOn(Run& r, const Facts& f, std::uint32_t dt)
+{
+    return f.anyInCombat && !UnattackableGraceTick(r, f, dt);
+}
+
+// A creature guid as the traces print it (0xF130001ED90075B6).
+inline std::string GuidHex(std::uint64_t guid)
+{
+    char buf[24];
+    std::snprintf(buf, sizeof buf, "0x%016llX", static_cast<unsigned long long>(guid));
+    return buf;
+}
+
+// How many engaged units a note names; the rest are counted.
+constexpr std::size_t kEngagedNoteMax = 6;
+
+// The units that keep the party in combat (Facts::engagedUnits), for a note: "entry 7897 (0xF130001ED90075B6)
+// cannot be attacked, entry 6206 (0x...) attackable". Read and none engaged: "nothing hostile engaged". Not
+// read: empty.
+inline std::string EngagedUnitsNote(const Facts& f)
+{
+    if (!f.engagedRead)
+        return std::string();
+    if (f.engagedUnits.empty())
+        return "nothing hostile engaged";
+    std::string note;
+    std::size_t n = 0;
+    for (const UnitFact& u : f.engagedUnits)
+    {
+        if (n == kEngagedNoteMax)
+        {
+            note += ", " + std::to_string(f.engagedUnits.size() - n) + " more";
+            break;
+        }
+        note += (n ? ", entry " : "entry ") + std::to_string(u.entry) + " (" + GuidHex(u.guid) + ") " +
+            (u.attackable ? "attackable" : "cannot be attacked");
+        ++n;
+    }
+    return note;
+}
+
 // The facts without the held bots: gathers, the gather and regroup ceilings
 // and their summons look at the bots walking back only. A held bot a direct
 // step summoned (Run::summonWait) is shown, so the summon's wait sees it
@@ -7653,8 +7779,22 @@ inline Facts HoldView(const Run& r, const Facts& f)
 
 inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines);
 
-inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, const RestLines& lines = RestLines())
+inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, const RestLines& lines = RestLines())
 {
+    // Combat with units the group cannot attack only is no fight (UnattackableOnlyFight) once the same units
+    // have stood so for the grace (UnattackableGraceTick): the step runs on a view with the combat flags cleared.
+    bool const unattackable = UnattackableGraceTick(r, in, dt);
+    Facts quiet;
+    if (unattackable)
+    {
+        quiet = in;
+        quiet.anyInCombat = false;
+        quiet.leadInCombat = false;
+        quiet.staleCombat = false;
+    }
+    const Facts& f = unattackable ? quiet : in;
+    bool const firstUnattackable = unattackable && !r.unattackableFight;
+    r.unattackableFight = unattackable;
     r.shotGateRan = false;
     SyncCcIcons(r, f);
     std::string order;
@@ -7672,6 +7812,9 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         order = TickBody(r, f, dt, lines);
     if (!r.shotGateRan)
         EndShotHold(r); // the pull stand's hold ends with any tick its gate did not run on
+    if (firstUnattackable && r.state == State::Running)
+        r.note += (r.note.empty() ? "" : "; ") + std::string("in combat with units the group cannot attack only (") +
+            EngagedUnitsNote(in) + "): not counted as a fight";
     return order;
 }
 
@@ -8094,7 +8237,10 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         }
         if (r.fightMs > cap && !staleGrace)
         {
-            Pause(r, "a fight lasted more than " + std::to_string(cap / 1000) + " s");
+            // The units that kept it going, so the pause shows at once what to look at.
+            std::string const kept = EngagedUnitsNote(f);
+            Pause(r, "a fight lasted more than " + std::to_string(cap / 1000) + " s" +
+                (kept.empty() ? std::string() : " (kept on by " + kept + ")"));
             r.ceilingPaused = true;
             r.ceilingQuietMs = 0;
             return order;

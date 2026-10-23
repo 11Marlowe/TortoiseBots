@@ -66,6 +66,7 @@ python3 -m unittest tools/test_wand_fallback_wiring.py
 python3 -m unittest tools/test_boss_tactics_sql.py
 python3 -m unittest tools/test_dungeon_plan_sql.py
 python3 -m unittest tools/test_run_leader_wiring.py
+python3 -m unittest tools/test_unattackable_fight_wiring.py
 python3 -m unittest tools/test_bot_guid_key_wiring.py
 python3 -m unittest tools/test_island_escape_wiring.py
 python3 -m unittest tools/test_lead_other_part_wiring.py
