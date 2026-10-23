@@ -227,7 +227,7 @@ bool ai::StayWalkDueNow(PlayerbotAI* ai, Player* bot, PositionEntry const& stayP
     float const dz = bot->GetPositionZ() - stayPosition.z;
     bool const moving = sServerFacade.isMoving(bot) || !bot->movespline->Finalized();
     return TortoiseBots::StayWalkDue(backoff, TortoiseBots::StayPointReached(dx, dy, dz, ai->GetRange("follow")),
-        TortoiseBots::StayPointDistance(dx, dy, dz), moving, bot->IsInCombat(), WorldTimer::getMSTime());
+        TortoiseBots::StayPointDistance(dx, dy, dz), moving, bot->IsInCombat(), bot->GetTransport() != nullptr, WorldTimer::getMSTime());
 }
 
 bool ReturnToStayPositionAction::isUseful()
@@ -247,7 +247,8 @@ bool ReturnToStayPositionAction::Execute(Event& event)
     TortoiseBots::StayWalkBackoff& backoff = AI_VALUE(LastMovement&, "last movement").stayWalk;
     TortoiseBots::StayWalkTrack(backoff, stayPosition.x, stayPosition.y, stayPosition.z, stayPosition.mapId);
     TortoiseBots::StayWalkDispatched(backoff, moved, TortoiseBots::StayPointDistance(bot->GetPositionX() - stayPosition.x,
-        bot->GetPositionY() - stayPosition.y, bot->GetPositionZ() - stayPosition.z), bot->IsInCombat(), WorldTimer::getMSTime());
+        bot->GetPositionY() - stayPosition.y, bot->GetPositionZ() - stayPosition.z), bot->IsInCombat(),
+        bot->GetTransport() != nullptr, WorldTimer::getMSTime());
     return moved;
 }
 

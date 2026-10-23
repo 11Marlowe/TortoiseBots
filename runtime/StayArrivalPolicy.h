@@ -43,10 +43,14 @@ inline bool StayPointReached(float dx, float dy, float dz, float range)
 // rests for kStayWalkBackoffFirstMs, each later rest twice as long up to
 // kStayWalkBackoffMaxMs; a failure right after a rest rests again.
 //
+// A bot on a transport (a boat, a zeppelin, an elevator) is not judged and does not walk:
+// its world position moves with the transport (round 3: a passenger accrued failures).
+//
 // A walk is judged by where it takes the bot, not by its dispatch (round 2 of the review:
 // MoveTo returns true for a path that makeShortCut emptied, a wait for a transport or a
 // one-point MovePoint that moves nothing). A dispatch starts an attempt; the attempt
-// fails when the bot stopped (not moving kStayAttemptGraceMs after the dispatch) or
+// fails when the bot stood still for kStayAttemptGraceMs on end (from the dispatch or the
+// last tick it was seen moving; round 3: a pause in a walk under way is not a stop) or
 // gained less than kStayAttemptStepYd in 3D for kStayAttemptStallMs while short of the
 // point, and succeeds when the bot reached the point or came kStayAttemptGainYd nearer
 // than at the dispatch. A refused dispatch fails at once. Failures in combat do not
@@ -73,6 +77,8 @@ struct StayWalkBackoff
     float attemptStartYd = 0.0f;     // 3D distance to the point at the dispatch
     float attemptBestYd = 0.0f;      // nearest since the last kStayAttemptStepYd of progress
     std::uint32_t attemptProgressMs = 0;
+    bool stoppedSeen = false;        // the bot stands still since stoppedSinceMs (no move seen since)
+    std::uint32_t stoppedSinceMs = 0;
 };
 
 // The stay point of the counts: a different point starts them over.
@@ -120,8 +126,11 @@ inline void StayWalkFailed(StayWalkBackoff& b, bool inCombat, std::uint32_t nowM
 // The walk's dispatch (ReturnToStayPositionAction::Execute): a refused one failed; an
 // accepted one starts an attempt unless one is under way (the action re-sends the walk
 // every tick it runs).
-inline void StayWalkDispatched(StayWalkBackoff& b, bool moved, float distYd, bool inCombat, std::uint32_t nowMs)
+inline void StayWalkDispatched(StayWalkBackoff& b, bool moved, float distYd, bool inCombat, bool onTransport,
+    std::uint32_t nowMs)
 {
+    if (onTransport)
+        return;
     if (!moved)
     {
         StayWalkFailed(b, inCombat, nowMs);
@@ -134,6 +143,8 @@ inline void StayWalkDispatched(StayWalkBackoff& b, bool moved, float distYd, boo
     b.attemptStartYd = distYd;
     b.attemptBestYd = distYd;
     b.attemptProgressMs = nowMs;
+    b.stoppedSeen = true; // until the bot is seen moving, the stop runs from the dispatch
+    b.stoppedSinceMs = nowMs;
 }
 
 // The walk rests now. Wraps like the core's getMSTimeDiff.
@@ -146,8 +157,14 @@ inline bool StayWalkBackingOff(StayWalkBackoff const& b, std::uint32_t nowMs)
 // attempt under way, then answers whether the bot is short of the point and the walk
 // does not rest. reached / distYd: StayPointReached / StayPointDistance to the point;
 // moving: the bot has a move under way.
-inline bool StayWalkDue(StayWalkBackoff& b, bool reached, float distYd, bool moving, bool inCombat, std::uint32_t nowMs)
+inline bool StayWalkDue(StayWalkBackoff& b, bool reached, float distYd, bool moving, bool inCombat, bool onTransport,
+    std::uint32_t nowMs)
 {
+    if (onTransport)
+    {
+        b.attemptOn = false; // nothing judged, nothing counted
+        return false;
+    }
     if (reached)
     {
         StayWalkSucceeded(b);
@@ -164,7 +181,14 @@ inline bool StayWalkDue(StayWalkBackoff& b, bool reached, float distYd, bool mov
                 b.attemptBestYd = distYd;
                 b.attemptProgressMs = nowMs;
             }
-            bool const stopped = !moving && static_cast<std::uint32_t>(nowMs - b.attemptStartMs) >= kStayAttemptGraceMs;
+            if (moving)
+                b.stoppedSeen = false;
+            else if (!b.stoppedSeen)
+            {
+                b.stoppedSeen = true;
+                b.stoppedSinceMs = nowMs;
+            }
+            bool const stopped = b.stoppedSeen && static_cast<std::uint32_t>(nowMs - b.stoppedSinceMs) >= kStayAttemptGraceMs;
             bool const stalled = static_cast<std::uint32_t>(nowMs - b.attemptProgressMs) >= kStayAttemptStallMs;
             if (stopped || stalled)
                 StayWalkFailed(b, inCombat, nowMs);

@@ -52,7 +52,7 @@ class StayArrivalWiringTest(unittest.TestCase):
             self.assertIn(f"float const d{axis.lower()} = bot->GetPosition{axis}() - stayPosition.{axis.lower()};", fn)
         self.assertIn("bool const moving = sServerFacade.isMoving(bot) || !bot->movespline->Finalized();", fn)
         self.assertIn('return TortoiseBots::StayWalkDue(backoff, TortoiseBots::StayPointReached(dx, dy, dz, ai->GetRange("follow")),\n'
-                      "        TortoiseBots::StayPointDistance(dx, dy, dz), moving, bot->IsInCombat(), WorldTimer::getMSTime());", fn)
+                      "        TortoiseBots::StayPointDistance(dx, dy, dz), moving, bot->IsInCombat(), bot->GetTransport() != nullptr, WorldTimer::getMSTime());", fn)
 
     def test_stay_walk_is_useful_by_the_shared_question(self):
         cls = body(POSITION_H, "class ReturnToStayPositionAction : public MoveToPositionAction", "\n    };\n")
@@ -70,7 +70,8 @@ class StayArrivalWiringTest(unittest.TestCase):
         self.assertIn("bool const moved = MoveToPositionAction::Execute(event);", fn)
         self.assertIn("TortoiseBots::StayWalkTrack(backoff, stayPosition.x, stayPosition.y, stayPosition.z, stayPosition.mapId);", fn)
         self.assertIn("TortoiseBots::StayWalkDispatched(backoff, moved, TortoiseBots::StayPointDistance(bot->GetPositionX() - stayPosition.x,\n"
-                      "        bot->GetPositionY() - stayPosition.y, bot->GetPositionZ() - stayPosition.z), bot->IsInCombat(), WorldTimer::getMSTime());", fn)
+                      "        bot->GetPositionY() - stayPosition.y, bot->GetPositionZ() - stayPosition.z), bot->IsInCombat(),\n"
+                      "        bot->GetTransport() != nullptr, WorldTimer::getMSTime());", fn)
         self.assertLess(fn.index("MoveToPositionAction::Execute(event)"), fn.index("StayWalkDispatched("))
         self.assertIn("return moved;", fn)
         self.assertNotIn("StayWalkSucceeded", fn)  # a dispatch is not a success
