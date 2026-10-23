@@ -654,19 +654,6 @@ std::string MovementAction::GetFailNote()
         bot->HasMovementFlag(MOVEFLAG_SWIMMING), lastMove.movePathType);
 }
 
-namespace
-{
-    // ResolveMovePath's NOPATH fallback: a lone entry-less portal point on the
-    // destination, no route behind it (TravelIsNoRouteFallbackPoint, as the dispatch reads it).
-    bool IsNoRouteFallbackPath(TravelPath& path)
-    {
-        if (path.empty())
-            return false;
-        const PathNodePoint& front = path.GetPath().front();
-        return TravelIsNoRouteFallbackPoint(path.GetPath().size(), (int)front.type, front.entry);
-    }
-}
-
 std::atomic<uint32_t> MovementAction::routeReuseCount{ 0 };
 std::atomic<uint32_t> MovementAction::routeRebuildCount{ 0 };
 
@@ -675,19 +662,8 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
     float totalDistance = startPosition.distance(endPosition);
     float maxDistChange = totalDistance * 0.1f;
 
-    // The no-route fallback point (below) left by a failed short move is not a
-    // route: kept, it ended on the destination itself, so every later call reused
-    // it (and the comparison after the rebuild preferred it to any real path), and
-    // the move failed again without asking the pathfinder (Blackfathom Deeps
-    // 2026-10-23: 172 failures in a row from one pool). A short move asks again;
-    // a long one keeps reusing it (TravelRouteCachePolicy.h bounds those rebuilds).
-    bool const shortMove = startPosition.GetMapId() == endPosition.GetMapId() &&
-        totalDistance <= sPlayerbotAIConfig.sightDistance;
-    bool const lastIsFallback = IsNoRouteFallbackPath(lastMove.lastPath);
-
     // Last long path still leads to roughly the same destination.
-    if (!lastMove.lastPath.empty() && !(shortMove && lastIsFallback) &&
-        lastMove.lastPath.GetBack().distance(endPosition) < maxDistChange)
+    if (!lastMove.lastPath.empty() && lastMove.lastPath.GetBack().distance(endPosition) < maxDistChange)
     {
         routeReuseCount.fetch_add(1, std::memory_order_relaxed);
         return lastMove.lastPath;
@@ -741,9 +717,7 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
     // A route-cache hit returned above, so reaching this line means the route was planned.
     routeRebuildCount.fetch_add(1, std::memory_order_relaxed);
 
-    // Never swaps a planned route for the no-route fallback point (see above).
-    if (!lastMove.lastPath.empty() && !lastIsFallback && !outMovePath.empty() &&
-        lastMove.lastPath.GetBack().distance(endPosition) <= outMovePath.GetBack().distance(endPosition))
+    if (!lastMove.lastPath.empty() && !outMovePath.empty() && lastMove.lastPath.GetBack().distance(endPosition) <= outMovePath.GetBack().distance(endPosition))
         outMovePath = lastMove.lastPath;
 
     if (useNodeRoute && !outMovePath.empty())

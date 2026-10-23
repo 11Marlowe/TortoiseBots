@@ -13,9 +13,7 @@ glue:
 - SwimPathFits samples every leg in water or ocean only (no magma, no slime),
   asks the line of sight with dynamic objects, and refuses a bot on a
   transport or on another map;
-- the policy's bits are static_asserted against the core's;
-- ResolveMovePath no longer reuses the no-route fallback point of a failed
-  short move, nor swaps a planned route for it.
+- the policy's bits are static_asserted against the core's.
 """
 import pathlib
 import re
@@ -71,15 +69,6 @@ class SwimPathWiringTest(unittest.TestCase):
         # getPathStepFrom was the bot's route filter; the module's own move code
         # must not grow a second equality filter on the route.
         self.assertNotRegex(MOVES, r"getPathType\(\)\s*==\s*PATHFIND_NORMAL\s*\)\s*\n\s*return")
-
-    def test_resolve_does_not_reuse_the_fallback_point(self):
-        fn = body(MOVES, "TravelPath MovementAction::ResolveMovePath(", "\n}\n")
-        self.assertIn("bool const lastIsFallback = IsNoRouteFallbackPath(lastMove.lastPath);", fn)
-        self.assertIn("if (!lastMove.lastPath.empty() && !(shortMove && lastIsFallback) &&", fn)
-        self.assertIn("if (!lastMove.lastPath.empty() && !lastIsFallback && !outMovePath.empty() &&", fn)
-        self.assertIn("totalDistance <= sPlayerbotAIConfig.sightDistance", fn)
-        helper = body(MOVES, "bool IsNoRouteFallbackPath(TravelPath& path)", "\n    }\n")
-        self.assertIn("TravelIsNoRouteFallbackPoint(path.GetPath().size(), (int)front.type, front.entry)", helper)
 
 
 if __name__ == "__main__":
