@@ -780,7 +780,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         # Opus review: the stand-in's path from the lead bot is capped (DetourPointReachable's pathYd).
         self.assertIn("DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground), path.Length()))",
                       body(COMMANDS, "bool NearestReachablePoint(", "\n}\n"))
-        self.assertIn("pathYd <= kDetourMaxPathYd &&", body(policy, "inline bool DetourPointReachable(", "\n}\n"))
+        self.assertIn("pathYd <= pointFromLeadYd + kDetourMaxPathYd &&", body(policy, "inline bool DetourPointReachable(", "\n}\n"))
         # Every rewind of the step forgets the step's refusals.
         for fn in ("inline void EventFailed(", "inline bool RearmEventOnWipe("):
             self.assertIn("ForgetMoveRefusals(r);", body(policy, fn, "\n}\n"))

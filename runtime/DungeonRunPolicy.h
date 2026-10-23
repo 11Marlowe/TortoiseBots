@@ -106,7 +106,7 @@ constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point m
 constexpr float kMoveFallbackYd = 25.0f;          // ... a plain move's point, this far (r22-19z40 Razorfen Kraul step 85)
 constexpr std::size_t kUnreachableSkipsInARow = 3; // moves skipped for want of a path in a row, then pause
 constexpr float kDetourCloseMaxDz = 4.0f;         // a stand-in within kArriveYd of the point: at most this far above or below it
-constexpr float kDetourMaxPathYd = 40.0f;         // ... and the lead bot's navmesh path to it at most this long
+constexpr float kDetourMaxPathYd = 40.0f;         // ... and the lead bot's navmesh path to it at most this much longer than the straight line
 constexpr float kDetourEndYd = 5.0f;              // ... whose navmesh path ends this close to it (DetourPointReachable)
 constexpr float kGatherYd = 20.0f;                // every living bot this close to the lead before a pull
 constexpr float kHopPullYd = 15.0f;               // units this close to the next hop are pulled first
@@ -2740,13 +2740,14 @@ inline bool RingSpotLeadsOn(bool pathNoPath, bool pathIncomplete, float endFromS
 // 10 yd ring point 136 298.7 lay 1.3 yd from the tank on its own rubble island,
 // its path complete, and the step counted as 'arrived' 10.3 yd from the plan's
 // point without a yard walked).
-// Nor one whose path from the lead bot is longer than kDetourMaxPathYd (pathYd;
+// Nor one whose path from the lead bot (pathYd) is more than kDetourMaxPathYd
+// longer than its straight distance from it (a move goes out up to 60 yd off;
 // the r22-19z40 review: a 25 yd ring point could mean a long walk round, through
 // packs not cleared yet; r22's own walk around went back 60 yd before its refusal).
 inline bool DetourPointReachable(bool pathNoPath, bool pathIncomplete, float endFromPointYd, float endFromLeadYd,
     float pointFromLeadYd, float pathYd = 0.0f)
 {
-    return pointFromLeadYd > kArriveYd && endFromPointYd <= kDetourEndYd && pathYd <= kDetourMaxPathYd &&
+    return pointFromLeadYd > kArriveYd && endFromPointYd <= kDetourEndYd && pathYd <= pointFromLeadYd + kDetourMaxPathYd &&
         RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd);
 }
 

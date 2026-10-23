@@ -8932,9 +8932,14 @@ static void TestR22RewindForgetsMoveRefusals()
 // Opus review of 44f083c8 (4): a stand-in whose navmesh path from the lead bot is longer than 40 yd is not taken.
 static void TestR22StandInPathIsCapped()
 {
-    CHECK(DetourPointReachable(false, false, 0.0f, 20.0f, 20.0f, kDetourMaxPathYd));
-    CHECK(!DetourPointReachable(false, false, 0.0f, 20.0f, 20.0f, kDetourMaxPathYd + 0.1f));
+    CHECK(DetourPointReachable(false, false, 0.0f, 20.0f, 20.0f, 20.0f + kDetourMaxPathYd));
+    CHECK(!DetourPointReachable(false, false, 0.0f, 20.0f, 20.0f, 20.0f + kDetourMaxPathYd + 0.1f));
     CHECK(!DetourPointReachable(false, false, 0.0f, 20.0f, 20.0f, 120.0f)); // r22: the walk round the west hall
+    // The cap is on the extra way, not the whole path: a move goes out with the lead bot up to 60 yd off.
+    // The lead bot 50 yd from the stand-in: a 75 yd path is accepted, a 95 yd one is not.
+    CHECK(DetourPointReachable(false, false, 0.0f, 50.0f, 50.0f, 75.0f));
+    CHECK(DetourPointReachable(false, false, 0.0f, 50.0f, 50.0f, 50.0f + kDetourMaxPathYd));
+    CHECK(!DetourPointReachable(false, false, 0.0f, 50.0f, 50.0f, 95.0f));
 }
 
 // Lead decision: three plain moves skipped in a row (no step done in between) pause the run, naming them and
