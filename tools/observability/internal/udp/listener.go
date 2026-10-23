@@ -28,6 +28,7 @@ type Listener struct {
 	metricsReg *metrics.Registry
 	zoneProj   *zoneproject.Engine
 	hub        Hub
+	forwards   []*forwardTarget
 	stopChan   chan struct{}
 }
 
@@ -72,6 +73,7 @@ func (l *Listener) Stop() {
 	if l.conn != nil {
 		_ = l.conn.Close()
 	}
+	l.closeForwards()
 }
 
 func (l *Listener) readLoop() {
@@ -84,7 +86,7 @@ func (l *Listener) readLoop() {
 		default:
 		}
 
-		n, _, err := l.conn.ReadFrom(buf)
+		n, src, err := l.conn.ReadFromUDP(buf)
 		if err != nil {
 			select {
 			case <-l.stopChan:
@@ -97,6 +99,13 @@ func (l *Listener) readLoop() {
 		}
 
 		if n > 0 {
+			// A datagram from one of our own forward sockets went round a loop:
+			// drop it before it is forwarded or processed a second time.
+			if l.isOwnForward(src) {
+				continue
+			}
+			// Forward first: the copy goes out whatever the parse makes of it.
+			l.forwardDatagram(buf[:n])
 			l.processPacket(buf[:n])
 		}
 	}
