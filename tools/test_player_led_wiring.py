@@ -111,7 +111,7 @@ class PlayerLedOrderWiringTest(unittest.TestCase):
 class PlayerLedGlueWiringTest(unittest.TestCase):
     def test_tick_picks_before_the_facts(self):
         tick = strip_comments(body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)\n{", "\n}\n"))
-        pick = tick.index("TortoiseBots::PlayerLed::Pick(slot.run, slot.playerLed, anchor, ReadPlayerLedEngaged(commander, bots));")
+        pick = tick.index("TortoiseBots::PlayerLed::Pick(slot.run, slot.playerLed, anchor, ReadPlayerLedEngaged(commander, bots), pathOk);")
         self.assertLess(pick, tick.index("ReadRunFacts(slot, lead, bots, facts);"))
         self.assertIn("slot.playerLed.pullYd = sPlayerbotAIConfig.dungeonRunPlayerLedPullYd;", tick)
         self.assertIn("anchor = ReadPlayerLedAnchor(commander, bots, slot.run.plan->map, slot.playerLed);", tick)
@@ -163,6 +163,31 @@ class PlayerLedGlueWiringTest(unittest.TestCase):
         run = strip_comments(body(COMMANDS, "static bool HandleDungeonRun(", "\n}\n"))
         self.assertIn("slot.playerLed.on && slot.playerLed.picked == TortoiseBots::PlayerLed::kNone", run)
         self.assertIn("TortoiseBots::PlayerLed::SkipNearest(slot.run, slot.playerLed, here)", run)
+
+
+class PlayerLedAwayAndPathWiringTest(unittest.TestCase):
+    def test_away_key(self):
+        keys = body(CONFIG, "void PlayerbotAIConfig::LoadDungeonRunKeys()", "\n}\n")
+        self.assertIn('config.GetIntDefault("AiPlayerbot.DungeonRunPlayerLedAwayMinutes", 10)', keys)
+        self.assertIn("AiPlayerbot.DungeonRunPlayerLedAwayMinutes = 10", TEMPLATE)
+        tick = strip_comments(body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)\n{", "\n}\n"))
+        self.assertIn("slot.playerLed.awayMinutes = sPlayerbotAIConfig.dungeonRunPlayerLedAwayMinutes;", tick)
+
+    def test_path_check_is_the_tanks_navmesh_path(self):
+        tick = strip_comments(body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)\n{", "\n}\n"))
+        check = tick[tick.index("TortoiseBots::PlayerLed::PathCheck const pathOk"):tick.index("TortoiseBots::PlayerLed::Pick(")]
+        self.assertIn("PathFinder path(lead);", check)
+        self.assertIn("TortoiseBots::PlayerLed::StepSpot(run, step, x, y, z);", check)
+        self.assertIn("TortoiseBots::PlayerLed::PathShortEnough(noPath, path.Length(), DistanceTo(lead, x, y, z))", check)
+        self.assertIn("(type & PATHFIND_NOPATH)", check)
+        self.assertIn("ReadPlayerLedEngaged(commander, bots), pathOk);", tick)
+
+    def test_hold_and_follow_orders_reach_the_party_only(self):
+        # The S5 hold is `cmd stay` (every bot: the stay chat shortcut) and `cmd follow` (FormUpOnLead, which a
+        # player-led binding turns into FormUpOnPlayer): bots only, never the player.
+        order = strip_comments(body(COMMANDS, "static bool CommanderStayFollowRest(", "\n}\n"))
+        self.assertIn("succeeded = FormUpOnLead(order.commander, order.lead, order.bots, false);", order)
+        self.assertIn("for (Player* bot : order.bots)", order)
 
 
 if __name__ == "__main__":

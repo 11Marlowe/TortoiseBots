@@ -12433,9 +12433,28 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     if (slot.playerLed.on)
     {
         slot.playerLed.pullYd = sPlayerbotAIConfig.dungeonRunPlayerLedPullYd;
+        slot.playerLed.awayMinutes = sPlayerbotAIConfig.dungeonRunPlayerLedAwayMinutes;
         anchor = ReadPlayerLedAnchor(commander, bots, slot.run.plan->map, slot.playerLed);
         anchor.team = lead->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde;
-        TortoiseBots::PlayerLed::Pick(slot.run, slot.playerLed, anchor, ReadPlayerLedEngaged(commander, bots));
+        // The pick's path check (PlayerLed::PathShortEnough): the tank's navmesh path to the candidate step's spot,
+        // asked for at most PlayerLed::kPathChecksPerTick candidates a tick, never for one turned down lately.
+        TortoiseBots::DungeonRun::Run const& run = slot.run;
+        TortoiseBots::PlayerLed::PathCheck const pathOk = [lead, &run](std::size_t step)
+        {
+            if (!lead->IsAlive() || !lead->IsInWorld())
+                return true;
+            float x = 0.0f, y = 0.0f, z = 0.0f;
+            TortoiseBots::PlayerLed::StepSpot(run, step, x, y, z);
+            PathFinder path(lead);
+            path.calculate(x, y, z, false);
+            uint32 const type = static_cast<uint32>(path.getPathType());
+            // No path, or one that stops more than 5 yd short of the spot (a spot off the mesh by a little is fine).
+            Vector3 const end = path.getActualEndPosition();
+            bool const noPath = (type & PATHFIND_NOPATH) ||
+                ((type & PATHFIND_INCOMPLETE) && ai::PlanDistance(end.x, end.y, end.z, x, y, z) > 5.0f);
+            return TortoiseBots::PlayerLed::PathShortEnough(noPath, path.Length(), DistanceTo(lead, x, y, z));
+        };
+        TortoiseBots::PlayerLed::Pick(slot.run, slot.playerLed, anchor, ReadPlayerLedEngaged(commander, bots), pathOk);
     }
     RetireLostCarrier(slot, lead, bots);
     TortoiseBots::DungeonRun::Facts facts;

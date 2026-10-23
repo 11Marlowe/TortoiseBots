@@ -26,6 +26,7 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.DungeonRunLootFfa`](#aiplayerbotdungeonrunlootffa) | `0` | A run leader loot step whose item is another member's under the group loot rules sets free-for-all for the carrier's loot, then puts the method back. |
 | [`AiPlayerbot.DungeonRunMaxMinutes`](#aiplayerbotdungeonrunmaxminutes) | `180` | Time limit of a run leader run (`0` = none). |
 | [`AiPlayerbot.DungeonRunPlayerLed`](#aiplayerbotdungeonrunplayerled) | `0` | Lets a player who leads his own party start a player-led run (`.bot run start ... player`): he walks, the run leader pulls the packs near him. |
+| [`AiPlayerbot.DungeonRunPlayerLedAwayMinutes`](#aiplayerbotdungeonrunplayerledawayminutes) | `10` | How long the leading player of a player-led run may be out of the plan's dungeon before the run stops. |
 | [`AiPlayerbot.DungeonRunPlayerLedPullYd`](#aiplayerbotdungeonrunplayerledpullyd) | `40` | How close the leading player stands to a plan pack or boss for the player-led run to pull it. |
 | [`AiPlayerbot.DungeonRunPullStand`](#aiplayerbotdungeonrunpullstand) | `0` | For a tank that pulls with a ranged weapon, the run leader orders `pullback` only when it can shoot from where it stands, else it walks the party to a firing stand first. |
 | [`AiPlayerbot.DungeonRunRezHold`](#aiplayerbotdungeonrunrezhold) | `0` | The run leader's regroup waits for a living resurrector to raise the fallen (and for its mana) before it revives the party at the spirit healer. |
@@ -142,6 +143,17 @@ Lets a player who leads his own party of bots start a player-led run of a dungeo
 <summary>How it works in detail</summary>
 
 **Player-led runs:** `.bot run start [plan] player [tank <Bot>]` from a player who leads a party (not a raid) whose every bot is his to control; up to three other real players may be in it. The start makes its own binding: the player stays the party's leader and the bots keep following him, the named tank bot (else the first tank-role bot) is the run's lead bot and puller. Needs `AiPlayerbot.DungeonSelfClear = 1` and `AiPlayerbot.RemoteCommander = 1` too. Plain `.bot run start` stays bot-led. See [Dungeon Run Leader](../../play/dungeon-run-leader.md#player-led-runs).
+
+</details>
+
+### `AiPlayerbot.DungeonRunPlayerLedAwayMinutes`
+How long the leading player of a player-led run may be out of the plan's dungeon before the run stops.
+**Default:** `10` · **Values:** minutes, `1` to `60` · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+<details>
+<summary>How it works in detail</summary>
+
+**Player-led away limit:** while the player is out of the plan's dungeon the bots that stayed inside hold where they stand (`cmd stay`, once) and the status note counts the minutes left; back in time, the bots follow him again (`cmd follow`, once) and the run goes on. Past the limit the run stops with the note *stopped: you were away from the plan's dungeon for 10 min* and its binding ends; the bots keep holding. Only read while `AiPlayerbot.DungeonRunPlayerLed = 1`. See [Dungeon Run Leader](../../play/dungeon-run-leader.md#player-led-runs).
 
 </details>
 

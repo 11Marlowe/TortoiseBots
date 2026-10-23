@@ -882,6 +882,13 @@ AiPlayerbot.DungeonRunPlayerLed = 0
 # 40 - default; 5 to 100. Only read while AiPlayerbot.DungeonRunPlayerLed = 1.
 AiPlayerbot.DungeonRunPlayerLedPullYd = 40
 
+# How long (minutes) the leading player of a player-led run may be out of the
+# plan's dungeon. Meanwhile the bots that stayed inside hold where they stand;
+# back in time, they follow him again and the run goes on. Past it the run
+# stops with a note and its binding ends (the bots keep holding).
+# 10 - default; 1 to 60. Only read while AiPlayerbot.DungeonRunPlayerLed = 1.
+AiPlayerbot.DungeonRunPlayerLedAwayMinutes = 10
+
 # Scripted area triggers for bots (an audited allowlist of trigger ids, off by default).
 # A bot has no game client, so it never tells the server it walked into an area
 # trigger, and a trigger script never ran for it: Zul'Farrak's Witch Doctor

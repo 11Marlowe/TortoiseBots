@@ -572,6 +572,8 @@ public:
     // the run leader pulls the plan's packs near him (within dungeonRunPlayerLedPullYd, default 40 yd).
     bool dungeonRunPlayerLed;
     float dungeonRunPlayerLedPullYd;
+    // ... and how long the leading player may be out of the plan's dungeon before the run stops (minutes, default 10).
+    uint32 dungeonRunPlayerLedAwayMinutes;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
     bool avoidCreatureAuras;
     // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).
