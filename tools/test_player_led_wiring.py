@@ -190,5 +190,12 @@ class PlayerLedAwayAndPathWiringTest(unittest.TestCase):
         self.assertIn("for (Player* bot : order.bots)", order)
 
 
+class PlayerLedReleaseWiringTest(unittest.TestCase):
+    def test_release_tells_the_policy_it_is_player_led(self):
+        release = strip_comments(body(COMMANDS, "uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason, bool notify)", "\n}\n"))
+        facts = release.index("present.playerLed = removed.playerLed;")
+        self.assertLess(facts, release.index("RemoteCommander::DecideReleaseParty(present)"))
+
+
 if __name__ == "__main__":
     unittest.main()

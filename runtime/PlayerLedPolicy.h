@@ -534,11 +534,6 @@ inline float YdFrom(const PlanStep& s, const Anchor& a)
     return ai::PlanDistance(s.x, s.y, s.z, a.x, a.y, a.z);
 }
 
-inline bool Near(const PlanStep& s, const Anchor& a, float yd)
-{
-    return Placeless(s) || (Dz(s.z, a.z) <= kNearDz && YdFrom(s, a) <= yd);
-}
-
 inline bool Open(const DungeonRun::Run& r, const State& pl, std::size_t i)
 {
     return r.plan && Pickable(*r.plan, i) && !pl.done.count(i);

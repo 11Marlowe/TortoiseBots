@@ -1008,8 +1008,14 @@ static void TestObjectStepGatedByItsLeg()
     pl.done.insert(0);
     pl.done.insert(1);
     CHECK(!PL::Gated(r, pl, 2));
-    // A pack of another leg is never gated.
+    // A pack of another leg is never gated, nor is an object step by an open pack of another leg before it.
     CHECK(!PL::Gated(r, pl, 3));
+    DungeonPlan legs = Keyed();
+    legs.steps[0].leg = 0; // the boss in an earlier leg
+    legs.steps[1].leg = 0;
+    Run rl = Start(&legs);
+    PL::State pll = Led();
+    CHECK(!PL::Gated(rl, pll, 2));
     CHECK(PL::Pick(r, pl, door, {}));
     CHECK(pl.picked == 2 && r.step == 2);
     // The open goes out once he stands still, as a pull does.
@@ -1037,6 +1043,7 @@ static void TestEventChain()
     hold.entry = 2;
     hold.flags = ai::kPlanFlagDoneData;
     hold.param = 3;
+    hold.timeoutS = 300;
     plan.steps = {ritual, walk, hold};
     Run r = Start(&plan);
     PL::State pl = Led();
@@ -1048,11 +1055,17 @@ static void TestEventChain()
     Facts f = Seen({});
     for (int i = 0; i < 3; ++i)
         CHECK(PL::Tick(r, pl, f, walking).empty());
-    // The ritual done: the hold is current at once, the move left out.
+    // The ritual done: the hold is current at once, the move left out, wherever the player stands.
     NextStep(r, "ritual done: the event started");
-    CHECK(!PL::Pick(r, pl, Player(30), {}) || true);
+    CHECK(PL::Pick(r, pl, Player(-500), {}));
     CHECK(pl.done.count(0) == 1);
     CHECK(pl.picked == 2 && r.step == 2);
+    // The hold is never held by the gate: the tank's walk onto its spot goes out while the player walks.
+    PL::Anchor moving = Player(30);
+    moving.moving = true;
+    Facts there = Seen({});
+    there.eventData = 0;
+    CHECK(PL::Tick(r, pl, there, moving) == MoveOrder(60, 0, 0, false));
     // The tank's walk onto the hold's spot is the one walk sent.
     CHECK(PL::BotWalkAllowed(r, MoveOrder(60, 0, 0, false)));
     CHECK(!PL::Dropped(MoveOrder(60, 0, 0, false), Player(30), &r));
