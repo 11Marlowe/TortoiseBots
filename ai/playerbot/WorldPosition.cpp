@@ -1311,6 +1311,7 @@ std::vector<WorldPosition> WorldPosition::getPathStepFrom(const WorldPosition& s
     }
 
     type = pathfinder->getPathType();
+    LastPathStepType() = static_cast<uint32>(type);
 
     std::vector<WorldPosition> retvec = fromPointsArray(points);
 

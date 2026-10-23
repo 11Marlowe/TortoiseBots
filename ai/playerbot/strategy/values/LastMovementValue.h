@@ -79,6 +79,8 @@ namespace ai
             lastSpreadStepMs = other.lastSpreadStepMs;
             fleeNoSpotMs = other.fleeNoSpotMs;
             moveFailReason = other.moveFailReason;
+            movePathType = other.movePathType;
+            positionMoveFailMs = other.positionMoveFailMs;
             magmaLogAt = other.magmaLogAt;
             magmaRefusal = other.magmaRefusal;
             moveEvent = Event();
@@ -101,6 +103,8 @@ namespace ai
             lastMoveShort = WorldPosition();
             nextTeleport = 0;
             moveFailReason = 0;
+            movePathType = 0;
+            positionMoveFailMs = 0;
             moveEvent = Event();
         }
 
@@ -147,6 +151,14 @@ namespace ai
         // `return false` so the TravelMoveFailed row can say more than the
         // navmesh probe bucket; cleared on success paths.
         uint32 moveFailReason;
+        // The core PathFinder's type for MoveTo2's own route on its last try
+        // (WorldPosition::LastPathStepType; 0 = no pathfinding on that try, the
+        // route was reused). The FAILED action-log line shows it (MoveFailNotePolicy.h).
+        uint32 movePathType = 0;
+        // WorldTimer ms of the last "move to position" (a stay, guard or pull
+        // anchor) that failed; 0 = the last one did not. The run leader reads it
+        // for the lead bot (DungeonRun::Facts::leadMoveFailed, PositionMoveFailing).
+        uint32 positionMoveFailMs = 0;
         // Wall-clock of the last "move refused: magma" log line (one per bot
         // per 10 s, MovementActions.cpp); clear() leaves it alone.
         time_t magmaLogAt = 0;

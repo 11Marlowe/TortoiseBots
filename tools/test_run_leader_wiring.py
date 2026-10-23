@@ -33,7 +33,7 @@ class RunLeaderWiringTest(unittest.TestCase):
     def test_refusal_reports_the_order_as_sent(self):
         self.assertIn("std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);", COMMANDS)
         self.assertIn("bool const accepted = IssueRunOrder(commander, order, answer,\n"
-                      "            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order));", COMMANDS)
+                      "            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order), &captured);", COMMANDS)
         self.assertIn("TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer", COMMANDS)
 
     def test_ghost_lead_tolerated_during_a_regroup(self):

@@ -40,6 +40,7 @@
 #include "../ai/playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "../ai/playerbot/strategy/values/PositionValue.h"
 #include "../ai/playerbot/strategy/values/LastMovementValue.h"
+#include "../ai/playerbot/MoveFailNotePolicy.h"
 #include "../ai/playerbot/strategy/values/ItemUsageValue.h"
 #include "../ai/playerbot/strategy/actions/EquipAction.h"
 #include "../ai/playerbot/strategy/actions/UnequipAction.h"
@@ -2049,6 +2050,10 @@ struct RunOrderCapture
     bool answered = false;
     bool ok = false;
     std::string text;
+    // A plain `cmd move`: the path type its check saw (CommanderMove), for the
+    // run leader's stuck note (DungeonRun::NoteMovePathType).
+    bool movePathRead = false;
+    uint32 movePathType = 0;
 };
 static RunOrderCapture s_runOrderCapture;
 
@@ -6181,6 +6186,11 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
         PathFinder path(lead);
         path.calculate(point.x, point.y, point.z, false);
         facts.pathType = static_cast<uint32>(path.getPathType());
+        if (s_runOrderCapture.active)
+        {
+            s_runOrderCapture.movePathRead = true;
+            s_runOrderCapture.movePathType = facts.pathType;
+        }
         Vector3 const end = path.getActualEndPosition();
         float const ex = end.x - point.x;
         float const ey = end.y - point.y;
@@ -9336,7 +9346,8 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
 // Sends one order as the commander's own `.bot cmd <text>`. False with the
 // module's answer when it was refused (ERR). A pending task answers later.
 // The hop off a navmesh island (DungeonRun::IslandEscape) is the run's own, not a `cmd`.
-bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer, bool gather = false)
+bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer, bool gather = false,
+    RunOrderCapture* captured = nullptr)
 {
     if (text.compare(0, 7, "escape ") == 0)
         return RunIslandEscape(commander, text, answer);
@@ -9350,6 +9361,8 @@ bool IssueRunOrder(Player* commander, std::string const& text, std::string& answ
     s_runGather = false;
     RunOrderCapture const got = s_runOrderCapture;
     s_runOrderCapture = RunOrderCapture();
+    if (captured)
+        *captured = got;
     answer = got.text;
     return !got.answered || got.ok;
 }
@@ -10741,6 +10754,15 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.leadY = lead->GetPositionY();
     f.leadZ = lead->GetPositionZ();
     f.leadMoving = lead->IsMoving(); // an exact waypoint's stand-still proof (DungeonRunPolicy.h ExactWalkTo)
+    // The stuck note and the stall's fallback (DungeonRun::StuckNote, StallFallback): the lead bot in water, and
+    // its own "move to position" failing now (stamped by MoveToPositionAction::Execute).
+    f.leadInWater = lead->IsInWater() || lead->IsUnderwater();
+    if (PlayerbotAI* const moveAi = PlayerbotAIStorage::Instance().GetAI(lead))
+    {
+        ai::LastMovement& lastMove = moveAi->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get();
+        f.leadMoveFailed = ai::PositionMoveFailing(lastMove.positionMoveFailMs, WorldTimer::getMSTime());
+        f.leadMoveFailReason = ai::MoveFailReasonName(lastMove.moveFailReason);
+    }
     // The group's raid icons now: a cc order takes only a free mark or one the run set (DungeonRun::PickCcOrder).
     if (Group* const iconGroup = lead->GetGroup())
     {
@@ -11712,13 +11734,16 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             slot.taskObjectReacted = false;
         }
         std::string answer;
+        RunOrderCapture captured;
         bool const accepted = IssueRunOrder(commander, order, answer,
-            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order));
+            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order), &captured);
         // The order may have released the binding (and the run with it): `slot`
         // is not to be touched before the run is looked up again.
         it = DungeonRuns().find(commanderRaw);
         if (it == DungeonRuns().end())
             return;
+        if (accepted && captured.movePathRead)
+            TortoiseBots::DungeonRun::NoteMovePathType(it->second.run, order, captured.movePathType);
         if (!accepted)
         {
             // A move point the navmesh cannot reach (the step's own move or its

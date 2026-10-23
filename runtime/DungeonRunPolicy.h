@@ -608,6 +608,13 @@ struct Facts
     std::vector<std::string> charmedFighting;
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     bool leadMoving = false;           // the lead bot is moving now (Unit::IsMoving): an exact point's proof waits
+    // The lead bot's water and own-move state, for the stuck note (StuckNote) and the
+    // stall's fallback (StallFallback): in water or under water (Player::IsInWater /
+    // IsUnderwater); its "move to position" failed within the last 5 s
+    // (ai::PositionMoveFailing), and the fail reason of its last move (MoveFailReasonName).
+    bool leadInWater = false;
+    bool leadMoveFailed = false;
+    std::string leadMoveFailReason;
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
     // The group's raid icons now (Group::GetTargetIcon, star 0 ... skull 7):
     // a cc order only takes a mark that is free or one the run set itself.
@@ -864,6 +871,11 @@ struct Run
     float walkX = 0.0f, walkY = 0.0f, walkZ = 0.0f;
     std::uint32_t walkTries = 0;
     std::uint32_t walkStillMs = 0;
+    // The core PathFinder's type for the last plain `cmd move` the run sent
+    // (CommanderMove's check; NoteMovePathType), for the stuck note. Known:
+    // a plain move was acked since the run started.
+    bool movePathKnown = false;
+    std::uint32_t movePathType = 0;
     float walkBestYd = 0.0f;
     // An exact waypoint's tighten (ExactWalkTo): on once the walk to the point
     // ended (3 yd, or a stall within 6 yd); it brings the lead bot onto the
@@ -3687,6 +3699,30 @@ inline bool InFollowDeadband(float lx, float ly, float lz, float x, float y, flo
     return ground <= kFollowDeadbandYd && dz <= ground + kSharedFloorRiseYd;
 }
 
+// A plain `cmd move` the run sent was acked: keep the path type its check saw
+// (RemoteCommander::CheckMove's facts) for the stuck note.
+inline void NoteMovePathType(Run& r, const std::string& order, std::uint32_t pathType)
+{
+    if (order.compare(0, 5, "move ") != 0 || order.find(" direct") != std::string::npos)
+        return;
+    r.movePathKnown = true;
+    r.movePathType = pathType;
+}
+
+// What the stuck pause adds about the lead bot (Blackfathom Deeps 2026-10-23:
+// every such pause began with the lead bot in a deep pool, its own move failing
+// every 2 s, while `cmd move` had acked the point): whether it is in water, the
+// path type `cmd move` saw, and whether its own move is failing, and why.
+inline std::string StuckNote(const Run& r, const Facts& f)
+{
+    char type[16];
+    std::snprintf(type, sizeof(type), "0x%x", static_cast<unsigned>(r.movePathType));
+    return std::string(" (lead in water: ") + (f.leadInWater ? "yes" : "no") + "; cmd move path type " +
+        (r.movePathKnown ? std::string(type) : std::string("not read")) + "; its own move " +
+        (f.leadMoveFailed ? "failing: " + (f.leadMoveFailReason.empty() ? std::string("none") : f.leadMoveFailReason)
+                          : std::string("not failing")) + ")";
+}
+
 // Walks the party to a point. True once the lead bot is there; otherwise
 // `order` may hold the move to send. Pauses after kWalkTries moves without
 // progress. `plainWalk`: a Move step's walk or the guard's walk back to the stand
@@ -3748,7 +3784,8 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
     {
         if (r.walkTries >= kWalkTries)
         {
-            Pause(r, "the lead bot is stuck " + Num(dist) + " yd from " + Num(x) + " " + Num(y) + " " + Num(z));
+            Pause(r, "the lead bot is stuck " + Num(dist) + " yd from " + Num(x) + " " + Num(y) + " " + Num(z) +
+                StuckNote(r, f));
             return false;
         }
         ++r.walkTries;

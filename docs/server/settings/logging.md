@@ -102,6 +102,8 @@ When enabled, the server generates detailed execution logs for individual bots a
 
 Because logging all bots simultaneously can produce gigabytes of data daily, file creation is filtered by `ActionLogScope` and capped by the retention limits below.
 
+A failed movement action's line (`A:move to position - FAILED ...`) ends with why it failed since 2026-10-23: `why=<reason>` (the move's fail site, such as `dispatch-short`, `empty-path` or `cantmove`), `water=` and `under=` (the bot in or under water), `swim=` (its swimming flag) and `path=0x..` (the core PathFinder's type for the bot's own route on that try; `0x0` when the try reused its route). In Blackfathom Deeps the lead bot's move had failed 172 times in a row with nothing more on the line.
+
 Strategy AI action traces can also be enabled on an individual bot in-game via `.bot strategy +debug`.
 
 </details>

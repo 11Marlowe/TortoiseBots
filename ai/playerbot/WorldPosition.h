@@ -340,6 +340,10 @@ namespace ai
         std::vector<G3D::Vector3> toPointsArray(const std::vector<WorldPosition>& path) const;
 
         //Pathfinding
+        // The core PathFinder's type for the last getPathStepFrom on this thread
+        // (0 = none since the caller reset it): the action log's FAILED line reads it
+        // for a failed move (MoveFailNotePolicy.h).
+        static uint32& LastPathStepType() { static thread_local uint32 type = 0; return type; }
         std::vector<WorldPosition> getPathStepFrom(const WorldPosition& startPos, std::unique_ptr<PathFinder>& pathfinder, const Unit* bot, bool forceNormalPath = false) const;
         std::vector<WorldPosition> getPathStepFrom(const WorldPosition& startPos, const Unit* bot, bool forceNormalPath = false) const;
         std::vector<WorldPosition> GetPathStepFrom(const WorldPosition& startPos, const Unit* bot, bool forceNormalPath = false) const { return getPathStepFrom(startPos, bot, forceNormalPath); }

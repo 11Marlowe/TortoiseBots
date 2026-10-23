@@ -238,6 +238,42 @@ static void TestStandOnALedgeCountsByGroundDistance()
     CHECK(!arrived && stuck);
 }
 
+// Blackfathom Deeps 2026-10-23 (BFD-STUCK-POINTS-2026-10-23): every "lead bot is stuck"
+// pause began with the lead bot in a deep pool and its own move failing every 2 s, and
+// the note could not say so. It names the lead bot's water state, the path type the
+// acked `cmd move` saw, and whether its own move is failing and why.
+static void TestStuckPauseNamesTheLeadsWaterState()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0, 0, 0), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(16.0f);
+    f.leadInWater = true;
+    std::string const order = Tick(r, f);
+    CHECK(order == "move 0.0 0.0 0.0");
+    NoteMovePathType(r, order, 0x81);
+    for (int i = 0; i < 300 && r.state == State::Running; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Paused);
+    CHECK(r.note == "the lead bot is stuck 16.0 yd from 0.0 0.0 0.0 (lead in water: yes; cmd move path type 0x81; "
+        "its own move not failing)");
+
+    // The note's other words.
+    Run q = Start(&plan);
+    Facts g = Party(16.0f);
+    CHECK(StuckNote(q, g) == " (lead in water: no; cmd move path type not read; its own move not failing)");
+    g.leadMoveFailed = true;
+    g.leadMoveFailReason = "dispatch-short";
+    NoteMovePathType(q, "move 1.0 2.0 3.0", 0x11);
+    CHECK(StuckNote(q, g) == " (lead in water: no; cmd move path type 0x11; its own move failing: dispatch-short)");
+    // A direct move and other orders do not change it.
+    NoteMovePathType(q, "move 1.0 2.0 3.0 direct", 0x8);
+    NoteMovePathType(q, "attack 0x0000000000000001", 0x8);
+    CHECK(q.movePathType == 0x11);
+    g.leadMoveFailReason.clear();
+    CHECK(StuckNote(q, g) == " (lead in water: no; cmd move path type 0x11; its own move failing: none)");
+}
+
 // Zul'Farrak r16-19z34 slot 2, step 37 (ZF-STEP37-2026-10-22): after a fight the lead
 // bot stood on the ramp 4.84 yd from the point on the ground and 4.6 yd above it (6.6 yd
 // in 3D). A `cmd move` there never moved it: the executor's "return to stay position"
@@ -14060,6 +14096,7 @@ int main()
     TestStalledNearPointCountsAsArrived();
     TestStandOnALedgeCountsByGroundDistance();
     TestStalledLeadInFollowRangeCountsAsArrived();
+    TestStuckPauseNamesTheLeadsWaterState();
     TestPullLoopOnOneTargetPauses();
     TestOutOfReachPackIsSkippedNotCleared();
     TestMissingItemPausesOnce();
