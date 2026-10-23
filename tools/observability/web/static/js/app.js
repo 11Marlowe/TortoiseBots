@@ -3007,6 +3007,12 @@
         ['Ghost time', esc(fmtDuration(c.ghost_seconds))],
         ['Give-ups', num(c.giveups)]
       ]) +
+      statGroup('World PvP', [
+        ['Seekers now', num((state.grinding || {}).world_pvp_seekers)],
+        ['Engagements', num(c.pvp_engagements)],
+        ['PvP kills', num(c.pvp_kills)],
+        ['PvP deaths', num(c.pvp_deaths)]
+      ]) +
       statGroup('Loot & gathering', [
         ['Loot items', num(c.loot_items)],
         ['Notable loot', num(c.notable_loot), 'Green or better'],

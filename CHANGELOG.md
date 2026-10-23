@@ -2,13 +2,16 @@
 
 ## Unreleased
 
+### World PvP
+- Pool bots stay PvP flagged everywhere, so players can attack them outside contested zones too. About a quarter of free pool bots actively hunt flagged enemies nearby, join same-faction fights, and give up the chase after a minute. Turn it off with `AiPlayerbot.RandomBotForcePvp = 0` and `AiPlayerbot.WorldPvpSeek = 0`.
+- The dashboard Activity tab shows current seekers, PvP engagements, and PvP kills and deaths.
+
 ### Classes & Combat
 - Hunters fire Multi-Shot only when the splash around their target catches a second fighting enemy, and never into a crowd-controlled mob standing beside it, so the shot now scales with the pack instead of firing on cooldown.
 - Hunters use Freezing Trap again as crowd control in dungeon runs without assigned marks: they trap an extra attacker that is not the group's kill target, and only once they know Feign Death.
 
 ### Commands
 - New `.autogear` command gears a real player the way a spawned bot gets geared: items picked for the level and spec from the same gear pool the bots use, upgrades only, replaced items to the bags or the mailbox. GameMasters can gear any player; `AiPlayerbot.PlayerAutogearForAll` (default `0`) lets every player gear themselves.
-
 ## v1.8.0 (2026-10-22)
 
 ### Classes & Combat

@@ -65,6 +65,7 @@ Defines the active CSV log streams:
 
 - `bot_events.csv`: Records high-level bot behavioral events, travel destination changes, vendor trips, and unstuck interventions.
 - `deaths.csv`: Records character deaths, death position, killer identity and level, other attackers, and travel destination.
+- `pvp_seek.csv`: Records open-world PvP seek-role grants and new seek engagements (bot, target, level, map, zone).
 - Additional diagnostic logs (such as `travel_route_gate.csv` and `ghost_moves.csv`) can be added to the list as needed.
 
 Setting this key to an empty string (`""`) disables all CSV event logging. Note that if this key is omitted from configuration entirely, the internal fallback defaults to disabled; ensure the key is present to record events.

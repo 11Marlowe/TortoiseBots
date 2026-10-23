@@ -11,6 +11,7 @@
 #include "playerbot/AiFactory.h"
 
 #include "../../runtime/ObservabilityEmitter.h"
+#include "../../runtime/WorldPvpPolicy.h"
 #include "../../runtime/AltBotPolicy.h"
 #include "../../runtime/AltBotService.h"
 #include "../../runtime/BotActivityLease.h"
@@ -1699,6 +1700,74 @@ bool PlayerbotAI::ShouldAvoidPlayerKiller(std::string const& name) const
     if (name.empty() || avoidPlayerKiller_.empty() || name != avoidPlayerKiller_)
         return false;
     return WorldTimer::getMSTime() - avoidPlayerKillerMs_ <= 10 * MINUTE * IN_MILLISECONDS;
+}
+
+void PlayerbotAI::NotePvpKill(Player* victim)
+{
+    if (!bot || !victim || bot->InBattleGround() || !sPlayerbotAIConfig.worldPvpSeek)
+        return;
+    if (!HasStrategy("world pvp", BotState::BOT_STATE_COMBAT) &&
+        !HasStrategy("world pvp", BotState::BOT_STATE_NON_COMBAT))
+        return;
+
+    uint32 const nowMs = WorldTimer::getMSTime();
+    worldPvpCampGuidLow_ = victim->GetGUIDLow();
+    worldPvpCampStartMs_ = nowMs;
+    worldPvpCampX_ = victim->GetPositionX();
+    worldPvpCampY_ = victim->GetPositionY();
+    worldPvpCampMapId_ = victim->GetMapId();
+    worldPvpPursuitGuidLow_ = 0;
+    worldPvpPursuitStartMs_ = 0;
+
+    sObservabilityEmitter.EmitBotActivity("WorldPvpKill", victim->GetName(), std::to_string(victim->GetLevel()), bot);
+}
+
+void PlayerbotAI::NotePvpDeath(Player* killer)
+{
+    if (!bot || !killer || bot->InBattleGround() || !sPlayerbotAIConfig.worldPvpSeek)
+        return;
+
+    worldPvpCampGuidLow_ = 0;
+    worldPvpCampStartMs_ = 0;
+    worldPvpPursuitGuidLow_ = 0;
+    worldPvpPursuitStartMs_ = 0;
+
+    sObservabilityEmitter.EmitBotActivity("WorldPvpDeath", killer->GetName(), std::to_string(killer->GetLevel()), bot);
+}
+
+bool PlayerbotAI::WorldPvpGapAccepted(uint32 targetGuidLow, uint32 nowSec, bool& known) const
+{
+    for (WorldPvpGapDecision const& slot : worldPvpGapDecisions_)
+    {
+        if (slot.targetGuidLow != targetGuidLow)
+            continue;
+        if (!TortoiseBots::WorldPvpLevelGapDecisionFresh(slot.decidedAtSec, nowSec))
+            break;
+        known = true;
+        return slot.accept;
+    }
+    known = false;
+    return false;
+}
+
+void PlayerbotAI::WorldPvpNoteGapDecision(uint32 targetGuidLow, uint32 nowSec, bool accept)
+{
+    WorldPvpGapDecision* oldest = &worldPvpGapDecisions_[0];
+    for (WorldPvpGapDecision& slot : worldPvpGapDecisions_)
+    {
+        if (slot.targetGuidLow == targetGuidLow || slot.targetGuidLow == 0)
+        {
+            slot.targetGuidLow = targetGuidLow;
+            slot.decidedAtSec = nowSec;
+            slot.accept = accept;
+            return;
+        }
+        if (slot.decidedAtSec < oldest->decidedAtSec)
+            oldest = &slot;
+    }
+    oldest->targetGuidLow = targetGuidLow;
+    oldest->decidedAtSec = nowSec;
+    oldest->accept = accept;
 }
 
 bool PlayerbotAI::IsDeathSpotAvoided(uint32 mapId, float x, float y, uint32 nowMs) const

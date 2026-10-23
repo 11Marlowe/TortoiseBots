@@ -38,6 +38,8 @@
 #include "playerbot/SurvivePolicy.h"
 #include "../../runtime/CommandedGroupQuery.h"
 #include "../../runtime/RemoteCommanderPolicy.h"
+#include "../../runtime/WorldPvpSeekPolicy.h"
+#include "playerbot/strategy/values/WorldPvpSeekLog.h"
 #include "Battlegrounds/BattleGroundMgr.h"
 
 // The class context of a bot; the augmenters of other modules are applied on top in
@@ -1190,6 +1192,65 @@ std::string AiFactory::StripOpenWorldNonCombatStrategies(std::string const& stra
     return kept;
 }
 
+bool AiFactory::IsWorldPvpSeekEligible(Player* player, PlayerbotAI* const facade)
+{
+    if (!player || !facade)
+        return false;
+
+    TortoiseBots::WorldPvpSeekInputs inputs;
+    inputs.seekEnabled = sPlayerbotAIConfig.worldPvpSeek != 0;
+    inputs.freePoolBot = sRandomBotFacade.IsFreeBot(player);
+    inputs.ownedBot = facade->IsOwnedBot();
+    inputs.hiredBot = TortoiseBots::HireLifecycle::Instance().IsHired(player->GetObjectGuid());
+    inputs.inBattleground = player->InBattleGround();
+
+    if (Group* group = player->GetGroup())
+    {
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+        {
+            Player* member = sObjectAccessor.FindPlayer(slot.guid);
+            if (member && member != player && member->IsInWorld() && facade->IsRealPlayer(member))
+            {
+                inputs.groupedWithRealPlayer = true;
+                break;
+            }
+        }
+    }
+
+    return TortoiseBots::WorldPvpSeekEligible(inputs);
+}
+
+void AiFactory::RollWorldPvpSeek(Player* player, PlayerbotAI* const facade)
+{
+    if (!player || !facade)
+        return;
+
+    if (!IsWorldPvpSeekEligible(player, facade))
+    {
+        facade->ChangeStrategy("-world pvp", BotState::BOT_STATE_NON_COMBAT);
+        facade->ChangeStrategy("-world pvp", BotState::BOT_STATE_COMBAT);
+        return;
+    }
+
+    uint32 percent = sPlayerbotAIConfig.worldPvpSeekBotPercent;
+    if (percent > 100)
+        percent = 100;
+    bool const grant = percent > 0 && urand(0, 99) < percent;
+    bool const held = facade->HasStrategy("world pvp", BotState::BOT_STATE_NON_COMBAT);
+    if (grant && !held)
+    {
+        facade->ChangeStrategy("+world pvp", BotState::BOT_STATE_NON_COMBAT);
+        facade->ChangeStrategy("+world pvp", BotState::BOT_STATE_COMBAT);
+        ai::WorldPvpSeekLog::LogGrant(facade, player);
+    }
+    else if (!grant && held)
+    {
+        facade->ChangeStrategy("-world pvp", BotState::BOT_STATE_NON_COMBAT);
+        facade->ChangeStrategy("-world pvp", BotState::BOT_STATE_COMBAT);
+    }
+    facade->worldPvpSeekRollMs_ = WorldTimer::getMSTime();
+}
+
 void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const facade, Engine* nonCombatEngine)
 {
     // What the config lists below would have given a bound bot of the
@@ -1464,6 +1525,8 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
         {
             nonCombatEngine->addStrategy("start duel");
         }
+
+        RollWorldPvpSeek(player, facade);
 
         if (!player->GetGroup() || facade->IsGroupLeader())
         {

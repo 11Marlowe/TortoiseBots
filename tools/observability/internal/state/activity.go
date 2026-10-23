@@ -203,6 +203,12 @@ func (s *Store) applyBotEventLocked(ev model.BotEvent, now time.Time) {
 	case "BotDeath":
 		a.counters.Deaths++
 		a.deadAt = now
+	case "WorldPvpEngage":
+		a.counters.PvpEngagements++
+	case "WorldPvpKill":
+		a.counters.PvpKills++
+	case "WorldPvpDeath":
+		a.counters.PvpDeaths++
 	case "ReviveFromCorpseAction", "ReviveFromSpiritHealerAction", "RepopAction":
 		if !a.deadAt.IsZero() {
 			a.counters.GhostSeconds += now.Sub(a.deadAt).Seconds()
@@ -437,6 +443,9 @@ func addCounters(a, b model.BotActivity) model.BotActivity {
 	a.MoneySpent += b.MoneySpent
 	a.Kills += b.Kills
 	a.Deaths += b.Deaths
+	a.PvpEngagements += b.PvpEngagements
+	a.PvpKills += b.PvpKills
+	a.PvpDeaths += b.PvpDeaths
 	a.GhostSeconds += b.GhostSeconds
 	a.TrainerVisits += b.TrainerVisits
 	a.SpellsLearned += b.SpellsLearned

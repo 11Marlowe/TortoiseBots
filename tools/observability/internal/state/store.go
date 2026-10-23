@@ -590,6 +590,9 @@ func (s *Store) grindingLocked(bots []model.BotSnapshot, now time.Time) model.Gr
 	rates := make([]float64, 0, n)
 	for _, b := range bots {
 		rates = append(rates, b.XpPerHour)
+		if b.WorldPvpSeeker {
+			out.WorldPvpSeekers++
+		}
 		if b.XpGainAgeSec >= 0 && now.Sub(s.lastSnapshotAt) <= 10*time.Minute {
 			// Counted as gaining when the last positive delta is recent.
 			// 10 min matches the "died in last 5 min" scale below.

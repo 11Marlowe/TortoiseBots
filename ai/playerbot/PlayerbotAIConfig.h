@@ -548,6 +548,10 @@ public:
     bool globalSoundEffects;
     bool shareTargets;
 	std::list<uint32> pvpProhibitedZoneIds;
+    bool randomBotForcePvp;
+    uint32 worldPvpSeek;
+    uint32 worldPvpSeekBotPercent;
+    uint32 worldPvpSeekRerollMinutes;
     bool enableGreet;
     // Seconds before the same real player may be greeted again by the same bot.
     uint32 greetCooldown;

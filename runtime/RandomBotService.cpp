@@ -4,6 +4,8 @@
 #include "PlayerbotAIStorage.h"
 #include "playerbot/PlayerbotAI.h"
 #include "GearSeedingGuard.h"
+#include "WorldPvpSeekPolicy.h"
+#include "WorldPvpFightPolicy.h"
 #include "HireLifecycle.h"
 #include "ClaimLifecycle.h"
 #include "AltBotService.h"
@@ -16,6 +18,7 @@
 #include "Log.h"
 #include "Database/DatabaseEnv.h"
 #include "playerbot/PlayerbotAIConfig.h"
+#include "playerbot/AiFactory.h"
 #include "playerbot/RandomBotFacade.h"
 #include "RandomBotAccountRegistry.h"
 #include "RandomBotPoolReset.h"
@@ -1702,6 +1705,35 @@ void RandomBotService::Update(uint32_t diff)
         {
             sRandomBotFacade.ChangeStrategy(player);
             m_strategyAgeMs[i] = 0;
+        }
+
+        // Seek-role re-roll: about every WorldPvpSeekRerollMinutes with
+        // jitter, never while the bot is in combat. Ineligible bots lose
+        // the role here too (grouped with a real player since the roll).
+        if (PlayerbotAI* seekAi = PlayerbotAIStorage::Instance().GetAI(player))
+        {
+            uint32 const nowMs = WorldTimer::getMSTime();
+            if (seekAi->worldPvpCampGuidLow_ && seekAi->worldPvpCampStartMs_ &&
+                WorldPvpCampExpired(seekAi->worldPvpCampStartMs_, nowMs))
+            {
+                seekAi->worldPvpIgnoreGuidLow_ = seekAi->worldPvpCampGuidLow_;
+                seekAi->worldPvpIgnoreStartMs_ = nowMs;
+                seekAi->worldPvpCampGuidLow_ = 0;
+                seekAi->worldPvpCampStartMs_ = 0;
+            }
+            if (!seekAi->worldPvpSeekNextMs_)
+            {
+                uint32 const baseMin = sPlayerbotAIConfig.worldPvpSeekRerollMinutes;
+                seekAi->worldPvpSeekNextMs_ = seekAi->worldPvpSeekRollMs_ +
+                    baseMin * 60 * 1000 + (baseMin ? urand(0, 5 * 60 * 1000) : 0);
+            }
+            if (seekAi->worldPvpSeekNextMs_ && nowMs >= seekAi->worldPvpSeekNextMs_ &&
+                !player->IsInCombat() && AiFactory::IsWorldPvpSeekEligible(player, seekAi))
+            {
+                AiFactory::RollWorldPvpSeek(player, seekAi);
+                uint32 const baseMin = sPlayerbotAIConfig.worldPvpSeekRerollMinutes;
+                seekAi->worldPvpSeekNextMs_ = nowMs + baseMin * 60 * 1000 + (baseMin ? urand(0, 5 * 60 * 1000) : 0);
+            }
         }
 
         m_randomizeAgeMs[i] += elapsed;
