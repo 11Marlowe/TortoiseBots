@@ -83,6 +83,34 @@ class BossPairWiringTest(unittest.TestCase):
         self.assertIn("if (it != cache.end())\n        return it->second;", spawns)
         self.assertIn("sObjectMgr.DoCreatureData(worker);", spawns)
 
+    def test_boss_search_reads_inactive_game_events(self):
+        # Scarlet Graveyard r23 slot 7: Scorn's only spawn belongs to event 81 (Scourge Invasion), never started. The
+        # search marks a boss whose every spawn row is in a game event that is not active, only when it saw him neither
+        # alive nor dead; one row outside such an event (none, a removal event, a running one) clears the mark.
+        self.assertIn('#include "GameEventMgr.h"', COMMANDS)
+        # Codex review round 1: every association of a guid (it can sit in several game_event_creature rows), not
+        # only the first that GetGameEventId<Creature> returns.
+        lists = body(CODE, "struct GameEventSpawnLists : GameEventMgr", "\n};\n")
+        self.assertIn("return mgr.*(&GameEventSpawnLists::mGameEventCreatureGuids);", lists)
+        event = body(CODE, "std::vector<std::vector<int>> CreatureSpawnGameEvents(std::vector<uint32> const& lows)")
+        self.assertIn("sPoolMgr.IsPartOfTopPool<Creature>(lows[i])", event)
+        self.assertIn("sGameEventMgr.GetGameEventId<Pool>(topPool)", event)
+        self.assertNotIn("GetGameEventId<Creature>", event)
+        self.assertIn("int const size = static_cast<int>(sGameEventMgr.GetEventMap().size());", event)
+        self.assertIn("for (uint32 guid : lists[list])", event)
+        self.assertIn("int const event = static_cast<int>(list) + 1 - size;", event)
+        self.assertIn("if (it != index.end() && event != 0)\n                events[it->second].push_back(event);", event)
+        search = body(CODE, "void ReadBossInInstance(ai::PlanStep const& step, Player* lead,")
+        self.assertIn("if (!spawns.empty() && !f.bossSearchAlive && !f.bossSearchDead)", search)
+        self.assertIn("TortoiseBots::DungeonRun::SpawnEventsOff(\n            CreatureSpawnGameEvents(spawns), ownIndex,\n"
+                      "            [](std::uint32_t id) { return sGameEventMgr.IsActiveEvent(static_cast<uint16>(id)); });",
+                      search)
+        self.assertIn("if (gate.off)\n        {\n            f.bossSearchEventOff = true;", search)
+        self.assertIn("f.bossSearchEventId = gate.eventId;", search)
+        self.assertIn("f.bossSearchEventName = events[gate.eventId].description;", search)
+        # Read after the alive/dead loop, so the mark sees what the loop found.
+        self.assertLess(search.index("f.bossSearchDead = true;"), search.index("CreatureSpawnGameEvents(spawns)"))
+
     def test_resume_of_a_held_unit_is_not_refused(self):
         # Codex review round 1: the pause for a unit held at 1 hp is resumed like any other.
         self.assertNotIn("unit-cannot-die", CODE)

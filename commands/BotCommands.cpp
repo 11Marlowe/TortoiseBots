@@ -76,6 +76,8 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "ObjectMgr.h"
 // pi-lens-ignore: clang:pp_file_not_found
+#include "GameEventMgr.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "ObjectAccessor.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "Player.h"
@@ -10417,6 +10419,49 @@ std::vector<uint32> const& BossSpawnLowGuids(uint32 mapId, uint32 entry)
     return rows;
 }
 
+// Read-only access to the core's per-event creature spawn lists (GameEventMgr::mGameEventCreatureGuids, protected):
+// GetGameEventId<Creature> returns only the first event a guid is listed under, and a guid can sit in several
+// game_event_creature rows (Codex review round 1). A pointer to the protected member, named through this derived
+// type, read on the manager itself; nothing is written and no core change is needed.
+struct GameEventSpawnLists : GameEventMgr
+{
+    using GuidLists = GameEventGuidMap;
+    static GuidLists const& Creatures(GameEventMgr const& mgr)
+    {
+        return mgr.*(&GameEventSpawnLists::mGameEventCreatureGuids);
+    }
+};
+
+// Every game event association of creature spawn rows (DungeonRun::SpawnEventsOff): > 0 the row spawns while that
+// event runs, < 0 it is removed while the event runs. A row in a pool takes its top pool's event (the core gives a
+// pool one event and leaves its spawn events out of the creature lists); its own removal rows are listed as well.
+// One pass over the event spawn lists for all rows: called only by the boss search below, once per search window,
+// on the world thread (UpdateRemoteCommanders).
+std::vector<std::vector<int>> CreatureSpawnGameEvents(std::vector<uint32> const& lows)
+{
+    std::vector<std::vector<int>> events(lows.size());
+    std::unordered_map<uint32, std::size_t> index;
+    for (std::size_t i = 0; i < lows.size(); ++i)
+    {
+        index[lows[i]] = i;
+        if (uint16 const topPool = sPoolMgr.IsPartOfTopPool<Creature>(lows[i]))
+            if (int16 const event = sGameEventMgr.GetGameEventId<Pool>(topPool))
+                events[i].push_back(event);
+    }
+    // The lists are indexed event + size - 1 (GameEventMgr::LoadFromDB: events*2-1, negative ids first).
+    int const size = static_cast<int>(sGameEventMgr.GetEventMap().size());
+    GameEventSpawnLists::GuidLists const& lists =GameEventSpawnLists::Creatures(sGameEventMgr);
+    for (std::size_t list = 0; list < lists.size(); ++list)
+        for (uint32 guid : lists[list])
+        {
+            auto const it = index.find(guid);
+            int const event = static_cast<int>(list) + 1 - size;
+            if (it != index.end() && event != 0)
+                events[it->second].push_back(event);
+        }
+    return events;
+}
+
 // A boss step's instance search (DungeonRun::Facts::bossSearch*), on the tick after the policy asked for it
 // (Run::bossSearchWanted, once per kBossSearchMs window): every spawn of the boss's entry on the lead bot's map,
 // looked up by guid in that map (no grid or world scan), wherever it stands. Alive: one lives (where); dead: one
@@ -10483,6 +10528,28 @@ void ReadBossInInstance(ai::PlanStep const& step, Player* lead, TortoiseBots::Du
             f.bossSearchCorpseY = creature->GetPositionY();
             f.bossSearchCorpseZ = creature->GetPositionZ();
             corpseFromSpot = fromSpot;
+        }
+    }
+    // Seen neither alive nor dead: whether every spawn row is gated by game events that are not active
+    // (Facts::bossSearchEventOff; Scarlet Graveyard's Scorn, event 81 "Scourge Invasion"), from every event a row
+    // is listed under. One row with no event, a removal event, or any running event and the old pause stands
+    // (DungeonRun::SpawnEventsOff). The event named is the own spawn's.
+    if (!spawns.empty() && !f.bossSearchAlive && !f.bossSearchDead)
+    {
+        std::size_t ownIndex = spawns.size();
+        for (std::size_t i = 0; i < spawns.size(); ++i)
+            if (spawns[i] == own)
+                ownIndex = i;
+        TortoiseBots::DungeonRun::SpawnEventGate const gate = TortoiseBots::DungeonRun::SpawnEventsOff(
+            CreatureSpawnGameEvents(spawns), ownIndex,
+            [](std::uint32_t id) { return sGameEventMgr.IsActiveEvent(static_cast<uint16>(id)); });
+        if (gate.off)
+        {
+            f.bossSearchEventOff = true;
+            f.bossSearchEventId = gate.eventId;
+            GameEventMgr::GameEventDataMap const& events = sGameEventMgr.GetEventMap();
+            if (gate.eventId < events.size())
+                f.bossSearchEventName = events[gate.eventId].description;
         }
     }
 }
@@ -10854,6 +10921,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.leadY = lead->GetPositionY();
     f.leadZ = lead->GetPositionZ();
     f.leadMoving = lead->IsMoving(); // an exact waypoint's stand-still proof (DungeonRunPolicy.h ExactWalkTo)
+    // The walk after a rest (DungeonRun::RestWalkResendDue): a rest state confirms the stall, a cast defers it.
+    f.leadResting = HasMealAura(lead) || lead->GetStandState() != UNIT_STAND_STATE_STAND;
+    f.leadCasting = lead->IsNonMeleeSpellCasted(true, false, true);
     // The stuck note and the stall's fallback (DungeonRun::StuckNote, StallFallback): the lead bot in water, and
     // its own "move to position" failing now (stamped by MoveToPositionAction::Execute).
     f.leadInWater = lead->IsInWater() || lead->IsUnderwater();
@@ -11713,6 +11783,20 @@ void SyncHoldStands(Player* commander, Player* lead, std::vector<Player*> const&
         FormUpOnLead(commander, lead, released, false);
 }
 
+// The walk the lead bot did not take after a rest, sent again (DungeonRun::Run::leadWalkReset, only in a confirmed
+// stall: DungeonRun::RestWalkResendDue): before the order a seated lead bot stands up (a seated bot is not moved;
+// standing ends its meal or drink). Nothing else: no cast is cut, and its follow, stay and stay point are left to the
+// walk's `cmd move`, which sets them only when it is accepted (a refused move leaves the lead bot as it was; Opus
+// review round 1). Blackfathom Deeps r22 step 85 and r23 slot 6b step 8: the lead bot stood after eating and never
+// took the walk until a resume.
+void StandLeadForWalk(Player* lead)
+{
+    if (!lead->IsAlive() || !lead->IsInWorld() || lead->IsInCombat())
+        return;
+    if (lead->GetStandState() != UNIT_STAND_STATE_STAND)
+        lead->SetStandState(UNIT_STAND_STATE_STAND);
+}
+
 void TickDungeonRun(uint64 commanderRaw, uint32 dt)
 {
     auto it = DungeonRuns().find(commanderRaw);
@@ -11823,6 +11907,12 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
     // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
     DropUnattackableCombat(lead, bots, slot.run.combatDrops);
+    // The walk after a rest sent again: a seated lead bot stands up before the order below.
+    if (slot.run.leadWalkReset)
+    {
+        slot.run.leadWalkReset = false;
+        StandLeadForWalk(lead);
+    }
     // A stalled walk whose lead bot's own move failed asked for a stand-in on dry ground
     // (DungeonRun::StallFallback): searched once, here, never per tick.
     if (slot.run.stallStandInWanted)
