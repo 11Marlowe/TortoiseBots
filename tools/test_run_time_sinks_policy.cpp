@@ -5,9 +5,11 @@
 //       leaving out a stretch of the route that comes back by the point just reached;
 //   (B) the rest gate rests to what the next fight needs;
 //   (C) after a won fight the next pack close by is pulled from where the tank stands;
+//   (D) a walk whose lead bot moves (a spiral ramp) is not stuck.
 //   g++ -std=c++17 -Wall -Wextra tools/test_run_time_sinks_policy.cpp -o /tmp/t && /tmp/t
 #include "../runtime/DungeonRunPolicy.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -821,6 +823,88 @@ static void TestFightForwardPullsFromWhereTheTankStands()
     CHECK(AfterClear(two, t) == "pullback 61" && t.step == 3);
 }
 
+// (D) Gnomeregan r27 slot 4 steps 583 and 610: the stuck pause while the lead bot walked up a long spiral ramp (its
+// straight distance to the point grew from 82.8 to 104.9 yd). A walk whose lead bot moves 2 yd or more from its spot
+// at the last progress is making progress, for kWalkMovingCapMs of such movement in one walk.
+static void TestSpiralRampWalkIsNotStuck()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(0, 0, 40)};
+    Run r = Start(&plan);
+    Facts f = Party(80, 0, 0);
+    f.seen = true; // the glue's facts for a plain move: its walk, not approach hops
+    CHECK(Tick(r, f) == "move 0.0 0.0 40.0");
+    // Up the spiral: 80 s around a ring whose radius grows from 80 to 104 yd (the straight distance grows), then in.
+    bool paused = false;
+    int resends = 0;
+    for (int t = 0; t < 80; ++t)
+    {
+        float const a = 0.09f * t;
+        float const radius = 80.0f + 0.3f * t;
+        f.leadX = radius * std::cos(a);
+        f.leadY = radius * std::sin(a);
+        f.leadZ = 0.5f * t;
+        std::string const o = Tick(r, f);
+        resends += o == "move 0.0 0.0 40.0" ? 1 : 0;
+        paused = paused || r.state != State::Running;
+    }
+    CHECK(!paused && resends == 0 && r.walkMovingMs > 60000);
+    f.leadX = 1;
+    f.leadY = 0;
+    f.leadZ = 40;
+    Tick(r, f);
+    CHECK(r.state == State::Done);
+    // The cap is one walk's: the next walk starts with its own.
+    DungeonPlan two;
+    two.steps = {Move(0, 0, 40), Move(0, 0, 80)};
+    Run w = Start(&two);
+    Facts k = Party(80, 0, 0);
+    k.seen = true;
+    for (int leg = 0; leg < 2; ++leg)
+    {
+        float const top = 40.0f * (leg + 1);
+        Tick(w, k);
+        for (int t = 0; t < 90 && w.state == State::Running; ++t)
+        {
+            float const radius = 80.0f + 0.3f * t;
+            k.leadX = radius * std::cos(0.09f * t);
+            k.leadY = radius * std::sin(0.09f * t);
+            k.leadZ = top - 40.0f + 0.4f * t;
+            Tick(w, k);
+        }
+        CHECK(w.state == State::Running && w.step == static_cast<std::size_t>(leg));
+        k.leadX = 0;
+        k.leadY = 0;
+        k.leadZ = top;
+        Tick(w, k);
+        k.leadX = 80;
+        k.leadY = 0;
+    }
+    CHECK(w.state == State::Done);
+    // Movement alone is bounded: a lead bot walking back and forth between two spots 30 yd apart, never nearer, is
+    // stuck after kWalkMovingCapMs as before (then the walk's tries).
+    Run o = Start(&plan);
+    Facts g = Party(80, 0, 0);
+    g.seen = true;
+    Tick(o, g);
+    int ticks = 0;
+    for (; ticks < 400 && o.state == State::Running; ++ticks)
+    {
+        g.leadX = (ticks / 4) % 2 ? 110.0f : 80.0f;
+        Tick(o, g);
+    }
+    CHECK(o.state == State::Paused && o.note.find("the lead bot is stuck") == 0);
+    CHECK(ticks * kTickMs >= kWalkMovingCapMs);
+    // Standing still: the old stuck pause after the walk's tries (kWalkTries x kWalkRetryMs).
+    Run st = Start(&plan);
+    Facts h = Party(80, 0, 0);
+    h.seen = true;
+    int still = 0;
+    for (; still < 200 && st.state == State::Running; ++still)
+        Tick(st, h);
+    CHECK(st.state == State::Paused && still * kTickMs <= kWalkTries * kWalkRetryMs + 2 * kTickMs);
+}
+
 int main()
 {
     TestWipeWalkBackOnAGnomereganShapedPlan();
@@ -834,6 +918,7 @@ int main()
     TestRestLinesFollowTheNextFight();
     TestMealWaitUnderTheLightLines();
     TestFightForwardPullsFromWhereTheTankStands();
+    TestSpiralRampWalkIsNotStuck();
     std::cout << "test_run_time_sinks_policy: ok\n";
     return 0;
 }

@@ -153,6 +153,11 @@ constexpr std::uint32_t kMaxTooFarLegs = 6;       // ... at most this many per w
 constexpr float kLegProgressYd = 5.0f;            // a leg stalled after this much way toward it is done (else: a stall)
 constexpr float kLegRepeatYd = 3.0f;              // a next leg ending this close to the last one is not sent (the pause)
 constexpr float kWalkProgressYd = 2.0f;
+// A walk whose lead bot moves (kWalkProgressYd from its spot at the last progress) without getting nearer to the point
+// still makes progress, for at most this long in all of one walk (Gnomeregan r27 slot 4 steps 583 and 610: three
+// pauses "the lead bot is stuck 82.8 / 87.5 / 104.9 yd from -760 552 -290.7 (... path type 0x1; its own move not
+// failing)" while the lead bot walked up the long spiral ramp, its straight distance growing; each resume went on).
+constexpr std::uint32_t kWalkMovingCapMs = 120000;
 constexpr std::uint32_t kRestWalkResendMs = 3000; // the first walk after a rest not started this long: sent again, once (Run::restWalkDue)
 // An exact waypoint (ai::kPlanFlagExact on a move row: the point a direct step
 // after it is launched from; ExactWalkTo). The Wailing Caverns hop to Lord
@@ -1284,6 +1289,10 @@ struct Run
     // The step before was a pull or boss whose fight the party won (FightStep: "pack cleared", "boss down" after a
     // pull went out): the next tick may pull the next pack from where the tank stands (FightForwardTick).
     bool fightForwardDue = false;
+    // The walk's own-movement watch (WalkTo, kWalkMovingCapMs): the lead bot's spot at its last progress, and how long
+    // the walk has been kept alive by movement alone (no new best distance to the point).
+    float walkMoveX = 0.0f, walkMoveY = 0.0f, walkMoveZ = 0.0f;
+    std::uint32_t walkMovingMs = 0;
     // The route checkpoint (run-wide: kept across steps, wipes and regroups):
     // the plan index of the move or direct step point the lead bot reached
     // last, its step done or a walk back's point (npos: none yet). The lead
@@ -4734,15 +4743,33 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         r.stallStandInWanted = false;
         r.legOn = false;
         r.walkLegs = 0;
+        r.walkMoveX = f.leadX;
+        r.walkMoveY = f.leadY;
+        r.walkMoveZ = f.leadZ;
+        r.walkMovingMs = 0;
         order = MoveOrder(x, y, z, direct);
         return false;
     }
     r.walkStillMs += dt;
+    bool const moved = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.walkMoveX, r.walkMoveY, r.walkMoveZ) >= kWalkProgressYd;
     if (dist < r.walkBestYd - kWalkProgressYd)
     {
         r.walkBestYd = dist;
         r.walkStillMs = 0;
         r.restWalkDue = false; // the lead bot took the walk
+    }
+    else if (moved && r.walkMovingMs < kWalkMovingCapMs)
+    {
+        // Moving on a way that leads away first (a spiral ramp): progress, within the cap.
+        r.walkMovingMs += r.walkStillMs;
+        r.walkStillMs = 0;
+        r.restWalkDue = false;
+    }
+    if (moved)
+    {
+        r.walkMoveX = f.leadX;
+        r.walkMoveY = f.leadY;
+        r.walkMoveZ = f.leadZ;
     }
     // A leg of a move refused too-far (TooFarLegTaken) walked, or stalled after at least
     // kLegProgressYd of way toward it: the walk's own point goes out again from here (in
