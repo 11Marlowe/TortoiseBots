@@ -731,4 +731,3 @@ void StripGmBadgeColor(std::string& text)
 }
 
 } // namespace ai
-

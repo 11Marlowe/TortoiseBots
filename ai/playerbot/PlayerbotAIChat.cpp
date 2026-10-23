@@ -614,4 +614,3 @@ void PlayerbotAI::Poi(float x, float y, std::string icon_name, Player* player, u
 
     sServerFacade.SendPacket(player, data);
 }
-

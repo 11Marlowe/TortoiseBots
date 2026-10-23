@@ -2057,4 +2057,3 @@ uint32 PlayerbotAI::GetBuffedCount(Player* player, std::string spellname)
     }
     return bcount;
 }
-

@@ -1121,4 +1121,3 @@ void PlayerbotAI::EnchantItemT(uint32 spellid, uint8 slot, Item* item)
 
    sLog.outDetail("%s: items was enchanted successfully!", bot->GetName());
 }
-

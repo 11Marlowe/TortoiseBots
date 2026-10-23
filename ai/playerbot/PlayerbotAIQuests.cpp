@@ -177,4 +177,3 @@ std::vector<std::pair<const Quest*, uint32>> PlayerbotAI::GetCurrentQuestsRequir
 
     return result;
 }
-
