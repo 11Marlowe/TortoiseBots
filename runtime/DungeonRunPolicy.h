@@ -863,6 +863,10 @@ struct Run
     // clears it), so a resume of its pause never hops the same way again.
     // approachStand: 0 none, 1 the glue searches (approachStandWanted), 2 a stand found,
     // 4 walking to it, 3 spent (none found, or the stand did not bring the pack in sight).
+    // The moves of the last 'three moves in a row had no walkable path' pause
+    // (MoveRefusedUnreachable): the run went back to the first of them; the same three
+    // failing again pause with the route note instead of a skip of three more.
+    std::vector<std::size_t> noPathSkips;
     std::size_t approachStandStep = static_cast<std::size_t>(-1);
     std::uint8_t approachStand = 0;
     bool approachStandWanted = false;
@@ -5452,6 +5456,20 @@ inline std::size_t NearestMovePoint(const Run& r, const Facts& f)
     return idx;
 }
 
+// The last plan step before `idx` whose point the lead bot reached: the route checkpoint
+// when it is known and before `idx`, else the last move point before it (where a walk
+// back goes, StartWalkBack); npos for none.
+inline std::size_t LastReachedBefore(const Run& r, std::size_t idx)
+{
+    if (r.routeKnown && r.checkpoint != static_cast<std::size_t>(-1) && r.checkpoint < idx)
+        return r.checkpoint;
+    std::size_t last = static_cast<std::size_t>(-1);
+    for (std::size_t i = 0; i < idx && i < r.plan->steps.size(); ++i)
+        if (IsMovePoint(r.plan->steps[i]))
+            last = i;
+    return last;
+}
+
 // The last pull or boss step of the party's team after plan step `after` and before the
 // current step that the party cleared (not skipped, not left out of reach: notCleared),
 // npos for none: the last point the run reached by fighting there (StartWalkBack).
@@ -5508,6 +5526,15 @@ inline void StartWalkBack(Run& r, const Facts& f)
     for (std::size_t i = 0; i < r.step; ++i)
         if (IsMovePoint(r.plan->steps[i]))
             last = i;
+    // After a 'three moves in a row had no walkable path' pause (Run::noPathSkips, the run
+    // back at the first of them): the last point the lead bot really reached, when that is
+    // a plain move's (LastReachedBefore), not a move point it never reached.
+    if (!r.noPathSkips.empty() && r.step == r.noPathSkips.front())
+    {
+        std::size_t const reached = LastReachedBefore(r, r.step);
+        if (reached != static_cast<std::size_t>(-1) && r.plan->steps[reached].kind == PlanStepKind::Move)
+            last = reached;
+    }
     if (last == r.step)
         return;
     const PlanStep& p = r.plan->steps[last];
@@ -6517,15 +6544,38 @@ inline bool MoveRefusedUnreachable(Run& r, const std::string& order, const std::
     r.unreachableSkips = skips;
     // Three in a row (no step done in between): the lead bot is likely in the
     // wrong part of the instance, and every next move would be skipped too.
+    // Razorfen Kraul r24 slot 8 steps 331-343: the pause came at 334, and each resume
+    // skipped three more from the same spot (pauses at 337, 340, 343; the lead bot never
+    // moved). The run now goes back to the first of them, so a resume walks the lead bot
+    // back to the last point it reached (the walk back's last move point before them)
+    // and tries them again; the same three failing again pause with the route note, the
+    // run still at the first of them: never a skip of three more.
     if (r.state == State::Running && skips.size() >= kUnreachableSkipsInARow)
     {
         std::string steps;
         for (std::size_t i = 0; i < skips.size(); ++i)
             steps += (i ? (i + 1 == skips.size() ? " and " : ", ") : "") + std::to_string(skips[i] + 1);
-        r.unreachableSkips.clear();
-        Pause(r, "three moves in a row had no walkable path: the lead bot may be in the wrong part of the instance "
-            "(steps " + steps + " skipped; the lead bot at " + Num(r.leadLastX) + " " + Num(r.leadLastY) + " " +
-            Num(r.leadLastZ) + ")");
+        std::size_t const first = skips.front();
+        std::size_t const reached = LastReachedBefore(r, first);
+        bool const same = r.noPathSkips == skips;
+        r.noPathSkips = skips;
+        std::string const lead = Num(r.leadLastX) + " " + Num(r.leadLastY) + " " + Num(r.leadLastZ);
+        std::string const back = reached == static_cast<std::size_t>(-1) ? std::string("the plan's start")
+                                                                         : "step " + std::to_string(reached + 1);
+        r.step = first;
+        r.autoRegroups = 0;
+        ResetStep(r);
+        ForgetMoveRefusals(r);
+        if (same)
+            Pause(r, "the same three moves had no walkable path again (steps " + steps + "; the lead bot at " + lead +
+                "): the way on from " + back + ", the last point the lead bot reached, needs a fix in the plan (a ramp "
+                "or a waypoint); the run stays at step " + std::to_string(first + 1) + ", a resume tries them again from " +
+                back);
+        else
+            Pause(r, "three moves in a row had no walkable path: the lead bot may be in the wrong part of the instance "
+                "(steps " + steps + " skipped; the lead bot at " + lead + "): the run went back to step " +
+                std::to_string(first + 1) + "; a resume walks the lead bot back to " + back +
+                ", the last point it reached, and tries them again");
     }
     return true;
 }

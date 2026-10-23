@@ -9469,9 +9469,10 @@ static void TestR22ThreeSkipsInARowPause()
     GlueRefused(r, "move 80.0 0.0 0.0", kBareUnreachable, false);
     CHECK(r.state == State::Running && r.step == 2 && r.unreachableSkips.size() == 2);
     GlueRefused(r, "move 120.0 0.0 0.0", kBareUnreachable, false);
-    CHECK(r.state == State::Paused && r.step == 3);
+    CHECK(r.state == State::Paused && r.step == 0); // back to the first of them (TestNoPathPauseResumeTriesTheSameMovesAgain)
     CHECK(r.note == "three moves in a row had no walkable path: the lead bot may be in the wrong part of the instance "
-                    "(steps 1, 2 and 3 skipped; the lead bot at 1.5 2.0 3.0)");
+                    "(steps 1, 2 and 3 skipped; the lead bot at 1.5 2.0 3.0): the run went back to step 1; a resume "
+                    "walks the lead bot back to the plan's start, the last point it reached, and tries them again");
     // After the resume the count starts over: the next skip does not pause.
     CHECK(Resume(r));
     CHECK(r.unreachableSkips.empty());
@@ -9486,6 +9487,76 @@ static void TestR22ThreeSkipsInARowPause()
     GlueRefused(c, "move 120.0 0.0 0.0", kBareUnreachable, false);
     GlueRefused(c, "move 160.0 0.0 0.0", kBareUnreachable, false);
     CHECK(c.state == State::Running && c.step == 4 && c.unreachableSkips.size() == 2);
+}
+
+// Razorfen Kraul r24 slot 8 steps 331-343: 'three moves in a row had no walkable path'
+// paused at 334, and each resume skipped three more from the same spot (337, 340, 343;
+// the lead bot never moved). The pause now sends the run back to the first of them; the
+// resume walks the lead bot back to the last point it reached and tries them again; the
+// same three failing again pause with the route note, still at the first of them.
+static void TestNoPathPauseResumeTriesTheSameMovesAgain()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 80), Step(PlanStepKind::Move, 120),
+        Step(PlanStepKind::Move, 160), Step(PlanStepKind::Move, 200), Step(PlanStepKind::Move, 240),
+        Step(PlanStepKind::Move, 280), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan, 1);
+    NoteCheckpoint(r, 0); // step 1 reached
+    r.leadLastX = 52.0f;
+    auto refuse3 = [&](Run& run, int from)
+    {
+        for (int i = from; i < from + 3; ++i)
+            GlueRefused(run, "move " + Num(40.0f * (i + 1)) + " 0.0 0.0", kBareUnreachable, false);
+    };
+    refuse3(r, 1);
+    CHECK(r.state == State::Paused && r.step == 1 && r.noPathSkips == std::vector<std::size_t>({1, 2, 3}));
+    CHECK(r.note.find("three moves in a row had no walkable path: the lead bot may be in the wrong part of the instance "
+        "(steps 2, 3 and 4 skipped; the lead bot at 52.0 0.0 0.0): the run went back to step 2; a resume walks the lead "
+        "bot back to step 1, the last point it reached, and tries them again") == 0);
+    // The resume: the walk back goes to step 1's point, then step 2's move goes out again.
+    CHECK(Resume(r));
+    Facts f = Party(52);
+    std::string const back = Tick(r, f);
+    CHECK(r.walkBack && r.walkBackIdx == 0);
+    std::string sent = back;
+    for (int i = 0; i < 6 && sent != "move 80.0 0.0 0.0"; ++i)
+    {
+        if (sent == "move 40.0 0.0 0.0")
+            f.leadX = 40; // walked back to step 1's point
+        sent = Tick(r, f);
+    }
+    CHECK(sent == "move 80.0 0.0 0.0" && r.step == 1 && !r.walkBack);
+    // The same three refused again: the route note, still at step 2, nothing skipped past them.
+    r.leadLastX = 40.0f;
+    refuse3(r, 1);
+    CHECK(r.state == State::Paused && r.step == 1);
+    CHECK(r.note.find("the same three moves had no walkable path again (steps 2, 3 and 4; the lead bot at 40.0 0.0 0.0): "
+        "the way on from step 1, the last point the lead bot reached, needs a fix in the plan (a ramp or a waypoint); "
+        "the run stays at step 2, a resume tries them again from step 1") == 0);
+    // And again: never past them.
+    CHECK(Resume(r));
+    refuse3(r, 1);
+    CHECK(r.state == State::Paused && r.step == 1 && r.note.find("the same three moves") == 0);
+    // Three others (the party got on): the first pause's note and its rewind, for those.
+    Run o = Start(&plan, 1);
+    o.noPathSkips = {1, 2, 3};
+    o.step = 4;
+    refuse3(o, 4);
+    CHECK(o.state == State::Paused && o.step == 4 && o.note.find("three moves in a row") == 0);
+    CHECK(LastReachedBefore(o, 4) == 3); // no checkpoint known: the last move point before them
+    NoteCheckpoint(o, 0); // the checkpoint when known: steps 2-4 were skipped, never reached
+    CHECK(LastReachedBefore(o, 4) == 0);
+    // The resume's walk back goes to that reached point, not to the never-reached move point 4 before them.
+    Run k = Start(&plan, 4);
+    NoteCheckpoint(k, 0);
+    k.noPathSkips = {4, 5, 6};
+    Facts far = Party(400);
+    StartWalkBack(k, far);
+    CHECK(k.walkBack && k.walkBackIdx == 0);
+    Run n = Start(&plan, 4); // no such pause: the last move point before the step, as before
+    NoteCheckpoint(n, 0);
+    StartWalkBack(n, far);
+    CHECK(n.walkBack && n.walkBackIdx == 3);
 }
 
 static void TestR22PullAndDirectStepsKeepTheirRefusals()
@@ -14840,6 +14911,7 @@ int main()
     TestR22SecondRefusalOfTheStepSkips();
     TestR22PullAndDirectStepsKeepTheirRefusals();
     TestR22ThreeSkipsInARowPause();
+    TestNoPathPauseResumeTriesTheSameMovesAgain();
     TestR22MoveBeforeAFightIsNotSkipped();
     TestR22RewindForgetsMoveRefusals();
     TestR22RealStep85ApproachStandPauses();

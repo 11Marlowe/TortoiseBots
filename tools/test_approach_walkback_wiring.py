@@ -10,7 +10,10 @@ tools/test_dungeon_run_policy.cpp; this pins the glue in commands/BotCommands.cp
   ReactDistance sends a leg along the lead bot's navmesh path (LegOnPath, never a
   shortcut) instead of the pause, and only a refused leg falls back to OrderRefused;
 - the walk back (DungeonRun::StartWalkBack) after a regroup is left out beside the
-  last pull or boss cleared (LastClearedFight), after the navmesh-hole rule.
+  last pull or boss cleared (LastClearedFight), after the navmesh-hole rule;
+- the 'three moves in a row had no walkable path' pause (MoveRefusedUnreachable) sends
+  the run back to the first of them and its resume walks back to the last point
+  reached (LastReachedBefore in StartWalkBack); no glue of its own.
 """
 import pathlib
 import unittest
@@ -91,6 +94,18 @@ class WalkBackTargetWiringTest(unittest.TestCase):
         self.assertLess(hole, cleared)
         self.assertLess(cleared, fn.index("r.walkBack = true;\n    r.walkBackDirect = true;\n    r.walkBackIdx = last;"))
         self.assertIn("!r.notCleared.count(i)", body(POLICY, "inline std::size_t LastClearedFight(", "\n}\n"))
+
+
+class NoPathPauseWiringTest(unittest.TestCase):
+    def test_pause_rewinds_and_walk_back_uses_the_reached_point(self):
+        fn = body(POLICY, "inline bool MoveRefusedUnreachable(", "\n}\n")
+        block = fn[fn.index("if (r.state == State::Running && skips.size() >= kUnreachableSkipsInARow)"):]
+        self.assertLess(block.index("r.step = first;"), block.index("Pause(r,"))
+        self.assertIn("ForgetMoveRefusals(r);", block)
+        self.assertIn("bool const same = r.noPathSkips == skips;", block)
+        walk = body(POLICY, "inline void StartWalkBack(Run& r, const Facts& f)", "\n}\n")
+        self.assertLess(walk.index("std::size_t const reached = LastReachedBefore(r, r.step);"),
+                        walk.index("const PlanStep& p = r.plan->steps[last];"))
 
 
 if __name__ == "__main__":
