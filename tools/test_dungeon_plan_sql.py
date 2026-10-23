@@ -315,26 +315,57 @@ class DungeonPlanSql(unittest.TestCase):
                          [("61982", ""), ("3975", "")])
 
     def test_scarlet_cathedral_is_the_wing_with_the_healer_fix(self):
-        # 20261023030100 (cathedral census 2026-10-23): 3 legs, 53 pulls, 3 bosses; the three healers are kill_first and no pack
-        # depends on cc_always; Fairbanks' Monk is boss.first; the 0.4 double pull is gone and five radii are cut (9-14).
+        # 20261023090000 (turtle-agent cath-fix2, after r23 slot 5): 2 legs, 78 steps, 3 bosses; the pack fixes of
+        # 20261023030100 stay (fleers, kill_first the three healers, no cc_always, Fairbanks' Monk as boss.first, the 0.4
+        # double pull gone, five radii 9-14). The Mograine/Whitemane event broke in the run (Whitemane at 1 HP, the pair on
+        # two legs, the boss corpse found 10 min late): the pair is now one boss hold (instance data 1, script value 4, flag 8
+        # alone, radius 35, 600 s, entries 3976 3977) and the separate Whitemane leg is gone; the four entrance-hall packs
+        # moved into the Fairbanks leg, so the run does not walk back to the door before Mograine; the chapel packs are
+        # pulled from stands more than 30 yd from him (detection 20 yd, his aggro calls every Scarlet within 82 yd).
         name, text = newest_plan_text("scarlet_cathedral")
-        self.assertEqual(name, "20261023030100_world.sql")
+        self.assertEqual(name, "20261023090000_world.sql")
         self.assertIn("('scarlet_cathedral', 189, '', '', '4303,4300,4299', 'turtle-agent ", text)
         rows = [r for r in self.step_rows(text) if r["plan"] == "scarlet_cathedral"]
-        self.assertEqual(len(rows), 99)
-        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (0, 1, 2)}, {0: 25, 1: 72, 2: 2})
-        pulls = {leg: [(r["entries"], r["radius"], r["x"], r["y"]) for r in leg_steps(rows, leg) if r["kind"] == "pull"] for leg in (0, 1, 2)}
-        self.assertEqual([len(pulls[0]), len(pulls[1]), len(pulls[2])], [5, 48, 0])
+        self.assertEqual(len(rows), 78)
+        self.assertEqual(leg_rows(text, "scarlet_cathedral"),
+                         {0: ("high_inquisitor_fairbanks", ""), 1: ("scarlet_commander_mograine", "")})
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (0, 1)}, {0: 25, 1: 53})
+        pulls = {leg: [(r["entries"], r["radius"], r["x"], r["y"]) for r in leg_steps(rows, leg) if r["kind"] == "pull"] for leg in (0, 1)}
+        self.assertEqual([len(pulls[0]), len(pulls[1])], [9, 44])
         self.assertIn(("4300,4301,4302", "10", "1140.18", "1340.5"), pulls[0])   # the 0.5 pack, no duplicate 0.4 row
+        # The four entrance-hall packs (x 865-890) are Fairbanks-leg pulls now; they were leg 1's last pulls, 250 yd back.
+        for hall in (("4298", "15.7", "870.88", "1359.36"), ("4298,4295", "12.5", "870.85", "1406.03"),
+                     ("4294,4295", "11.9", "889.97", "1376.13"), ("4298", "10", "890.28", "1360.67")):
+            self.assertIn(hall, pulls[0])
+            self.assertNotIn(hall, pulls[1])
         self.assertIn(("4303,4540", "9", "1131.07", "1406.46"), pulls[1])         # group 1
         self.assertIn(("4540,4302,4303", "10", "1114", "1400.55"), pulls[1])      # group 2
         self.assertIn(("4303,4540", "10", "1093.91", "1406.32"), pulls[1])        # group 3
         self.assertIn(("4301,4302", "10", "1101.94", "1422.63"), pulls[1])        # group 37
         self.assertIn(("4300,4301,4302", "14", "1112.35", "1376.42"), pulls[1])   # group 43
         self.assertFalse([r for r in pulls[0] if r[2] == "1134.68" and r[3] == "1338.78"])
+        # The pair is one hold and it ends the plan: entry 1 is the instance data, param 4 its script value (0 not started,
+        # 1 in progress, 2 Mograine died once, 3 revived, 4 both dead: not an encounter state, so flag 8 alone, never 40), and
+        # both entries are the event's mobs.
+        holds = [r for r in rows if r["kind"] == "hold"]
+        self.assertEqual(len(holds), 1)
+        h = holds[0]
+        self.assertEqual((h["leg"], h["seq"], h["entry"], h["param"], h["flags"], h["radius"], h["timeout_s"], h["entries"]),
+                         ("1", "52", "1", "4", "8", "35", "600", "3976,3977"))
+        self.assertEqual((h["x"], h["y"], h["z"]), ("1140", "1398", "31.0314"))
+        self.assertEqual(leg_steps(rows, 1)[-1]["kind"], "hold")
+        self.assertAlmostEqual(dist(h, 1153.87, 1398.39), 13.9, places=1)  # 14 yd west of Mograine, 62 yd off Whitemane
+        # No boss row for Whitemane and no row on her spawn (the pair is fought where Mograine stands).
         self.assertEqual([(r["entry"], r["entries"], r["x"], r["y"]) for r in rows if r["kind"] == "boss"],
-                         [("4542", "4540", "1158.86", "1354.27"), ("3976", "", "1153.87", "1398.39"),
-                          ("3977", "", "1202.13", "1399.07")])
+                         [("4542", "4540", "1158.86", "1354.27")])
+        self.assertFalse([r for r in rows if r["x"] == "1202.13" and r["y"] == "1399.07"])
+        # Every chapel stand in leg 1 (an approach move) keeps more than 30 yd from Mograine.
+        stands = [r for r in leg_steps(rows, 1) if r["kind"] == "move" and r["comment"].endswith("approach")]
+        self.assertEqual(len(stands), 7)
+        for r in stands:
+            self.assertGreater(dist(r, 1153.87, 1398.39), 30.0, r["comment"])
+        # The boss table's DELETE is scoped to this wing's three entries, never all of map 189 (four plans share the map).
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (189) AND `entry` IN (4542, 3976, 3977);", text)
 
     def test_scarlet_graveyard_is_the_wing_with_the_census_fixes(self):
         # 20261023060000 (graveyard census 2026-10-23, then r23 slot 6): 5 legs, 47 pulls, 4 bosses; 6547 (faction 68 Horde
@@ -857,6 +888,27 @@ class DungeonPlanSql(unittest.TestCase):
             run = subprocess.run([binary], input="\n".join(lines) + "\n", capture_output=True, text=True)
         self.assertEqual(run.stdout.strip().splitlines()[-1], "rows %d refused 0" % sum(counts.values()), run.stdout)
         self.assertEqual(run.returncode, 0, run.stdout)
+
+    def test_scarlet_cathedral_rows_pass_the_loader_checks(self):
+        # The row the whole fix rests on (the pair's hold, entry 1 param 4 flags 8) goes through the loader's own code with the
+        # rest of the plan: NormalizePlanStep takes param 4 as a script value (flag 8 without 32), keeps radius 35 and 600 s,
+        # and a refused row would leave the run pausing before Mograine and Whitemane.
+        compiler = shutil.which("g++")
+        if compiler is None:
+            self.skipTest("g++ is not installed")
+        _name, text = newest_plan_text("scarlet_cathedral")
+        rows = [r for r in self.step_rows(text) if r["plan"] == "scarlet_cathedral"]
+        lines = ["P\tscarlet_cathedral\t%d" % BOSS_PLANS["scarlet_cathedral"]]
+        for r in rows:
+            lines.append("\t".join(["S", r["plan"], r["leg"], r["seq"], r["kind"], r["entry"], r["x"], r["y"], r["z"], r["radius"], r["item"],
+                                    r["param"], r["flags"], r["timeout_s"], r["entries"]]))
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = os.path.join(tmp, "rows")
+            build = subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", os.path.join(ROOT, "tools/test_dungeon_plan_rows.cpp"), "-o", binary],
+                                   capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([binary], input="\n".join(lines) + "\n", capture_output=True, text=True)
+        self.assertEqual(run.stdout.strip().splitlines()[-1], "rows %d refused 0" % len(rows), run.stdout)
 
     def test_inserted_step_kinds_are_known(self):
         for name, text in migrations():
