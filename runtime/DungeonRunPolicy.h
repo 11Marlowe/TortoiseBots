@@ -695,10 +695,37 @@ struct Facts
     // for the next hop passes an uncleared pull or boss group
     // (PathCrossesUnclearedPack); the shortcut is dropped for the replay.
     bool directPathCrossesPack = false;
-    // ... and the navmesh path the glue read for that hop is partial (PATHFIND_INCOMPLETE: it ends short of the
-    // point, on a ledge or a dead end). A straight walk back then replays the plan's own points (Razorfen Kraul r27
-    // slot 8: the hops toward the den at z 63 climbed to a ledge at z 104 with no way down, three times).
+    // ... and the navmesh path the glue read for that hop ends short of the point (PathEndsShort: no path, or partial
+    // and ending more than kPathShortYd from it or kPathShortDzYd above or below it; a bare PATHFIND_INCOMPLETE is
+    // also set at the path finder's polygon cap and for a point just off the mesh, and does not count). A straight
+    // walk back then replays the plan's own points (Razorfen Kraul r27 slot 8: the hops toward the den at z 63
+    // climbed to a ledge at z 104 with no way down, three times).
     bool approachIncomplete = false;
+    // AiPlayerbot.DungeonRunWalkBackRescue (default 1): a stuck walk back, and a placed run's lead bot revived behind
+    // its start step, are teleported to a safe point (WalkBackStuckRescue, PlacedRunRescue). Off: the old pause.
+    bool walkBackRescue = true;
+    // AiPlayerbot.DungeonRunFightForward (default 1): FightForwardTick may leave the moves to a close pack out.
+    bool fightForward = true;
+    // AiPlayerbot.DungeonRunLightRest (default 1): the light rest lines before a small pull (LightRestAhead). Off:
+    // the full lines everywhere, as before.
+    bool lightRest = true;
+    // Fight forward's way, read by the glue on the tick after the policy asked (Run::fightForwardWanted) for that
+    // pull step (forwardFor): the lead bot's navmesh path to the pack's point does not end short (PathEndsShort) and
+    // is at most kPathDetourFactor times the straight line (forwardPathOk); the lead bot sees the pack's point
+    // (forwardLos); a living hostile creature that is not one of the pack's own stands within its aggro radius plus
+    // kForwardAggroMarginYd of that path (forwardHostileNear); a living hostile stands within kHopPullYd of a move
+    // point left out (forwardHopAlive).
+    bool forwardRead = false;
+    std::size_t forwardFor = static_cast<std::size_t>(-1);
+    bool forwardPathOk = false;
+    bool forwardLos = false;
+    bool forwardHostileNear = false;
+    bool forwardHopAlive = false;
+    // The replay's shortcut (RouteShortcut), read the same way (Run::shortcutWanted) for that point (shortcutFor): the
+    // lead bot's navmesh path to it does not end short and is at most kPathDetourFactor times the straight line.
+    bool shortcutRead = false;
+    std::size_t shortcutFor = static_cast<std::size_t>(-1);
+    bool shortcutOk = false;
     // In a fight, when the plan has kill_first: its living, not friendly units
     // from the bots' own attacker lists (a summoned healing ward included).
     std::vector<UnitFact> killFirst;
@@ -1289,6 +1316,11 @@ struct Run
     // The step before was a pull or boss whose fight the party won (FightStep: "pack cleared", "boss down" after a
     // pull went out): the next tick may pull the next pack from where the tank stands (FightForwardTick).
     bool fightForwardDue = false;
+    std::size_t fightForwardWanted = static_cast<std::size_t>(-1); // the pull step whose way the glue reads next tick
+    std::size_t shortcutWanted = static_cast<std::size_t>(-1);     // the replay point whose path the glue reads next tick
+    std::size_t shortcutFrom = static_cast<std::size_t>(-1);       // ... and the point reached before it
+    bool bigPackDue = false;  // a big pack seen with the estimate off: rested to the full lines first (BigPackRest)
+    std::size_t bigPackStep = static_cast<std::size_t>(-1); // ... once a step
     // The walk's own-movement watch (WalkTo, kWalkMovingCapMs): the lead bot's spot at its last progress, and how long
     // the walk has been kept alive by movement alone (no new best distance to the point).
     float walkMoveX = 0.0f, walkMoveY = 0.0f, walkMoveZ = 0.0f;
@@ -4469,6 +4501,17 @@ inline RestLines LightLines(const RestLines& full)
 
 inline const PlanStep* EventHoldAhead(const Run& r);
 inline bool InEvent(const Run& r);
+inline std::size_t OpenUnits(const Run& r, const std::vector<UnitFact>& units);
+
+// With the aggro estimate off (Facts::joinerCeiling 0): a pull step still to be pulled whose pack in sight has
+// kBigPackUnits open units or more (the Opus review of 0d9957be: a big pack had only the estimate to show it).
+constexpr std::size_t kBigPackUnits = 5;
+
+inline bool BigPackHere(const Run& r, const Facts& f, const PlanStep& s, bool stepOver)
+{
+    return f.joinerCeiling == 0 && s.kind == PlanStepKind::Pull && !stepOver && f.seen &&
+        OpenUnits(r, f.units) >= kBigPackUnits;
+}
 
 // Whether the next fight needs only the light lines (see above). From step `from` on (the current step, or the one
 // after it when the current pull or boss has nothing left: TickBody), at most kRestLookaheadSteps steps.
@@ -4674,37 +4717,54 @@ inline bool StallFallback(Run& r, const Facts& f, float x, float y, float z, boo
     return false;
 }
 
+inline std::size_t StraightWalkBackTarget(const Run& r, std::uint32_t team, std::size_t last);
+
+// The rescue teleport's bounds (StrandedLead's): out of combat, at most once a step, kStrandTries failed tries a step,
+// AiPlayerbot.DungeonRunWalkBackRescue on. Then it is due to plan point `target` (the walk back goes on from there).
+inline bool RescueAllowed(const Run& r, const Facts& f)
+{
+    return f.walkBackRescue && r.state == State::Running && r.plan && !f.anyInCombat && !r.strandDue && !r.strandOn &&
+        r.strandStep != r.step && !(r.strandCountStep == r.step && r.strandTries >= kStrandTries);
+}
+
+inline void RescueDue(Run& r, const Facts& f, std::size_t target)
+{
+    StrandCountsForStep(r);
+    r.strandDue = true;
+    r.strandIdx = target;
+    r.strandX = f.leadX;
+    r.strandY = f.leadY;
+    r.strandZ = f.leadZ;
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = target; // the walk back goes on from the point it is teleported to
+    r.walkBackDirect = false;
+    r.approachHops = 0;
+    EnterPhase(r, Phase::Begin);
+}
+
 // A walk back whose lead bot is stuck short of its point (the walk's tries spent) is not paused: the lead bot is
-// teleported to the last point it reached on the plan (LastReachedBefore: the route checkpoint, else the last move
-// point before the step) by the stranded lead bot's rescue (StrandedTeleportTick), and the walk back goes on from
-// there. Razorfen Kraul r27 slot 8: after each of three wipes the walk back's hops ended on a ledge at z 104, 37-50 yd
+// teleported to a safe point by the stranded lead bot's rescue (StrandedTeleportTick): the last point it reached on
+// the plan (LastReachedBefore: the route checkpoint, else the last move point before the step), or, when a live pack
+// is near that one, the latest point before it out of every live pack's reach (StraightWalkBackTarget; never the stand
+// beside the pack that wiped the party: the Opus review of 0d9957be), and the walk back goes on from there. The party
+// left behind is summoned to it only out of combat (StrandedTeleportTick waits for a bot that fights). Razorfen Kraul r27 slot 8: after each of three wipes the walk back's hops ended on a ledge at z 104, 37-50 yd
 // above the den, and paused "the lead bot is stuck 51.7 yd from 2078.0 1961.0 63.1"; a resume did nothing. Out of
 // combat only, at most once a step and kStrandTries failed tries a step (as StrandedLead), and never with the lead
 // bot at that point already. True when the rescue is due.
 inline bool WalkBackStuckRescue(Run& r, const Facts& f, float dist, float x, float y, float z)
 {
-    if (r.state != State::Running || !r.plan || !r.walkBack || r.walkBackIdx >= r.step || f.anyInCombat ||
-        r.strandDue || r.strandOn || r.strandStep == r.step ||
-        (r.strandCountStep == r.step && r.strandTries >= kStrandTries))
+    if (!r.walkBack || !RescueAllowed(r, f) || r.walkBackIdx >= r.step)
         return false;
     std::size_t const last = LastReachedBefore(r, r.step);
     if (last == static_cast<std::size_t>(-1) || last >= r.plan->steps.size())
         return false;
-    const PlanStep& p = r.plan->steps[last];
+    std::size_t const target = StraightWalkBackTarget(r, f.team, last);
+    const PlanStep& p = r.plan->steps[target];
     if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) <= kArriveYd)
         return false;
-    StrandCountsForStep(r);
-    r.strandDue = true;
-    r.strandIdx = last;
-    r.strandX = f.leadX;
-    r.strandY = f.leadY;
-    r.strandZ = f.leadZ;
-    r.walkBackIdx = r.walkBackStart = last; // the walk back goes on from the point it is teleported to
-    r.walkBackDirect = false;
-    r.approachHops = 0;
-    EnterPhase(r, Phase::Begin);
+    RescueDue(r, f, target);
     r.note = "walk back: the lead bot is stuck " + Num(dist) + " yd from " + Num(x) + " " + Num(y) + " " + Num(z) +
-        StuckNote(r, f) + ": it is teleported to the last reached point (step " + std::to_string(last + 1) +
+        StuckNote(r, f) + ": it is teleported to a safe point on the way it came (step " + std::to_string(target + 1) +
         ") out of combat";
     return true;
 }
@@ -6577,6 +6637,7 @@ inline std::size_t FirstReplayPoint(const Run& r)
 inline bool ReplayWalkBack(Run& r, const Facts& f)
 {
     r.walkBackDirect = false;
+    r.shortcutWanted = r.shortcutFrom = static_cast<std::size_t>(-1);
     r.walkBack = false;
     r.approachHops = 0;
     const PlanStep* cur = Current(r);
@@ -6696,6 +6757,26 @@ constexpr std::uint32_t kStraightBackoffs = 2;
 constexpr float kStraightBackoffYd = 40.0f;
 constexpr float kRouteLinkYd = 12.0f;
 constexpr float kRouteLinkDzYd = 3.0f;
+// A navmesh path that "reaches" a point (PathEndsShort false), and one that is no detour (PathFitsStraight): the
+// Opus review of 0d9957be: the path finder sets PATHFIND_INCOMPLETE at its polygon cap (256) and for a point just
+// off the mesh too, so only an end far from the point (or on another floor) is short.
+constexpr float kPathShortYd = 10.0f;
+constexpr float kPathShortDzYd = 6.0f;
+constexpr float kPathDetourFactor = 1.3f;
+
+inline bool PathEndsShort(bool noPath, bool incomplete, float endX, float endY, float endZ, float x, float y, float z)
+{
+    if (noPath)
+        return true;
+    if (!incomplete)
+        return false;
+    return ai::PlanDistance(endX, endY, endZ, x, y, z) > kPathShortYd || std::fabs(endZ - z) > kPathShortDzYd;
+}
+
+inline bool PathFitsStraight(float pathYd, float straightYd)
+{
+    return pathYd <= kPathDetourFactor * std::max(straightYd, kArriveYd);
+}
 
 // Whether plan step `i` (a pull or boss of the party's team) is a live pack for the walk back: the current step and
 // later ones (LiveFrom), one left uncleared, or one before the run's start step.
@@ -6768,6 +6849,55 @@ inline std::size_t StraightWalkBackTarget(const Run& r, std::uint32_t team, std:
     return clear == static_cast<std::size_t>(-1) ? last : clear;
 }
 
+// A placed run's lead bot revived behind its start step (the lead's decision on round 1 of 0d9957be; Gnomeregan r27
+// slot 4: placed at step 543, revived at the entrance, the run never walked the steps between): the plan point
+// nearest it lies before the start step and none of the run's own points (start step to the current one) is within
+// kSeeYd of it. It is teleported at once to the first plain move point from the start step on that no live pack is
+// near (the safe-point rule of StraightWalkBackTarget), by the stranded lead bot's rescue (RescueDue), when the rescue
+// is allowed (RescueAllowed: AiPlayerbot.DungeonRunWalkBackRescue, out of combat, once a step). True when it is due.
+inline bool PlacedRunRescue(Run& r, const Facts& f)
+{
+    if (r.startStep == 0 || !RescueAllowed(r, f) || r.step <= r.startStep)
+        return false;
+    std::size_t nearest = static_cast<std::size_t>(-1);
+    float best = 0.0f, ownBest = -1.0f;
+    for (std::size_t i = 0; i < r.step && i < r.plan->steps.size(); ++i)
+    {
+        const PlanStep& p = r.plan->steps[i];
+        if (!IsMovePoint(p))
+            continue;
+        float const d = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
+        if (nearest == static_cast<std::size_t>(-1) || d < best)
+        {
+            nearest = i;
+            best = d;
+        }
+        if (i >= r.startStep && (ownBest < 0.0f || d < ownBest))
+            ownBest = d;
+    }
+    if (nearest == static_cast<std::size_t>(-1) || nearest >= r.startStep || (ownBest >= 0.0f && ownBest <= kSeeYd))
+        return false;
+    std::size_t target = static_cast<std::size_t>(-1);
+    for (std::size_t j = r.startStep; j < r.step && j < r.plan->steps.size(); ++j)
+    {
+        const PlanStep& p = r.plan->steps[j];
+        if (p.kind == PlanStepKind::MoveDirect)
+            break;
+        if (p.kind == PlanStepKind::Move && !PointNearLivePack(r, f.team, p.x, p.y, p.z))
+        {
+            target = j;
+            break;
+        }
+    }
+    if (target == static_cast<std::size_t>(-1))
+        return false;
+    RescueDue(r, f, target);
+    r.note = "walk back: the lead bot is up behind the run's start step (step " + std::to_string(r.startStep + 1) +
+        "; the plan point nearest it is step " + std::to_string(nearest + 1) + "): it is teleported to step " +
+        std::to_string(target + 1) + " out of combat";
+    return true;
+}
+
 // The point a replayed walk back goes on to after reaching point `i`: the latest plain move point k > i, before the
 // current step, within kRouteLinkYd on the ground and kRouteLinkDzYd up or down of point i, with no direct step, exact
 // point (or its launch) or uncleared pack between them; i + 1's turn (i itself) when there is none.
@@ -6825,6 +6955,7 @@ inline void StartWalkBack(Run& r, const Facts& f)
     r.walkBack = false;
     r.walkBackDirect = false;
     r.straightBackoffs = 0;
+    r.shortcutWanted = r.shortcutFrom = static_cast<std::size_t>(-1);
     const PlanStep* cur = Current(r);
     if (!cur)
         return;
@@ -6832,6 +6963,9 @@ inline void StartWalkBack(Run& r, const Facts& f)
     for (std::size_t i = r.startStep; i < r.step; ++i) // never a point before the run's start step
         if (IsMovePoint(r.plan->steps[i]))
             last = i;
+    // A placed run's lead bot up behind its start step: teleported to the run's first safe point (PlacedRunRescue).
+    if (PlacedRunRescue(r, f))
+        return;
     // After a 'three moves in a row had no walkable path' pause (Run::noPathSkips, the run
     // back at the first of them): the last point the lead bot really reached, when that is
     // a plain move's (LastReachedBefore), not a move point it never reached.
@@ -7075,6 +7209,20 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         return true;
     if (StrandedTeleportTick(r, f, dt, order))
         return true;
+    // The replay's shortcut asked for last tick (RouteShortcut): taken only on a direct navmesh path there.
+    if (r.shortcutWanted != static_cast<std::size_t>(-1))
+    {
+        std::size_t const to = r.shortcutWanted, from = r.shortcutFrom;
+        r.shortcutWanted = r.shortcutFrom = static_cast<std::size_t>(-1);
+        bool const take = f.shortcutRead && f.shortcutFor == to && f.shortcutOk && to > from + 1;
+        r.walkBackIdx = take ? to - 1 : from; // the next point is `to` itself, or the one after `from`
+        NextWalkBackPoint(r);
+        r.note = take ? "walk back: the route comes back by the point of step " + std::to_string(from + 1) + " at step " +
+                std::to_string(to + 1) + ": steps " + std::to_string(from + 2) + "-" + std::to_string(to) + " left out"
+                      : "walk back: no direct way from step " + std::to_string(from + 1) + " to step " +
+                std::to_string(to + 1) + ": the plan's points";
+        return true;
+    }
     while (r.walkBackIdx < r.step && !IsMovePoint(r.plan->steps[r.walkBackIdx]))
         ++r.walkBackIdx;
     if (r.walkBackIdx >= r.step)
@@ -7282,14 +7430,21 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         NoteReached(r, f, r.walkBackIdx);
         // A stretch of the route that comes back by this point is left out (RouteShortcut): its points are the
         // next ones after it.
+        // The glue reads the lead bot's path to that point first (Run::shortcutWanted): no shortcut through a thin
+        // wall (the Opus review of 0d9957be).
         std::size_t const reached = r.walkBackIdx;
         std::size_t const on = direct ? reached : RouteShortcut(r, reached);
-        r.walkBackIdx = on > reached + 1 ? on - 1 : reached; // the next point is `on` itself
-        NextWalkBackPoint(r);
         if (on > reached + 1)
+        {
+            r.shortcutWanted = on;
+            r.shortcutFrom = reached;
             r.note = "walk back: the route comes back by the point of step " + std::to_string(reached + 1) +
-                " at step " + std::to_string(on + 1) + ": steps " + std::to_string(reached + 2) + "-" +
-                std::to_string(on) + " left out";
+                " at step " + std::to_string(on + 1) + ": reading the way there";
+            if (reachedStraightTarget)
+                r.walkBackDirect = false;
+            return true;
+        }
+        NextWalkBackPoint(r);
         if (reachedStraightTarget)
             r.walkBackDirect = false;
     }
@@ -10521,17 +10676,23 @@ inline void ForgetUnitsThatCame(Run& r, const Facts& f)
 // tank that cannot shoot from here still walks to one), crowd control and the aggro estimate. Never in an event or a
 // walk back.
 constexpr float kFightForwardYd = 30.0f;
+constexpr float kForwardAggroMarginYd = 5.0f; // a live hostile within its aggro radius plus this of the way: no skip
 constexpr std::size_t kFightForwardMoves = 4;
 
 // The pull step the moves from the current step lead to, if fight forward may take it (npos for none).
 inline std::size_t FightForwardTarget(const Run& r, const Facts& f)
 {
-    if (!r.plan)
+    // Never past a leg's end (StepAfter gives up the leg's deferred packs there) nor with a deferred pull pending
+    // (StepAfter may turn back to it after a pull: the Codex review of 0d9957be).
+    if (!r.plan || r.step == 0 || !r.deferredPulls.empty() || DeferRetryOn(r))
         return static_cast<std::size_t>(-1);
+    std::uint8_t const leg = r.plan->steps[r.step - 1].leg;
     std::size_t moves = 0;
     for (std::size_t i = r.step; i < r.plan->steps.size(); ++i)
     {
         const PlanStep& p = r.plan->steps[i];
+        if (p.leg != leg)
+            return static_cast<std::size_t>(-1);
         if (p.kind == PlanStepKind::Move)
         {
             if (++moves > kFightForwardMoves || IsExactPoint(r.plan, i) || ExactLaunch(r.plan, i) != static_cast<std::size_t>(-1))
@@ -10565,19 +10726,59 @@ inline std::size_t FightForwardTarget(const Run& r, const Facts& f)
     return static_cast<std::size_t>(-1);
 }
 
-// On the first tick of the step after a won fight: the moves to the next pull left out when it may (see above).
-// True when it did (the next tick reads the facts for the pull).
+// Why the glue's read of the way forbids the skip ("" when it does not): the read missing or for another step, a
+// path that ends short of the pack or is a detour, no sight of the pack, a live hostile by the way, or a live hostile
+// at a move point left out.
+inline std::string FightForwardReadRefusal(const Facts& f, std::size_t target)
+{
+    if (!f.forwardRead || f.forwardFor != target)
+        return "the way was not read";
+    if (!f.forwardPathOk)
+        return "no direct navmesh path";
+    if (!f.forwardLos)
+        return "no sight of the pack";
+    if (f.forwardHostileNear)
+        return "a hostile by the way";
+    if (f.forwardHopAlive)
+        return "a hostile at a move point left out";
+    return std::string();
+}
+
+// On the first tick of the step after a won fight (once a rest is over): the pull it may lead to is asked of the
+// glue (Run::fightForwardWanted: its navmesh path, sight line and hostiles by the way, read next tick); on that
+// tick, with every check passed and the target unchanged, the moves are left out. True while it holds the tick.
 inline bool FightForwardTick(Run& r, const Facts& f)
 {
     if (!r.fightForwardDue || r.phase == Phase::Rest)
         return false; // a rest or meal wait first: judged when it is over
-    r.fightForwardDue = false;
-    if (f.walkBackAfterWonFight || r.walkBack || r.regroup || InEvent(r) || r.phase != Phase::Begin || f.anyInCombat ||
-        f.dead > 0)
+    std::size_t const asked = r.fightForwardWanted;
+    r.fightForwardWanted = static_cast<std::size_t>(-1);
+    if (!f.fightForward || f.walkBackAfterWonFight || r.walkBack || r.regroup || InEvent(r) || r.phase != Phase::Begin ||
+        f.anyInCombat || f.dead > 0)
+    {
+        r.fightForwardDue = false;
         return false;
+    }
     std::size_t const target = FightForwardTarget(r, f);
     if (target == static_cast<std::size_t>(-1))
+    {
+        r.fightForwardDue = false;
         return false;
+    }
+    if (asked != target)
+    {
+        r.fightForwardWanted = target;
+        r.note = "fight forward: reading the way to the pack of step " + std::to_string(target + 1);
+        return true;
+    }
+    r.fightForwardDue = false;
+    std::string const refused = FightForwardReadRefusal(f, target);
+    if (!refused.empty())
+    {
+        r.note = "fight forward: not to the pack of step " + std::to_string(target + 1) + " (" + refused +
+            "): the plan's rows";
+        return false;
+    }
     std::size_t const first = r.step;
     const PlanStep& p = r.plan->steps[target];
     float const yd = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
@@ -11278,15 +11479,18 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     // Rest gate. The lines of the next fight (LightRestAhead): the full ones before a boss, an event or a big pull.
     bool const stepOver = (s->kind == PlanStepKind::Pull || s->kind == PlanStepKind::Boss) &&
         FightStepEnd(r, f, *s) != FightEnd::NotYet;
-    bool const lightAhead = LightRestAhead(r, stepOver ? r.step + 1 : r.step);
+    // With the aggro estimate off, a pack of kBigPackUnits or more in sight on this pull step is a big pull: the full
+    // lines (BigPackHere), and a rest to them before its pull once a step.
+    bool const bigHere = BigPackHere(r, f, *s, stepOver);
+    bool const lightAhead = f.lightRest && !bigHere && LightRestAhead(r, stepOver ? r.step + 1 : r.step);
     RestLines const light = LightLines(lines);
     if (r.phase == Phase::Rest)
     {
         if (r.restForEating)
             r.eatWaitMs += dt;
         // A light rest ends at the light lines; a meal wait under them as soon as the lead bot is not seated.
-        // (A meal wait whose lead bot is still seated starts again on the next tick: the meal rule below.)
-        bool const lightDone = r.restLight && Rested(f, light);
+        // A meal wait whose lead bot is still seated goes on (no Rest/Begin flip-flop: the Opus review of 0d9957be).
+        bool const lightDone = r.restLight && Rested(f, light) && (!r.restForEating || !f.leadResting);
         if (Rested(f, lines) || lightDone || r.phaseMs >= kRestCapMs ||
             (r.restForEating && (f.eating == 0 || r.eatWaitMs >= kRestCapMs)))
         {
@@ -11364,6 +11568,21 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         }
     }
 
+    // A big pack in sight with the light rest lines on and the estimate off: rested to the full lines first, once a
+    // step (not idle time, as the aggro estimate's rest).
+    if (f.lightRest && bigHere && r.bigPackStep != r.step && (r.phase == Phase::Begin || r.phase == Phase::Gather) &&
+        NeedsRest(f, lines) && !InEvent(r))
+    {
+        r.bigPackStep = r.step;
+        EnterPhase(r, Phase::Rest);
+        r.restForEating = false;
+        r.restLight = false;
+        r.restForJoiners = true;
+        r.restRepeatMs = 0;
+        r.note = "resting: a pack of " + std::to_string(OpenUnits(r, f.units)) + " units: the full rest lines first";
+        order = "rest";
+        return order;
+    }
     // A follower a direct step left behind (OrderRefused): summoned before the
     // step goes out again. The module's direct check counts every bot, a held
     // one too (Run::hold); the wait below then sees it through HoldView, which

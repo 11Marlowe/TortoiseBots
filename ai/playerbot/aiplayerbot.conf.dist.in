@@ -822,6 +822,32 @@ AiPlayerbot.DungeonRunWalkBackAfterWonFight = 0
 # Only read while AiPlayerbot.DungeonSelfClear = 1.
 AiPlayerbot.DungeonRunRetreatAt2Dead = 0
 
+# The run leader's rescue of a stuck walk back. A walk back whose lead bot is stuck
+# short of its point after its tries, and a placed run's lead bot revived behind
+# the run's start step, are teleported to a safe point on the run's way (out of
+# every live pack's reach), out of combat, once a step.
+# 0 - off: the stuck walk back pauses as before
+# 1 - on (Default)
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunWalkBackRescue = 1
+
+# The run leader's fight forward. After a won fight, the next pack within 30 yd
+# of the tank is pulled from where the tank stands instead of walking the plan's
+# rows back to its stand, when the navmesh path to it is direct, the tank sees it
+# and no live hostile stands by the way.
+# 0 - off: the plan's rows as before
+# 1 - on (Default)
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunFightForward = 1
+
+# The run leader's light rest lines. Before a small pull (or with no fight ahead)
+# the party rests only under 60 % health / 35 % healer mana / 25 % mana and to
+# 75 / 60 / 45; before a boss, an event or a big pull the full lines stay.
+# 0 - off: the full lines everywhere, as before
+# 1 - on (Default)
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunLightRest = 1
+
 # The run leader's time limit, in minutes from `.bot run start` (a pause counts).
 # At the limit the run ends and its status line says "time limit reached (3h)".
 # 0 - no limit

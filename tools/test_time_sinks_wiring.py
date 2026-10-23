@@ -33,7 +33,8 @@ class TimeSinksWiringTest(unittest.TestCase):
 
     def test_partial_approach_path_is_reported(self):
         approach = body(COMMANDS, "bool ApproachOnPath(Player* lead,", "\n}\n")
-        self.assertIn("*incomplete = (static_cast<uint32>(path.getPathType()) & PATHFIND_INCOMPLETE) != 0;", approach)
+        # Round 1 of 0d9957be: a bare PATHFIND_INCOMPLETE (the polygon cap, a point just off the mesh) is not short.
+        self.assertIn("*incomplete = PathEndsShort((type & PATHFIND_NOPATH) != 0, (type & PATHFIND_INCOMPLETE) != 0, end.x, end.y,", approach)
         # Before the no-path return, so a no path leaves it read too.
         self.assertLess(approach.index("*incomplete ="), approach.index("if (path.getPathType() & PATHFIND_NOPATH)"))
         self.assertIn("direct ? &f.approachIncomplete : nullptr);", COMMANDS)
@@ -60,6 +61,35 @@ class TimeSinksWiringTest(unittest.TestCase):
         self.assertIn("bool retreatAt2Dead = false;", POLICY)
         for doc in ("docs/server/settings/dungeons-raids.md", "docs/play/dungeon-run-leader.md"):
             self.assertIn("AiPlayerbot.DungeonRunRetreatAt2Dead", (ROOT / doc).read_text())
+
+    def test_round_one_keys_are_read_with_the_config(self):
+        config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
+        header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
+        template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
+        keys = body(config, "void PlayerbotAIConfig::LoadDungeonRunKeys()\n{", "\n}\n")
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        for key, member, fact in (("WalkBackRescue", "dungeonRunWalkBackRescue", "walkBackRescue"),
+                                  ("FightForward", "dungeonRunFightForward", "fightForward"),
+                                  ("LightRest", "dungeonRunLightRest", "lightRest")):
+            self.assertIn('%s = config.GetBoolDefault("AiPlayerbot.DungeonRun%s", true);' % (member, key), keys)
+            self.assertIn("bool %s;" % member, header)
+            self.assertIn("\nAiPlayerbot.DungeonRun%s = 1\n" % key, template)
+            self.assertIn("f.%s = sPlayerbotAIConfig.%s;" % (fact, member), facts)
+            self.assertIn("bool %s = true;" % fact, POLICY)
+            for doc in ("docs/server/settings/dungeons-raids.md", "docs/play/dungeon-run-leader.md"):
+                self.assertIn("AiPlayerbot.DungeonRun%s" % key, (ROOT / doc).read_text())
+        self.assertIn("ReadTimeSinkWays(slot, lead, f);", facts)
+
+    def test_fight_forward_and_shortcut_reads(self):
+        reads = body(COMMANDS, "void ReadTimeSinkWays(", "\n}\n")
+        self.assertIn("f.forwardPathOk = DirectNavPath(lead, pull.x, pull.y, pull.z, way);", reads)
+        self.assertIn("f.forwardLos = lead->IsWithinLOS(pull.x, pull.y, pull.z + 1.0f, true, 0.0f);", reads)
+        self.assertIn("GetAttackDistance(lead) + kForwardAggroMarginYd;", reads)
+        self.assertIn("<= kHopPullYd;", reads)
+        self.assertIn("f.shortcutOk = DirectNavPath(lead, p.x, p.y, p.z, way);", reads)
+        direct = body(COMMANDS, "bool DirectNavPath(", "\n}\n")
+        self.assertIn("PathEndsShort(", direct)
+        self.assertIn("PathFitsStraight(length, DistanceTo(lead, x, y, z))", direct)
 
     def test_retreat_runs_before_the_guard(self):
         tick = body(POLICY, "inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines)\n{",

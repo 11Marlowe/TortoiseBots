@@ -79,15 +79,18 @@ static bool ParseMove(const std::string& order, float& x, float& y, float& z)
 // (or `ticks` ran out); `lowest` gets the lowest plan index a walk back point had.
 struct WalkBackSim
 {
+    bool shortcutOk = true; // the glue's read of a replay shortcut's path (a flat world: direct)
+    int teleports = 0;
     float walked = 0.0f;
     std::size_t lowest = static_cast<std::size_t>(-1);
     std::size_t points = 0; // walk back points sent (one `move` each, hops included)
     std::vector<std::string> notes;
 };
 
-static WalkBackSim SimulateWalkBack(Run& r, Facts f, int ticks = 4000)
+static WalkBackSim SimulateWalkBack(Run& r, Facts f, int ticks = 4000, bool shortcutOk = true)
 {
     WalkBackSim out;
+    out.shortcutOk = shortcutOk;
     bool started = false;
     for (int i = 0; i < ticks && r.state == State::Running; ++i)
     {
@@ -115,7 +118,18 @@ static WalkBackSim SimulateWalkBack(Run& r, Facts f, int ticks = 4000)
             f.directPathCrossesPack = PathCrossesUnclearedPack(*r.plan, LiveFrom(r, true), path, f.team,
                 UnclearedForPath(r));
         }
+        f.shortcutRead = r.shortcutWanted != static_cast<std::size_t>(-1);
+        f.shortcutFor = r.shortcutWanted;
+        f.shortcutOk = out.shortcutOk;
         std::string const order = Tick(r, f);
+        float tx = 0, ty = 0, tz = 0, fx = 0, fy = 0, fz = 0;
+        if (std::sscanf(order.c_str(), "rescue from %f %f %f to %f %f %f", &fx, &fy, &fz, &tx, &ty, &tz) == 6)
+        {
+            ++out.teleports;
+            f.leadX = tx;
+            f.leadY = ty;
+            f.leadZ = tz;
+        }
         if (r.walkBack)
         {
             started = true;
@@ -264,8 +278,25 @@ static void TestPlacedRunNeverWalksBackBeforeItsStartStep()
     CHECK(ReplayFloor(r) == start);
     StartWalkBack(r, f);
     CHECK(r.walkBack && r.walkBackIdx >= start);
+    // Up behind its start step (the entrance): teleported at once to the run's first safe point (round 1 of 0d9957be).
+    CHECK(r.strandDue && r.walkBackIdx == start && r.note.find("is up behind the run's start step") != std::string::npos);
     WalkBackSim const sim = SimulateWalkBack(r, f);
-    CHECK(sim.lowest >= start);
+    CHECK(sim.lowest >= start && sim.teleports == 1);
+    // AiPlayerbot.DungeonRunWalkBackRescue 0: no teleport, the walk from there (never before the start step).
+    Run walk = Start(&plan, wipe);
+    walk.startStep = start;
+    Facts nf = f;
+    nf.walkBackRescue = false;
+    StartWalkBack(walk, nf);
+    CHECK(!walk.strandDue);
+    WalkBackSim const walked = SimulateWalkBack(walk, nf);
+    CHECK(walked.lowest >= start && walked.teleports == 0);
+    // Revived among the run's own points (within kSeeYd of one): no teleport.
+    Run near = Start(&plan, wipe);
+    near.startStep = start;
+    Facts nearF = Party(303.0f, -5.0f); // the side leg's way back is nearest (before the start), step start 8.6 yd off
+    StartWalkBack(near, nearF);
+    CHECK(!near.strandDue);
     CHECK(r.state == State::Running && r.step == wipe);
     // The pre-start steps count as uncleared for the straight path (UnclearedForPath), the run's later ones as before.
     std::unordered_set<std::size_t> const uncleared = UnclearedForPath(r);
@@ -727,6 +758,8 @@ struct ForwardCase
     float leadX = 5.0f, leadZ = 0.0f;
     bool walkBackKey = false;
     std::uint32_t pulls = 1;
+    // The glue's read of the way (Facts::forward*), and whether it answers at all.
+    bool answers = true, pathOk = true, los = true, hostileNear = false, hopAlive = false, key = true;
 };
 
 // The first order after the cleared step, and the step the run stands on then.
@@ -737,11 +770,18 @@ static std::string AfterClear(ForwardCase& c, Run& r)
     Facts f = Party(c.leadX, 0.0f, c.leadZ);
     f.seen = true;
     f.walkBackAfterWonFight = c.walkBackKey;
+    f.fightForward = c.key;
     Tick(r, f); // "pack cleared"
     CHECK(r.step == 1 && r.note.find("pack cleared") == 0);
     std::string order;
-    for (int i = 0; i < 3 && order.empty(); ++i)
+    for (int i = 0; i < 4 && order.empty(); ++i)
     {
+        f.forwardRead = c.answers && r.fightForwardWanted != static_cast<std::size_t>(-1);
+        f.forwardFor = r.fightForwardWanted;
+        f.forwardPathOk = c.pathOk;
+        f.forwardLos = c.los;
+        f.forwardHostileNear = c.hostileNear;
+        f.forwardHopAlive = c.hopAlive;
         const PlanStep* s = Current(r);
         if (s && s->kind == PlanStepKind::Pull)
         {
@@ -905,6 +945,217 @@ static void TestSpiralRampWalkIsNotStuck()
     CHECK(st.state == State::Paused && still * kTickMs <= kWalkTries * kWalkRetryMs + 2 * kTickMs);
 }
 
+// Round 1 of 0d9957be (Opus must 1): a bare PATHFIND_INCOMPLETE is set at the path finder's 256-polygon cap and for a
+// point just off the mesh; only an end far from the point (kPathShortYd) or on another floor (kPathShortDzYd) is short.
+static void TestPathEndsShortOnlyFarFromThePoint()
+{
+    CHECK(PathEndsShort(true, false, 0, 0, 0, 100, 0, 0));       // no path
+    CHECK(!PathEndsShort(false, false, 0, 0, 0, 100, 0, 0));     // complete
+    CHECK(!PathEndsShort(false, true, 95, 0, 0, 100, 0, 0));     // the polygon cap: 5 yd short, same floor
+    CHECK(!PathEndsShort(false, true, 99, 0, 1, 100, 0, 0));     // a point just off the mesh
+    CHECK(PathEndsShort(false, true, 88, 0, 0, 100, 0, 0));      // 12 yd short
+    CHECK(PathEndsShort(false, true, 100, 2, 7, 100, 0, 0));     // 7 yd above it: another floor
+    CHECK(PathFitsStraight(125, 100) && !PathFitsStraight(135, 100) && PathFitsStraight(3, 0.5f));
+    // A long straight walk back whose path stops at the cap 6 yd short stays straight (the glue's read, PathEndsShort).
+    DungeonPlan plan;
+    plan.steps = {Move(0, 0), Move(400, 0), Pull(600, 200, 9)};
+    Run r = Start(&plan, 2);
+    Facts f = Party(-300, 0);
+    StartWalkBack(r, f);
+    CHECK(r.walkBack && r.walkBackDirect && r.walkBackIdx == 1);
+    f.seen = false;
+    f.approachRead = true;
+    f.approachKnown = true;
+    f.approachX = -260;
+    f.approachIncomplete = PathEndsShort(false, true, 394, 0, 0, 400, 0, 0);
+    CHECK(Tick(r, f) == "move -260.0 0.0 0.0" && r.walkBackDirect);
+}
+
+// Round 1 (Opus must 2): the stuck walk back's teleport goes to a safe point: when the last reached point is the stand
+// beside the pack that wiped the party, the latest point before it out of every live pack's reach; off, the pause.
+static void TestStuckRescueGoesToASafePoint()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(0, 0), Move(40, 0), Move(80, 0), Move(110, 0), Pull(125, 0, 4519)};
+    Run r = Start(&plan, 4);
+    Facts f = Party(10, 40, 30); // stuck on a ledge
+    f.seen = true;
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 3;
+    std::string order;
+    for (int i = 0; i < 60 && r.state == State::Running && order.compare(0, 7, "rescue ") != 0; ++i)
+        order = Tick(r, f);
+    CHECK(order == "rescue from 10.0 40.0 30.0 to 80.0 0.0 0.0"); // not 110 0, 15 yd from the pack
+    CHECK(r.walkBackIdx == 2);
+    Run off = Start(&plan, 4);
+    Facts g = f;
+    g.walkBackRescue = false;
+    off.walkBack = true;
+    off.walkBackIdx = off.walkBackStart = 3;
+    for (int i = 0; i < 60 && off.state == State::Running; ++i)
+        Tick(off, g);
+    CHECK(off.state == State::Paused && off.note.find("the lead bot is stuck") == 0);
+    // In a fight: no teleport (the walk waits for the fight as before; the rescue is judged out of combat).
+    Run fight = Start(&plan, 4);
+    fight.walkBack = true;
+    fight.walkBackIdx = fight.walkBackStart = 3;
+    Facts h = f;
+    h.anyInCombat = true;
+    CHECK(!WalkBackStuckRescue(fight, h, 50, 110, 0, 0));
+}
+
+// Round 1 (Codex high, Opus must 3): fight forward skips only with the glue's read of the way passed: a direct
+// navmesh path (not through a wall, not to the floor above, not partial), sight of the pack, no live hostile by the
+// way (a patrol), no live hostile at a move point left out; never past a leg end or with a deferred pull pending;
+// never to a pack left uncleared or past one on the line; the key off keeps the rows.
+static void TestFightForwardNeedsTheGluesRead()
+{
+    auto skipped = [](ForwardCase c) {
+        Run r;
+        AfterClear(c, r);
+        return r.step == 2; // else the walk back to the stand at -20 0 (step 2 of the plan) is under way
+    };
+    CHECK(skipped(Forward()));
+    ForwardCase wall = Forward();
+    wall.pathOk = false; // a wall between: the path goes round, longer than 1.3 x the line (or the floor above)
+    CHECK(!skipped(wall));
+    ForwardCase sight = Forward();
+    sight.los = false;
+    CHECK(!skipped(sight));
+    ForwardCase patrol = Forward();
+    patrol.hostileNear = true;
+    CHECK(!skipped(patrol));
+    ForwardCase hop = Forward();
+    hop.hopAlive = true;
+    CHECK(!skipped(hop));
+    ForwardCase silent = Forward();
+    silent.answers = false; // a glue that does not read it: the rows
+    CHECK(!skipped(silent));
+    ForwardCase off = Forward();
+    off.key = false;
+    CHECK(!skipped(off));
+    // A leg end between the cleared pack and the next one.
+    ForwardCase leg = Forward();
+    leg.plan.steps[1].leg = 1;
+    leg.plan.steps[2].leg = 1;
+    leg.plan.steps[3].leg = 1;
+    CHECK(!skipped(leg));
+    // A deferred pull pending (StepAfter may turn back to it).
+    {
+        ForwardCase d = Forward();
+        Run r = Start(&d.plan);
+        r.pulls = 1;
+        r.deferredPulls = {0};
+        Facts f = Party(5, 0);
+        f.seen = true;
+        CHECK(r.step == 0);
+        r.step = 1;
+        CHECK(FightForwardTarget(r, f) == static_cast<std::size_t>(-1));
+        r.deferredPulls.clear();
+        CHECK(FightForwardTarget(r, f) == 2);
+        // The pack itself left uncleared, or an uncleared earlier pack on the line: no.
+        r.notCleared.insert(2);
+        CHECK(FightForwardTarget(r, f) == static_cast<std::size_t>(-1));
+        r.notCleared.clear();
+        DungeonPlan line = d.plan;
+        line.steps.insert(line.steps.begin(), Pull(12, 2, 8, 4.0f)); // a pack behind the run, on the line
+        Run q = Start(&line);
+        q.step = 2;
+        CHECK(FightForwardTarget(q, f) == 3); // cleared earlier: not live
+        q.notCleared.insert(0);
+        CHECK(FightForwardTarget(q, f) == static_cast<std::size_t>(-1));
+    }
+}
+
+// Round 1 (Opus notes): AiPlayerbot.DungeonRunLightRest 0 keeps the full lines; with the aggro estimate off a pack of
+// kBigPackUnits or more in sight is a big pull (full lines, a rest to them before its pull once a step); a meal wait
+// under the light lines with the tank seated stays in its rest (no Rest/Begin flip-flop); a replay shortcut whose
+// path the glue finds no direct way is not taken.
+static void TestRoundOneRestAndShortcutNotes()
+{
+    DungeonPlan small;
+    small.steps = {Pull(0, 0, 1), Move(30, 0), Pull(60, 0, 2)};
+    Run off = Start(&small);
+    off.fighting = true;
+    Facts full = Health(70);
+    full.lightRest = false;
+    CHECK(AfterFight(off, full) == "rest" && !off.restLight);
+    // A big pack in sight, the estimate off.
+    DungeonPlan plan;
+    plan.steps = {Pull(40, 0, 4852)};
+    Facts f = Health(75);
+    f.seen = true;
+    for (std::uint64_t g = 1; g <= kBigPackUnits; ++g)
+    {
+        UnitFact u;
+        u.guid = g;
+        u.entry = 4852;
+        u.distLead = 30;
+        f.units.push_back(u);
+    }
+    Run big = Start(&plan);
+    CHECK(Tick(big, f) == "rest" && !big.restLight && !big.restForJoiners); // the step's own gate: the full lines
+    Run pre = Start(&plan);
+    pre.restDue = false; // no rest gate due: the big pack's own rest before its pull
+    CHECK(Tick(pre, f) == "rest" && pre.restForJoiners && pre.note.find("a pack of 5 units") != std::string::npos);
+    Facts up = f;
+    up.minHealthPct = 100;
+    std::string po;
+    for (int i = 0; i < 4 && po.compare(0, 9, "pullback ") != 0; ++i)
+        po = Tick(pre, up);
+    CHECK(po.compare(0, 9, "pullback ") == 0);
+    pre.phase = Phase::Begin; // the same step again (a pull that left units): its big rest was spent
+    CHECK(Tick(pre, f) != "rest");
+    f.minHealthPct = 100;
+    std::string o;
+    for (int i = 0; i < 4 && o.compare(0, 9, "pullback ") != 0; ++i)
+        o = Tick(big, f);
+    CHECK(o.compare(0, 9, "pullback ") == 0);
+    f.units.pop_back(); // four: a small pack, no rest at 75 %
+    f.minHealthPct = 75;
+    Run four = Start(&plan);
+    four.restDue = false;
+    CHECK(Tick(four, f).compare(0, 9, "pullback ") == 0);
+    // The meal wait with the tank seated: Rest on every tick while it sits.
+    Facts meal = Health(82, 70);
+    meal.seen = true;
+    meal.units = {f.units.front()};
+    meal.eating = 1;
+    meal.leadResting = true;
+    Run m = Start(&plan);
+    for (int i = 0; i < 10; ++i)
+    {
+        Tick(m, meal);
+        CHECK(m.phase == Phase::Rest && m.restForEating);
+    }
+    CHECK(m.phaseMs >= 9 * kTickMs); // one rest, not a new one every tick
+    // The replay shortcut with no direct way there: the plan's next point.
+    std::size_t wipe = 0, side = 0;
+    DungeonPlan shape = GnomereganShape(wipe, side);
+    shape.steps.insert(shape.steps.begin() + 15, Pull(150.0f, 5.0f, 7300));
+    ++wipe;
+    Run r = Start(&shape, wipe);
+    r.notCleared.insert(15);
+    Facts e = Party(0.0f, 0.0f);
+    StartWalkBack(r, e);
+    WalkBackSim const walls = SimulateWalkBack(r, e, 8000, false);
+    CHECK(r.step == wipe && NoteSeen(walls, "no direct way from step"));
+    CHECK(walls.walked > 1150.0f); // every point, the side leg too
+}
+
+// The placed run's teleport target follows the safe-point rule too: the first point from the start step on that no
+// live pack is near (a pack before the start step is live: the run never fought it).
+static void TestPlacedRescueTargetIsSafe()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(0, 0), Move(100, 0), Pull(505, 0, 77), Move(500, 0), Move(540, 0), Move(580, 0), Pull(620, 60, 78)};
+    Run r = Start(&plan, 6);
+    r.startStep = 3;
+    Facts f = Party(0, 0);
+    StartWalkBack(r, f);
+    CHECK(r.strandDue && r.strandIdx == 4); // 540 0: 500 0 lies 5 yd from the pre-start pack at 505 0
+}
+
 int main()
 {
     TestWipeWalkBackOnAGnomereganShapedPlan();
@@ -919,6 +1170,11 @@ int main()
     TestMealWaitUnderTheLightLines();
     TestFightForwardPullsFromWhereTheTankStands();
     TestSpiralRampWalkIsNotStuck();
+    TestPathEndsShortOnlyFarFromThePoint();
+    TestStuckRescueGoesToASafePoint();
+    TestFightForwardNeedsTheGluesRead();
+    TestRoundOneRestAndShortcutNotes();
+    TestPlacedRescueTargetIsSafe();
     std::cout << "test_run_time_sinks_policy: ok\n";
     return 0;
 }
