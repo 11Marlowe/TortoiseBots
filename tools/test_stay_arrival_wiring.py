@@ -66,6 +66,7 @@ class StayArrivalWiringTest(unittest.TestCase):
         self.assertIn("TortoiseBots::StayWalkBackoff stayWalk;", LAST_MOVE)
         self.assertIn("stayWalk = other.stayWalk;", LAST_MOVE)
         self.assertNotIn("stayWalk", body(LAST_MOVE, "void clear()", "\n        }\n"))
+        self.assertEqual(LAST_MOVE.count("stayWalk"), 3)  # the field and its copy line: nothing resets it
 
     def test_other_qualifiers_keep_their_rule(self):
         fn = body(POSITION, "bool MoveToPositionAction::isUseful()")
