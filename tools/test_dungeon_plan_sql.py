@@ -28,7 +28,8 @@ BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulf
               "gnomeregan": 90,
               "scarlet_library": 189,
               "scarlet_armory": 189, "scarlet_cathedral": 189, "scarlet_graveyard": 189,
-              "blackfathom_deeps": 48}
+              "blackfathom_deeps": 48,
+              "shadowfang_keep": 33}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -59,14 +60,18 @@ SEEDED_BOSSES = {
     (189, 61982): "Armory Quartermaster Daghelm", (189, 3975): "Herod",
     (189, 4542): "High Inquisitor Fairbanks", (189, 3976): "Scarlet Commander Mograine", (189, 3977): "High Inquisitor Whitemane",
     (189, 3983): "Interrogator Vishas", (189, 14693): "Scorn", (189, 4543): "Bloodmage Thalnos", (189, 61972): "Duke Dreadmoore",
+    (33, 3914): "Rethilgore", (33, 3886): "Razorclaw the Butcher", (33, 3887): "Baron Silverlaine",
+    (33, 4278): "Commander Springvale", (33, 4279): "Odo the Blindwatcher",
+    (33, 4274): "Fenrus the Devourer", (33, 3927): "Wolf Master Nandos", (33, 4275): "Archmage Arugal",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
 # Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080,
 # Bruegal Ironknuckle 1720: rank 2, Stormwind Stockade).
 # Razorfen Kraul: Spearhide 4438, Earthcaller Halmgar 4842, Blind Hunter 4425 — rank 2 in the world data).
 # Grubbis 7361: no spawn row in the map 90 export and no boss step names him, Gnomeregan).
+# Shadowfang Keep's extras that are not legs (Sever 14682, Prelate Ironmane 61969, the intro Arugal 10000).
 # the BFD neutrals Argent Guard 4787 and Woji the Toad 62531 (both rank 0).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531}
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000}
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
 ZUMRAH_GRAVES = (
@@ -235,6 +240,59 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertRegex(text, r"\('deadmines', 9, \d+, 'open', 16398, [^)]*, 0, 5397, 0, 0, 0,")
         self.assertIn("gm_cross", text)  # the header names every step the run leader cannot do
 
+    def test_shadowfang_keep_is_the_whole_plan_as_exported(self):
+        # 20261023180000 (turtle-agent 85446e3, 2026-10-23, the Data fix of r24 shadowfang_keep slot7): the whole draft
+        # is 10 legs. Leg 4 is the new courtyard_door leg (the Adamant gossip and the 18895 wait); leg 5 the old leg 4's
+        # entrance-side pulls (10, no boss); leg 6 crosses the navmesh stair-top seam with the only move_direct, then the
+        # four walkway pulls and Odo; legs 7-9 are Fenrus, Nandos and Arugal. The plan row carries cc_priority
+        # 3855,61970,10000; the packs that stand with a boss are that boss row's entries. Legs 0-3 are byte-identical to
+        # 20261022210900_world.sql. Every pin fails when its row is cut.
+        name, text = newest_plan_text("shadowfang_keep")
+        self.assertEqual(name, "20261023180000_world.sql")
+        self.assertIn("('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent 85446e3 dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "shadowfang_keep")
+        self.assertEqual(list(legs[i][0] for i in range(10)),
+                         ["rethilgore", "razorclaw_the_butcher", "baron_silverlaine", "commander_springvale",
+                          "courtyard_door", "odo_the_blindwatcher_yard", "odo_the_blindwatcher",
+                          "fenrus_the_devourer", "wolf_master_nandos", "archmage_arugal"])
+        self.assertEqual(len(legs), 10)
+        rows = [r for r in self.step_rows(text) if r["plan"] == "shadowfang_keep"]
+        self.assertEqual(len(rows), 308)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
+                         [4, 16, 21, 5, 0, 10, 4, 13, 3, 2])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
+                         ["3914", "3886", "3887", "4278", "4279", "4274", "3927", "4275"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "move_direct", "pull", "boss", "gossip", "wait_object"})
+        for leg in (0, 1, 2, 3, 6, 7, 8, 9):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual(leg_steps(rows, 4)[-1]["kind"], "wait_object")
+        self.assertEqual(leg_steps(rows, 5)[-1]["kind"], "pull")
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
+                         ["3861,3851", "3875,2110", "", "", "3866,3868", "", "", ""])
+        # The Courtyard Door step and its wait: Adamant 3849's menu index 0 (the row's param is 1) and the door 18895
+        # open (state active, param 1) within 60 s.
+        door = [r for r in leg_steps(rows, 4) if r["kind"] in ("gossip", "wait_object")]
+        self.assertEqual([(r["kind"], r["entry"], r["param"]) for r in door], [("gossip", "3849", "1"), ("wait_object", "18895", "1")])
+        gossip = door[0]
+        self.assertEqual((gossip["x"], gossip["y"], gossip["z"]), ("-243.7", "2113.7", "81.3"))
+        self.assertEqual(door[1]["timeout_s"], "60")
+        self.assertEqual((door[1]["x"], door[1]["y"], door[1]["z"]), ("-242.58", "2159.05", "90.62"))
+        # The one move_direct: the stair-top seam crossing, 2.0 yd off the walkway on the far side.
+        direct = [r for r in rows if r["kind"] == "move_direct"]
+        self.assertEqual([(r["leg"], r["x"], r["y"], r["z"]) for r in direct], [("6", "-266.5", "2150.2", "95.9")])
+        self.assertLess(float(direct[0]["x"]) + 264.8, -1.0)  # west of the seam's A edge
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["shadowfang_keep"])
+        self.assertIn("(33, 4274, 'Fenrus the Devourer')", text)
+        self.assertIn("(33, 3927, 'Wolf Master Nandos')", text)
+        self.assertIn("(33, 4275, 'Archmage Arugal')", text)
+        # Legs 0-3 unchanged: every move, pull and boss row of the run 1 export is the same text in both files.
+        old = dict(migrations())["20261022210900_world.sql"]
+        old_rows = [r for r in self.step_rows(old) if r["plan"] == "shadowfang_keep" and int(r["leg"]) <= 3]
+        new_rows = [r for r in rows if int(r["leg"]) <= 3]
+        self.assertEqual(len(old_rows), 78)
+        self.assertEqual([r for r in old_rows], [r for r in new_rows])
+
+
     def test_deadmines_pack_fixes(self):
         # 20261022200000 (turtle-agent 16efe83, Deadmines r12-19z29 / r14-19z32, 2026-10-22): the plan again with the Engineers and
         # Craftsmen in the cc lists, the Sneed patroller's group first, the Harvester room's golem split off, and the Gilnid ramp pulled from
@@ -315,7 +373,7 @@ class DungeonPlanSql(unittest.TestCase):
                          [("4540", "9", "173.97", "-429.18"), ("4291,4540,4299", "9", "181.14", "-443.63")])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["3974", "61983", "6487"])
         # The boss table seeds the map's Library bosses (the three later wings add theirs with their own files).
-        self.assertEqual([(m, e, n) for m, e, n in self.boss_rows() if m == 189 and e in (3974, 61983, 6487)],
+        self.assertEqual([(m, e, n) for _name, _text in migrations() for m, e, n in self.boss_rows(_text) if m == 189 and e in (3974, 61983, 6487)],
                          [(189, 3974, "Houndmaster Loksey"), (189, 61983, "Brother Wystan"), (189, 6487, "Arcanist Doan")])
 
 
@@ -1226,23 +1284,30 @@ class DungeonPlanSql(unittest.TestCase):
                     values = [v.strip() for v in re.findall(r"'[^']*'|[^,]+", row)]
                     self.assertIn(values[kind_at].strip("'"), KINDS, "%s: unknown step kind in %s" % (name, row))
 
-    def boss_rows(self):
-        # Each ai_dungeon_boss row of every migration as (map, entry, name), in file order.
-        for _name, text in migrations():
-            for block in re.findall(r"(?:INSERT|REPLACE) INTO `ai_dungeon_boss` \(`map`, `entry`, `name`\) VALUES(.*?);\n", text, re.S):
-                for row in re.findall(r"^\((\d+), (\d+), '((?:[^']|'')*)'\)[,]?$", block, re.M):
-                    yield int(row[0]), int(row[1]), row[2].replace("''", "'")
+    def boss_rows(self, text):
+        # The ai_dungeon_boss rows of one migration as (map, entry, name), in file order.
+        rows = []
+        for block in re.findall(r"(?:INSERT|REPLACE) INTO `ai_dungeon_boss` \(`map`, `entry`, `name`\) VALUES(.*?);\n", text, re.S):
+            for row in re.findall(r"^\((\d+), (\d+), '((?:[^']|'')*)'\)[,]?$", block, re.M):
+                rows.append((int(row[0]), int(row[1]), row[2].replace("''", "'")))
+        return rows
 
     def test_boss_table_is_the_seed(self):
-        # A later file may REPLACE a (map, entry) it seeds again with the same name (the Graveyard's 20261023060000 re-declares
-        # its four: the wing's plan changed while its bosses did not); a second name for the same key is the failure.
-        seeded = {}
-        for m, e, n in self.boss_rows():
-            if (m, e) in seeded:
-                self.assertEqual(seeded[(m, e)], n, "(%d, %d) is seeded with two names" % (m, e))
-            seeded[(m, e)] = n
-        self.assertEqual(seeded, SEEDED_BOSSES)
-        self.assertFalse({e for _m, e in seeded} & NOT_BOSSES, "an add, an event unit or a rare is seeded as a boss")
+        # A map's seed is the last migration that seeds it: each such file DELETEs the map and REPLACEs its whole set
+        # (test_boss_table_is_created_and_seeded_idempotently), so a re-export that re-seeds a map supersedes the
+        # earlier file's rows. Within one file a (map, entry) twice is still an error.
+        seed = {}
+        for name, text in migrations():
+            if "`ai_dungeon_boss`" not in text:
+                continue
+            rows = self.boss_rows(text)
+            keys = [(m, e) for m, e, _n in rows]
+            self.assertEqual(len(keys), len(set(keys)), "%s: a (map, entry) is seeded twice" % name)
+            for m, e, n in rows:
+                seed[(m, e)] = n
+        keys = list(seed)
+        self.assertEqual(seed, SEEDED_BOSSES)
+        self.assertFalse({e for _m, e in keys} & NOT_BOSSES, "an add, an event unit or a rare is seeded as a boss")
 
     def test_boss_table_lists_every_plan_boss(self):
         # The newest migration that inserts a plan's boss steps holds its bosses (later ones replace single legs).
