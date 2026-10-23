@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.10.0 (2026-10-23)
+
+### World PvP
+- Pool bots now flag for PvP at login using the /pvp preference, and open-world PvP is on by default. [#1232](https://github.com/Sagiroth/TortoiseBots/pull/1232)
+- About a quarter of free pool bots take a world PvP role, rerolled every 30 minutes and never during a fight. [#1232](https://github.com/Sagiroth/TortoiseBots/pull/1232)
+- These bots hunt flagged enemy players and flagged enemy bots nearby, but never attack unflagged players. [#1232](https://github.com/Sagiroth/TortoiseBots/pull/1232)
+- They avoid invisible GMs, targets 5+ levels higher, players in challenge modes except War Mode, and safe zones or battlegrounds. [#1232](https://github.com/Sagiroth/TortoiseBots/pull/1232)
+- Their chance to attack drops when the level gap is 2 to 4 levels. [#1232](https://github.com/Sagiroth/TortoiseBots/pull/1232)
+
+### Gear & Items
+- The random gear blacklist now applies to random bots, hired bots, `.bot autogear`, and `.autogear`. [#1230](https://github.com/Sagiroth/TortoiseBots/pull/1230)
+- It also covers empty-slot fillers, shirts, tabards, and level-60 hire gear sets. [#1230](https://github.com/Sagiroth/TortoiseBots/pull/1230)
+- A blocked item is never handed out; the bot picks the next best item or leaves the slot empty. [#1230](https://github.com/Sagiroth/TortoiseBots/pull/1230)
+
+### Dashboard
+- Logging out of the dashboard now only works from the dashboard itself, so another website can no longer log a GM out with a simple link. [#1221](https://github.com/Sagiroth/TortoiseBots/pull/1221)
+- The Logout link is now a button that sends the secure request and then takes you to the login page. [#1221](https://github.com/Sagiroth/TortoiseBots/pull/1221)
+
+### Behind the scenes
+- Server monitoring can now forward data to extra addresses for a second dashboard; set `-forward-udp` or `FORWARD_UDP`. [#1222](https://github.com/Sagiroth/TortoiseBots/pull/1222)
+- It allows up to 4 targets, and a failing target won't stop the main listener. [#1222](https://github.com/Sagiroth/TortoiseBots/pull/1222)
+- Large bot code files were split into smaller topic files and the rule files were grouped into folders; no gameplay change. [#1231](https://github.com/Sagiroth/TortoiseBots/pull/1231) [#1233](https://github.com/Sagiroth/TortoiseBots/pull/1233) [#1234](https://github.com/Sagiroth/TortoiseBots/pull/1234)
+
+---
+
 ## v1.9.0 (2026-10-22)
 
 ### Classes & Combat
