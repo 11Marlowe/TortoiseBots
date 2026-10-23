@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_pool_reset_policy.cpp -o /tmp/test_pool_reset
 //   /tmp/test_pool_reset
 
-#include "../runtime/PoolResetPolicy.h"
+#include "../runtime/policy/infra/PoolResetPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

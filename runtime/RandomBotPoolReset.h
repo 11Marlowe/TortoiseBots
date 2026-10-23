@@ -1,6 +1,6 @@
 #pragma once
 
-#include "PoolResetPolicy.h"
+#include "runtime/policy/infra/PoolResetPolicy.h"
 
 #include <cstdint>
 #include <ctime>
