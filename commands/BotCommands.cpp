@@ -10644,7 +10644,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.canSap = (member.cc & CcBit(CcFamily::Sap)) && memberAi && memberAi->HasRealPlayerMaster() &&
             !memberAi->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT);
         if (bot == lead)
-            f.leadInCombat = bot->IsInCombat(); // the lead bot itself
+            f.leadInCombat = member.inCombat;
         // Units attacking it: the core's attacker set of that bot (no scan),
         // for a member coming back with attackers (DungeonRun::RunBack).
         // Its living pet's attackers count too (a pet held alone keeps the bot from a summon).
