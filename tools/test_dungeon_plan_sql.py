@@ -85,7 +85,7 @@ BOSS_PLANS["frostmane_hollow"] = 822
 SEEDED_BOSSES.update({(822, 63131): "Battlemaster Ubukaz", (822, 63129): "Kan'za the Seer",
                       (822, 63133): "Tan'sha the Sleek", (822, 63130): "Hailar the Frigid"})
 
-# Windhorn Canyon (20261023130000): its map and its seven boss steps, names from the map-820 spawn export
+# Windhorn Canyon (20261023150100): its map and its seven boss steps, names from the map-820 spawn export
 # (all rank 1). Added apart from the dicts above so that this change merges with the other plans' edits of them.
 BOSS_PLANS["windhorn_canyon"] = 820
 SEEDED_BOSSES.update({(820, 62784): "Walgan Bloodcaller", (820, 62783): "Ambassador Vortalus",
@@ -632,14 +632,14 @@ class DungeonPlanSql(unittest.TestCase):
         # The map 48 ai_dungeon_boss rows stay in 20261022210800 (the seed test holds them to one seeding).
 
     def test_windhorn_canyon_is_the_plan_with_the_pack_fixes(self):
-        # 20261023130000 (turtle-agent 0afaeeb, 2026-10-23): the Windhorn Canyon draft with the pack fixes of
+        # 20261023150100 (turtle-agent 0afaeeb, 2026-10-23): the Windhorn Canyon draft with the pack fixes of
         # PREP-WINDHORN-CANYON-2026-10-23.md, no row hand-set, with the boss rows of map 820. 7 legs, 1890 steps
         # (1898 rows: 188 pulls (46 + 32 + 17 + 14 + 36 + 9 + 34), the 7 boss rows and approach moves), bosses in
         # leg order, no door or event step. The plan row has
         # empty unit lists (the world data has no AI/spell rows for these entries); the packs that stand with a
         # boss are that boss row's entries; co-located packs are merged; radii are cut to the groups' members.
         name, text = newest_plan_text("windhorn_canyon")
-        self.assertEqual(name, "20261023130000_world.sql")
+        self.assertEqual(name, "20261023150100_world.sql")
         rows = [r for r in self.step_rows(text) if r["plan"] == "windhorn_canyon"]
         # leg_rows() matches [A-Za-z0-9_] leg names only; ahgk'tos_the_pure is not a word, so the legs are
         # counted from the step rows (each leg's boss step proves its rows are there).

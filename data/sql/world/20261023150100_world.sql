@@ -1,6 +1,6 @@
 -- Windhorn Canyon (map 820): the draft plan, exported from turtle-agent 0afaeeb (dungeons/windhorn_canyon.json) with
 -- `turtle-agent plan-export --mmaps ~/turtle-agent-mmaps --allow-draft --gm-cross-direct --approach-hops --rev 0afaeeb
---  --stamp 20261023130000 --out <dir> windhorn_canyon` (the stockade-prep options); NO ROW IS HAND-SET.
+--  --stamp 20261023150100 --out <dir> windhorn_canyon` (the stockade-prep options); NO ROW IS HAND-SET.
 -- 7 legs, 1890 steps, 1898 rows: 188 pulls (46 + 32 + 17 + 14 + 36 + 9 + 34), the 7 boss rows and approach moves.
 -- draft (not mapped, not live-checked): the run needs allow_draft. Boss order is the nearest-neighbour walk
 -- (Walgan, Vortalus, Narlgom, Stormhoof, Pathun, Shalk, Ahgk'tos); the wiki names Chieftain Shalk Blackwind the end boss.
