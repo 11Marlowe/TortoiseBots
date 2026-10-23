@@ -34,10 +34,15 @@ BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulf
               "sunken_temple": 109,
               "razorfen_downs": 129,
               "crescent_grove": 802,
-              "dragonmaw_retreat": 816}
+              "dragonmaw_retreat": 816,
+              "dire_maul_west": 429}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
+    # Dire Maul: West (20261024020500): its six boss steps, names from the core's creature_template (all rank 1). Tsu'zee
+    # 11467 (rank 2 rare) and Ferra 14308 (Illyanna's pet, a boss.first) are pulls/adds, not seeded.
+    (429, 11489): "Tendris Warpwood", (429, 14690): "Revanchion", (429, 11488): "Illyanna Ravenoak",
+    (429, 11487): "Magister Kalendris", (429, 11496): "Immol'thar", (429, 11486): "Prince Tortheldrin",
     (389, 11517): "Oggleflint", (389, 11520): "Taragaman the Hungerer", (389, 11518): "Jergosh the Invoker",
     (389, 11519): "Bazzalan",
     (43, 3653): "Kresh", (43, 3671): "Lady Anacondra", (43, 3669): "Lord Cobrahn", (43, 3670): "Lord Pythas",
@@ -83,7 +88,7 @@ SEEDED_BOSSES = {
 # Grubbis 7361: no spawn row in the map 90 export and no boss step names him, Gnomeregan).
 # Shadowfang Keep's extras that are not legs (Sever 14682, Prelate Ironmane 61969, the intro Arugal 10000).
 # the BFD neutrals Argent Guard 4787 and Woji the Toad 62531 (both rank 0).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929}
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929, 11467, 14308}
 # Ragglesnout 7354 (rank 2, Razorfen Downs: he is in a pull group).
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
@@ -740,6 +745,49 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertTrue(all(lo < i < hi for i in (pos[id(r)] for r in approach[c])), c)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["razorfen_downs"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
+
+    def test_dire_maul_west_is_the_plan_with_the_census_fixes(self):
+        # 20261024020500 (turtle-agent 5d938b3, 2026-10-24): the Dire Maul West draft with the census fixes of
+        # PREP-DIRE-MAUL-WEST-2026-10-24.md, no row hand-set, with the boss rows of map 429 scoped to this plan's own six
+        # entries. 6 legs, 490 steps (45 + 0 + 18 + 13 + 29 + 4 pulls), bosses in leg order, no door or event step. The plan
+        # row's kill_first is the two healers/regrowthers (14303, 11473), the Polymorphing Sorcerer (11470) and the summoner
+        # (11484); cc_priority and cc_always stay empty (no trash is polymorphable). The 29 Shen'dralar Wisps (14361) and the
+        # 16 neutral Highborne Summoners (11466) are out of every pull, and so are the courtyard's Gordok mobs; Revanchion
+        # 14690 has a leg of its own, first in the hall; Ferra 14308 is Illyanna's boss.first; Tsu'zee 11467 (rare) is a
+        # member of the Kalendris hall's pull; every pull is at most 6 units and every radius <= 19 yd.
+        name, text = newest_plan_text("dire_maul_west")
+        self.assertEqual(name, "20261024020500_world.sql")
+        self.assertIn("('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 5d938b3 dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "dire_maul_west")
+        self.assertEqual([legs[i][0] for i in range(6)],
+                         ["tendris_warpwood", "revanchion", "illyanna_ravenoak", "magister_kalendris", "immol'thar",
+                          "prince_tortheldrin"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "dire_maul_west"]
+        self.assertEqual(len(rows), 490)
+        self.assertEqual([len(leg_steps(rows, leg)) for leg in range(6)], [114, 16, 110, 93, 75, 82])
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)],
+                         [45, 0, 18, 13, 29, 4])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["11489", "14690", "11488", "11487", "11496", "11486"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(6):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        # Ferra is Illyanna's boss.first (the row's entries), and no pull lists her or a neutral NPC.
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "14308", "", "", ""])
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertFalse([r["entries"] for r in pulls
+                          if {"14361", "11466", "14308", "13036", "14690"} & set(r["entries"].split(","))])
+        # The row lists each entry once (3 Skeletal + 3 Rotting Highborne is "11477,11476"), so the densest planned pack is pinned by its row.
+        self.assertEqual([(r["entries"], float(r["radius"])) for r in pulls if r["entries"] == "11477,11476"],
+                         [("11477,11476", 8.5)])
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 19.0)
+        # Tsu'zee 11467 is the rare of the Kalendris hall: a member of the pull nearest him (leg 3, pull group 6, radius 8.6).
+        self.assertEqual([(r["entries"], float(r["radius"])) for r in pulls if "11467" in r["entries"].split(",")],
+                         [("11467,11471", 8.6)])
+        # Revanchion's leg is the walk into the hall and his boss row only.
+        rev = leg_steps(rows, 1)
+        self.assertEqual([r["kind"] for r in rev if r["kind"] != "move"], ["boss"])
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["dire_maul_west"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (429) AND `entry` IN (11489, 14690, 11488, 11487, 11496, 11486);", text)
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
         # 20261023210000 (turtle-agent cg-fix1 479dc0d) re-exports the 20261023130100 draft (prep/crescent_grove ba00e7c, the census
