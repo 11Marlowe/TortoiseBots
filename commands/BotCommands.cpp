@@ -3,6 +3,7 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../runtime/BotManager.h"
 #include "../runtime/BotActivityLease.h"
+#include "../runtime/RunReleaseHold.h"
 #include "../runtime/HireLifecycle.h"
 #include "../runtime/ClaimLifecycle.h"
 #include "../runtime/AltBotPolicy.h"
@@ -12347,14 +12348,16 @@ void CommanderAutonomyMapChange(Player* bot, PlayerbotAI* ai)
         ai->ChangeStrategy(RemoteCommander::CommanderAutonomyChange(mask, '+'), BotState::BOT_STATE_NON_COMBAT);
 }
 
-// The running run of the bot's bound party, or null.
-static TortoiseBots::DungeonRun::Run const* RunningRunOf(Player* bot)
+// The running run of the bot's bound party, or null. activeOnly: a paused run
+// counts too (DungeonRun::HoldsItsDead: running or paused, not done).
+static TortoiseBots::DungeonRun::Run const* RunningRunOf(Player* bot, bool activeOnly = false)
 {
     if (!bot || !bot->GetGroup() || DungeonRuns().empty())
         return nullptr;
     for (auto const& entry : DungeonRuns())
     {
-        if (entry.second.run.state != TortoiseBots::DungeonRun::State::Running)
+        if (activeOnly ? !TortoiseBots::DungeonRun::HoldsItsDead(entry.second.run)
+                       : entry.second.run.state != TortoiseBots::DungeonRun::State::Running)
             continue;
         RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(entry.first);
         Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
@@ -12369,6 +12372,20 @@ bool IsInRunningDungeonRun(Player* bot)
 {
     return RunningRunOf(bot) != nullptr;
 }
+
+// SM-REVIVE-PATH-2026-10-23 fix 3: a dead hired bot of a bound party whose run is
+// running or paused stays at its body (the auto release asks this through
+// RunReleaseHold, registered below); a stopped, timed-out or unbound run is erased
+// or done, so the bot releases by the stock rules again.
+static bool IsBoundToActiveDungeonRun(Player* bot)
+{
+    return RunningRunOf(bot, true) != nullptr;
+}
+
+// The auto release (ReleaseSpiritAction.h) cannot include the command layer: the
+// run leader registers its question once, at static initialisation.
+static bool const s_runReleaseHoldRegistered =
+    (TortoiseBots::RunReleaseHold::Register(&IsBoundToActiveDungeonRun), true);
 
 bool IsRunKillFirst(Player* bot, uint32_t entry)
 {

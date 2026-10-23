@@ -262,8 +262,8 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("if (TortoiseBots::CcLeavesOut(totem, npcSummoned, inRun, runKillFirst))", cc)
         self.assertIn("inRun = TortoiseBots::BotCommands::IsInRunningDungeonRun(ai->GetBot());", cc)
         self.assertIn("if (inRun && !assignedTarget)\n            return;", cc)
-        query = body(COMMANDS, "RunningRunOf(Player* bot)", "\n}\n")
-        self.assertIn("State::Running", query)
+        query = body(COMMANDS, "RunningRunOf(Player* bot, bool activeOnly = false)", "\n}\n")
+        self.assertIn(": entry.second.run.state != TortoiseBots::DungeonRun::State::Running", query)
 
     def test_spells_at_a_totem_must_hit_it(self):
         spells = (ROOT / "ai/playerbot/strategy/actions/GenericSpellActions.cpp").read_text()
@@ -758,6 +758,36 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);", off)
         self.assertLess(off.index("SendRunLine(FindCharacter(entry.first), entry.second, false);"),
                         off.index("ReleaseRunHold("))
+
+
+class RunHoldsItsDeadWiringTest(unittest.TestCase):
+    """SM-REVIVE-PATH-2026-10-23 fix 3: the run leader answers the auto release's
+    question (runtime/RunReleaseHold.h) for a bot of a bound party whose run is
+    running or paused (DungeonRun::HoldsItsDead, tested in
+    tools/test_dungeon_run_policy.cpp); a stopped, timed-out or unbound run is
+    erased, so no run is found and the bot releases as before."""
+
+    def test_the_query_is_registered(self):
+        code = strip_comments(COMMANDS)
+        self.assertIn('#include "../runtime/RunReleaseHold.h"', COMMANDS)
+        self.assertIn("TortoiseBots::RunReleaseHold::Register(&IsBoundToActiveDungeonRun)", code)
+
+    def test_the_query_counts_running_and_paused_runs_of_the_bound_party(self):
+        query = body(COMMANDS, "static bool IsBoundToActiveDungeonRun(Player* bot)", "}")
+        self.assertIn("return RunningRunOf(bot, true) != nullptr;", query)
+        finder = strip_comments(body(COMMANDS, "RunningRunOf(Player* bot, bool activeOnly = false)", "\n}\n"))
+        self.assertIn("activeOnly ? !TortoiseBots::DungeonRun::HoldsItsDead(entry.second.run)", finder)
+        self.assertIn("group && group->GetId() == binding->groupId && group->IsMember(bot->GetObjectGuid())", finder)
+        # The kill-first and cc questions still ask about a running run only.
+        self.assertIn("return RunningRunOf(bot) != nullptr;", body(COMMANDS, "bool IsInRunningDungeonRun(Player* bot)", "}"))
+
+    def test_stop_and_time_limit_erase_the_run(self):
+        stop = body(COMMANDS, 'if (verb == "stop")', 'if (verb == "status")')
+        self.assertIn("slot.run.state = State::Done;", stop)
+        self.assertIn("DungeonRuns().erase(it);", stop)
+        limit = body(COMMANDS, "RunTimeLimitReached(slot.elapsedMs", "return;")
+        self.assertIn("slot.run.state = TortoiseBots::DungeonRun::State::Done;", limit)
+        self.assertIn("DungeonRuns().erase(it);", limit)
 
 
 if __name__ == "__main__":

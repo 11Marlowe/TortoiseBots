@@ -2300,6 +2300,18 @@ inline std::string LowerCopy(std::string v)
 
 constexpr std::uint32_t kRunMaxMinutesDefault = 180; // the shipped template and the code fallback agree (3 h)
 
+// A run holds its dead (SM-REVIVE-PATH-2026-10-23 fix 3): while it runs or is
+// paused, a hired bot of its bound party that dies stays at its body (no auto
+// release, runtime/RunReleaseHold.h); the regroup releases it (a resurrection
+// in the party, then `revive party`), or the player does. A done run (the
+// plan's end, `.bot run stop`, the time limit, the switch off) holds nobody,
+// and the glue erases a stopped, timed-out or unbound run, so the bot's own
+// release works again then.
+inline bool HoldsItsDead(const Run& r)
+{
+    return r.plan && r.state != State::Done;
+}
+
 // maxMinutes 0 = no limit.
 inline bool RunTimeLimitReached(std::uint64_t elapsedMs, std::uint32_t maxMinutes)
 {

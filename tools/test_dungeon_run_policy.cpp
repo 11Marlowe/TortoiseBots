@@ -12435,6 +12435,41 @@ static void TestLeadInOtherPartPausesWithTheTrueReason()
     CHECK(!r.leadOtherPart && r.state != State::Paused); // regrouped, and the step (no units left) is done
 }
 
+// A run holds its dead (SM-REVIVE-PATH-2026-10-23 fix 3): a hired bot of the
+// bound party stays dead at its body while the run runs or is paused (the
+// regroup's resurrection or `revive party`, or the player, releases it); once
+// the run is done (its plan's end, `.bot run stop`, the time limit, the switch
+// off) the bot's own auto release works again. The glue erases the run on a
+// stop, the time limit and an unbind, so no run is found then either.
+static void TestRunHoldsItsDeadUntilItEnds()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200)};
+    Run r = Start(&plan);
+    CHECK(r.state == State::Running && HoldsItsDead(r));
+    Pause(r, "3 dead: regroup (cmd revive party), then .bot run resume");
+    CHECK(HoldsItsDead(r)); // a paused run still holds its dead
+    PausePlayer(r, "paused by .bot run pause");
+    CHECK(HoldsItsDead(r));
+    CHECK(Resume(r) && HoldsItsDead(r));
+    // `.bot run stop` and the time limit set Done before the glue erases the run.
+    r.state = State::Done;
+    r.note = RunTimeLimitNote(180);
+    CHECK(!HoldsItsDead(r));
+    // The plan's end.
+    Run end = Start(&plan, 1);
+    Facts f = Party(200);
+    for (int i = 0; i < 5 && end.state != State::Done; ++i)
+        Tick(end, f);
+    CHECK(end.state == State::Done && !HoldsItsDead(end));
+    // A plan without steps never ran.
+    DungeonPlan empty;
+    CHECK(!HoldsItsDead(Start(&empty)));
+    Run none;
+    none.plan = nullptr;
+    CHECK(!HoldsItsDead(none));
+}
+
 // A door that is not the plan's entry but lies near the plan (the Uldaman and
 // Gnomeregan back doors: 50-60 yd from their plans' points) is no other part:
 // the walk back goes on as before. And with no doors read, no rule at all.
@@ -12925,6 +12960,7 @@ int main()
     TestLeadDeadAfterTheFightHolds();
     TestNearWipeHoldsTheLivingAtTheFightSpot();
     TestLeadInOtherPartPausesWithTheTrueReason();
+    TestRunHoldsItsDeadUntilItEnds();
     TestBackDoorNearThePlanIsNotAnotherPart();
     TestLeadRevivedAwayInOtherPartPauses();
     TestNoSummonTowardALeadInAnotherPart();
