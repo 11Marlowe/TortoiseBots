@@ -9978,19 +9978,46 @@ static void TestStrandedLeadIsTeleportedToTheLastReachedPoint()
     CHECK(!r.strandOn && r.strandStep == 2 && r.strandSummon);
     CHECK(r.note == "the lead bot was stranded at -445.0 101.0 -190.0 with no way back: teleported to the last reached "
         "point (step 2)");
-    // The party left on the island is summoned to it, one a tick; a bot in a fight is not.
+    // The party left on the island is summoned to it, one a tick; a bot in a fight is waited for, not dropped.
+    Run fightLeft = r; // the same moment, for the 120 s bound below
     std::vector<std::string> summons;
     for (int i = 0; i < 8; ++i)
     {
         std::string const o = Tick(r, atPoint);
         if (o.compare(0, 7, "summon ") == 0)
             summons.push_back(o.substr(7));
-        else if (!r.strandSummon)
-            break;
     }
     CHECK(summons == std::vector<std::string>({"Yssia", "Beardinator", "Wendrick"}));
-    CHECK(!r.strandSummon && r.summoned.count("Yssia") && !r.summoned.count("Bowjangles"));
+    CHECK(r.strandSummon && r.summoned.count("Yssia") && !r.summoned.count("Bowjangles"));
     CHECK(r.stepSummons["Wendrick"].count == 1);
+    CHECK(r.note == "the lead bot was teleported to the last reached point (step 2): waiting for Bowjangles (left behind, "
+        "30.0 yd from it) to leave its fight before summoning it");
+    // Its fight over (no combat, no attackers): summoned on that tick, and the summons end.
+    Facts freed = atPoint;
+    freed.members[4].inCombat = false;
+    CHECK(Tick(r, freed) == "summon Bowjangles");
+    CHECK(r.summoned.count("Bowjangles"));
+    CHECK(Tick(r, freed).compare(0, 7, "summon ") != 0 && !r.strandSummon && r.state == State::Running);
+    // Attackers alone count as a fight too (asked of the summon tick itself: Tick's regroup takes such a
+    // bot first, "running back with 1 attacker").
+    Facts hit = atPoint;
+    hit.members[4].inCombat = false;
+    hit.members[4].attackers = 1;
+    Run att = fightLeft;
+    att.strandSummoned = {"Yssia", "Beardinator", "Wendrick"};
+    std::string attOrder;
+    CHECK(StrandedTeleportTick(att, hit, kTickMs, attOrder) && attOrder.empty() && att.strandSummon);
+    CHECK(att.note.find("waiting for Bowjangles") != std::string::npos);
+    // Still in its fight after 120 s: the pause names the bot and its spot.
+    atPoint.members[4].x = -446.3f;
+    atPoint.members[4].y = 92.4f;
+    atPoint.members[4].z = -188.7f;
+    for (std::uint32_t ms = 0; ms <= kStrandSummonWaitMs + 8 * kTickMs && fightLeft.state == State::Running; ms += kTickMs)
+        Tick(fightLeft, atPoint);
+    CHECK(fightLeft.state == State::Paused && fightLeft.summoned.count("Wendrick") && !fightLeft.summoned.count("Bowjangles"));
+    CHECK(fightLeft.note == "the lead bot was teleported to the last reached point (step 2), but Bowjangles stayed in a "
+        "fight 30.0 yd from it at -446.3 92.4 -188.7 for 120 s: bring it to the lead bot, then .bot run resume");
+    CHECK(kStrandSummonWaitMs == 120000);
 
     // At most once a step: the same strand again on that step passes the point as before.
     Run again = stranded();

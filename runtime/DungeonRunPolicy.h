@@ -201,6 +201,7 @@ constexpr std::uint32_t kIslandEscapes = 2;       // hops off one island, then p
 constexpr std::uint32_t kStrandSettleMs = 2000;   // the stranded lead bot's teleport (StrandedTeleportTick) settles this long
 constexpr std::uint32_t kStrandTries = 3;         // ... failed teleports (refused, or the lead bot not there after it) a step
 constexpr std::uint32_t kStrandWaits = 10;        // ... "wait" answers a step, then a pause
+constexpr std::uint32_t kStrandSummonWaitMs = 120000; // ... a bot left behind in a fight is waited for this long, then a pause
 constexpr std::uint32_t kEscapeSettleMs = 2000;   // the hop is over once the lead bot stands still this long ...
 constexpr std::uint32_t kEscapeCapMs = 6000;      // ... or after this long
 constexpr float kEscapeMovedYd = 2.0f;            // the glue refuses the hop when the lead bot moved this far since the read
@@ -1271,6 +1272,7 @@ struct Run
     std::uint32_t strandMs = 0;
     bool strandSummon = false;
     std::set<std::string> strandSummoned;
+    std::uint32_t strandSummonMs = 0; // how long the summons waited for a bot left behind in a fight
     std::size_t strandCountStep = static_cast<std::size_t>(-1);
     std::uint32_t strandTries = 0;
     std::uint32_t strandWaits = 0;
@@ -1747,6 +1749,7 @@ inline void ResetStep(Run& r)
     r.strandMs = 0;
     r.strandSummon = false;
     r.strandSummoned.clear();
+    r.strandSummonMs = 0;
     r.escapeFromMove = false;
     r.resendIdx = static_cast<std::size_t>(-1);
     r.resends = 0;
@@ -6036,18 +6039,28 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
         r.strandStep = r.step;
         r.strandSummon = true;
         r.strandSummoned.clear();
+        r.strandSummonMs = 0;
         r.note = "the lead bot was stranded at " + spot + " with no way back: teleported to " + target;
         return true;
     }
     if (r.strandSummon)
     {
+        // A bot left behind that fights (in combat, or with attackers) is only
+        // waited for: it is summoned on the first tick it is free, for at most
+        // kStrandSummonWaitMs, then the run pauses naming it.
+        const MemberFact* busy = nullptr;
         for (const MemberFact& m : f.members)
         {
-            if (m.name.empty() || m.name == f.carrier || r.strandSummoned.count(m.name) || m.inCombat ||
-                m.attackers > 0)
+            if (m.name.empty() || m.name == f.carrier || r.strandSummoned.count(m.name))
                 continue;
             if (std::fabs(m.dz) <= kStragglerDzYd && m.yd <= kGatherYd)
                 continue;
+            if (m.inCombat || m.attackers > 0)
+            {
+                if (!busy)
+                    busy = &m;
+                continue;
+            }
             r.strandSummoned.insert(m.name);
             MarkSummoned(r, m.name);
             order = "summon " + m.name;
@@ -6055,8 +6068,23 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
                 " yd from it): summoned";
             return true;
         }
-        r.strandSummon = false;
-        return false;
+        if (!busy)
+        {
+            r.strandSummon = false;
+            r.strandSummonMs = 0;
+            return false;
+        }
+        r.strandSummonMs += dt;
+        if (r.strandSummonMs >= kStrandSummonWaitMs)
+        {
+            Pause(r, "the lead bot was teleported to " + target + ", but " + busy->name + " stayed in a fight " +
+                Num(busy->yd) + " yd from it at " + Num(busy->x) + " " + Num(busy->y) + " " + Num(busy->z) + " for " +
+                std::to_string(kStrandSummonWaitMs / 1000) + " s: bring it to the lead bot, then .bot run resume");
+            return true;
+        }
+        r.note = "the lead bot was teleported to " + target + ": waiting for " + busy->name + " (left behind, " +
+            Num(busy->yd) + " yd from it) to leave its fight before summoning it";
+        return true;
     }
     if (!r.strandDue)
         return false;
