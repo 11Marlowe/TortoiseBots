@@ -1,7 +1,7 @@
 -- Blackrock Depths (map 230): the plan for the run leader (.bot run), exported from turtle-agent prep/blackrock_depths 6e12b2e
 -- (dungeons/blackrock_depths.json, status 'draft (not mapped, not live-checked)') with the options of the header of 20261017130000:
 --   turtle-agent plan-export --mmaps <map 230 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 6e12b2e \
---     --stamp 20261023130000 --out <dir> blackrock_depths
+--     --stamp 20261023150000 --out <dir> blackrock_depths
 -- Stacks on 20261023120000. NO ROW IS HAND-SET. The fixes it carries over the draft as the world export gave it are in
 -- ~/TortoiseBots-audit/PREP-BLACKROCK-DEPTHS-2026-10-23.md ("Fixes applied"):
 --   * the 19 Fireguard Destroyer 8911 points that stand on the WMO lava (12 off the mesh: 11 pull groups and the leg 7 'to'; 7

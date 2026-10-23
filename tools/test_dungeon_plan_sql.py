@@ -481,12 +481,12 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
     def test_blackrock_depths_is_the_plan_with_the_lava_and_pack_fixes(self):
-        # 20261023130000 (turtle-agent 6e12b2e, 2026-10-23): the Blackrock Depths draft with the fixes of PREP-BLACKROCK-DEPTHS-2026-10-23.md,
+        # 20261023150000 (turtle-agent 6e12b2e, 2026-10-23): the Blackrock Depths draft with the fixes of PREP-BLACKROCK-DEPTHS-2026-10-23.md,
         # no row hand-set, with the boss rows of map 230. 10 legs, 1127 steps (30 + 61 + 6 + 29 + 11 + 26 + 14 + 8 + 67 + 8 pulls), bosses in
         # leg order. The lava points are out of the pulls, leg 7's start is on Flamelash's platform, the packs that stand at five bosses are
         # those boss rows' entries, the four rares are pulls of their own, and no pull reaches beyond its own spread.
         name, text = newest_plan_text("blackrock_depths")
-        self.assertEqual(name, "20261023130000_world.sql")
+        self.assertEqual(name, "20261023150000_world.sql")
         self.assertIn("('blackrock_depths', 230, '8903,8892,8890,8891', '8903', '8894,8898,8896,8904,8900', 'turtle-agent 6e12b2e dungeons/blackrock_depths.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "blackrock_depths")), 10)
         rows = [r for r in self.step_rows(text) if r["plan"] == "blackrock_depths"]
