@@ -12,9 +12,11 @@
 -- This migration supersedes 20261023180000_world.sql (it stays as applied and is not edited). Data fix from the live run
 -- r25 shadowfang_keep slot5 (RUN-LESSONS "r25 shadowfang_keep slot5"; traces tests/r25/slot5sfk), leg 2 only:
 --   * the step-39 pull (one row at -248.04 2346.95, radius 22.1, entries 3854,61970,4075,3855) was 12 living court
---     units in its radius: its own six, the Wolfguard of the next pull (-254.05 2355.36) and the two Darksouls of the
---     pull after it (-263.51 2359.65, -262.69 2363.17). The run pulled them one by one (the tank picked a Cleric up
---     23.3 yd off the healer), wiped twice at it and never got past the step. It is two pulls of three now, both radius 8:
+--     units in its radius: its own six, the Wolfguard of the next pull (-254.05 2355.36), the two Darksouls of the
+--     pull after it (-263.51 2359.65, -262.69 2363.17) and three more of the east court's (a Darksoul at -231.63
+--     2344.95, a Cleric at -230.83 2356.38, a Wolfguard at -226.54 2344.31). The run pulled them one by one (the tank
+--     picked a Cleric up 23.3 yd off the healer), wiped twice at it and never got past the step. It is two pulls of
+--     three now, both radius 8:
 --     the south half (2 Wolfguards + the Spectral Cleric at -249.9 2344.1, row -247.37 2339.1) from a move to
 --     -248.5 2321, and the north half (the Cleric at -244.5 2358.4, the Darksoul at -251.3 2353.7 and the next pull's
 --     Wolfguard at -254.0 2355.4, folded in here) from a move to -250.7 2332.5. Both stands keep 20 yd clear of every
