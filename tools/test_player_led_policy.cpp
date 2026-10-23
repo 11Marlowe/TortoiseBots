@@ -15,6 +15,10 @@
 } while (0)
 
 namespace PL = TortoiseBots::PlayerLed;
+using namespace TortoiseBots::DungeonRun;
+using ai::DungeonPlan;
+using ai::PlanStep;
+using ai::PlanStepKind;
 namespace RC = TortoiseBots::RemoteCommander;
 
 // ---------------------------------------------------------------------------
@@ -208,8 +212,113 @@ static void TestModeText()
     CHECK(PL::ModeText(pl, true).find("Tanky") != std::string::npos);
 }
 
+// ---------------------------------------------------------------------------
+// S2: the player's orders
+// ---------------------------------------------------------------------------
+
+static void TestClassifyOrder()
+{
+    for (const char* w : {"follow", "stay", "come", "Formation", "flee", "guard", "move"})
+        CHECK(PL::ClassifyOrder(w) == PL::OrderClass::Move);
+    for (const char* w : {"attack", "pull", "pullback", "focus", "cc", "aoe", "sap", "taunt"})
+        CHECK(PL::ClassifyOrder(w) == PL::OrderClass::Fight);
+    for (const char* w : {"rest", "release", "revive", "corpse", "summon"})
+        CHECK(PL::ClassifyOrder(w) == PL::OrderClass::Control);
+    for (const char* w : {"", "hello", "who", "stats"})
+        CHECK(PL::ClassifyOrder(w) == PL::OrderClass::Other);
+    // The glue's labels.
+    CHECK(PL::OrderWord("action stay") == "stay");
+    CHECK(PL::OrderWord("action pullback 0x1234") == "pullback");
+    CHECK(PL::OrderWord("cmd Attack 12") == "attack");
+    CHECK(PL::OrderWord("chat 'follow' to Healy") == "follow");
+    CHECK(PL::OrderWord("chat '' to Healy").empty());
+    CHECK(PL::OrderWord("stay") == "stay");
+}
+
+static DungeonPlan OnePull()
+{
+    DungeonPlan plan;
+    PlanStep s;
+    s.kind = PlanStepKind::Pull;
+    s.x = 40;
+    s.entries = {4851};
+    ai::NormalizePlanStep(s);
+    plan.steps = {s};
+    return plan;
+}
+
+// The player's orders never pause a player-led run; the bot-led run keeps its pause.
+static void TestPlayerOrdersNeverPause()
+{
+    DungeonPlan plan = OnePull();
+    for (const char* label : {"action stay", "action attack", "cmd pullback 11", "chat 'rest' to Healy", "action who"})
+    {
+        Run r = Start(&plan);
+        PL::State pl;
+        pl.on = true;
+        CHECK(PL::NotePlayerOrder(pl, r, label));
+        CHECK(r.state == State::Running);
+        CHECK(!PausedByPlayer(r));
+        CHECK(r.note.find("obeyed") != std::string::npos);
+        // Bot-led: the same order pauses (unchanged).
+        Run b = Start(&plan);
+        PL::State off;
+        CHECK(!PL::NotePlayerOrder(off, b, label));
+        CHECK(PauseForPlayer(b, label));
+        CHECK(b.state == State::Paused);
+    }
+    // A paused player-led run stays paused (only `.bot run resume` goes on); a done one takes no note.
+    Run r = Start(&plan);
+    PL::State pl;
+    pl.on = true;
+    PausePlayer(r, "paused by .bot run pause");
+    CHECK(PL::NotePlayerOrder(pl, r, "action follow"));
+    CHECK(r.state == State::Paused && r.note == "paused by .bot run pause");
+    r.state = State::Done;
+    CHECK(!PL::NotePlayerOrder(pl, r, "action follow"));
+}
+
+// `stay` holds the run's pulls until `follow` or `come`; a fight order drops the run's own pending pull.
+static void TestStayAndFightOrders()
+{
+    DungeonPlan plan = OnePull();
+    Run r = Start(&plan);
+    PL::State pl;
+    pl.on = true;
+    PL::NotePlayerOrder(pl, r, "action stay");
+    CHECK(pl.stay);
+    CHECK(r.note.find("follow to go on") != std::string::npos);
+    PL::NotePlayerOrder(pl, r, "chat 'attack' to Tanky");
+    CHECK(pl.stay); // a fight order is not a move
+    PL::NotePlayerOrder(pl, r, "action come");
+    CHECK(!pl.stay);
+    PL::NotePlayerOrder(pl, r, "action stay");
+    PL::NotePlayerOrder(pl, r, "cmd follow");
+    CHECK(!pl.stay);
+    // The run's pull out (AwaitPull) or gathering: back to the step's start; a pull's fight already on is left.
+    for (Phase ph : {Phase::AwaitPull, Phase::Gather})
+    {
+        r.phase = ph;
+        pl.playerFight = false;
+        PL::NotePlayerOrder(pl, r, "action pull");
+        CHECK(pl.playerFight);
+        CHECK(r.phase == Phase::Begin);
+    }
+    r.phase = Phase::Rest;
+    PL::NotePlayerOrder(pl, r, "action focus");
+    CHECK(r.phase == Phase::Rest);
+    // A move order leaves the run's pull alone.
+    r.phase = Phase::AwaitPull;
+    pl.playerFight = false;
+    PL::NotePlayerOrder(pl, r, "action follow");
+    CHECK(r.phase == Phase::AwaitPull && !pl.playerFight);
+}
+
 int main()
 {
+    TestClassifyOrder();
+    TestPlayerOrdersNeverPause();
+    TestStayAndFightOrders();
     TestStartWords();
     TestBindPicksTheTank();
     TestBindWithPlayers();

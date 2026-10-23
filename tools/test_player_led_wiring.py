@@ -84,5 +84,29 @@ class PlayerLedBindWiringTest(unittest.TestCase):
         self.assertIn("ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Disabled, true);", update)
 
 
+class PlayerLedOrderWiringTest(unittest.TestCase):
+    def test_player_orders_do_not_pause_a_player_led_run(self):
+        pause = strip_comments(body(COMMANDS, "static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& order)\n{", "\n}\n"))
+        led = pause.index("it->second.playerLed.on")
+        self.assertLess(led, pause.index("TortoiseBots::DungeonRun::PauseForPlayer("))
+        self.assertIn("TortoiseBots::PlayerLed::NotePlayerOrder(it->second.playerLed, it->second.run, ProtocolSafe(order))", pause)
+        # The run's own orders never reach it.
+        self.assertLess(pause.index("if (s_runIssuing)"), led)
+
+    def test_leading_players_chat_is_an_order(self):
+        chat = strip_comments(body(COMMANDS, "bool NoteHumanChatOrder(Player* bot, Player& from, std::string const& text, bool whisper)", "\n}\n"))
+        led = chat.index("if (fromCommander && run->second.playerLed.on)")
+        self.assertLess(led, chat.index("RemoteCommander::ClassifyRunBoundOrder("))
+        branch = chat[led:chat.index("RemoteCommander::ClassifyRunBoundOrder(")]
+        self.assertIn("PauseDungeonRunForPlayer(commanderRaw,", branch)
+        self.assertIn("return true;", branch)
+
+    def test_every_order_hook_still_reaches_the_note(self):
+        # `.bot action`, `.bot cmd` and the chat hook all go through PauseDungeonRunForPlayer.
+        code = strip_comments(COMMANDS)
+        self.assertIn('PauseDungeonRunForPlayer(requester->GetObjectGuid().GetRawValue(), "action " + intent);', code)
+        self.assertIn('PauseDungeonRunForPlayer(order.commander->GetObjectGuid().GetRawValue(), "cmd " + verb);', code)
+
+
 if __name__ == "__main__":
     unittest.main()

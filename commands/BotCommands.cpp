@@ -12519,6 +12519,14 @@ static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& ord
     if (s_runIssuing)
         return;
     auto it = DungeonRuns().find(commanderRaw);
+    // A player-led run is never paused by the player's orders (PlayerLed::NotePlayerOrder): his movement orders
+    // are obeyed while the run goes on, a fight order is his pull. Only `.bot run pause` and `stop` pause it.
+    if (it != DungeonRuns().end() && it->second.playerLed.on)
+    {
+        if (TortoiseBots::PlayerLed::NotePlayerOrder(it->second.playerLed, it->second.run, ProtocolSafe(order)))
+            SendRunLine(FindCharacter(commanderRaw), it->second, false);
+        return;
+    }
     if (it == DungeonRuns().end() || !TortoiseBots::DungeonRun::PauseForPlayer(it->second.run, ProtocolSafe(order)))
         return;
     // Every bot the run made passive for a run back gets its own AI back now,
@@ -13549,6 +13557,13 @@ bool NoteHumanChatOrder(Player* bot, Player& from, std::string const& text, bool
         // chatting while the run runs (no pause, not a bot order); another player's whisper is refused.
         bool const fromCommander = from.GetObjectGuid().GetRawValue() == commanderRaw;
         bool const running = run->second.run.state == TortoiseBots::DungeonRun::State::Running;
+        // A player-led run: the leading player's chat to his bots (whisper or party chat) is a bot order as
+        // ever, obeyed, and never pauses the run (PlayerLed::NotePlayerOrder classes it).
+        if (fromCommander && run->second.playerLed.on)
+        {
+            PauseDungeonRunForPlayer(commanderRaw, "chat '" + word.substr(0, 32) + "' to " + bot->GetName());
+            return true;
+        }
         switch (RemoteCommander::ClassifyRunBoundOrder(true, running, fromCommander, whisper))
         {
             case RemoteCommander::RunOrderVerdict::PauseRun:

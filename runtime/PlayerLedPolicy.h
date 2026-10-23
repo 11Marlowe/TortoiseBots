@@ -265,7 +265,106 @@ struct State
 {
     bool on = false;   // this run is player-led
     std::string tank;  // the tank bot's name (the binding's lead bot)
+    // S2: the player's orders. stay: the bots stand on his `stay` (no new pull until his `follow` or `come`);
+    // playerFight: his own fight order (attack, pull, ...) since the last tick: the run's pending pull is dropped
+    // and the fight is his (the next tick adopts the plan step of what the party fights).
+    bool stay = false;
+    bool playerFight = false;
+    std::string lastOrder; // the last order he gave, for the status note
 };
+
+// ---------------------------------------------------------------------------
+// S2: the player's own orders never pause a player-led run
+// ---------------------------------------------------------------------------
+
+// The design (section 4): movement orders are obeyed while the run goes on; a fight order is the player's pull; a
+// control order (rest, release, revive, a corpse run) is his to give; anything else is noted. Only `.bot run pause`
+// and `.bot run stop` pause or stop a player-led run.
+enum class OrderClass : std::uint8_t { Move, Fight, Control, Other };
+
+inline OrderClass ClassifyOrder(const std::string& word)
+{
+    std::string const w = Lower(word);
+    for (const char* m : {"follow", "stay", "come", "formation", "flee", "guard", "move", "passive"})
+        if (w == m)
+            return OrderClass::Move;
+    for (const char* m : {"attack", "pull", "pullback", "focus", "cc", "aoe", "sap", "tank", "taunt", "interrupt",
+             "assist", "kill"})
+        if (w == m)
+            return OrderClass::Fight;
+    for (const char* m : {"rest", "release", "revive", "corpse", "summon", "eat", "drink", "resurrect", "rez"})
+        if (w == m)
+            return OrderClass::Control;
+    return OrderClass::Other;
+}
+
+inline const char* OrderClassName(OrderClass c)
+{
+    switch (c)
+    {
+        case OrderClass::Move: return "move";
+        case OrderClass::Fight: return "fight";
+        case OrderClass::Control: return "control";
+        case OrderClass::Other: return "other";
+    }
+    return "other";
+}
+
+// The order word of the glue's labels (PauseDungeonRunForPlayer's `order`): "action <intent> ...", "cmd <verb> ...",
+// "chat '<word>' to <bot>". Lower case; empty when none.
+inline std::string OrderWord(const std::string& label)
+{
+    auto firstWord = [](const std::string& s) {
+        std::size_t const b = s.find_first_not_of(" \t");
+        if (b == std::string::npos)
+            return std::string();
+        std::size_t const e = s.find_first_of(" \t", b);
+        return s.substr(b, e == std::string::npos ? std::string::npos : e - b);
+    };
+    if (label.compare(0, 7, "action ") == 0)
+        return Lower(firstWord(label.substr(7)));
+    if (label.compare(0, 4, "cmd ") == 0)
+        return Lower(firstWord(label.substr(4)));
+    if (label.compare(0, 6, "chat '") == 0)
+    {
+        std::size_t const end = label.find('\'', 6);
+        return Lower(firstWord(label.substr(6, end == std::string::npos ? std::string::npos : end - 6)));
+    }
+    return Lower(firstWord(label));
+}
+
+// The player's order to his party while a player-led run runs (instead of DungeonRun::PauseForPlayer, which the
+// bot-led run keeps). The run is never paused here. True when the run took note of it (it runs or is paused).
+//   - Move: obeyed by the bots; `stay` holds the run's next pull until `follow` or `come`.
+//   - Fight: the player's pull. A pull of the run's own that is gathering or not yet answered by a fight is
+//     dropped back to the step's start (the bots' fight and the next tick's step pick take it from there).
+//   - Control and other orders: obeyed by the bots, noted.
+inline bool NotePlayerOrder(State& pl, DungeonRun::Run& r, const std::string& label)
+{
+    if (!pl.on || r.state == DungeonRun::State::Done)
+        return false;
+    std::string const word = OrderWord(label);
+    OrderClass const c = ClassifyOrder(word);
+    pl.lastOrder = word;
+    if (c == OrderClass::Move)
+    {
+        if (word == "stay")
+            pl.stay = true;
+        else if (word == "follow" || word == "come")
+            pl.stay = false;
+    }
+    if (c == OrderClass::Fight)
+    {
+        pl.playerFight = true;
+        if (r.state == DungeonRun::State::Running &&
+            (r.phase == DungeonRun::Phase::Gather || r.phase == DungeonRun::Phase::AwaitPull))
+            DungeonRun::EnterPhase(r, DungeonRun::Phase::Begin);
+    }
+    if (r.state == DungeonRun::State::Running)
+        r.note = "your order (" + (word.empty() ? std::string("?") : word) + ", " + OrderClassName(c) +
+            "): obeyed, the run goes on" + (pl.stay ? " (no pull while the bots stay: follow to go on)" : "");
+    return true;
+}
 
 // `.bot run mode` and the start's answer.
 inline std::string ModeText(const State& pl, bool runExists)
