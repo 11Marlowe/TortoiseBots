@@ -1,7 +1,7 @@
 // Vanilla/Tortoise trade lockpicking action.
 
 #include "playerbot/playerbot.h"
-#include "playerbot/TradeLockboxPolicy.h"
+#include "playerbot/policy/gear/TradeLockboxPolicy.h"
 #include "UnlockTradedItemAction.h"
 #include "Database/DBCStores.h"
 #include "Objects/Item.h"

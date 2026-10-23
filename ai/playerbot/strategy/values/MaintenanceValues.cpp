@@ -11,7 +11,7 @@
 #include "playerbot/strategy/triggers/RpgTriggers.h"
 #include "playerbot/RandomBotFacade.h"
 #include "runtime/HireLifecycle.h"
-#include "VendorWeaponUpgradePolicy.h"
+#include "playerbot/policy/gear/VendorWeaponUpgradePolicy.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/TravelMgr.h"
 #include "SharedValueContext.h"

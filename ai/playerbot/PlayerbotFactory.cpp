@@ -3,12 +3,12 @@
 #include "playerbot/PlayerbotFactory.h"
 #include "playerbot/PerformanceMonitor.h"
 #include "playerbot/SurvivePolicy.h"
-#include "playerbot/SpellRankPolicy.h"
-#include "playerbot/TalentSpellSavePolicy.h"
+#include "playerbot/policy/gear/SpellRankPolicy.h"
+#include "playerbot/policy/gear/TalentSpellSavePolicy.h"
 #include "playerbot/AmmoStackPolicy.h"
 #include "../../runtime/BotNameService.h"
 #include "../../runtime/HunterPetPolicy.h"
-#include "../../runtime/PetSpellRankPolicy.h"
+#include "policy/gear/SpellRankPolicy.h"
 #include "../../runtime/StarterKitPolicy.h"
 #include "../../runtime/ProfessionGrantPolicy.h"
 #include "../../runtime/OwnedBotQolPolicy.h"
@@ -32,7 +32,7 @@
 
 #include "strategy/ItemVisitors.h"
 #include "strategy/values/MountValues.h"
-#include "strategy/values/EmptySlotFillPolicy.h"
+#include "policy/gear/EmptySlotFillPolicy.h"
 #include "playerbot/policy/travel/MountShopPolicy.h"
 
 using namespace ai;

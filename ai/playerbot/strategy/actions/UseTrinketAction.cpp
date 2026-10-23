@@ -1,6 +1,6 @@
 
 #include "playerbot/playerbot.h"
-#include "playerbot/TrinketUsePolicy.h"
+#include "playerbot/policy/gear/TrinketUsePolicy.h"
 #include "UseTrinketAction.h"
 #include "Objects/Item.h"
 #include "Objects/ItemPrototype.h"

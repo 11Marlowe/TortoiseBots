@@ -2,7 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "ItemUsageValue.h"
 #include "CraftValues.h"
-#include "playerbot/EquipThresholdPolicy.h"
+#include "playerbot/policy/gear/EquipThresholdPolicy.h"
 #include "MountValues.h"
 #include "AmmoCheatPolicy.h"
 #include "BudgetValues.h"

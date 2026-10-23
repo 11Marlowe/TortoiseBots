@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/values/RogueWeaponPolicy.h"
+#include "../ai/playerbot/policy/gear/RogueWeaponPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

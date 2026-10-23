@@ -4,7 +4,7 @@
 
 #include <set>
 
-#include "playerbot/DualWieldPolicy.h"
+#include "playerbot/policy/gear/DualWieldPolicy.h"
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/ItemCountValue.h"

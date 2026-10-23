@@ -8,7 +8,7 @@
 #include <vector>
 #include "../../../runtime/PetUpkeepPolicy.h"
 #include "../../../runtime/HunterPetPolicy.h"
-#include "../../../runtime/PetSpellRankPolicy.h"
+#include "../../policy/gear/SpellRankPolicy.h"
 #include "../../../runtime/WarlockPetPolicy.h"
 #include "../../../runtime/PetTauntPolicy.h"
 #include "../../../runtime/AttackOrderPolicy.h"

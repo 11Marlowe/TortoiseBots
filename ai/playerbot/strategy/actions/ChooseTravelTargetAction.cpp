@@ -14,7 +14,7 @@
 #include "playerbot/TravelRepickPolicy.h"
 #include "playerbot/policy/travel/TravelRouteDangerPolicy.h"
 #include "playerbot/RpgMixerPolicy.h"
-#include "playerbot/strategy/values/VendorTripPolicy.h"
+#include "../../policy/gear/VendorTripPolicy.h"
 #include "playerbot/strategy/values/TravelValues.h"
 #include "playerbot/strategy/values/MaintenanceValues.h"
 #include "playerbot/TravelNode.h"

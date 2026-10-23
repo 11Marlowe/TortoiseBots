@@ -8,7 +8,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_empty_slot_fill_policy.cpp -o /tmp/test_empty_slot_fill_policy
 //   /tmp/test_empty_slot_fill_policy
 
-#include "../ai/playerbot/strategy/values/EmptySlotFillPolicy.h"
+#include "../ai/playerbot/policy/gear/EmptySlotFillPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

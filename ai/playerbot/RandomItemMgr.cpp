@@ -8,11 +8,11 @@
 
 #include "playerbot/ServerFacade.h"
 #include "strategy/values/LootValues.h"
-#include "strategy/values/RogueWeaponPolicy.h"
+#include "policy/gear/RogueWeaponPolicy.h"
 #include "ItemEnchantmentMgr.h"
 
 #include "strategy/values/SharedValueContext.h"
-#include "strategy/values/SpecWeaponPolicy.h"
+#include "policy/gear/SpecWeaponPolicy.h"
 #include "strategy/values/AmmoCachePolicy.h"
 
 char * strstri (const char* str1, const char* str2);
