@@ -1,7 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "playerbot/GroupMembers.h"
-#include "playerbot/OocRebirthPolicy.h"
+#include "playerbot/policy/heal/OocRebirthPolicy.h"
 #include "DruidTriggers.h"
 #include "DruidActions.h"
 

@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_ooc_rebirth_policy.cpp -o /tmp/test_ooc_rebirth
 //   /tmp/test_ooc_rebirth
 
-#include "../ai/playerbot/OocRebirthPolicy.h"
+#include "../ai/playerbot/policy/heal/OocRebirthPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

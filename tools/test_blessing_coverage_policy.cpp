@@ -9,7 +9,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_blessing_coverage_policy.cpp -o /tmp/test_blessing_coverage
 //   /tmp/test_blessing_coverage
 
-#include "../ai/playerbot/BlessingCoveragePolicy.h"
+#include "../ai/playerbot/policy/heal/BlessingCoveragePolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

@@ -3,7 +3,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/PlayerbotAI.h"
 #include "playerbot/HealerManaPolicy.h"
-#include "playerbot/HealDownrankPolicy.h"
+#include "playerbot/policy/heal/HealDownrankPolicy.h"
 #include "playerbot/strategy/values/CcMarkHoldPolicy.h"
 
 namespace ai

@@ -2,7 +2,7 @@
 
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "playerbot/strategy/triggers/HealthTriggers.h"
-#include "playerbot/HealPacePolicy.h"
+#include "playerbot/policy/heal/HealPacePolicy.h"
 
 namespace ai
 {

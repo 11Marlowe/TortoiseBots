@@ -1,4 +1,4 @@
-#include "../ai/playerbot/HealingCastPolicy.h"
+#include "../ai/playerbot/policy/heal/HealingCastPolicy.h"
 
 #include <cstdlib>
 #include <iostream>
