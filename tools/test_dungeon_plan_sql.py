@@ -29,6 +29,7 @@ BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulf
               "scarlet_library": 189,
               "scarlet_armory": 189, "scarlet_cathedral": 189, "scarlet_graveyard": 189,
               "blackfathom_deeps": 48,
+              "blackrock_depths": 230,
               "shadowfang_keep": 33,
               "sunken_temple": 109,
               "razorfen_downs": 129,
@@ -79,7 +80,7 @@ SEEDED_BOSSES = {
 # Grubbis 7361: no spawn row in the map 90 export and no boss step names him, Gnomeregan).
 # Shadowfang Keep's extras that are not legs (Sever 14682, Prelate Ironmane 61969, the intro Arugal 10000).
 # the BFD neutrals Argent Guard 4787 and Woji the Toad 62531 (both rank 0).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354}
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929}
 # Ragglesnout 7354 (rank 2, Razorfen Downs: he is in a pull group).
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
@@ -98,6 +99,15 @@ ZUMRAH_GRAVES = (
 BOSS_PLANS["frostmane_hollow"] = 822
 SEEDED_BOSSES.update({(822, 63131): "Battlemaster Ubukaz", (822, 63129): "Kan'za the Seer",
                       (822, 63133): "Tan'sha the Sleek", (822, 63130): "Hailar the Frigid"})
+# Blackrock Depths (20261023130000): its map and its ten boss steps, names from the core's creature_template (all rank 1).
+# Panzor 8923, Pyromancer Loregrain 9024, Warder Stilgiss 9041 and Verek 9042 are rank 2 rares the plan pulls explicitly, and
+# Princess Moira 8929 is a friendly quest giver: none is seeded.
+BOSS_PLANS["blackrock_depths"] = 230
+SEEDED_BOSSES.update({(230, 9018): "High Interrogator Gerstahn", (230, 9319): "Houndmaster Grebmar",
+                      (230, 9016): "Bael'Gar", (230, 9033): "General Angerforge",
+                      (230, 8983): "Golem Lord Argelmach", (230, 9017): "Lord Incendius",
+                      (230, 9056): "Fineous Darkvire", (230, 9156): "Ambassador Flamelash",
+                      (230, 9938): "Magmus", (230, 9019): "Emperor Dagran Thaurissan"})
 
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
@@ -135,7 +145,7 @@ def newest_uldaman_rows():
 def leg_rows(text, plan):
     """The ai_dungeon_leg rows of a migration for the plan as {leg: (name, comment)}."""
     return {int(m.group(1)): (m.group(2).replace("''", "'"), m.group(3).replace("''", "'")) for m in
-            re.finditer(r"^\('%s', (\d+), '((?:[\w-]|'')+)', '((?:[^']|'')*)'\)[,;]$" % plan, text, re.M)}
+            re.finditer(r"^\('%s', (\d+), '((?:[^']|'')*)', '((?:[^']|'')*)'\)[,;]$" % plan, text, re.M)}
 
 
 def leg_steps(rows, leg):
@@ -670,6 +680,47 @@ class DungeonPlanSql(unittest.TestCase):
             for x, y in bosses:
                 self.assertGreaterEqual(dist(r, x, y), 25.0, r["comment"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (802) AND `entry` IN (92107, 92109, 92108, 92111, 92110);", text)
+
+    def test_blackrock_depths_is_the_plan_with_the_lava_and_pack_fixes(self):
+        # 20261023150000 (turtle-agent 6e12b2e, 2026-10-23): the Blackrock Depths draft with the fixes of PREP-BLACKROCK-DEPTHS-2026-10-23.md,
+        # no row hand-set, with the boss rows of map 230. 10 legs, 1127 steps (30 + 61 + 6 + 29 + 11 + 26 + 14 + 8 + 67 + 8 pulls), bosses in
+        # leg order. The lava points are out of the pulls, leg 7's start is on Flamelash's platform, the packs that stand at five bosses are
+        # those boss rows' entries, the four rares are pulls of their own, and no pull reaches beyond its own spread.
+        name, text = newest_plan_text("blackrock_depths")
+        self.assertEqual(name, "20261023150000_world.sql")
+        self.assertIn("('blackrock_depths', 230, '8903,8892,8890,8891', '8903', '8894,8898,8896,8904,8900', 'turtle-agent 6e12b2e dungeons/blackrock_depths.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(len(leg_rows(text, "blackrock_depths")), 10)
+        rows = [r for r in self.step_rows(text) if r["plan"] == "blackrock_depths"]
+        self.assertEqual(len(rows), 1127)
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
+                         [30, 61, 6, 29, 11, 26, 14, 8, 67, 8])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
+                         ["9018", "9319", "9016", "9033", "8983", "9017", "9056", "9156", "9938", "9019"])
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
+                         ["8912,8890,8921", "8921", "", "8901", "8906,8907", "", "8897,8905", "", "", ""])
+        for leg in range(10):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        # The 19 Fireguard Destroyer points on the lava and in the two lava pockets are gone (the navmesh flags them SLIME, and no run
+        # leader route reaches them); the two Fireguard Destroyer pulls left in leg 6 stand on the main network at z -103.4 and -102.0.
+        lava = [(849.381, -243.453), (851.683, -281.675), (886.74, -327.905), (932.497, -250.361),
+                (926.193, -352.366), (941.022, -310.532), (1022.1, -303.398), (1118.19, -358.505),
+                (983.66, -278.923), (1067.93, -264.695), (1139.25, -241.24),
+                (1012.2, -239.4), (1009.7, -235.9), (1027.7, -246.0),
+                (1154.0, -313.6), (1161.9, -315.6), (1150.9, -323.9), (1165.1, -327.2)]
+        for r in pulls:
+            self.assertGreater(min(dist(r, x, y) for x, y in lava), 1.0, (r["leg"], r["seq"], r["x"], r["y"]))
+            self.assertGreater(float(r["z"]), -110.0, (r["leg"], r["seq"]))
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 18.0)
+        # The rares are pull rows now, not the draft's skip list (which is gone): Loregrain 9024, Stilgiss 9041 + Verek 9042 together,
+        # Panzor 8923 and Roccor 9025.
+        rarity = [r["entries"] for r in pulls if set(r["entries"].split(",")) & {"9024", "9041", "9042", "8923", "9025"}]
+        self.assertIn("9024", rarity)
+        self.assertIn("9042,9041", rarity)
+        self.assertIn("8923", rarity)
+        self.assertIn("9025", rarity)
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["blackrock_depths"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (230) AND `entry` IN (9018, 9319, 9016, 9033, 8983, 9017, 9056, 9156, 9938, 9019);", text)
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
         # 20261023160000 (turtle-agent rfk-fix6 0a72713f, 2026-10-23, after live run r24 slot8 run 5 stopped at step 343 in the
