@@ -214,7 +214,7 @@ enum class ReleaseReason : uint8_t
     GroupTooLarge,
     GroupRaid,
     // An in-party binding whose commander is no longer a member of the bound group (he left, was kicked or the
-    // group lost him): released at once, the bots taken out of that party (ReleaseTakesBotsOut).
+    // group lost him): released at once, the bots taken out of that party (DecideReleaseParty).
     CommanderLeftParty,
     // Not a CheckBinding verdict: the commander's own `.bot commander unbind`.
     Unbound,
@@ -252,14 +252,39 @@ inline ReleaseReason CheckBinding(Binding const& binding, BindingState const& st
     return ReleaseReason::None;
 }
 
-// The release of an in-party binding whose commander is not in the bound group any more (he left, was kicked,
-// logged out or lost his connection): the binding's bots leave that party, so no other player of it becomes their
-// master (the bots' own "a real player of the group becomes the master" rule) and the lead goes to a player of the
-// party (the core picks a new leader when the leading bot leaves). His hires go back to him (or wait for his login)
-// as on every release. With the commander still in the group the bots stay and the lead goes back to him.
-inline bool ReleaseTakesBotsOut(bool inParty, bool commanderInGroup)
+// What the release of a binding does with the bound party (review round 2). For an in-party binding whose
+// commander is gone - the release is for his logout or departure (CommanderLeft, CommanderLeftParty), or he is not
+// there now: not found, not in the world, no network session (an offline commander keeps his group slot, so being a
+// member alone proves nothing), or not a member - the binding's bots leave that party, so no other player of it
+// becomes their master (the bots' own "a real player of the group becomes the master" rule), and the lead first goes
+// to an online real player of it. His hires go back to him (or wait for his login) as on every release. With the
+// commander there (unbind, config off) the bots stay and the lead goes back to him. A classic binding: nothing.
+enum class ReleasePartyAction : uint8_t
 {
-    return inParty && !commanderInGroup;
+    None,
+    BotsLeave,
+    LeadToCommander,
+};
+
+struct ReleaseCommanderFacts
+{
+    bool inParty = false;
+    ReleaseReason reason = ReleaseReason::None;
+    bool found = false;      // the commander's character exists (between maps too)
+    bool inWorld = false;
+    bool hasSession = false; // a session with its network transport (a live client)
+    bool isMember = false;   // his guid is in the bound group's member slots
+};
+
+inline ReleasePartyAction DecideReleaseParty(ReleaseCommanderFacts const& facts)
+{
+    if (!facts.inParty)
+        return ReleasePartyAction::None;
+    if (facts.reason == ReleaseReason::CommanderLeft || facts.reason == ReleaseReason::CommanderLeftParty)
+        return ReleasePartyAction::BotsLeave;
+    if (!facts.found || !facts.inWorld || !facts.hasSession || !facts.isMember)
+        return ReleasePartyAction::BotsLeave;
+    return ReleasePartyAction::LeadToCommander;
 }
 
 // Followers the binding pointed at the lead bot that are no longer members of

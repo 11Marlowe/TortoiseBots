@@ -223,9 +223,53 @@ static void TestBindingRelease()
     state.leadGroupId = 7;
     state.commanderInGroup = true;
     // What the release does with the bots: out of the party when he is not in it, else they stay.
-    CHECK(RC::ReleaseTakesBotsOut(true, false));
-    CHECK(!RC::ReleaseTakesBotsOut(true, true));
-    CHECK(!RC::ReleaseTakesBotsOut(false, false)); // a classic binding: as before
+    // What the release does with the party (DecideReleaseParty, the glue's own call with what it reads).
+    using A = RC::ReleasePartyAction;
+    RC::ReleaseCommanderFacts here;
+    here.inParty = true;
+    here.reason = RC::ReleaseReason::Unbound;
+    here.found = here.inWorld = here.hasSession = here.isMember = true;
+    CHECK(RC::DecideReleaseParty(here) == A::LeadToCommander); // unbind with him in the party
+    RC::ReleaseCommanderFacts off = here;
+    off.reason = RC::ReleaseReason::Disabled;
+    CHECK(RC::DecideReleaseParty(off) == A::LeadToCommander);
+    // Logged out: his guid still in the member slots, no session; the reason says he left.
+    RC::ReleaseCommanderFacts loggedOut = here;
+    loggedOut.reason = RC::ReleaseReason::CommanderLeft;
+    loggedOut.hasSession = false;
+    loggedOut.inWorld = false;
+    CHECK(loggedOut.isMember);
+    CHECK(RC::DecideReleaseParty(loggedOut) == A::BotsLeave);
+    // The reason alone decides it, whatever the presence read says (a session read back between the check and here).
+    RC::ReleaseCommanderFacts reasonOnly = here;
+    reasonOnly.reason = RC::ReleaseReason::CommanderLeft;
+    CHECK(RC::DecideReleaseParty(reasonOnly) == A::BotsLeave);
+    // ... even with the character gone entirely.
+    loggedOut.found = false;
+    CHECK(RC::DecideReleaseParty(loggedOut) == A::BotsLeave);
+    // Dropped his connection (the character in the world, a member, no network transport), whatever the reason.
+    RC::ReleaseCommanderFacts dropped = here;
+    dropped.hasSession = false;
+    CHECK(RC::DecideReleaseParty(dropped) == A::BotsLeave);
+    dropped.reason = RC::ReleaseReason::LeaderChanged;
+    CHECK(RC::DecideReleaseParty(dropped) == A::BotsLeave);
+    // Out of the world, out of the group, or the reason is his departure: the bots leave.
+    RC::ReleaseCommanderFacts away = here;
+    away.inWorld = false;
+    CHECK(RC::DecideReleaseParty(away) == A::BotsLeave);
+    RC::ReleaseCommanderFacts kicked = here;
+    kicked.isMember = false;
+    CHECK(RC::DecideReleaseParty(kicked) == A::BotsLeave);
+    RC::ReleaseCommanderFacts left = here;
+    left.reason = RC::ReleaseReason::CommanderLeftParty;
+    CHECK(RC::DecideReleaseParty(left) == A::BotsLeave);
+    // A classic binding: the party is left alone, gone commander or not.
+    RC::ReleaseCommanderFacts classicGone = loggedOut;
+    classicGone.inParty = false;
+    CHECK(RC::DecideReleaseParty(classicGone) == A::None);
+    RC::ReleaseCommanderFacts classicHere = here;
+    classicHere.inParty = false;
+    CHECK(RC::DecideReleaseParty(classicHere) == A::None);
     CHECK(std::string(RC::ReleaseReasonText(RC::ReleaseReason::CommanderLeftParty)) == "the commander left the party");
     // A player taking the lead still ends it, and so does a raid.
     state.leadIsLeader = false;
@@ -831,6 +875,23 @@ static void TestLootItemNeededLater()
     g.itemPlayer = "Hypeer";
     LootGivenUp(given, g, loot);
     CHECK(given.note.find("trade it to Tanky") != std::string::npos);
+    // No carrier read: never "trade it to , then".
+    Run blank = Start(&plan);
+    blank.lootRefusal = "refused";
+    g.carrier.clear();
+    LootGivenUp(blank, g, loot);
+    CHECK(blank.note.find("to , then") == std::string::npos);
+    CHECK(blank.note.find("trade it to the lead bot") != std::string::npos);
+    // The bots tried stay listed where they were, also when a player carries the item.
+    Run tried = Start(&plan);
+    tried.lootRefusal = "refused";
+    tried.lootRights = true;
+    tried.lootTried = {"Tanky", "Healy"};
+    g.carrier = "Tanky";
+    LootGivenUp(tried, g, loot);
+    std::size_t const list = tried.note.find("(tried Tanky Healy)");
+    CHECK(list != std::string::npos);
+    CHECK(list < tried.note.find("trade it to Tanky"));
 }
 
 int main()

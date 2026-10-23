@@ -7616,10 +7616,6 @@ inline void LootGivenUp(Run& r, const Facts& f, const PlanStep& s)
             (s.item ? "item " + std::to_string(s.item) : std::string("the loot")) + ", then .bot run resume (" + text + ")";
     else if (s.item && f.corpseChecked && !f.corpseHasItem)
         text = "loot: item " + std::to_string(s.item) + " not on corpse and not in any bag (" + text + ")";
-    // A player took the item a later step needs on a bot: he hands it over.
-    if (s.item && !f.itemPlayer.empty())
-        text += "; " + f.itemPlayer + " carries item " + std::to_string(s.item) + ": trade it to " + f.carrier +
-            ", then .bot run resume";
     else if (r.lootRights && r.lootTried.size() > 1)
     {
         text += " (tried";
@@ -7627,6 +7623,10 @@ inline void LootGivenUp(Run& r, const Facts& f, const PlanStep& s)
             text += " " + name;
         text += ")";
     }
+    // A player took the item a later step needs on a bot: he hands it over.
+    if (s.item && !f.itemPlayer.empty())
+        text += "; " + f.itemPlayer + " carries item " + std::to_string(s.item) + ": trade it to " +
+            (f.carrier.empty() ? std::string("the lead bot") : f.carrier) + ", then .bot run resume";
     Pause(r, text + MissingHint(r));
 }
 

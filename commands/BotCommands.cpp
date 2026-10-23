@@ -4986,15 +4986,38 @@ uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason
             }
     // In-party (review round 1): with the commander no longer in the bound group the binding's bots leave it, so no
     // other player of it becomes their master and the core gives the lead to a player of it; with him in it the
-    // lead goes back to him (RemoteCommander::ReleaseTakesBotsOut). Before the hires are ended below: they are still
+    // lead goes back to him (RemoteCommander::DecideReleaseParty, from the release's reason and his presence). Before the hires are ended below: they are still
     // held by the binding, so leaving the party does not end their hire, and they then go back to him as on any release.
     if (removed.inParty)
         if (Group* group = lead ? lead->GetGroup() : nullptr)
             if (group->GetId() == removed.groupId)
             {
-                bool const commanderInGroup = commander && group->IsMember(commander->GetObjectGuid());
-                if (RemoteCommander::ReleaseTakesBotsOut(removed.inParty, commanderInGroup))
+                RemoteCommander::ReleaseCommanderFacts present;
+                present.inParty = removed.inParty;
+                present.reason = reason;
+                present.found = commander != nullptr;
+                present.inWorld = commander && commander->IsInWorld();
+                present.hasSession = commander && commander->GetSession() &&
+                    commander->GetSession()->HasNetworkTransport();
+                present.isMember = group->IsMember(ObjectGuid(commanderRaw));
+                RemoteCommander::ReleasePartyAction const action = RemoteCommander::DecideReleaseParty(present);
+                if (action == RemoteCommander::ReleasePartyAction::BotsLeave)
                 {
+                    // The lead first to an online real player of the party (never the gone commander), so the
+                    // core does not pass it on to an offline member when the leading bot leaves.
+                    if (group->IsLeader(lead->GetObjectGuid()))
+                        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+                        {
+                            if (slot.guid.GetRawValue() == commanderRaw || BotManager::Instance().IsBot(slot.guid))
+                                continue;
+                            Player* const player = FindCharacter(slot.guid.GetRawValue());
+                            if (player && player->IsInWorld() && player->GetSession() &&
+                                player->GetSession()->HasNetworkTransport())
+                            {
+                                group->ChangeLeader(slot.guid);
+                                break;
+                            }
+                        }
                     std::vector<ObjectGuid> leaving;
                     for (Group::MemberSlot const& slot : group->GetMemberSlots())
                         if (BotManager::Instance().IsBot(slot.guid))
@@ -5004,8 +5027,9 @@ uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason
                         if (group->IsMember(guid))
                             group->RemoveMember(guid, 0);
                 }
-                else if (commander && group->IsLeader(lead->GetObjectGuid()))
-                    group->ChangeLeader(commander->GetObjectGuid());
+                else if (action == RemoteCommander::ReleasePartyAction::LeadToCommander &&
+                    group->IsLeader(lead->GetObjectGuid()))
+                    group->ChangeLeader(ObjectGuid(commanderRaw));
             }
     // The commander's own hires go back to its party (or wait for it to come
     // back online inside the logout grace): a hire lives in its hirer's party.
