@@ -7,8 +7,9 @@
 // the door nearest the GHOST - the Graveyard wing's (trigger 45) - so the core
 // raised them at 1687 1050, a wing with no way to the Library. The run leader
 // then paused on a "navmesh island". The 300 s corpse-run timeout had the same
-// flaw: sObjectMgr.GetMapEntranceTrigger(map) returns whichever trigger comes
-// first in a hash map, which on a map with several doors is arbitrary.
+// flaw: sObjectMgr.GetMapEntranceTrigger(map) returns the first trigger into the
+// map in a std::map keyed by trigger id, i.e. the lowest id: on a map with
+// several doors one fixed door, whatever part the body lies in.
 //
 // A player runs to the door of the part where the body lies. The rule here:
 // among the area triggers that lead onto the corpse's map, the one whose
@@ -116,6 +117,17 @@ namespace ai
     // the 300 s timeout's: external entrances on the map the instance is
     // entered from (ghost_entrance_map), the destination nearest the corpse.
     // entranceMap < 0 (unknown): no door, and the core keeps its own trigger.
+    // Only maps whose doors were checked against their wings get an answer
+    // (Codex review of the repop hook): on Dire Maul, Maraudon or Stratholme
+    // the nearest door may open on a wing with no way to the body, worse than
+    // the core's fixed trigger. Single-door maps need no answer either.
+    // Scarlet Monastery 189 (four wings, 1300+ yd apart) and Uldaman 70
+    // (front 286, back 902) are validated.
+    inline bool RepopDoorMapValidated(std::uint32_t dungeonMap)
+    {
+        return dungeonMap == 189 || dungeonMap == 70;
+    }
+
     inline CorpseEntranceRules RepopEntranceRules(std::uint32_t dungeonMap, std::int32_t entranceMap)
     {
         CorpseEntranceRules rules;

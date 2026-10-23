@@ -255,6 +255,13 @@ static std::vector<CorpseEntranceCandidate> FromInside(std::vector<CorpseEntranc
 static void TestRepopEntrance()
 {
     using ai::RepopEntranceRules;
+    using ai::RepopDoorMapValidated;
+    // Only validated maps get an answer: Scarlet Monastery and Uldaman.
+    CHECK(RepopDoorMapValidated(189) && RepopDoorMapValidated(70));
+    // Dire Maul 429, Maraudon 349, Stratholme 329 (unvalidated multi-door maps), Gnomeregan 90,
+    // and single-door maps (Ragefire 389, Deadmines 36): no answer, the core keeps its trigger.
+    for (std::uint32_t map : {429u, 349u, 329u, 90u, 389u, 36u, 0u})
+        CHECK(!RepopDoorMapValidated(map));
     CorpseEntranceRules const sm = RepopEntranceRules(189, 0);
     CHECK(sm.destMap == 189 && sm.ghostMap == 189 && sm.entranceMap == 0 && sm.timeout);
     std::vector<CorpseEntranceCandidate> const scarlet = FromInside(ScarletDoors());
@@ -272,7 +279,8 @@ static void TestRepopEntrance()
     });
     CHECK(PickBothOrders(uld, -160.0f, 330.0f, -45.0f, RepopEntranceRules(70, 0)) == 902);
     CHECK(PickBothOrders(uld, -180.0f, 90.0f, -50.0f, RepopEntranceRules(70, 0)) == 286);
-    // A single-door map (Ragefire Chasm 389, entered from Kalimdor): its one door, as before.
+    // A single-door map (Ragefire Chasm 389, entered from Kalimdor): the rules alone would give its
+    // one door (the same as the core's), but the map is not validated, so no answer is sent.
     std::vector<CorpseEntranceCandidate> const rfc = FromInside({Door(2230, 0.797643f, -8.23429f, -15.5288f, 0.0f, 1)});
     CHECK(PickBothOrders(rfc, -300.0f, 200.0f, -60.0f, RepopEntranceRules(389, 1)) == 2230);
     // No eligible door: no answer, the core keeps GetMapEntranceTrigger.

@@ -49,14 +49,14 @@ bool BotPlayerAdapter::IsManagedBot(Player* who)
 // dungeon, before it revives the bot at a door. The core's own pick
 // (GetMapEntranceTrigger, the lowest trigger id) is one fixed door: Scarlet
 // Monastery's Graveyard wing whatever wing the bot died in. Answer the
-// external door whose destination lies nearest the corpse; false (not a bot
-// of ours, no eligible door) keeps the core's trigger.
-bool BotPlayerAdapter::GetBotRepopEntrance(Player* bot, uint32 mapId, float x, float y, float z,
-    AreaTriggerTeleport const*& entrance)
+// external door whose destination lies nearest the corpse (its trigger id);
+// 0 (not a bot of ours, a map not validated, no eligible door) keeps the
+// core's trigger.
+uint32 BotPlayerAdapter::GetBotRepopEntrance(Player* bot, uint32 mapId, float x, float y, float z)
 {
     if (!bot || !BotManager::Instance().IsBot(bot->GetObjectGuid()))
-        return false;
-    return ai::PickRepopEntrance(bot, mapId, x, y, z, entrance);
+        return 0;
+    return ai::PickRepopEntrance(bot, mapId, x, y, z);
 }
 
 uint8 BotPlayerAdapter::GetBotRoles(Player* who)

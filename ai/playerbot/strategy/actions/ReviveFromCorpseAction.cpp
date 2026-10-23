@@ -144,25 +144,24 @@ static bool FindInstanceEntranceTrigger(uint32 corpseMapId, uint32 botMapId, Wor
 
 // The core's managed-bot repop hook (BotPlayerAdapter::GetBotRepopEntrance):
 // a bot released inside dungeon `dungeonMapId` revives at the door nearest
-// its corpse (RepopEntranceRules). False: no eligible door, the core keeps
-// GetMapEntranceTrigger.
-bool ai::PickRepopEntrance(Player* bot, uint32 dungeonMapId, float corpseX, float corpseY, float corpseZ,
-                           AreaTriggerTeleport const*& outAt)
+// its corpse (RepopEntranceRules), on validated maps only. 0: no answer, the
+// core keeps GetMapEntranceTrigger. The core re-checks the id it gets back.
+uint32 ai::PickRepopEntrance(Player* bot, uint32 dungeonMapId, float corpseX, float corpseY, float corpseZ)
 {
-    outAt = nullptr;
-    if (!bot)
-        return false;
+    if (!bot || !RepopDoorMapValidated(dungeonMapId))
+        return 0;
     MapEntry const* dungeonMap = sMapStorage.LookupEntry<MapEntry>(dungeonMapId);
     if (!dungeonMap)
-        return false;
+        return 0;
     AreaTriggerEntry const* atEntry = nullptr;
+    AreaTriggerTeleport const* at = nullptr;
     WorldPosition const corpsePos(dungeonMapId, corpseX, corpseY, corpseZ);
     if (!FindEntranceTriggerByRules(dungeonMapId, WorldPosition(bot), corpsePos,
-            RepopEntranceRules(dungeonMapId, dungeonMap->ghostEntranceMap), atEntry, outAt))
-        return false;
+            RepopEntranceRules(dungeonMapId, dungeonMap->ghostEntranceMap), atEntry, at))
+        return 0;
     sLog.outBasic("[BOT REPOP] %s: released in map %u at %.1f %.1f %.1f, revives at entrance trigger %u",
         bot->GetName(), dungeonMapId, corpseX, corpseY, corpseZ, atEntry->id);
-    return true;
+    return atEntry->id;
 }
 
 bool ReviveFromCorpseAction::Execute(Event& event)

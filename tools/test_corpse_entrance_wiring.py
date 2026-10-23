@@ -34,7 +34,7 @@ class CorpseEntranceWiringTest(unittest.TestCase):
     def setUp(self):
         # The candidate builder (FindEntranceTriggerByRules) and the corpse run's rules
         # (FindInstanceEntranceTrigger), up to the repop hook's answer.
-        self.find = body(ACTION, "static bool FindEntranceTriggerByRules(", "bool ai::PickRepopEntrance(")
+        self.find = body(ACTION, "static bool FindEntranceTriggerByRules(", "uint32 ai::PickRepopEntrance(")
         self.corpse = body(ACTION, "bool FindCorpseAction::Execute(", "bool FindCorpseAction::isUseful()")
 
     def test_the_policy_header_is_included(self):
