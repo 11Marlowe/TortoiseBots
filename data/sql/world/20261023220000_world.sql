@@ -1,7 +1,7 @@
 -- Gnomeregan (map 90): the Ambassador's chance-spawn boss step and its one Agent pull are the last leg, after Mekgineer Thermaplugg,
 -- and the four move points the run refused every time are on the server's navmesh, after r25 slot 8 stopped at step 637 of 656
 -- (dungeons/gnomeregan.json, status 'draft (not mapped, not live-checked)') with the options of the header of 20261023140000:
---   turtle-agent plan-export --mmaps <map 90 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 10e73d6 \
+--   turtle-agent plan-export --mmaps <map 90 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 7e49b4f \
 --     --stamp 20261023220000 --out <dir> gnomeregan
 -- Stacks on 20261023140000 (applied; that file stays as it is). NO ROW IS HAND-SET. The map's ai_dungeon_boss seed is already in
 -- 20261022210500 (the five bosses are unchanged) and is not repeated here.
@@ -40,7 +40,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'gnomeregan';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'gnomeregan';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'gnomeregan';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent 10e73d6 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');
+('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent 7e49b4f dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('gnomeregan', 0, 'viscous_fallout', ''),
 ('gnomeregan', 1, 'electrocutioner_6000', ''),

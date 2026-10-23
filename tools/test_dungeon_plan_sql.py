@@ -272,7 +272,7 @@ class DungeonPlanSql(unittest.TestCase):
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
     def test_gnomeregan_is_the_plan_with_the_pack_fixes(self):
-        # 20261023220000 (turtle-agent 10e73d6, 2026-10-23): 20261023140000 carried over unchanged except the Ambassador fix and the
+        # 20261023220000 (turtle-agent 7e49b4f, 2026-10-23): 20261023140000 carried over unchanged except the Ambassador fix and the
         # four refused move points. 6228 is a 30 % pool spawn (pool 9001, max_limit 1; the other member is the Agent 6212 at 70 % and
         # the same spot), so r25 slot 8 reached his boss step with no Ambassador in the instance. His boss step and the one Agent pull
         # in front of him are now new leg 5, after Mekgineer Thermaplugg; leg 3 is renamed thermaplugg_route and keeps its 23 ring and
@@ -286,7 +286,7 @@ class DungeonPlanSql(unittest.TestCase):
         # pull. Leg 0's cave chain (groups 23-29) is radius 8 and each has an approach move on its own floor.
         name, text = newest_plan_text("gnomeregan")
         self.assertEqual(name, "20261023220000_world.sql")
-        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent 10e73d6 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent 7e49b4f dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "gnomeregan")), 6)
         rows = [r for r in self.step_rows(text) if r["plan"] == "gnomeregan"]
         self.assertEqual(len(rows), 647)
