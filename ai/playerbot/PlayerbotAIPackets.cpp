@@ -9,6 +9,8 @@
 #include "strategy/values/TargetValue.h"
 #include "BotActionLog.h"
 #include "PlayerbotLLMInterface.h"
+#include "playerbot/WandPolicy.h"
+#include "playerbot/strategy/actions/SayAction.h"
 
 bool istarts_with(std::string_view text, std::string_view prefix); // Helpers.cpp
 

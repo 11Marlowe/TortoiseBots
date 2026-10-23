@@ -9,6 +9,8 @@
 #include "LootObjectStack.h"
 #include "BotActionLog.h"
 #include "Spells/SpellMgr.h"
+#include "playerbot/strategy/values/MountValues.h"
+#include "playerbot/MountDismountPolicy.h"
 
 using namespace ai;
 
