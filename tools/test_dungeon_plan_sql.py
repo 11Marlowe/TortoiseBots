@@ -28,7 +28,8 @@ BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulf
               "gnomeregan": 90,
               "scarlet_library": 189,
               "scarlet_armory": 189, "scarlet_cathedral": 189, "scarlet_graveyard": 189,
-              "blackfathom_deeps": 48}
+              "blackfathom_deeps": 48,
+              "dragonmaw_retreat": 816}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -59,6 +60,8 @@ SEEDED_BOSSES = {
     (189, 61982): "Armory Quartermaster Daghelm", (189, 3975): "Herod",
     (189, 4542): "High Inquisitor Fairbanks", (189, 3976): "Scarlet Commander Mograine", (189, 3977): "High Inquisitor Whitemane",
     (189, 3983): "Interrogator Vishas", (189, 14693): "Scorn", (189, 4543): "Bloodmage Thalnos", (189, 61972): "Duke Dreadmoore",
+    (816, 62056): "Bogpaw Truthsay", (816, 62057): "Gowlfang", (816, 62072): "Searistrasz",
+    (816, 62069): "Halgan Redbrand", (816, 62037): "Zuluhed the Whacked",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
 # Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080,
@@ -469,6 +472,36 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((last["entries"], float(last["radius"])), ("1708", 7.0))
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwind_stockade"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
+
+    def test_dragonmaw_retreat_is_the_plan_with_the_census_fixes(self):
+        # 20261023150200 (turtle-agent c4d60a8, 2026-10-23): the Dragonmaw Retreat draft with the census fixes of
+        # PREP-DRAGONMAW-RETREAT-2026-10-23.md, no row hand-set, with the boss rows of map 816. 5 legs, 886 steps (28 + 6 + 60 + 41 + 78
+        # pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the 74 critter spawns (4075, 14881) are out
+        # of every pull; leg 2 enters the main network over the one-way 6 yd drop as the plan's one move_direct; the single Bruiser inside
+        # the twin bosses' detection and the single whelp inside Searistrasz's detection are gone; the boss rows and the entry-scoped
+        # boss DELETE are pinned.
+        name, text = newest_plan_text("dragonmaw_retreat")
+        self.assertEqual(name, "20261023150200_world.sql")
+        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent c4d60a8 dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(len(leg_rows(text, "dragonmaw_retreat")), 5)
+        rows = [r for r in self.step_rows(text) if r["plan"] == "dragonmaw_retreat"]
+        self.assertEqual(len(rows), 886)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [28, 6, 60, 41, 78])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["62056", "62057", "62072", "62069", "62037"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "move_direct", "pull", "boss"})
+        for leg in range(5):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual([(r["entry"], r["entries"]) for r in rows if r["kind"] == "boss"],
+                         [("62056", "62057"), ("62057", ""), ("62072", ""), ("62069", ""), ("62037", "")])
+        # The gm_cross landing of leg 2, exported as the one straight walk (the run leader has no GM move).
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in rows if r["kind"] == "move_direct"], [("-6190.1", "-3962.4", "215.8")])
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertFalse({e for r in pulls for e in r["entries"].split(",")} & {"4075", "14881"}, "a critter is still a pull member")
+        self.assertEqual((pulls[0]["entries"], float(pulls[0]["radius"])), ("62052", 5.0))
+        # The Bruiser that stood inside Bogpaw's and Gowlfang's 20 yd detection is not a pull row any more.
+        self.assertFalse([r for r in pulls if abs(float(r["x"]) + 5985.32) < 0.5 and abs(float(r["y"]) + 3626.44) < 0.5])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (816) AND `entry` IN (62056,62057,62072,62069,62037);", text)
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["dragonmaw_retreat"])
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
         # 20261023120000 (turtle-agent rfk-fix5 32d3b491, 2026-10-23, after live run r24 slot8 stopped at step 15): the plan of
