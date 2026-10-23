@@ -11121,7 +11121,10 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     if (PlayerbotAI* const moveAi = PlayerbotAIStorage::Instance().GetAI(lead))
     {
         ai::LastMovement& lastMove = moveAi->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get();
-        f.leadMoveFailed = ai::PositionMoveFailing(lastMove.positionMoveFailMs, WorldTimer::getMSTime());
+        // A stay walk resting after failed walks (StayArrivalPolicy.h StayWalkBackingOff) is failing too:
+        // its last failure may be older than kPositionMoveFailFreshMs, and the stall's fallback must see it.
+        f.leadMoveFailed = ai::PositionMoveFailing(lastMove.positionMoveFailMs, WorldTimer::getMSTime()) ||
+            TortoiseBots::StayWalkBackingOff(lastMove.stayWalk, WorldTimer::getMSTime());
         f.leadMoveFailReason = ai::MoveFailReasonName(lastMove.moveFailReason);
     }
     // A stall's direct move (DungeonRun::StallFallback) only on a clear swim line: read near a

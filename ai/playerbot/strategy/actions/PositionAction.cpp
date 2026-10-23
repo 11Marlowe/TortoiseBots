@@ -211,14 +211,28 @@ bool ReturnToStayPositionAction::isPossible()
 
 // The stay walk is useful while the bot is beyond the follow range of its stay point
 // in raw 3D (StayPointReached: no bounding radius, no rounding), the rule its trigger
-// and the run leader's deadband use. The inherited 2D rule minus the bounding radius
-// refused a tauren lead bot 5.67 yd from its point on the ground and 6.6 yd below it
-// (Crescent Grove r26 step 272) while the trigger fired every tick.
+// uses, on the stay point's map, and while the walk does not rest after failing
+// (StayWalkDue). The inherited 2D rule minus the bounding radius refused a tauren lead
+// bot 5.67 yd from its point on the ground and 6.6 yd below it (Crescent Grove r26
+// step 272) while the trigger fired every tick.
 bool ReturnToStayPositionAction::isUseful()
 {
     PositionEntry stayPosition = AI_VALUE(PositionMap&, "position")["stay"];
-    return stayPosition.isSet() && !TortoiseBots::StayPointReached(bot->GetPositionX() - stayPosition.x, bot->GetPositionY() - stayPosition.y,
-        bot->GetPositionZ() - stayPosition.z, ai->GetRange("follow")) && ai->CanMove();
+    if (!stayPosition.isSet() || stayPosition.mapId != bot->GetMapId() || !ai->CanMove())
+        return false;
+    TortoiseBots::StayWalkBackoff& backoff = AI_VALUE(LastMovement&, "last movement").stayWalk;
+    TortoiseBots::StayWalkTrack(backoff, stayPosition.x, stayPosition.y, stayPosition.z, stayPosition.mapId);
+    bool const reached = TortoiseBots::StayPointReached(bot->GetPositionX() - stayPosition.x, bot->GetPositionY() - stayPosition.y,
+        bot->GetPositionZ() - stayPosition.z, ai->GetRange("follow"));
+    return TortoiseBots::StayWalkDue(backoff, reached, WorldTimer::getMSTime());
+}
+
+// The walk's outcome feeds the back-off (StayWalkResult): failed walks in a row rest it.
+bool ReturnToStayPositionAction::Execute(Event& event)
+{
+    bool const moved = MoveToPositionAction::Execute(event);
+    TortoiseBots::StayWalkResult(AI_VALUE(LastMovement&, "last movement").stayWalk, moved, WorldTimer::getMSTime());
+    return moved;
 }
 
 bool ReturnToPullPositionAction::isPossible()

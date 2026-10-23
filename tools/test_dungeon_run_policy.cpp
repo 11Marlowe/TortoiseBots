@@ -199,11 +199,8 @@ static void TestStalledNearPointCountsAsArrived()
     CHECK(r2.state == State::Paused && r2.note.find("stuck") != std::string::npos);
 }
 
-// Live (Ragefire Chasm r6-19z24 slot 1 step 38, r6 slot 1b step 70, r2-19z19 slot 1 step 53): the stand
-// stood 3-4 yd above or below the lead bot on a ledge, the whole party within 7 yd; the 3D distance was
-// 6.0-6.7 yd, over kStalledArriveYd, so the walk retried three times and paused ("the lead bot is stuck
-// 6.7 yd from ...") for 70 s to 4 min, and one resume fixed it. A stand within kStandZTolYd above or below
-// counts by its ground distance: the stalled arrival ends the walk.
+// A plain or direct walk to (0, 0, 0) whose lead bot stands still at (leadX, 0, leadZ) from the
+// first tick: `arrived` when the step ended "arrived", `stuck` when the run paused stuck.
 static void RunStalledWalk(float leadX, float leadZ, PlanStepKind kind, bool& arrived, bool& stuck)
 {
     DungeonPlan plan;
@@ -218,6 +215,11 @@ static void RunStalledWalk(float leadX, float leadZ, PlanStepKind kind, bool& ar
     stuck = r.state == State::Paused && r.note.find("stuck") != std::string::npos;
 }
 
+// Live (Ragefire Chasm r6-19z24 slot 1 step 38, r6 slot 1b step 70, r2-19z19 slot 1 step 53): the stand
+// stood 3-4 yd above or below the lead bot on a ledge, the whole party within 7 yd; the 3D distance was
+// 6.0-6.7 yd, over kStalledArriveYd, so the walk retried three times and paused ("the lead bot is stuck
+// 6.7 yd from ...") for 70 s to 4 min, and one resume fixed it. A stand within kStandZTolYd above or below
+// counts by its ground distance: the stalled arrival ends the walk.
 static void TestStandOnALedgeCountsByGroundDistance()
 {
     bool arrived = false, stuck = false;
@@ -236,7 +238,7 @@ static void TestStandOnALedgeCountsByGroundDistance()
     RunStalledWalk(5.9f, kStandZTolYd, PlanStepKind::Move, arrived, stuck);
     CHECK(arrived && !stuck);
     // A different floor (more than kStandZTolYd above or below) keeps the 3D rule
-    // (beyond the follow deadband in 3D: TestStalledLeadInFollowRangeCountsAsArrived).
+    // (TestStalledLeadInFollowRangeCountsAsArrived).
     RunStalledWalk(5.5f, kStandZTolYd + 0.5f, PlanStepKind::Move, arrived, stuck);
     CHECK(!arrived && stuck);
     RunStalledWalk(4.0f, 5.5f, PlanStepKind::Move, arrived, stuck); // 6.8 yd in 3D, steeper than the slope bound
@@ -495,27 +497,17 @@ static void TestStalledWalkWithAFailingMoveTriesDirectThenADryStandIn()
     CHECK(fresh.stallFallback == 0);
 }
 
-// The follow deadband is the executor's stay rule (StayPointReached, runtime/StayArrivalPolicy.h:
-// raw 3D within kFollowDeadbandYd). Zul'Farrak r16-19z34 slot 2, step 37 (ZF-STEP37-2026-10-22):
-// the lead bot stood on the ramp 4.84 yd from the point on the ground and 4.6 yd above it
-// (6.6 yd in 3D); the executor's old ground rule refused the walk, and the deadband counted the
-// stall as arrived by the same ground rule. Crescent Grove r26 step 272 (MOVE-USELESS-2026-10-23):
-// a tauren lead bot 5.67 yd off on the ground and 6.6 yd below never walked (the old rule took
-// its bounding radius off) and the ground deadband did not count it either: four pauses. The
-// executor now walks any point more than 5.0 yd away in 3D, so neither spot is arrived until the
-// lead bot gets there.
+// The executor walks a stay point more than its follow range (5.0 yd in a dungeon) away in raw
+// 3D (StayPointReached, runtime/StayArrivalPolicy.h). Zul'Farrak r16-19z34 slot 2, step 37
+// (ZF-STEP37-2026-10-22): the lead bot stood on the ramp 4.84 yd from the point on the ground and
+// 4.6 yd above it (6.6 yd in 3D); the executor's old ground rule refused the walk and a run-side
+// ground deadband counted the stall as arrived. Crescent Grove r26 step 272
+// (MOVE-USELESS-2026-10-23): a tauren lead bot 5.67 yd off on the ground and 6.6 yd below never
+// walked (the old rule took its bounding radius off) and the ground deadband did not count it
+// either: four pauses. With the 3D rule both spots are walks, so a stall there is stuck, and a
+// stall within 5.0 yd in 3D is a stalled arrival (the deadband rule was removed).
 static void TestStalledLeadInFollowRangeCountsAsArrived()
 {
-    // The rule itself, at the trace's positions and on flat ground.
-    CHECK(!InFollowDeadband(-91.7f, -62.1f, 273.4f, -88.0f, -66.4f, 280.0f)); // Crescent Grove r26 step 272
-    CHECK(!InFollowDeadband(1783.2f, 792.1f, 22.2f, 1787.8f, 790.6f, 17.6f)); // Zul'Farrak r16 step 37
-    CHECK(InFollowDeadband(4.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
-    CHECK(InFollowDeadband(kFollowDeadbandYd, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
-    CHECK(!InFollowDeadband(kFollowDeadbandYd + 0.1f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f));
-    CHECK(InFollowDeadband(3.0f, 0.0f, 3.8f, 0.0f, 0.0f, 0.0f));   // 4.84 yd in 3D
-    CHECK(!InFollowDeadband(0.0f, 0.0f, 5.5f, 0.0f, 0.0f, 0.0f));  // straight above, beyond 5.0
-    CHECK(InFollowDeadband(-91.7f, -62.1f, 273.4f, -91.7f, -62.1f, 273.4f + kFollowDeadbandYd));
-
     bool arrived = false, stuck = false;
     // Crescent Grove r26: the lead bot 6.6 yd below its point is not there; a stall there is stuck.
     RunStalledWalk(5.67f, -6.6f, PlanStepKind::Move, arrived, stuck);
@@ -536,6 +528,8 @@ static void TestStalledLeadInFollowRangeCountsAsArrived()
     RunStalledWalk(4.5f, 0.0f, PlanStepKind::Move, arrived, stuck);
     CHECK(arrived && !stuck);
     RunStalledWalk(3.0f, 3.8f, PlanStepKind::Move, arrived, stuck); // 4.84 yd in 3D
+    CHECK(arrived && !stuck);
+    RunStalledWalk(1.0f, 4.8f, PlanStepKind::Move, arrived, stuck); // 4.9 yd in 3D, above kStandZTolYd
     CHECK(arrived && !stuck);
     // A direct step keeps the 3D rule.
     RunStalledWalk(4.84f, 4.6f, PlanStepKind::MoveDirect, arrived, stuck);

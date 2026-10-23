@@ -3,7 +3,8 @@
 // When has a bot reached its stay point? One rule for the three places that ask:
 // the stay walk's isUseful (ReturnToStayPositionAction, PositionAction.cpp), its
 // trigger (ReturnToStayPositionTrigger::IsActive, GenericTriggers.cpp) and the run
-// leader's follow deadband (InFollowDeadband, DungeonRunPolicy.h).
+// leader's stalled-walk rule in DungeonRunPolicy.h (its follow deadband was this rule until
+// round 1 of the review found it added nothing to the stalled arrival, and it was removed).
 //
 // Crescent Grove r26 step 272 (2026-10-23, MOVE-USELESS): a tauren lead bot
 // (bounding radius about 0.97 yd) stood 5.67 yd from its point on the ground and
@@ -18,6 +19,7 @@
 // sites are pinned by tools/test_stay_arrival_wiring.py.
 
 #include <cmath>
+#include <cstdint>
 
 namespace TortoiseBots
 {
@@ -28,6 +30,80 @@ namespace TortoiseBots
 inline bool StayPointReached(float dx, float dy, float dz, float range)
 {
     return std::sqrt(dx * dx + dy * dy + dz * dz) <= range;
+}
+
+// The stay walk's back-off (the Codex review of 442a2bdf): a stay point the bot cannot
+// reach (a point above it with no path up) failed its walk every engine tick for as long
+// as the bot stayed. After kStayWalkFailsBeforeBackoff failed walks in a row the walk
+// rests for kStayWalkBackoffFirstMs, each later back-off twice as long up to
+// kStayWalkBackoffMaxMs; a failure right after a back-off rests again. A walk that set
+// off, the bot reaching the point or a new stay point starts it over.
+constexpr std::uint32_t kStayWalkFailsBeforeBackoff = 3;
+constexpr std::uint32_t kStayWalkBackoffFirstMs = 10000;
+constexpr std::uint32_t kStayWalkBackoffMaxMs = 60000;
+
+struct StayWalkBackoff
+{
+    std::uint32_t fails = 0;     // failed walks in a row
+    std::uint32_t lengthMs = 0;  // the last back-off's length (0: none yet)
+    std::uint32_t untilMs = 0;   // WorldTimer ms the back-off ends (0: none)
+    bool keyed = false;          // the stay point below is the one the counts belong to
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    std::uint32_t mapId = 0;
+};
+
+// The stay point of the counts: a different point starts them over.
+inline void StayWalkTrack(StayWalkBackoff& b, float x, float y, float z, std::uint32_t mapId)
+{
+    if (b.keyed && b.x == x && b.y == y && b.z == z && b.mapId == mapId)
+        return;
+    b = StayWalkBackoff();
+    b.keyed = true;
+    b.x = x;
+    b.y = y;
+    b.z = z;
+    b.mapId = mapId;
+}
+
+// The bot reached its stay point: nothing to back off from.
+inline void StayWalkArrived(StayWalkBackoff& b)
+{
+    b.fails = 0;
+    b.lengthMs = 0;
+    b.untilMs = 0;
+}
+
+// A stay walk's outcome (ReturnToStayPositionAction::Execute).
+inline void StayWalkResult(StayWalkBackoff& b, bool moved, std::uint32_t nowMs)
+{
+    if (moved)
+    {
+        StayWalkArrived(b);
+        return;
+    }
+    if (++b.fails < kStayWalkFailsBeforeBackoff)
+        return;
+    std::uint32_t const doubled = b.lengthMs ? b.lengthMs * 2 : kStayWalkBackoffFirstMs;
+    b.lengthMs = doubled < kStayWalkBackoffMaxMs ? doubled : kStayWalkBackoffMaxMs;
+    b.untilMs = (nowMs + b.lengthMs) | 1u; // the low bit keeps an end at ms 0 apart from "none"
+}
+
+// The walk rests now. Wraps like the core's getMSTimeDiff.
+inline bool StayWalkBackingOff(StayWalkBackoff const& b, std::uint32_t nowMs)
+{
+    return b.untilMs && static_cast<std::int32_t>(b.untilMs - nowMs) > 0;
+}
+
+// The stay walk is due (the walk's isUseful and its trigger): the bot is beyond range of
+// its stay point and the walk does not rest. Reaching the point clears the counts.
+inline bool StayWalkDue(StayWalkBackoff& b, bool reached, std::uint32_t nowMs)
+{
+    if (reached)
+    {
+        StayWalkArrived(b);
+        return false;
+    }
+    return !StayWalkBackingOff(b, nowMs);
 }
 
 } // namespace TortoiseBots

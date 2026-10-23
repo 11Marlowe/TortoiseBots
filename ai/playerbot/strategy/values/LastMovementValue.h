@@ -6,6 +6,7 @@
 #include "playerbot/CombatSpreadPolicy.h"
 #include "playerbot/TravelRouteCachePolicy.h"
 #include "playerbot/MagmaHazardPolicy.h"
+#include "../../../../runtime/StayArrivalPolicy.h"
 
 namespace ai
 {
@@ -84,6 +85,7 @@ namespace ai
             moveTries = other.moveTries;
             magmaLogAt = other.magmaLogAt;
             magmaRefusal = other.magmaRefusal;
+            stayWalk = other.stayWalk;
             moveEvent = Event();
         }
 
@@ -171,6 +173,10 @@ namespace ai
         // MoveTo2 refuses it again from memory, without terrain queries, for
         // kMagmaRefusalSeconds. clear() leaves it alone too.
         MagmaRefusal magmaRefusal;
+        // The stay walk's failures and back-off (StayArrivalPolicy.h StayWalkBackoff), read by
+        // "return to stay position" and its trigger; clear() leaves it alone (a move's clear
+        // must not end a back-off the stay walk earned).
+        TortoiseBots::StayWalkBackoff stayWalk;
         Event moveEvent;
     };
 

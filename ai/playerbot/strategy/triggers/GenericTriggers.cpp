@@ -20,6 +20,7 @@
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "playerbot/strategy/values/HazardsValue.h"
+#include "playerbot/strategy/values/LastMovementValue.h"
 #include "../../../../runtime/StayArrivalPolicy.h"
 
 #include <regex>
@@ -1520,12 +1521,15 @@ bool AoeThreatNearbyTrigger::IsActive()
 bool ReturnToStayPositionTrigger::IsActive()
 {
     PositionEntry stayPosition = AI_VALUE(PositionMap&, "position")["stay"];
-    if (stayPosition.isSet())
+    if (stayPosition.isSet() && stayPosition.mapId == bot->GetMapId())
     {
-        // The shared stay arrival rule (runtime/StayArrivalPolicy.h, raw 3D), the one the
-        // walk's isUseful uses: the trigger and the action cannot disagree.
-        return !TortoiseBots::StayPointReached(bot->GetPositionX() - stayPosition.x, bot->GetPositionY() - stayPosition.y,
-        bot->GetPositionZ() - stayPosition.z, ai->GetRange("follow"));
+        // The shared stay arrival rule and back-off (runtime/StayArrivalPolicy.h, raw 3D), the
+        // ones the walk's isUseful uses: the trigger and the action cannot disagree.
+        TortoiseBots::StayWalkBackoff& backoff = AI_VALUE(LastMovement&, "last movement").stayWalk;
+        TortoiseBots::StayWalkTrack(backoff, stayPosition.x, stayPosition.y, stayPosition.z, stayPosition.mapId);
+        bool const reached = TortoiseBots::StayPointReached(bot->GetPositionX() - stayPosition.x, bot->GetPositionY() - stayPosition.y,
+            bot->GetPositionZ() - stayPosition.z, ai->GetRange("follow"));
+        return TortoiseBots::StayWalkDue(backoff, reached, WorldTimer::getMSTime());
     }
 
     return false;

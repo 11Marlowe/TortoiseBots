@@ -56,7 +56,6 @@
 #include "../ai/playerbot/RangedApproachPolicy.h"
 #include "RemoteCommanderTasks.h"
 #include "RezHoldPolicy.h"
-#include "StayArrivalPolicy.h"
 
 #include <algorithm>
 #include <cctype>
@@ -4134,24 +4133,14 @@ inline float StandDistance(float lx, float ly, float lz, float x, float y, float
     return ai::PlanDistance(lx, ly, lz, x, y, z);
 }
 
-// The executor's deadband for a `cmd move`: the order puts the lead bot on stay and
-// runs "return to stay position", whose ReturnToStayPositionAction::isUseful
-// (ai/playerbot/strategy/actions/PositionAction.cpp) acts only when the bot is more
-// than GetRange("follow") from the point; inside a dungeon or raid that range is
-// AiPlayerbot.RaidFollowDistance (PlayerbotAI::GetRange "followraid", default 5.0 in
-// PlayerbotAIConfig.cpp). A lead bot this close does not move at all.
-constexpr float kFollowDeadbandYd = 5.0f;
-
-// A stalled plain walk the executor would not move: within kFollowDeadbandYd of the
-// point by the executor's own rule (StayPointReached, runtime/StayArrivalPolicy.h: raw
-// 3D, no bounding radius). Zul'Farrak r16-19z34 step 37 (4.84 yd on the ground, 4.6 yd
-// above) once counted here by a ground rule; from Crescent Grove r26 step 272 (a tauren
-// lead bot 5.67 yd off on the ground, 6.6 yd below) the executor walks any point more
-// than 5.0 yd away in 3D, and a point that far is not arrived.
-inline bool InFollowDeadband(float lx, float ly, float lz, float x, float y, float z)
-{
-    return StayPointReached(lx - x, ly - y, lz - z, kFollowDeadbandYd);
-}
+// The executor's deadband for a `cmd move`: the order puts the lead bot on stay and runs
+// "return to stay position", which acts only beyond GetRange("follow") of the point in raw
+// 3D (StayPointReached, StayArrivalPolicy.h); inside a dungeon that range is
+// AiPlayerbot.RaidFollowDistance, 5.0 yd. A stall that close is a stalled arrival already:
+// StandDistance is never more than the 3D distance, and kStalledArriveYd is wider. (A
+// separate deadband rule, InFollowDeadband, was removed in round 1 of the 442a2bdf review:
+// on the 3D rule it added nothing.)
+static_assert(kStalledArriveYd >= 5.0f, "a stall inside the executor's 5.0 yd stay range must count as arrived");
 
 // A plain `cmd move` the run sent was acked: keep the path type its check saw
 // (RemoteCommander::CheckMove's facts) for the stuck note.
@@ -4307,11 +4296,9 @@ inline bool StallFallback(Run& r, const Facts& f, float x, float y, float z, boo
 
 // Walks the party to a point. True once the lead bot is there; otherwise
 // `order` may hold the move to send. Pauses after kWalkTries moves without
-// progress. `plainWalk`: a Move step's walk or the guard's walk back to the stand
-// (not a pull's, a hop's or an exact point's), which also counts a stall inside the
-// executor's follow deadband (InFollowDeadband) as arrived.
+// progress.
 inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direct, std::uint32_t dt,
-    std::string& order, bool plainWalk = false)
+    std::string& order)
 {
     float const dist = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, x, y, z);
     // The anchor is where the lead bot actually stands on arrival: the point,
@@ -4382,11 +4369,7 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
     // A plain walk judges the stalled arrival by StandDistance (a stand on a ledge);
     // a direct step keeps the 3D distance.
     float const stallYd = direct ? dist : StandDistance(f.leadX, f.leadY, f.leadZ, x, y, z);
-    // A plain walk stalled inside the executor's follow deadband on the point's floor
-    // (InFollowDeadband) is arrived as well: a `cmd move` cannot move the lead bot there,
-    // so retrying only paused the run (Zul'Farrak r16-19z34 step 37, 6.6 yd in 3D).
-    bool const deadband = plainWalk && InFollowDeadband(f.leadX, f.leadY, f.leadZ, x, y, z);
-    if (!direct && r.walkStillMs >= kShortStallMs && (stallYd <= kStalledArriveYd || deadband))
+    if (!direct && r.walkStillMs >= kShortStallMs && stallYd <= kStalledArriveYd)
         return arrived(f.leadX, f.leadY, f.leadZ);
     if (r.walkStillMs >= kWalkRetryMs && stallYd <= kStalledArriveYd)
         return arrived(f.leadX, f.leadY, f.leadZ);
@@ -7242,7 +7225,7 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         return;
     }
     r.note = "walking";
-    if (WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order, true))
+    if (WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order))
     {
         NoteReached(r, f, r.step);
         NextStep(r, "arrived");
@@ -10395,7 +10378,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             r.anchorY = f.leadY;
             r.anchorZ = f.leadZ;
         }
-        else if (WalkTo(r, f, r.guardX, r.guardY, r.guardZ, false, dt, order, true))
+        else if (WalkTo(r, f, r.guardX, r.guardY, r.guardZ, false, dt, order))
         {
             r.guardReturn = false;
             EnterPhase(r, Phase::Begin);
