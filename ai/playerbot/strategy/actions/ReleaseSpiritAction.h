@@ -12,7 +12,7 @@
 #include "playerbot/strategy/values/LastMovementValue.h"
 #include "ReviveFromCorpseAction.h"
 #include "playerbot/TravelMgr.h"
-#include "playerbot/GraveyardTeleportPolicy.h"
+#include "playerbot/policy/travel/GraveyardTeleportPolicy.h"
 
 namespace ai
 {

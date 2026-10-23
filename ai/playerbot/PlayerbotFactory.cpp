@@ -33,7 +33,7 @@
 #include "strategy/ItemVisitors.h"
 #include "strategy/values/MountValues.h"
 #include "strategy/values/EmptySlotFillPolicy.h"
-#include "playerbot/MountShopPolicy.h"
+#include "playerbot/policy/travel/MountShopPolicy.h"
 
 using namespace ai;
 

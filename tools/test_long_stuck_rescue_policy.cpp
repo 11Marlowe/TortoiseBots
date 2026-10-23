@@ -1,4 +1,4 @@
-#include "../ai/playerbot/LongStuckRescuePolicy.h"
+#include "../ai/playerbot/policy/travel/LongStuckRescuePolicy.h"
 
 #include <cstdlib>
 #include <iostream>

@@ -5,7 +5,7 @@
 #include "playerbot/LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
-#include "playerbot/TravelInstancePolicy.h"
+#include "playerbot/policy/travel/TravelInstancePolicy.h"
 
 #include "Maps/GridNotifiers.h"
 #include "Maps/GridNotifiersImpl.h"

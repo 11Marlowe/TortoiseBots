@@ -12,7 +12,7 @@
 #include "playerbot/strategy/actions/ChooseTargetActions.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "playerbot/policy/pull/PullRegenPolicy.h"
-#include "playerbot/PointDangerPolicy.h"
+#include "playerbot/policy/travel/PointDangerPolicy.h"
 #include "playerbot/GrindSpotPolicy.h"
 #include "../../../../runtime/AltBotService.h"
 #include "../../../../runtime/AltBotPolicy.h"

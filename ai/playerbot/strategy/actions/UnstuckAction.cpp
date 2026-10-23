@@ -2,8 +2,8 @@
 
 #include "playerbot/playerbot.h"
 #include "UnstuckAction.h"
-#include "playerbot/LongStuckRescuePolicy.h"
-#include "playerbot/GraveyardTeleportPolicy.h"
+#include "playerbot/policy/travel/LongStuckRescuePolicy.h"
+#include "playerbot/policy/travel/GraveyardTeleportPolicy.h"
 #include "playerbot/TravelRepickPolicy.h"
 #include "playerbot/policy/combat/CombatStuckPolicy.h"
 #include "playerbot/TravelMgr.h"
