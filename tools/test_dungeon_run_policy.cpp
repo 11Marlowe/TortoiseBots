@@ -13557,6 +13557,57 @@ static void TestBotHeldByUnattackableDropsCombat()
     CHECK(HeldByUnattackable(free));
 }
 
+static void TickTimes(Run& r, const Facts& f, std::uint32_t n, std::string& notes)
+{
+    for (std::uint32_t i = 0; i < n; ++i)
+    {
+        Tick(r, f);
+        notes += r.note;
+    }
+}
+
+// The guard of CombatDropTick: a bot held only by units the group cannot attack keeps its combat while one of
+// them is a plan boss (a later Boss step) or a hold entry (a Hold step's entries), however long the set stands.
+// The control is the same facts with that entry on another unit: the drop comes at the grace's last tick.
+static void TestCombatDropNeverWhileHeldByAPlanBossOrHoldUnit()
+{
+    std::uint32_t const graceTicks = kUnattackableGraceMs / kTickMs;
+    Facts f = HeldParty({Bomb()});
+    f.units = {Unit(2, 6206, 25)};
+    PlanStep boss = Step(PlanStepKind::Boss, 60);
+    boss.entry = 7897;
+    PlanStep hold = Step(PlanStepKind::Hold, 90);
+    hold.radius = 30;
+    hold.entries = {7897};
+    DungeonPlan bossPlan;
+    bossPlan.steps = {PullStep(0, {6206}), Step(PlanStepKind::Move, 9), boss};
+    DungeonPlan holdPlan;
+    holdPlan.steps = {PullStep(0, {6206}), Step(PlanStepKind::Move, 9), hold};
+    for (const DungeonPlan* plan : {&bossPlan, &holdPlan})
+    {
+        Run r = Start(plan);
+        std::string notes;
+        TickTimes(r, f, 2 * graceTicks, notes);
+        CHECK(r.state == State::Running);
+        CHECK(r.combatDrops.empty());
+        CHECK(r.combatDrop.count("Varcus") == 0);
+        CHECK(notes.find("dropped combat") == std::string::npos);
+    }
+    // Control: the entry on another unit, the same facts. No drop inside the grace, the drop on its last tick.
+    bossPlan.steps.back().entry = 3976;
+    holdPlan.steps.back().entries = {3977};
+    for (const DungeonPlan* plan : {&bossPlan, &holdPlan})
+    {
+        Run r = Start(plan);
+        std::string notes;
+        TickTimes(r, f, graceTicks - 1, notes);
+        CHECK(r.combatDrops.empty());
+        TickTimes(r, f, 1, notes);
+        CHECK(r.combatDrops == std::vector<std::string>{"Varcus"});
+        CHECK(notes.find("Varcus dropped combat with entry 7897 (cannot be attacked)") != std::string::npos);
+    }
+}
+
 // A gather's ceiling does not pause on bots held only by units the group cannot attack (their combat is being
 // dropped): it waits again, within the coming straggler's budget (kGatherComingMaxMs), then pauses as before.
 static void TestGatherWaitsForABotHeldByUnattackable()
@@ -14305,6 +14356,7 @@ int main()
     TestUnattackableOnlyFightIsNoFight();
     TestUnattackableUnitIsNeverPulledOrPickedUp();
     TestBotHeldByUnattackableDropsCombat();
+    TestCombatDropNeverWhileHeldByAPlanBossOrHoldUnit();
     TestGatherWaitsForABotHeldByUnattackable();
     TestPetHeldByUnattackableKeepsTheBotInTheFight();
     TestUnattackableGraceNeverLetsAPlanBossOrHoldUnitGo();
