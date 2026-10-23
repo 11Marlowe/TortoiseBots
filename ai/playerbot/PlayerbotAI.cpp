@@ -37,7 +37,6 @@
 #include "LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "PlayerbotAI.h"
-#include "PlayerbotAIPackets.h"
 #include "playerbot/InterruptCastingPolicy.h"
 #include "playerbot/strategy/values/MountValues.h"
 #include "playerbot/MountDismountPolicy.h"
@@ -87,6 +86,7 @@
 #include "LuaEngine/LuaEngine.h"
 #endif
 #include "strategy/values/GuildValues.h"
+#include "PlayerbotAIPackets.h"
 
 using namespace ai;
 
