@@ -28,7 +28,8 @@ BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulf
               "gnomeregan": 90,
               "scarlet_library": 189,
               "scarlet_armory": 189, "scarlet_cathedral": 189, "scarlet_graveyard": 189,
-              "blackfathom_deeps": 48}
+              "blackfathom_deeps": 48,
+              "razorfen_downs": 129}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -59,14 +60,17 @@ SEEDED_BOSSES = {
     (189, 61982): "Armory Quartermaster Daghelm", (189, 3975): "Herod",
     (189, 4542): "High Inquisitor Fairbanks", (189, 3976): "Scarlet Commander Mograine", (189, 3977): "High Inquisitor Whitemane",
     (189, 3983): "Interrogator Vishas", (189, 14693): "Scorn", (189, 4543): "Bloodmage Thalnos", (189, 61972): "Duke Dreadmoore",
+    (129, 7357): "Mordresh Fire Eye", (129, 8567): "Glutton", (129, 62679): "Death Prophet Rakameg",
+    (129, 7358): "Amnennar the Coldbringer",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
 # Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080,
 # Bruegal Ironknuckle 1720: rank 2, Stormwind Stockade).
 # Razorfen Kraul: Spearhide 4438, Earthcaller Halmgar 4842, Blind Hunter 4425 — rank 2 in the world data).
 # Grubbis 7361: no spawn row in the map 90 export and no boss step names him, Gnomeregan).
-# the BFD neutrals Argent Guard 4787 and Woji the Toad 62531 (both rank 0).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531}
+# the BFD neutrals Argent Guard 4787 and Woji the Toad 62531 (both rank 0), Ragglesnout 7354 (rank 2, Razorfen Downs: he is in a pull group).
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531,
+              7354}
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
 ZUMRAH_GRAVES = (
@@ -469,6 +473,35 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((last["entries"], float(last["radius"])), ("1708", 7.0))
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwind_stockade"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
+
+    def test_razorfen_downs_is_the_plan_with_the_census_fixes(self):
+        # 20261023130000 (turtle-agent 984535c, 2026-10-23): the generated Razorfen Downs draft with the census fixes of
+        # PREP-RAZORFEN-DOWNS-2026-10-23.md, no row hand-set, with the boss rows of map 129 scoped to its own four entries. 4 legs,
+        # 399 steps (10 + 30 + 19 + 20 pulls), bosses in leg order, no boss.first. The plan row carries cc_priority and kill_first;
+        # the critters 2110/4076 are out of every pull, Ragglesnout 7354 is in leg 3's pack, Rakameg's four Worshippers are the last
+        # pull of leg 2, and every pull radius stays short of the next pack (<= 16 yd).
+        name, text = newest_plan_text("razorfen_downs")
+        self.assertEqual(name, "20261023130000_world.sql")
+        self.assertIn("('razorfen_downs', 129, '62676,7337,7335,62677', '', '7354,7342,7353,7341', 'turtle-agent 984535c dungeons/razorfen_downs.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "razorfen_downs")
+        self.assertEqual([legs[i][0] for i in range(4)],
+                         ["mordresh_fire_eye", "glutton", "death_prophet_rakameg", "amnennar_the_coldbringer"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "razorfen_downs"]
+        self.assertEqual(len(rows), 399)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(4)], [10, 30, 19, 20])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["7357", "8567", "62679", "7358"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(4):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "", ""])
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertFalse([r["entries"] for r in pulls if "2110" in r["entries"].split(",") or "4076" in r["entries"].split(",")])
+        self.assertEqual([(r["entries"], float(r["radius"])) for r in pulls if "7354" in r["entries"].split(",")],
+                         [("7347,7346,7342,7344,7354", 10.6)])
+        self.assertEqual([r for r in leg_steps(rows, 2) if r["kind"] == "pull"][-1]["entries"], "62676")
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 16.0)
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["razorfen_downs"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
         # 20261023120000 (turtle-agent rfk-fix5 32d3b491, 2026-10-23, after live run r24 slot8 stopped at step 15): the plan of
