@@ -897,7 +897,10 @@ AiPlayerbot.DungeonRunLootFfa = 0
 # Since fix/plan-gossip-allow a dungeon run did not need this list for its own
 # plan: a move or move_direct step whose `entry` names a trigger armed it for the
 # run's bots from that step on until it fired once for the run (Zul'Farrak's walk
-# into 962), and no other unlisted trigger.
+# into 962), and no other unlisted trigger. A refused script (at_zumrah with
+# Zum'rah farther than 30 yd) kept it armed and was tried again every 2 s while
+# the bot stood inside. A run started past that move step never armed it: when
+# the event had not happened, the run was started again from before the step.
 # Comma-separated trigger ids; empty (the default) turns the feature off.
 # New automation, so it is off by default.
 # Default: (empty)

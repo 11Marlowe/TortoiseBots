@@ -61,9 +61,17 @@ class BotAreaTriggerWiringTest(unittest.TestCase):
         loop = body(update, "for (BotAreaTriggerShape const& shape : itr->second)", "\n    }\n")
         self.assertLess(loop.index("if (!IsBotAreaTriggerArmed(shape.listed, shape.id, runArmed))"),
                         loop.index("IsInsideAreaTriggerShape("))
-        # Every fire is reported, before the script (which may ungroup or teleport the bot).
-        self.assertLess(update.index("TortoiseBots::BotCommands::NoteRunAreaTriggerFired(bot, id);"),
-                        update.index("sScriptMgr.OnAreaTrigger(bot, at);"))
+        # Codex round 2: the script runs first; a run-armed trigger is noted fired only when it ran, and a
+        # refusal is retried (state.Refused, every kBotAreaTriggerRetryMs). The armed ids are a copy taken
+        # before any script, never runArmed after one.
+        fire = update[update.index("std::vector<uint32_t> const armedIds = runArmed ? *runArmed : std::vector<uint32_t>();"):]
+        self.assertLess(fire.index("std::vector<uint32_t> const armedIds"), fire.index("state.Step("))
+        self.assertNotIn("runArmed", fire[fire.index("state.Step("):])
+        self.assertIn("bool const armedByRun = std::find(armedIds.begin(), armedIds.end(), id) != armedIds.end();", fire)
+        self.assertRegex(squash(fire), r"bool const ran = sScriptMgr\.OnAreaTrigger\(bot, at\);.*if \(armedByRun\) \{ "
+                         r"if \(ran\) TortoiseBots::BotCommands::NoteRunAreaTriggerFired\(bot, id\); else state\.Refused\(id\); \}")
+        self.assertEqual(MGR.count("NoteRunAreaTriggerFired("), 1)
+        self.assertEqual(MGR.count("sScriptMgr.OnAreaTrigger("), 1)
         self.assertIn("void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, std::vector<uint32_t> const* runArmed)", MGR)
         # The run arms in its own tick, before and after the step body.
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()

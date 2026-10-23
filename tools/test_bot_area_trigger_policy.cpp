@@ -150,6 +150,96 @@ int main()
         CHECK(e.size() == 1 && e[0] == 962);
     }
 
+    // A script that refused (OnAreaTrigger false: at_zumrah with Zum'rah not within 30 yd yet) is tried
+    // again while the bot stays inside, every kBotAreaTriggerRetryMs (2 s = 4 checks), never every check;
+    // one that ran (true) is not tried again while the bot stays inside.
+    {
+        BotAreaTriggerState rs;
+        CHECK(kBotAreaTriggerRetryMs == 2000 && kBotAreaTriggerRetryMs % kBotAreaTriggerCheckMs == 0);
+        std::vector<uint32_t> fire = rs.Update(209, 7, {962}, {962});
+        CHECK(fire == std::vector<uint32_t>{962});
+        rs.Refused(962);                                        // false: keep trying
+        CHECK(rs.Update(209, 7, {962}, {962}).empty());          // 0.5 s
+        CHECK(rs.Update(209, 7, {962}, {962}).empty());          // 1.0 s
+        CHECK(rs.Update(209, 7, {962}, {962}).empty());          // 1.5 s
+        fire = rs.Update(209, 7, {962}, {962});                  // 2.0 s: again
+        CHECK(fire == std::vector<uint32_t>{962});
+        // true this time: no Refused, so it is not tried again while the bot stays inside.
+        for (int i = 0; i < 20; ++i)
+            CHECK(rs.Update(209, 7, {962}, {962}).empty());
+
+        // Always refused: bounded to one try per 2 s while inside (40 checks = 20 s -> 10 tries).
+        BotAreaTriggerState always;
+        int tries = 0;
+        for (int i = 0; i < 40; ++i)
+            for (uint32_t id : always.Update(209, 7, {962}, {962}))
+            {
+                CHECK(id == 962);
+                ++tries;
+                always.Refused(id);
+            }
+        CHECK(tries == 10);
+
+        // A retry waits at the margin (near but not inside) and fires once the bot is inside again.
+        BotAreaTriggerState edge;
+        edge.Update(209, 7, {962}, {962});
+        edge.Refused(962);
+        for (int i = 0; i < 6; ++i)
+            CHECK(edge.Update(209, 7, {}, {962}).empty());
+        CHECK(edge.Update(209, 7, {962}, {962}) == std::vector<uint32_t>{962});
+
+        // Leaving drops the retry; walking in again fires as an entry, at once.
+        BotAreaTriggerState gone;
+        gone.Update(209, 7, {962}, {962});
+        gone.Refused(962);
+        CHECK(gone.Update(209, 7, {}, {}).empty());
+        CHECK(gone.Update(209, 7, {962}, {962}) == std::vector<uint32_t>{962});
+        // A new instance or a party that may not fire forgets the retry.
+        BotAreaTriggerState moved;
+        moved.Update(209, 7, {962}, {962});
+        moved.Refused(962);
+        CHECK(moved.Update(209, 8, {}, {}).empty());
+        for (int i = 0; i < 6; ++i)
+            CHECK(moved.Update(209, 8, {}, {962}).empty());
+        BotAreaTriggerState barred;
+        barred.Update(209, 7, {962}, {962});
+        barred.Refused(962);
+        CHECK(barred.Step(209, 7, {962}, {962}, [] { return false; }).empty());
+        CHECK(barred.retry.empty());
+        // A short step out (beyond the margin) and back: the entry fires; when it runs (no Refused) the
+        // old retry is gone and nothing fires again while the bot stays.
+        BotAreaTriggerState back;
+        back.Update(209, 7, {962}, {962});
+        back.Refused(962);
+        CHECK(back.Update(209, 7, {}, {}).empty());
+        CHECK(back.Update(209, 7, {962}, {962}) == std::vector<uint32_t>{962});
+        for (int i = 0; i < 6; ++i)
+            CHECK(back.Update(209, 7, {962}, {962}).empty());
+        // A new instance with the bot inside the same trigger id: an entry there; the old retry is gone.
+        BotAreaTriggerState other;
+        other.Update(209, 7, {962}, {962});
+        other.Refused(962);
+        CHECK(other.Update(209, 8, {962}, {962}) == std::vector<uint32_t>{962});
+        for (int i = 0; i < 6; ++i)
+            CHECK(other.Update(209, 8, {962}, {962}).empty());
+        // Refused again restarts the 2 s wait.
+        BotAreaTriggerState again;
+        again.Update(209, 7, {962}, {962});
+        again.Refused(962);
+        CHECK(again.Update(209, 7, {962}, {962}).empty());
+        CHECK(again.Update(209, 7, {962}, {962}).empty());
+        again.Refused(962);
+        CHECK(again.Update(209, 7, {962}, {962}).empty());
+        CHECK(again.Update(209, 7, {962}, {962}).empty());
+        CHECK(again.Update(209, 7, {962}, {962}).empty());
+        CHECK(again.Update(209, 7, {962}, {962}) == std::vector<uint32_t>{962});
+        // Refused on a trigger the bot is not inside of schedules nothing.
+        BotAreaTriggerState none;
+        none.Refused(963);
+        for (int i = 0; i < 6; ++i)
+            CHECK(none.Update(209, 7, {962}, {962}).size() == (i == 0 ? 1u : 0u));
+    }
+
     std::printf("test_bot_area_trigger_policy: %d checks passed\n", checks);
     return 0;
 }

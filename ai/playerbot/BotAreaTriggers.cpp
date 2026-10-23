@@ -5,6 +5,7 @@
 #include "ScriptMgr.h"
 #include "../../runtime/CommandedGroupQuery.h"
 
+#include <algorithm>
 #include <unordered_map>
 
 using namespace ai;
@@ -118,6 +119,9 @@ void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, std::vec
         return IsBotAreaTriggerPartyAllowed(commanded, humanNearby);
     };
 
+    // The run's armed ids, copied before any script runs: a fired one is erased from
+    // the run's own vector (runArmed points into it), so it is not read after a script.
+    std::vector<uint32_t> const armedIds = runArmed ? *runArmed : std::vector<uint32_t>();
     for (uint32_t id : state.Step(bot->GetMapId(), bot->GetInstanceId(), insideNow, nearNow, partyAllowed))
     {
         // Re-read the entry from the store: the index keeps copies, never
@@ -126,10 +130,19 @@ void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, std::vec
         if (!at)
             continue;
         sLog.outDetail("TortoiseBots: %s fires area trigger %u (map %u).", bot->GetName(), id, bot->GetMapId());
-        // A run-armed trigger fires once for the run (DungeonRun::NoteTriggerFired); noted before
-        // the script, which may ungroup, teleport or kill the bot.
-        TortoiseBots::BotCommands::NoteRunAreaTriggerFired(bot, id);
-        sScriptMgr.OnAreaTrigger(bot, at);
+        bool const armedByRun = std::find(armedIds.begin(), armedIds.end(), id) != armedIds.end();
+        bool const ran = sScriptMgr.OnAreaTrigger(bot, at);
+        // A run-armed trigger counts as fired for the run (DungeonRun::NoteTriggerFired) only
+        // when its script ran (at_zumrah returns false while Zum'rah is not within 30 yd);
+        // a refusal keeps it armed and this bot tries again in kBotAreaTriggerRetryMs while
+        // it stays inside.
+        if (armedByRun)
+        {
+            if (ran)
+                TortoiseBots::BotCommands::NoteRunAreaTriggerFired(bot, id);
+            else
+                state.Refused(id);
+        }
         // The script may have teleported, killed or ungrouped the bot.
         if (!bot->IsInWorld() || bot->IsBeingTeleported())
             break;
