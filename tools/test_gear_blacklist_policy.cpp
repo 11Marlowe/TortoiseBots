@@ -2,7 +2,8 @@
 // is never handed out by any auto-gear path. Guards
 //  - the blacklist lookup (empty list blocks nothing),
 //  - blacklist-over-whitelist precedence,
-//  - worn blocked gear counting as empty for bots only, never real players.
+//  - worn blocked gear counting as empty for pool/hired bots only; real
+//    players and owned bots keep whatever they wear.
 //
 // Build and run (from the repo root):
 //   g++ -std=c++17 -Wall -Wextra tools/test_gear_blacklist_policy.cpp -o /tmp/test_gear_blacklist
@@ -53,11 +54,11 @@ static void TestWornCountsAsEmpty()
 {
     std::list<uint32_t> blacklist = { 12345 };
 
-    // Bots re-gear a blocked worn piece.
+    // Pool and hired bots re-gear a blocked worn piece.
     CHECK(GearWornCountsAsEmpty(false, blacklist, 12345));
     CHECK(!GearWornCountsAsEmpty(false, blacklist, 23456));
 
-    // Real players keep whatever they wear.
+    // Real players and owned bots keep whatever they wear.
     CHECK(!GearWornCountsAsEmpty(true, blacklist, 12345));
     CHECK(!GearWornCountsAsEmpty(true, blacklist, 23456));
 }

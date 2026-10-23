@@ -1552,13 +1552,14 @@ bool HireProvisionService::EquipHireGearSet(Player* bot, PlayerbotAI* ai, uint8_
                 bot->DestroyItem(oldItem->GetBagSlot(), oldItem->GetSlot(), true);
             continue;
         }
+        // A blocked row is skipped entirely: never equipped, never enchanted.
+        if (GearBlacklistBlocks(sPlayerbotAIConfig.randomGearBlacklist, row->itemId))
+            continue;
         if (!oldItem || oldItem->GetEntry() != row->itemId)
         {
             // The hire gear table comes from the offline generator; an
             // excluded id is never equipped (the old item stays).
             if (sRandomItemMgr.IsTransmogClone(row->itemId))
-                continue;
-            if (GearBlacklistBlocks(sPlayerbotAIConfig.randomGearBlacklist, row->itemId))
                 continue;
             // A 2H main hand cannot be equipped while the offhand is held.
             ItemPrototype const* proto = sObjectMgr.GetItemPrototype(row->itemId);

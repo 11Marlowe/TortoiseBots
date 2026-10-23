@@ -661,9 +661,10 @@ AiPlayerbot.RandomGearTabardsUnobtainable = 0
 # Item IDs are on database.turtle-wow.org. Empty (default) means nothing is
 # blocked, and there is no separate on/off switch. The ban covers every
 # auto-gear path including .autogear, and wins over the whitelist below. A
-# bot already wearing a blocked item gets it replaced or removed on its next
-# gear pass; items a bot finds itself (loot, quest rewards, auction house)
-# are unaffected.
+# pool or hired bot already wearing a blocked item gets it replaced or
+# removed on its next gear pass; real players and owned bots keep whatever
+# they wear, and items a bot finds itself (loot, quest rewards, auction
+# house) are unaffected.
 AiPlayerbot.RandomGearBlacklist =
 
 # Item ids always seeded on random gear regardless of the scoring rules below,

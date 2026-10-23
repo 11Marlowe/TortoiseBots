@@ -2,9 +2,9 @@
 
 // Owner-configured gear exclusion list (`AiPlayerbot.RandomGearBlacklist`):
 // a blocked item id is never handed out by any auto-gear path. The blacklist
-// wins over the whitelist, and a bot already wearing a blocked item treats the
-// slot as empty on the next gear pass; a real player's own gear is never
-// touched.
+// wins over the whitelist, and a pool or hired bot already wearing a blocked
+// item treats the slot as empty on the next gear pass; a real player's and an
+// owned bot's own gear is never touched.
 //
 // Pure policy: no core/engine headers, unit-tested standalone
 // (tools/test_gear_blacklist_policy.cpp).
@@ -33,12 +33,12 @@ inline bool GearWhitelistApplies(std::list<uint32_t> const& blacklist, bool whit
     return !GearBlacklistBlocks(blacklist, itemId);
 }
 
-// A bot already wearing a blocked item re-gears the slot: the worn piece
-// counts as empty, so it is replaced, or removed when nothing passes.
-// A real player's worn gear is never treated as empty.
-inline bool GearWornCountsAsEmpty(bool isRealPlayer, std::list<uint32_t> const& blacklist, uint32_t wornItemId)
+// A pool or hired bot already wearing a blocked item re-gears the slot: the
+// worn piece counts as empty, so it is replaced, or removed when nothing
+// passes. A real player and an owned bot keep whatever they wear.
+inline bool GearWornCountsAsEmpty(bool keepsWornGear, std::list<uint32_t> const& blacklist, uint32_t wornItemId)
 {
-    if (isRealPlayer)
+    if (keepsWornGear)
         return false;
     return GearBlacklistBlocks(blacklist, wornItemId);
 }

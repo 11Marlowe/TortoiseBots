@@ -10,7 +10,7 @@
 - New `.autogear` command gears a real player the way a spawned bot gets geared: items picked for the level and spec from the same gear pool the bots use, upgrades only, replaced items to the bags or the mailbox. GameMasters can gear any player; `AiPlayerbot.PlayerAutogearForAll` (default `0`) lets every player gear themselves.
 
 ### Items & Loot
-- `AiPlayerbot.RandomGearBlacklist` is now a hard ban on every auto-gear path: the empty-slot fallback, shirts and tabards, and the level-60 hire gear sets all skip blocked items. A blocked item also wins over the whitelist, and a bot already wearing one gets it replaced or removed on its next gear pass. Real players never have their own gear taken off, and found loot is unaffected.
+- `AiPlayerbot.RandomGearBlacklist` is now a hard ban on every auto-gear path: the empty-slot fallback, shirts and tabards, and the level-60 hire gear sets all skip blocked items. A blocked item also wins over the whitelist, and a pool or hired bot already wearing one gets it replaced or removed on its next gear pass. Real players and owned bots never have their own gear taken off, and found loot is unaffected.
 
 ## v1.8.0 (2026-10-22)
 
