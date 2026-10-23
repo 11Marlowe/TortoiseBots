@@ -33,14 +33,16 @@
 --   pull group 14 (group 15, 4x 7352/7348/7344, pack z 25.3-25.6, lower floor)
 --     approach 2446.93 996.27 37.7 -> 2404 908.53 31.6 -> 2328.8 970.4 27.5 -> stand 2352 1010 26.4749 (12.3 yd)
 -- Every hop is a COMPLETE path on the server's path filter (ground and water, never magma, slime or too-steep, the same filter the
--- plan check and the exporter use) and at most 108.8 yd of path; the longest is 1.32x its straight line (path-checked with
--- turtle-agent's navmesh package on ~/turtle-agent-mmaps):
+-- plan check and the exporter use) and at most 108.8 yd of path, except the plan check's stale anchor for pull group 10 below
+-- (172.0 yd; the run leader's own hop is 42.5-57.1); the longest is 1.32x its straight line (path-checked with turtle-agent's
+-- navmesh package on ~/turtle-agent-mmaps):
 --   to 2301.88 933.65 -> 2404 908.53 108.8 yd; -> 2446.93 996.27 104.1; -> group 2 stand 100.5
 --   group 2 stand -> group 3 stand 43.6
 --   group 3 stand -> group 4 a0 47.0; -> a1 102.2; -> a2 103.8; -> stand 74.9
 --   group 4 stand -> group 6 a0 74.1 (26.3 from the pack of group 5, where the fight leaves the party); -> a1 104.1; -> a2 95.9; -> stand 69.8
 --   group 6 stand -> group 10 a0 172.0 (the plan check's anchor: groups 7-9 have no approach rows, so it walks from group 6's stand;
---     the run leader's own anchor is group 9's pull row on the lower ledge, 42.5 yd); -> a1 95.9; -> a2 95.7; -> stand 70.7
+--     the run leader's own hop is 42.5 yd from the lower ledge at 2443 954 z 36, or 57.1 from group 9's pull row); -> a1 95.9;
+--     -> a2 95.7; -> stand 70.7
 --   group 10 stand -> group 13 a0 8.6 (40.7 from group 12's pack); -> a1 64.5; -> a2 95.7; -> stand 40.4
 --   group 13 stand -> group 14 a0 57.2; -> a1 103.8; -> a2 102.4; -> stand 45.9
 -- Each stand is within 30 yd of EVERY member of its own pack (5.6-25.7 yd), in sight of it: the navmesh ray from the stand to the
