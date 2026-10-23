@@ -13326,6 +13326,306 @@ static void TestPetHeldByUnattackableKeepsTheBotInTheFight()
     }
 }
 
+// Scarlet Cathedral r23 slot 5, step 66 (fix 2): Mograine 3976 was fought on a pull step; his fake death (not
+// selectable) and a charmed judge read the fight as unattackable only, the grace let it go and the regroup released
+// the dead into his and Whitemane's fight. An engaged unit that is a plan boss (a boss step's entry) or an event
+// unit (a hold step's entries) keeps the fight, whatever the step; another unattackable unit is still let go.
+static void TestUnattackableGraceNeverLetsAPlanBossOrHoldUnitGo()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 60);
+    boss.entry = 3976;
+    PlanStep hold = Step(PlanStepKind::Hold, 90);
+    hold.radius = 30;
+    hold.entries = {4299, 3977};
+    plan.steps = {PullStep(0, {4300}), Step(PlanStepKind::Move, 30), boss, hold};
+    Facts f = Party(0);
+    f.anyInCombat = true;
+    f.leadInCombat = true;
+    f.engagedRead = true;
+    std::uint32_t const graceTicks = kUnattackableGraceMs / kTickMs;
+    for (std::uint32_t entry : {3976u, 3977u})
+    {
+        UnitFact u = Engaged(Unit(0xF130000F88009C5Dull, entry, 6));
+        u.attackable = false;
+        f.engagedUnits = {u};
+        Run r = Start(&plan);
+        CHECK(UnattackableOnlyFight(f) && !InEvent(r) && !UnattackableFightLetGo(r, f));
+        CHECK(PlanBossOrHoldEntry(r, entry) && EngagedPlanBossOrHold(r, f));
+        r.fighting = true;
+        for (std::uint32_t i = 0; i < graceTicks + 5; ++i)
+            Tick(r, f);
+        CHECK(r.state == State::Running && r.fighting && r.step == 0 && r.unattackableMs == 0);
+        CHECK(r.note.find("not counted as a fight") == std::string::npos);
+        // With another, plain unattackable unit beside it, still a fight.
+        UnitFact bomb = Bomb();
+        f.engagedUnits = {bomb, u};
+        CHECK(!UnattackableFightLetGo(r, f) && FightOn(r, f, kTickMs));
+    }
+    // An unattackable unit the plan does not fight as a boss or an event (the bomb), alone: let go as before.
+    f.engagedUnits = {Bomb()};
+    Run o = Start(&plan);
+    CHECK(!EngagedPlanBossOrHold(o, f) && UnattackableFightLetGo(o, f));
+    // A boss step's adds (its `entries`, not its own entry) are no boss: the hold's entries and the boss entry only.
+    CHECK(!PlanBossOrHoldEntry(o, 4300) && !PlanBossOrHoldEntry(o, 0));
+    Run none;
+    CHECK(!PlanBossOrHoldEntry(none, 3976));
+}
+
+// Scarlet Cathedral r23 slot 5, step 97 (fix 6): the party killed Mograine at the door, 290 yd from his spot, and the
+// boss step paused "not found" three times until the corpse decay moved him home 600 s later. After kBossSearchMs at
+// his spot the step asks the glue for one instance-wide search (next tick): dead anywhere is boss down with a note
+// and his corpse remembered; alive elsewhere pauses with his position and sends no move; nothing found pauses as before.
+static void TestBossNotAtHisSpotIsSearchedForInTheInstance()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 30);
+    boss.entry = 3976;
+    ai::NormalizePlanStep(boss);
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    auto toWindow = [](Run& r, const Facts& f)
+    {
+        for (std::uint32_t i = 0; i < kBossSearchMs / kTickMs + 2 && !r.bossSearchWanted && r.state == State::Running; ++i)
+            CHECK(Tick(r, f).empty());
+        CHECK(r.state == State::Running && r.bossSearchWanted && r.step == 0);
+        CHECK(r.note == "boss 3976 not at his spot for 60 s: searching the instance for him");
+    };
+    // Dead at the door: boss down, with where, and the corpse a later loot step goes to.
+    Run d = Start(&plan);
+    Facts f = Party(0);
+    toWindow(d, f);
+    Facts dead = f;
+    dead.bossSearchRead = true;
+    dead.bossSearchDead = true;
+    dead.bossSearchCorpseGuid = 0xF130000F88009C5Dull;
+    dead.bossSearchCorpseX = 330.0f;
+    Tick(d, dead);
+    CHECK(d.state == State::Running && d.step == 1);
+    CHECK(d.note == "boss down: his corpse lies at 330.0 0.0 0.0, 300.0 yd from his spot (an instance search after 60 s)");
+    CHECK(d.corpses.count(3976) && d.corpses[3976].guid == 0xF130000F88009C5Dull && d.corpses[3976].x == 330.0f);
+    // Alive elsewhere: a pause with his position, no order; alive wins over a corpse of another spawn.
+    Run a = Start(&plan);
+    toWindow(a, f);
+    Facts alive = dead;
+    alive.bossSearchAlive = true;
+    alive.bossAliveX = 130.0f;
+    alive.bossAliveY = 5.0f;
+    CHECK(Tick(a, alive).empty());
+    CHECK(a.state == State::Paused && a.step == 0 && !a.bossSearchWanted);
+    CHECK(a.note.find("boss 3976 is alive at 130.0 5.0 0.0, 100.1 yd from his spot (an instance search after 60 s)") == 0);
+    // Resume: a fresh window, and one search again at its end.
+    LeadSpot spot;
+    std::string refusal;
+    CHECK(ResumeChecked(a, spot, refusal) && refusal.empty() && !a.bossSearchWanted && a.bossWaitMs == 0);
+    // Read, nothing anywhere: the old pause, saying the instance was searched.
+    Run n = Start(&plan);
+    toWindow(n, f);
+    Facts nothing = f;
+    nothing.bossSearchRead = true;
+    Tick(n, nothing);
+    CHECK(n.state == State::Paused && n.note.find("boss 3976 not found") == 0 &&
+        n.note.find("for 60 s nor anywhere in the instance (.bot run skip if he is already dead)") != std::string::npos);
+    // Read with a spawn in a grid that is not loaded: the note says only the loaded parts were searched.
+    Run un = Start(&plan);
+    toWindow(un, f);
+    Facts unloaded = nothing;
+    unloaded.bossSearchUnloaded = true;
+    Tick(un, unloaded);
+    CHECK(un.state == State::Paused && un.note.find("boss 3976 not found") == 0 &&
+        un.note.find("for 60 s nor in the loaded parts of the instance (an unloaded area was not searched) (.bot run "
+            "skip if he is already dead)") != std::string::npos && un.note.find("nor anywhere") == std::string::npos);
+    // His own spawn lies dead while a second spawn row of the entry lives elsewhere: boss down, not a pause.
+    Run ow = Start(&plan);
+    toWindow(ow, f);
+    Facts ownDead = alive;
+    ownDead.bossSearchOwnDead = true;
+    Tick(ow, ownDead);
+    CHECK(ow.state == State::Running && ow.step == 1 && ow.note.find("boss down: his corpse lies at 330.0") == 0);
+    // No spawn row on the map (a script summons him): the note says the instance was not searched.
+    Run ns = Start(&plan);
+    toWindow(ns, f);
+    Facts noSpawn = nothing;
+    noSpawn.bossSearchNoSpawn = true;
+    Tick(ns, noSpawn);
+    CHECK(ns.state == State::Paused && ns.note.find("for 60 s; the instance was not searched: he has no spawn row on this "
+        "map (a script summons him) (.bot run skip if he is already dead)") != std::string::npos);
+    // Dead in a loaded part with another spawn unloaded: still boss down.
+    Run du = Start(&plan);
+    toWindow(du, f);
+    Facts deadUnloaded = dead;
+    deadUnloaded.bossSearchUnloaded = true;
+    Tick(du, deadUnloaded);
+    CHECK(du.state == State::Running && du.step == 1 && du.note.find("boss down: his corpse lies at 330.0") == 0);
+    // Not read (no glue answer): the old pause and note.
+    Run o = Start(&plan);
+    toWindow(o, f);
+    Tick(o, f);
+    CHECK(o.state == State::Paused && o.note.find("boss 3976 not found") == 0 &&
+        o.note.find("nor anywhere") == std::string::npos);
+    // He walks in while the search is asked: pulled, the window starts over.
+    Run w = Start(&plan);
+    toWindow(w, f);
+    Facts in = f;
+    in.units = {Unit(5, 3976, 40)};
+    CHECK(Tick(w, in) == "pullback 5");
+    CHECK(w.bossWaitMs == 0);
+}
+
+// Scarlet Cathedral r23 slot 5, step 98 (fix 7): Whitemane sat at 1 hp of 5284 under her script's invincibility (her
+// revive of a dead Mograine never came), and the fight ceiling's pause was resumed four times into the same fight. A
+// unit at exactly 1 hp (or 1 % or less, unchanged) that a party member has as its victim for kHpHeldMs pauses with
+// its own note. Only that band: a healed, shielded or full-health target never pauses (a victim is no proof of
+// damage landing, Codex review round 1). The resume is allowed.
+static void TestUnitThatCannotDieNowPauses()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 0);
+    boss.entry = 3977;
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    auto whitemane = [](std::uint32_t hp)
+    {
+        UnitFact u = Engaged(Unit(0xF130000F89009C0Aull, 3977, 3));
+        u.health = hp;
+        u.maxHealth = 5284;
+        u.partyHits = true;
+        return u;
+    };
+    Facts f = Party(0);
+    f.anyInCombat = true;
+    f.leadInCombat = true;
+    f.engagedRead = true;
+    f.engagedUnits = {whitemane(1)};
+    f.units = {Unit(0xF130000F89009C0Aull, 3977, 3)};
+    std::uint32_t const heldTicks = kHpHeldMs / kTickMs;
+    auto held = [&](const Facts& g, Run& r)
+    {
+        r = Start(&plan);
+        r.fighting = true;
+        for (std::uint32_t i = 0; i <= heldTicks + 5 && r.state == State::Running; ++i)
+            Tick(r, g);
+        return r.state == State::Paused && r.note.find("stays at") != std::string::npos;
+    };
+    Run r;
+    CHECK(held(f, r) && r.step == 0);
+    CHECK(r.note.find("entry 3977 stays at 1 hp: it cannot die now (an event or script holds it); unit "
+        "0xF130000F89009C0A: .bot run skip goes on without this step, .bot run stop ends the run") == 0);
+    // Not one tick early.
+    Run e = Start(&plan);
+    e.fighting = true;
+    for (std::uint32_t i = 0; i < heldTicks; ++i)
+        Tick(e, f);
+    CHECK(e.state == State::Running);
+    // The resume goes through (the stop rule bounds the repeats).
+    LeadSpot spot;
+    std::string refusal;
+    CHECK(ResumeChecked(r, spot, refusal) && refusal.empty() && r.state == State::Running);
+    // 1 % or less of its most, unchanged: held too, with its hp in the note.
+    Facts low = f;
+    low.engagedUnits = {whitemane(52)};
+    Run l;
+    CHECK(held(low, l) && l.note.find("entry 3977 stays at 52 hp (1 % or less): it cannot die now") == 0);
+    // Never held: full health (no loss at all), 2 % hp unchanged (a shield), healed up and down at low hp, a target
+    // whose hp changes every tick at 1 %, not a victim of the party, unattackable (Mograine's fake death), evading,
+    // hp not read.
+    for (int k = 0; k < 9; ++k)
+    {
+        Run u = Start(&plan);
+        u.fighting = true;
+        for (std::uint32_t i = 0; i <= heldTicks + 5; ++i)
+        {
+            Facts g = f;
+            UnitFact w = whitemane(1);
+            if (k == 0)
+                w.health = 5284;
+            if (k == 1)
+                w.health = 106;
+            if (k == 2)
+                w.health = i % 20 < 10 ? 1 : 40; // a heal now and then
+            if (k == 3)
+                w.health = 30 + i % 3;
+            if (k == 4)
+                w.partyHits = false;
+            if (k == 5)
+                w.attackable = false;
+            if (k == 6)
+                w.evading = true;
+            if (k == 7)
+                w.health = 0;
+            if (k == 8)
+            {
+                // 300 damage and a 400 heal in turn every 10 s from 350: 350, 50, 450, 150, ... (50 is 1 % or less
+                // for 10 s only).
+                std::uint32_t const step = i / 10;
+                w.health = 350 + 100 * (step / 2) - (step % 2 ? 300 : 0);
+            }
+            g.engagedUnits = {w, Engaged(Unit(77, 4300, 5))};
+            Tick(u, g);
+        }
+        CHECK(u.state == State::Running);
+    }
+    // The 60 s are continuous targeting (Codex review round 2): 30 s targeted, a 10 s gap with nobody on it, 30 s
+    // targeted again is no pause; 60 s targeted after the gap is.
+    Run b = Start(&plan);
+    b.fighting = true;
+    Facts off = f;
+    off.engagedUnits = {whitemane(1)};
+    off.engagedUnits[0].partyHits = false;
+    for (std::uint32_t i = 0; i < heldTicks / 2; ++i)
+        Tick(b, f);
+    for (int i = 0; i < 10; ++i)
+        Tick(b, off);
+    CHECK(b.state == State::Running);
+    for (std::uint32_t i = 0; i <= heldTicks / 2 + 1; ++i)
+        Tick(b, f);
+    CHECK(b.state == State::Running);
+    for (std::uint32_t i = 0; i <= heldTicks && b.state == State::Running; ++i)
+        Tick(b, f);
+    CHECK(b.state == State::Paused && b.note.find("entry 3977 stays at 1 hp") == 0);
+    // Out of combat between two stretches: the watch starts over.
+    Run c = Start(&plan);
+    c.fighting = true;
+    for (std::uint32_t i = 0; i < heldTicks - 5; ++i)
+        Tick(c, f);
+    CHECK(!c.hpWatch.empty());
+    Facts quiet = Party(0);
+    quiet.units = f.units;
+    Tick(c, quiet);
+    CHECK(c.hpWatch.empty());
+    for (std::uint32_t i = 0; i < heldTicks - 5; ++i)
+        Tick(c, f);
+    CHECK(c.state == State::Running);
+    // A wipe (kWipeDead or more dead) with a lone survivor still on the 1-hp boss: no 1-hp pause; the regroup
+    // follows once the fight is over (Opus cold review of bfd5aa1e).
+    Run w = Start(&plan);
+    w.fighting = true;
+    Facts wiped = f;
+    wiped.alive = 1;
+    wiped.dead = 4;
+    wiped.leadAlive = false;
+    wiped.deadNames = {"Tanky", "A", "B", "C"};
+    for (std::uint32_t i = 0; i <= heldTicks + 5; ++i)
+    {
+        Tick(w, wiped);
+        CHECK(w.state == State::Running && w.note.find("stays at") == std::string::npos);
+    }
+    CHECK(w.hpWatch.empty());
+    Facts over = wiped;
+    over.anyInCombat = false;
+    over.leadInCombat = false;
+    over.engagedUnits.clear();
+    Tick(w, over);
+    CHECK(w.state == State::Running && w.regroup && w.note.find("regrouping by itself") != std::string::npos);
+    // A charmed party bot as the only thing fighting the party: the note names it, not the stale wording.
+    Facts charmed = f;
+    charmed.engagedUnits.clear();
+    charmed.charmedFighting = {"Hele"};
+    CHECK(EngagedUnitsNote(charmed) == "nothing hostile engaged but a charmed party member fighting the party (Hele)");
+    charmed.charmedFighting.push_back("Garet");
+    CHECK(EngagedUnitsNote(charmed) == "nothing hostile engaged but a charmed party member fighting the party (Hele, Garet)");
+    charmed.engagedUnits = f.engagedUnits; // with a real unit engaged the units are named as before
+    CHECK(EngagedUnitsNote(charmed).find("entry 3977") == 0);
+}
+
 int main()
 {
     TestPatrollerOutsideTheRadiusIsWaitedForThenPulled();
@@ -13658,6 +13958,9 @@ int main()
     TestBotHeldByUnattackableDropsCombat();
     TestGatherWaitsForABotHeldByUnattackable();
     TestPetHeldByUnattackableKeepsTheBotInTheFight();
+    TestUnattackableGraceNeverLetsAPlanBossOrHoldUnitGo();
+    TestBossNotAtHisSpotIsSearchedForInTheInstance();
+    TestUnitThatCannotDieNowPauses();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

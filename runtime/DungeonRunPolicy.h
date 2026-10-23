@@ -217,6 +217,10 @@ constexpr std::uint32_t kUseOnProofMs = 30000;    // use_on: after the ACK, the 
 constexpr float kUseOnSummonYd = 150.0f;          // use_on: how far around the lead bot the glue looks for the summoned boss
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
+// A unit a party member has as its victim that stays at 1 hp (or at 1 % or less, unchanged) this long cannot die
+// now (HpHeldTick; Scarlet Cathedral r23 slot 5: Whitemane sat at 1 hp of 5284 under her script's invincibility,
+// and the fight ceiling paused four times on the same unkillable fight).
+constexpr std::uint32_t kHpHeldMs = 60000;
 // A pull step's patroller (WaitForPatroller; Uldaman r10-19z29 step 66): the
 // Stone Steward 4860 walks a lane whose north end only is in the step's 10 yd
 // radius, so the step said "pack cleared" in 0 s in r8, r9 and r10, and where
@@ -435,6 +439,11 @@ struct UnitFact
     // group cannot attack is never pulled, picked up, engaged, focused or crowd-controlled by the run, and a
     // fight with only such units left is no fight (UnattackableOnlyFight). Unread: true.
     bool attackable = true;
+    // Facts::engagedUnits only: its hit points now and its most (0: not read), and a party bot or pet has it as
+    // its victim. HpHeldTick watches such a unit that stays at 1 hp (or 1 % or less, unchanged).
+    std::uint32_t health = 0;
+    std::uint32_t maxHealth = 0;
+    bool partyHits = false;
 };
 
 // The mage's Polymorph (all ranks and forms): the aura the run waits for after
@@ -590,6 +599,9 @@ struct Facts
     // (engagedRead) by the glue on every tick in combat; a policy test that does not set it keeps the old rules.
     std::vector<UnitFact> engagedUnits;
     bool engagedRead = false;
+    // ... the party's own bots under an enemy's charm (Dominate Mind, Mind Control) that fight the party: never
+    // engaged units, but named in the note when nothing else is engaged (EngagedUnitsNote).
+    std::vector<std::string> charmedFighting;
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     bool leadMoving = false;           // the lead bot is moving now (Unit::IsMoving): an exact point's proof waits
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
@@ -672,6 +684,25 @@ struct Facts
     // lies, not where the plan says he spawns (Revelosh dies 50-60 yd from his spot).
     std::uint64_t bossCorpseGuid = 0;
     float bossCorpseX = 0.0f, bossCorpseY = 0.0f, bossCorpseZ = 0.0f;
+    // boss: the instance-wide search for the boss's entry (Run::bossSearchWanted, once per kBossSearchMs window):
+    // read (bossSearchRead) by the glue on the tick after the policy asked, from the entry's spawns on the lead
+    // bot's map, wherever they stand. Alive: one of them lives (where); dead: one lies dead (that corpse).
+    // Scarlet Cathedral r23 slot 5: Mograine died at the door, 290 yd from his spot, and the boss step paused
+    // "not found" three times until the corpse decay moved him home 600 s later.
+    bool bossSearchRead = false;
+    bool bossSearchAlive = false;
+    float bossAliveX = 0.0f, bossAliveY = 0.0f, bossAliveZ = 0.0f;
+    bool bossSearchDead = false;
+    // ... a spawn of the entry stands in a grid that is not loaded (Map::IsLoaded false): that area was not searched.
+    bool bossSearchUnloaded = false;
+    // ... the step's own spawn (the spawn row nearest to the step's point) lies dead: boss down whatever another
+    // spawn row of the entry does (a second living one elsewhere never turns his corpse into a pause). The corpse
+    // fields are then his.
+    bool bossSearchOwnDead = false;
+    // ... the entry has no spawn row on the map (a script summons him): nothing could be searched.
+    bool bossSearchNoSpawn = false;
+    std::uint64_t bossSearchCorpseGuid = 0;
+    float bossSearchCorpseX = 0.0f, bossSearchCorpseY = 0.0f, bossSearchCorpseZ = 0.0f;
     int objectState = -1;               // wait_object, hold done by object: 0 ready, 1 active, 2 active_alt; -1 not found
     // hold (units: the living units of its `entries` within its radius, the
     // friendly, still dormant ones too):
@@ -847,6 +878,9 @@ struct Run
     std::uint32_t fruitlessPulls = 0;
     std::uint32_t bossWaitMs = 0;   // a boss step: time at the spot with the boss neither alive nor dead in sight
     bool bossSeenAlive = false;     // a boss step: the boss was among the step's living units
+    // A boss step past kBossSearchMs with the boss neither alive nor dead in sight asked the glue for the
+    // instance-wide search (Facts::bossSearchRead, next tick); one per window (ResetStep clears it).
+    bool bossSearchWanted = false;
     std::uint32_t patrolWaitMs = 0; // a pull step: time spent waiting for a patroller outside the radius (WaitForPatroller)
     std::unordered_set<std::uint64_t> patrolSeen; // ... the patrollers this step saw (a pass of one is remembered run-wide)
     // A big pack's stand walk (BigPackWalkGate): the walk's unit, stand and
@@ -1165,6 +1199,15 @@ struct Run
     std::unordered_map<std::string, CombatDropState> combatDrop;
     std::unordered_map<std::string, std::uint64_t> combatDroppedAt;
     std::vector<std::string> combatDrops;
+    // HpHeldTick: per engaged unit (guid) at 1 hp (or 1 % or less) its entry, the hit points it stands at, and how
+    // long a party member has had it as its victim since without a change. Cleared out of combat and by ResetStep.
+    struct HpWatch
+    {
+        std::uint32_t entry = 0;
+        std::uint32_t hp = 0;
+        std::uint32_t ms = 0;
+    };
+    std::unordered_map<std::uint64_t, HpWatch> hpWatch;
     std::size_t ceilingResumedStep = static_cast<std::size_t>(-1); // the step that has used its one self-resume (ResetStep keeps it)
     std::uint32_t eventIdleMs = 0; // out of a fight with an awake event unit standing
     std::uint32_t eventUp = 0, eventDown = 0, eventTotal = 0; // the event's units now: awake, dead, all seen
@@ -1520,6 +1563,8 @@ inline void ResetStep(Run& r)
     r.fruitlessPulls = 0;
     r.bossWaitMs = 0;
     r.bossSeenAlive = false;
+    r.bossSearchWanted = false;
+    r.hpWatch.clear();
     r.patrolWaitMs = 0;
     r.patrolSeen.clear();
     EndBigWalk(r);
@@ -5623,10 +5668,55 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         // party waits at his spot for him to come by, then pauses.
         r.bossWaitMs += dt;
         r.note = "boss " + std::to_string(s.entry) + " not at his spot: waiting for him";
-        if (r.bossWaitMs >= kBossSearchMs)
-            Pause(r, "boss " + std::to_string(s.entry) + " not found: not alive or dead within " + Num(s.radius) +
-                " yd of " + Num(s.x) + " " + Num(s.y) + " " + Num(s.z) + " for " +
-                std::to_string(kBossSearchMs / 1000) + " s (.bot run skip if he is already dead)");
+        if (r.bossWaitMs < kBossSearchMs)
+            return;
+        // The window is over: the glue searches the whole instance for him once (next tick, Facts::bossSearch*).
+        if (!r.bossSearchWanted)
+        {
+            r.bossSearchWanted = true;
+            r.note = "boss " + std::to_string(s.entry) + " not at his spot for " + std::to_string(kBossSearchMs / 1000) +
+                " s: searching the instance for him";
+            return;
+        }
+        r.bossSearchWanted = false;
+        if (f.bossSearchRead && f.bossSearchOwnDead)
+        {
+            r.corpses[s.entry] = CorpseMark{f.bossSearchCorpseGuid, f.bossSearchCorpseX, f.bossSearchCorpseY,
+                f.bossSearchCorpseZ};
+            NextStep(r, "boss down: his corpse lies at " + Num(f.bossSearchCorpseX) + " " + Num(f.bossSearchCorpseY) + " " +
+                Num(f.bossSearchCorpseZ) + ", " +
+                Num(ai::PlanDistance(f.bossSearchCorpseX, f.bossSearchCorpseY, f.bossSearchCorpseZ, s.x, s.y, s.z)) +
+                " yd from his spot (an instance search after " + std::to_string(kBossSearchMs / 1000) + " s)");
+            return;
+        }
+        if (f.bossSearchRead && f.bossSearchAlive)
+        {
+            // Alive elsewhere: the party is not sent after him (he may be on a patrol, or in another part of the
+            // instance); the pause says where he stands.
+            Pause(r, "boss " + std::to_string(s.entry) + " is alive at " + Num(f.bossAliveX) + " " + Num(f.bossAliveY) +
+                " " + Num(f.bossAliveZ) + ", " + Num(ai::PlanDistance(f.bossAliveX, f.bossAliveY, f.bossAliveZ, s.x, s.y, s.z)) +
+                " yd from his spot (an instance search after " + std::to_string(kBossSearchMs / 1000) +
+                " s): bring the party to him or wait for him, then .bot run resume, or .bot run skip");
+            return;
+        }
+        if (f.bossSearchRead && f.bossSearchDead)
+        {
+            r.corpses[s.entry] = CorpseMark{f.bossSearchCorpseGuid, f.bossSearchCorpseX, f.bossSearchCorpseY,
+                f.bossSearchCorpseZ};
+            NextStep(r, "boss down: his corpse lies at " + Num(f.bossSearchCorpseX) + " " + Num(f.bossSearchCorpseY) + " " +
+                Num(f.bossSearchCorpseZ) + ", " +
+                Num(ai::PlanDistance(f.bossSearchCorpseX, f.bossSearchCorpseY, f.bossSearchCorpseZ, s.x, s.y, s.z)) +
+                " yd from his spot (an instance search after " + std::to_string(kBossSearchMs / 1000) + " s)");
+            return;
+        }
+        // Searched with a spawn in an unloaded grid: the note says only the loaded parts were looked at.
+        std::string const searched = !f.bossSearchRead ? std::string()
+            : f.bossSearchNoSpawn ? std::string("; the instance was not searched: he has no spawn row on this map (a script summons him)")
+            : f.bossSearchUnloaded ? std::string(" nor in the loaded parts of the instance (an unloaded area was not searched)")
+                                   : std::string(" nor anywhere in the instance");
+        Pause(r, "boss " + std::to_string(s.entry) + " not found: not alive or dead within " + Num(s.radius) +
+            " yd of " + Num(s.x) + " " + Num(s.y) + " " + Num(s.z) + " for " +
+            std::to_string(kBossSearchMs / 1000) + " s" + searched + " (.bot run skip if he is already dead)");
     }
 }
 
@@ -7724,9 +7814,37 @@ inline bool UnattackableOnlyFight(const Facts& f)
     return true;
 }
 
+// An entry the plan fights as a boss (a boss step's own entry) or as an event's unit (a hold step's entries),
+// wherever in the plan that step stands.
+inline bool PlanBossOrHoldEntry(const Run& r, std::uint32_t entry)
+{
+    if (!r.plan || !entry)
+        return false;
+    for (const PlanStep& s : r.plan->steps)
+    {
+        if (s.kind == PlanStepKind::Boss && s.entry == entry)
+            return true;
+        if (s.kind == PlanStepKind::Hold && std::find(s.entries.begin(), s.entries.end(), entry) != s.entries.end())
+            return true;
+    }
+    return false;
+}
+
+// One of the engaged units is a boss or an event unit of the plan (PlanBossOrHoldEntry), whatever the step.
+inline bool EngagedPlanBossOrHold(const Run& r, const Facts& f)
+{
+    for (const UnitFact& u : f.engagedUnits)
+        if (PlanBossOrHoldEntry(r, u.entry))
+            return true;
+    return false;
+}
+
 // UnattackableOnlyFight on a step where it is let go: not a boss step and not inside a scripted event (a hold,
 // or the steps leading into one), where a boss or an event unit may stand unattackable for a while in its own
-// fight (a phase, a submerge) and the fight must keep its handling, its timer and its ceiling.
+// fight (a phase, a submerge) and the fight must keep its handling, its timer and its ceiling. Nor while any
+// engaged unit is a boss or an event unit of the plan, whatever the step (EngagedPlanBossOrHold): Scarlet
+// Cathedral r23 slot 5 fought Mograine on pull step 66; his fake death and a charmed judge read the fight as
+// unattackable only, the grace let it go, and the regroup released the dead into his and Whitemane's fight.
 inline bool UnattackableLetGoStep(const Run& r)
 {
     const PlanStep* const s = Current(r);
@@ -7735,7 +7853,7 @@ inline bool UnattackableLetGoStep(const Run& r)
 
 inline bool UnattackableFightLetGo(const Run& r, const Facts& f)
 {
-    return UnattackableLetGoStep(r) && UnattackableOnlyFight(f);
+    return UnattackableLetGoStep(r) && UnattackableOnlyFight(f) && !EngagedPlanBossOrHold(r, f);
 }
 
 // One snapshot proves nothing: a live mob can be unattackable for a moment (a burrow, a phase, a scripted
@@ -7812,6 +7930,14 @@ inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
     {
         if (m.name.empty() || !HeldByUnattackable(m))
             continue;
+        // Never while a held-on unit is a boss or an event unit of the plan, whatever the step (the same guard as
+        // UnattackableFightLetGo: Scarlet Cathedral r23 slot 5, Mograine's fake death).
+        bool planUnit = false;
+        for (const UnitFact& u : m.engaged)
+            if (PlanBossOrHoldEntry(r, u.entry))
+                planUnit = true;
+        if (planUnit)
+            continue;
         std::vector<std::uint64_t> set;
         for (const UnitFact& u : m.engaged)
             set.push_back(u.guid);
@@ -7848,6 +7974,56 @@ inline std::string GuidHex(std::uint64_t guid)
     return buf;
 }
 
+// One fight tick of the watch on units that cannot die now (Scarlet Cathedral r23 slot 5: Whitemane sat at 1 hp
+// of 5284 under her script's invincibility, her revive of a dead Mograine never came, and the fight ceiling's
+// pause was resumed four times into the same fight). Only a unit at exactly 1 hp, or at 1 % of its most or less,
+// counts (HpHeldLow): a target with more is never held, whatever its shields, heals or armour do (a Codex review:
+// a victim is no proof of damage landing). Each such engaged unit the group can attack, not evading: while a party
+// bot or pet has it as its victim (UnitFact::partyHits) and its hp does not change, its time runs; any change of
+// its hp or a tick with no party member on it starts it over, and a unit out of that band or no longer engaged is
+// forgotten. At kHpHeldMs the run
+// pauses with its own note. A resume is allowed (the step's stop rule bounds the repeats). True when it paused.
+inline bool HpHeldLow(const UnitFact& u)
+{
+    return u.health == 1 || (u.health && u.maxHealth && static_cast<std::uint64_t>(u.health) * 100u <= u.maxHealth);
+}
+
+inline bool HpHeldTick(Run& r, const Facts& f, std::uint32_t dt)
+{
+    if (!f.anyInCombat || !f.engagedRead)
+    {
+        r.hpWatch.clear();
+        return false;
+    }
+    std::unordered_map<std::uint64_t, Run::HpWatch> next;
+    for (const UnitFact& u : f.engagedUnits)
+    {
+        if (!HpHeldLow(u) || !u.attackable || u.evading)
+            continue;
+        auto const had = r.hpWatch.find(u.guid);
+        Run::HpWatch w;
+        w.entry = u.entry;
+        w.hp = u.health;
+        // The 60 s are continuous targeting at the same hp: a tick with no party member on it starts them over
+        // (Codex review round 2).
+        if (had != r.hpWatch.end() && had->second.hp == u.health && u.partyHits)
+            w.ms = had->second.ms + dt;
+        next[u.guid] = w;
+    }
+    r.hpWatch = std::move(next);
+    for (const auto& [guid, w] : r.hpWatch)
+    {
+        if (w.ms < kHpHeldMs)
+            continue;
+        std::string const at = w.hp == 1 ? std::string("1 hp") : std::to_string(w.hp) + " hp (1 % or less)";
+        Pause(r, "entry " + std::to_string(w.entry) + " stays at " + at +
+            ": it cannot die now (an event or script holds it); unit " + GuidHex(guid) +
+            ": .bot run skip goes on without this step, .bot run stop ends the run (a resume fights it again)");
+        return true;
+    }
+    return false;
+}
+
 // How many engaged units a note names; the rest are counted.
 constexpr std::size_t kEngagedNoteMax = 6;
 
@@ -7858,6 +8034,13 @@ inline std::string EngagedUnitsNote(const Facts& f)
 {
     if (!f.engagedRead)
         return std::string();
+    if (f.engagedUnits.empty() && !f.charmedFighting.empty())
+    {
+        std::string names;
+        for (const std::string& name : f.charmedFighting)
+            names += (names.empty() ? "" : ", ") + name;
+        return "nothing hostile engaged but a charmed party member fighting the party (" + names + ")";
+    }
     if (f.engagedUnits.empty())
         return "nothing hostile engaged";
     std::string note;
@@ -7916,6 +8099,8 @@ inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, con
     // gather's ceiling waits for them meanwhile (HeldStragglerWait).
     std::string const dropNote = CombatDropTick(r, in, dt);
     const Facts& f = unattackable ? quiet : in;
+    if (!f.anyInCombat)
+        r.hpWatch.clear(); // HpHeldTick watches one fight
     bool const firstUnattackable = unattackable && !r.unattackableFight;
     r.unattackableFight = unattackable;
     r.shotGateRan = false;
@@ -8346,6 +8531,13 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                                                                                        : kBossFightCapMs;
         std::uint32_t const cap = event ? holdCap
                                 : s->kind == PlanStepKind::Boss ? kBossFightCapMs : kFightCapMs;
+        // A unit the party hits that cannot die now (HpHeldTick) pauses before any ceiling: the ceiling's pause
+        // would be resumed into the same fight. Not in a wipe (kWipeDead or more dead): the regroup that follows
+        // wins, and the watch starts over after it (Opus cold review of bfd5aa1e).
+        if (wipe)
+            r.hpWatch.clear();
+        else if (HpHeldTick(r, f, dt))
+            return order;
         if (r.fightMs > cap && autoRegroup)
         {
             // kWipeDead or more dead and one left fighting past the ceiling:
