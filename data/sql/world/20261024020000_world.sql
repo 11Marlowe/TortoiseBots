@@ -35,6 +35,9 @@
 --     Call of the Grave.
 --   * 4 plan-check detours (leg 5 pull 6, leg 6 pull 20, leg 7 pull 17, leg 8 pull 11) and 71 run-leader hop notices: stands on the
 --     pack's own layer, the mapping walk's first items.
+--   * The walks pass live packs of later legs: within 25 yd and 6 yd of z, leg 1 (the_ravenian) crosses 113 hostile spawns whose own legs come
+--     later, leg 2 109, leg 3 111, leg 4 66, leg 5 12. The navmesh reaches the west lower rooms only round the ring (leg 1's way to its third
+--     pull is 455 yd), so the route crosses the corpse room and the halls; a walk within aggro range can wake a pack a later step owns.
 -- Counts: 10 legs, 476 steps (112 pulls, 10 bosses, 354 moves), 487 rows; 3863 yd of planned moves. Plan check: ok, 323 points,
 -- 4 detour warnings, 71 run-leader-hop warnings. Export warnings: entrance/teleports/portal, level_band, hire_composition, fleers,
 -- no_cc (no columns).
