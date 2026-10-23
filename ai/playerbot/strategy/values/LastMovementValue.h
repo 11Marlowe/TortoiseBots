@@ -81,6 +81,7 @@ namespace ai
             moveFailReason = other.moveFailReason;
             movePathType = other.movePathType;
             positionMoveFailMs = other.positionMoveFailMs;
+            moveTries = other.moveTries;
             magmaLogAt = other.magmaLogAt;
             magmaRefusal = other.magmaRefusal;
             moveEvent = Event();
@@ -159,6 +160,10 @@ namespace ai
         // anchor) that failed; 0 = the last one did not. The run leader reads it
         // for the lead bot (DungeonRun::Facts::leadMoveFailed, PositionMoveFailing).
         uint32 positionMoveFailMs = 0;
+        // MoveTo2 / MoveTo(Unit*) tries so far (each resets moveFailReason and movePathType
+        // first); the FAILED line's note shows a reason only when a try happened during
+        // that Execute (MoveFailNoteReason). clear() leaves it alone.
+        uint32 moveTries = 0;
         // Wall-clock of the last "move refused: magma" log line (one per bot
         // per 10 s, MovementActions.cpp); clear() leaves it alone.
         time_t magmaLogAt = 0;

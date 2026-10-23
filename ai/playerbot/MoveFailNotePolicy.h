@@ -25,6 +25,15 @@ namespace ai
         return buf;
     }
 
+    // The reason the note shows: the move's own fail reason when this Execute tried a
+    // move (the try counter moved past the mark taken before it: MoveTo2 resets the
+    // reason at the start of each try), else "no-move-try" (the action failed before
+    // any move, so an older try's reason does not belong to this failure).
+    inline const char* MoveFailNoteReason(std::uint32_t triesAtStart, std::uint32_t triesNow, const char* reason)
+    {
+        return triesNow != triesAtStart ? reason : "no-move-try";
+    }
+
     // A "move to position" that failed within this long counts as failing now:
     // the action runs every ~2 s while its anchor is out of reach.
     constexpr std::uint32_t kPositionMoveFailFreshMs = 5000;

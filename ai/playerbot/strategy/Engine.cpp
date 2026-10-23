@@ -474,6 +474,7 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                     if (isPossible && relevance)
                     {
                         // E2E green: PerformanceMonitor stub
+                        action->BeforeExecute();
                         actionExecuted = ListenAndExecute(action, event);
 // E2E green: pmo stub
 

@@ -41,8 +41,21 @@ class MoveFailNoteWiringTest(unittest.TestCase):
 
     def test_movement_note_reads_reason_water_and_path(self):
         fn = body(MOVES, "std::string MovementAction::GetFailNote()", "\n}\n")
-        self.assertIn("MoveFailNote(MoveFailReasonName(lastMove.moveFailReason), bot->IsInWater(), bot->IsUnderwater(),", fn)
-        self.assertIn("bot->HasMovementFlag(MOVEFLAG_SWIMMING), lastMove.movePathType);", fn)
+        self.assertIn("bool const tried = lastMove.moveTries != failNoteMark;", fn)
+        self.assertIn("MoveFailNote(MoveFailNoteReason(failNoteMark, lastMove.moveTries, MoveFailReasonName(lastMove.moveFailReason)),", fn)
+        self.assertIn("bot->HasMovementFlag(MOVEFLAG_SWIMMING), tried ? lastMove.movePathType : 0);", fn)
+
+    def test_reason_belongs_to_this_try(self):
+        # Opus review 2026-10-23: the mark is taken before Execute and each try resets the reason.
+        self.assertIn("                        action->BeforeExecute();\n                        actionExecuted = ListenAndExecute(action, event);", ENGINE)
+        self.assertIn("failNoteMark = AI_VALUE(LastMovement&, \"last movement\").moveTries;", body(MOVES, "void MovementAction::BeforeExecute()", "\n}\n"))
+        move = body(MOVES, "bool MovementAction::MoveTo2(", "\n}\n")
+        self.assertIn("    ++lastMove.moveTries;\n    lastMove.moveFailReason = MOVE_FAIL_NONE;\n    lastMove.movePathType = 0;\n\n    if (!endPos.isValid())", move)
+        unit = body(MOVES, "bool MovementAction::MoveTo(Unit* target, float distance)", "\n}\n")
+        self.assertIn("    ++unitMove.moveTries;\n    unitMove.moveFailReason = MOVE_FAIL_NONE;", unit)
+        self.assertIn("moveTries = other.moveTries;", LASTMOVE)
+        self.assertNotIn("moveTries = 0;\n", body(LASTMOVE, "void clear()", "\n        }\n"))
+        self.assertIn("virtual void BeforeExecute() {}", ACTION)
 
     def test_path_type_is_recorded_around_the_route(self):
         step = body(WORLDPOS, "std::vector<WorldPosition> WorldPosition::getPathStepFrom(const WorldPosition& startPos, std::unique_ptr<PathFinder>& pathfinder", "\n}\n")

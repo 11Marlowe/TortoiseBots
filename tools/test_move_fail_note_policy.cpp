@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 #define CHECK(x) do { \
     if (!(x)) { \
@@ -33,10 +34,20 @@ static void TestPositionMoveFailing()
     CHECK(PositionMoveFailing(0xFFFFFF00u, 0x00000100u));
 }
 
+// Opus review 2026-10-23: the note's reason belongs to this failure only: an action
+// that failed before any move try must not show an older try's reason.
+static void TestReasonOnlyForThisTry()
+{
+    CHECK(std::string(MoveFailNoteReason(4, 5, "dispatch-short")) == "dispatch-short");
+    CHECK(std::string(MoveFailNoteReason(5, 5, "dispatch-short")) == "no-move-try");
+    CHECK(std::string(MoveFailNoteReason(0xFFFFFFFFu, 0, "empty-path")) == "empty-path"); // the counter wraps
+}
+
 int main()
 {
     TestFailNoteFormat();
     TestPositionMoveFailing();
+    TestReasonOnlyForThisTry();
     std::cout << "move fail note policy: all tests passed\n";
     return 0;
 }
