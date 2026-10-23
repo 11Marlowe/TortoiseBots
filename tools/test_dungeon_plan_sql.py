@@ -865,7 +865,13 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["dragonmaw_retreat"])
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
-        # 20261023160000 (turtle-agent rfk-fix6 0a72713f, 2026-10-23, after live run r24 slot8 run 5 stopped at step 343 in the
+        # 20261023230100 (turtle-agent rfk-fix7 788c2ea5, 2026-10-23, after live run r26 slot8 run 6 stopped at step 618 in the
+        # agathelos leg): 20261023160000's plan again, except leg 5. The leg's 'to' (step 612, where the walk back returns to) is the
+        # den entry 2090.7 1922.9 66.3 on the route's last corner (was 2056.44 1920.13 69.47, under the z 99 ledge the lead bot
+        # idled on), and pull groups 0, 1, 3, 4 and 5 have an approach stand on the den's own floor (group 2 shares group 1's);
+        # five more rows, 702 steps. Group 5 (the pack that wiped the party; its joiners belong to group 6, 20+ yd away) is pulled
+        # from 2078 1961, 37 yd from group 6.
+        # before it: 20261023160000 (turtle-agent rfk-fix6 0a72713f, 2026-10-23, after live run r24 slot8 run 5 stopped at step 343 in the
         # rotthorn leg): the plan of 20261023120000 again, except the approach to leg rotthorn's pull group 14. Run 5's lead bot
         # climbed to the plateau's lip at 1995.7 1802.1 78.6 (the cut corner 1995.7333 1802.1333) and every move 331-342 was refused
         # "no walkable path": the first descent hop was the cut straight off the lip, 1970.9332 1797.0667 73.087, 25 yd long. The
@@ -878,11 +884,11 @@ class DungeonPlanSql(unittest.TestCase):
         # packs that stand with a boss are that boss row's entries, not pulls; Halmgar 4842 and the Blind Hunter 4425 are pull
         # members.
         name, text = newest_plan_text("razorfen_kraul")
-        self.assertEqual(name, "20261023160000_world.sql")
-        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent 0a72713f dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261023230100_world.sql")
+        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent 788c2ea5 dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "razorfen_kraul")), 7)
         rows = [r for r in self.step_rows(text) if r["plan"] == "razorfen_kraul"]
-        self.assertEqual(len(rows), 697)
+        self.assertEqual(len(rows), 702)
         # The opening stand is the lower-floor pocket 1994 1615 (the old 1987.53 1600.03 has the upper walkway overhead); the five
         # corridor groups all have radius 10 (group 0 was 25 and owned the next group's Quilguards; group 5's default was 19.3), and
         # seq 5 is the explicit corridor regroup move before pull group 4 (r19-19z37: the two ranged bots climbed the west ramp while
@@ -930,6 +936,20 @@ class DungeonPlanSql(unittest.TestCase):
                           ("move", "1976.4", "1798.4", "74.69", "pull group 14 approach"),
                           ("move", "1970.9", "1797.1", "73.09", "pull group 14 approach")])
         self.assertFalse([r for r in rotthorn if r["x"] in ("1995.7333", "1994.6665")], "the plateau-lip corners are back")
+        # Step 612 (r26 slot8 run 6: "the point of step 612 refused (unreachable)", then "no walkable path toward the pack at 2077.0
+        # 1981.5": the walk back ended on the z 99-134 ledges over the den): the leg's 'to' is the den entry on the route, and the
+        # den pulls have approach stands on the z 63-68 floor, each a short complete path from the one before.
+        agathelos = leg_steps(rows, 5)
+        to_idx = next(i for i, r in enumerate(agathelos) if r["comment"] == "to")
+        self.assertEqual((agathelos[to_idx]["x"], agathelos[to_idx]["y"], agathelos[to_idx]["z"]), ("2090.7", "1922.9", "66.3"))
+        stands5 = [(r["x"], r["y"], r["z"], r["comment"]) for r in agathelos if r["comment"].endswith(" approach")]
+        self.assertEqual(stands5, [("2074", "1921", "68.24", "pull group 0 approach"),
+                                   ("2074", "1927", "66.21", "pull group 1 approach"),
+                                   ("2076", "1945", "64.6", "pull group 3 approach"),
+                                   ("2078", "1957", "63.23", "pull group 4 approach"),
+                                   ("2078", "1961", "63.11", "pull group 5 approach")])
+        self.assertTrue(all(float(r["z"]) < 75 for r in agathelos[to_idx:] if r["kind"] == "move"),
+                        "a den hop climbs to a ledge")
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["6168", "4424", "4428", "4420", "62503", "4422", "4421"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         # The last step of every leg is its boss; the boss rows' entries are the packs that stand with them (Ramtusk's Spearhides,
