@@ -2656,6 +2656,62 @@ void PlayerbotAI::PublishChatGate()
     m_chatGatePublishedAt = now;
 }
 
+void PlayerbotAI::SpellInterrupted(uint32 spellid)
+{
+    LastSpellCast& lastSpell = aiObjectContext->GetValue<LastSpellCast&>("last spell cast")->Get();
+    if (!spellid || lastSpell.id != spellid)
+        return;
+
+    time_t now = time(0);
+    if (now <= lastSpell.time)
+        return;
+
+    uint32 castTimeSpent = 1000 * (now - lastSpell.time);
+    uint32 globalCooldown = CalculateGlobalCooldown(lastSpell.id);
+    if (castTimeSpent < globalCooldown)
+        SetAIInternalUpdateDelay(globalCooldown - castTimeSpent);
+    else
+        SetAIInternalUpdateDelay(sPlayerbotAIConfig.reactDelay);
+
+    lastSpell.id = 0;
+}
+
+void PlayerbotAI::NoteSpellGlobalCooldown(SpellEntry const* spellInfo)
+{
+    // Mirrors Spell::TriggerGlobalCooldown for category 133
+    // (SPELLCATEGORY_GLOBAL): a 1.0-1.5 s GCD scales with cast speed and
+    // stays inside that range.
+    if (!spellInfo || spellInfo->StartRecoveryCategory != SPELLCATEGORY_GLOBAL || !spellInfo->StartRecoveryTime)
+        return;
+    int32 gcd = spellInfo->StartRecoveryTime;
+    if (gcd >= 1000 && gcd <= 1500)
+        gcd = std::min(1500, std::max(1000, int32(float(gcd) * bot->GetFloatValue(UNIT_MOD_CAST_SPEED))));
+    spellGcdStartMs_ = WorldTimer::getMSTime();
+    spellGcdDurationMs_ = uint32(gcd);
+}
+
+uint32 PlayerbotAI::SpellGlobalCooldownRemainingMs() const
+{
+    if (!spellGcdDurationMs_)
+        return 0;
+    return CooldownRemainingMs(spellGcdStartMs_, spellGcdDurationMs_, WorldTimer::getMSTime());
+}
+
+int32 PlayerbotAI::CalculateGlobalCooldown(uint32 spellid)
+{
+    if (!spellid)
+        return 0;
+
+    int32 globalCooldown = 0;
+    SpellEntry const* spellEntry = sSpellTemplate.LookupEntry<SpellEntry>(spellid);
+    if (spellEntry)
+    {
+        globalCooldown = spellEntry->StartRecoveryTime;
+    }
+
+    return globalCooldown > 0 ? globalCooldown : sPlayerbotAIConfig.reactDelay;
+}
+
 void PlayerbotAI::ChangeEngine(BotState type)
 {
     Engine* engine = engines[(uint8)type];
