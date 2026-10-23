@@ -34,7 +34,8 @@ BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulf
               "sunken_temple": 109,
               "razorfen_downs": 129,
               "crescent_grove": 802,
-              "dragonmaw_retreat": 816}
+              "dragonmaw_retreat": 816,
+              "dire_maul_east": 429}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -72,6 +73,8 @@ SEEDED_BOSSES = {
     (109, 5710): "Jammal'an the Prophet", (109, 5719): "Morphaz", (109, 5709): "Shade of Eranikus",
     (129, 7357): "Mordresh Fire Eye", (129, 8567): "Glutton", (129, 62679): "Death Prophet Rakameg",
     (129, 7358): "Amnennar the Coldbringer",
+    (429, 11490): "Zevrim Thornhoof", (429, 13280): "Hydrospawn", (429, 14327): "Lethtendris",
+    (429, 11492): "Alzzin the Wildshaper",
     (802, 92107): "Grovetender Engryss", (802, 92109): "Keeper Ranathos", (802, 92108): "High Priestess A'lathea", (802, 92111): "Fenektis the Deceiver", (802, 92110): "Master Raxxieth",
     (816, 62056): "Bogpaw Truthsay", (816, 62057): "Gowlfang", (816, 62072): "Searistrasz",
     (816, 62069): "Halgan Redbrand", (816, 62037): "Zuluhed the Whacked",
@@ -83,7 +86,7 @@ SEEDED_BOSSES = {
 # Grubbis 7361: no spawn row in the map 90 export and no boss step names him, Gnomeregan).
 # Shadowfang Keep's extras that are not legs (Sever 14682, Prelate Ironmane 61969, the intro Arugal 10000).
 # the BFD neutrals Argent Guard 4787 and Woji the Toad 62531 (both rank 0).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929}
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929, 14349}
 # Ragglesnout 7354 (rank 2, Razorfen Downs: he is in a pull group).
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
@@ -740,6 +743,46 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertTrue(all(lo < i < hi for i in (pos[id(r)] for r in approach[c])), c)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["razorfen_downs"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
+
+    def test_dire_maul_east_is_the_plan_with_the_census_fixes(self):
+        # 20261024020300 (turtle-agent 11d68ad, 2026-10-24): the first Dire Maul East export, from the generated draft with the census
+        # fixes of PREP-DIRE-MAUL-EAST-2026-10-24.md. 4 legs, 318 steps (52 + 30 + 1 + 6 pulls), bosses in leg order, and the plan row's
+        # kill_first 11461,13196,11457 (the Guardian healer, the Phase Lasher volleys, the Hellcaller's Rain of Fire); cc_priority is
+        # empty (every trash unit is a demon or an elemental). The draft's five-floor jumble is gone: leg 0 is the courtyard, the south pods and
+        # the basin corridor on the walk to Zevrim, leg 1 the rest of the basin, leg 2 Lethtendris' balcony, leg 3 the cave. The Gordok Commons pulls of the back door (11441, 11444,
+        # 13036), the Isalien trigger/pair (16045, 16097) and Pimgib (14349) are out of every pull; Pimgib is Lethtendris' first. No pull
+        # row stands within 20 yd of a boss, and every radius is the pack's own spread (5-21.5 yd).
+        name, text = newest_plan_text("dire_maul_east")
+        self.assertEqual(name, "20261024020300_world.sql")
+        self.assertIn("('dire_maul_east', 429, '', '', '11461,13196,11457', 'turtle-agent 11d68ad dungeons/dire_maul_east.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(leg_rows(text, "dire_maul_east"),
+                         {0: ("zevrim_thornhoof", ""), 1: ("hydrospawn", ""), 2: ("lethtendris", ""),
+                          3: ("alzzin_the_wildshaper", "")})
+        rows = [r for r in self.step_rows(text) if r["plan"] == "dire_maul_east"]
+        self.assertEqual(len(rows), 318)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(4)}, {0: 147, 1: 65, 2: 30, 3: 76})
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(4)], [52, 30, 1, 6])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["11490", "13280", "14327", "11492"])
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "14349", ""])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(4):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        # the wing's own trash only: no Gordok Commons pack, no Isalien event, no boss pet as a pull
+        for e in ("11441", "11444", "13036", "16045", "16097", "14349"):
+            self.assertFalse([r for r in pulls if e in r["entries"].split(",")], e)
+        self.assertEqual([(r["entries"], float(r["radius"])) for r in pulls if "11456" in r["entries"].split(",") and r["z"] == "16.58"],
+                         [("11456", 5.0)])
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 22.0)
+        self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 5.0)
+        # no pull in a boss's sight (20 yd): the closest is the balcony pack at 21 yd from Lethtendris
+        bosses = [(float(r["x"]), float(r["y"]), float(r["z"])) for r in rows if r["kind"] == "boss"]
+        for r in pulls:
+            for bx, by, bz in bosses:
+                self.assertGreaterEqual(math.dist((float(r["x"]), float(r["y"]), float(r["z"])), (bx, by, bz)), 20.0,
+                                        (r["leg"], r["seq"]))
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (429) AND `entry` IN (11490, 13280, 14327, 11492);", text)
+        self.assertIn("(429, 11492, 'Alzzin the Wildshaper');", text)
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
         # 20261023210000 (turtle-agent cg-fix1 479dc0d) re-exports the 20261023130100 draft (prep/crescent_grove ba00e7c, the census
