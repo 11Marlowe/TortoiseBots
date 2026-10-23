@@ -15303,6 +15303,80 @@ static void TestFailedSapWalksTheRogueBack()
     CHECK(WalkOrder("Thunderward", -250.7f, 2332.5f, 96.8f) == "walk Thunderward -250.7 2332.5 96.8");
 }
 
+// Codex adversarial review of 95f66dd8 (FIX FIRST 1): the walk took any path that ended at the point. A path more
+// than kDetourMaxPathYd longer than the straight line, one past a pack not cleared yet, or one within kHopPullYd of
+// a hostile out of combat is refused (BotWalkRefusal), and the ladder's summon goes out on the next tick instead.
+static void TestBotWalkRefusedOnADetourOrAPack()
+{
+    std::vector<PathPoint> straight = {{0, 0, 0}, {30, 0, 0}};
+    std::unordered_set<std::size_t> none;
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, nullptr, 0, 0, none, {}).empty());
+    // The long way round: 30 yd straight, 71 yd along the path (the cap is +40).
+    std::vector<PathPoint> around = {{0, 0, 0}, {0, 20, 0}, {30, 20, 0}, {30, 0, 0}};
+    CHECK(BotWalkRefusal(around, 30.0f, 70.0f, nullptr, 0, 0, none, {}).empty());
+    CHECK(BotWalkRefusal(around, 30.0f, 70.1f, nullptr, 0, 0, none, {}).compare(0, 7, "detour:") == 0);
+    // Through a pack not cleared yet (the current step's or a later one), not past one cleared before.
+    DungeonPlan plan;
+    plan.steps = {PullStep(15, {1}), PullStep(500, {2})};
+    plan.steps[0].y = 0;
+    plan.steps[0].radius = 5;
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, &plan, 0, 0, none, {}).compare(0, 5, "pack:") == 0);
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, &plan, 1, 0, none, {}).empty());
+    std::unordered_set<std::size_t> skipped = {0};
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, &plan, 1, 0, skipped, {}).compare(0, 5, "pack:") == 0);
+    // Past a hostile out of combat within kHopPullYd of the path.
+    StandHostile mob;
+    mob.x = 15;
+    mob.y = kHopPullYd - 1.0f;
+    mob.entry = 3855;
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, nullptr, 0, 0, none, {mob}) ==
+        "hostile: the path passes within 15.0 yd of 3855");
+    mob.y = kHopPullYd + 1.0f;
+    CHECK(BotWalkRefusal(straight, 30.0f, 30.0f, nullptr, 0, 0, none, {mob}).empty());
+    // The ladder: its walk refused for a detour (the glue's answer) -> the summon on the next tick, no pause.
+    DungeonPlan one;
+    one.steps = {PullStep(100, {1})};
+    Run r = Start(&one);
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), Mem("Straggly", 30.0f)};
+    f.maxMemberYd = 30.0f;
+    f.units = {Unit(7, 1, 50)};
+    Tick(r, f);
+    std::string order;
+    for (std::uint32_t i = 0; i < 100 && order.compare(0, 5, "walk ") != 0; ++i)
+    {
+        f.members[1].x += (i % 2 ? 3.0f : -3.0f);
+        order = Tick(r, f);
+    }
+    for (const char* why : {"unreachable: Straggly: detour: the path is 90.0 yd for 30.0 yd in a straight line",
+             "unreachable: Straggly: pack: the path passes a pack not cleared yet"})
+    {
+        Run t = r;
+        OrderRefused(t, order, why);
+        CHECK(t.state == State::Running);
+        Facts g = f;
+        g.members[1].x += 3.0f;
+        CHECK(Tick(t, g) == "summon Straggly");
+    }
+}
+
+// FIX FIRST 1 (2): a walker kept on the run's stay only while it is still a commanded member of the lead bot's
+// group, the lead bot (and the binding) there, on the lead bot's map; otherwise its stay is cleared before it
+// leaves the list (WalkerVerdict: Release).
+static void TestWalkerVerdict()
+{
+    // found, onStay, alive, inCombat, running, leadAvailable, inLeadGroup, sameMap
+    CHECK(WalkerVerdict(true, true, true, false, true, true, true, true) == WalkerFate::Keep);
+    CHECK(WalkerVerdict(false, true, true, false, true, true, true, true) == WalkerFate::Drop);
+    CHECK(WalkerVerdict(true, false, true, false, true, true, true, true) == WalkerFate::Drop); // formed up already
+    CHECK(WalkerVerdict(true, true, true, false, true, true, false, true) == WalkerFate::Release); // left the group
+    CHECK(WalkerVerdict(true, true, true, false, true, false, true, true) == WalkerFate::Release); // lead/binding gone
+    CHECK(WalkerVerdict(true, true, true, false, true, true, true, false) == WalkerFate::Release); // another map
+    CHECK(WalkerVerdict(true, true, true, true, true, true, true, true) == WalkerFate::Release);   // in a fight
+    CHECK(WalkerVerdict(true, true, true, false, false, true, true, true) == WalkerFate::Release); // run not running
+    CHECK(WalkerVerdict(true, true, false, false, true, true, true, true) == WalkerFate::Release); // dead
+}
+
 int main()
 {
     TestPatrollerOutsideTheRadiusIsWaitedForThenPulled();
@@ -15663,6 +15737,8 @@ int main()
     TestStragglerWalkRefusedSummonsNext();
     TestStragglerLadderInTheRegroup();
     TestFailedSapWalksTheRogueBack();
+    TestBotWalkRefusedOnADetourOrAPack();
+    TestWalkerVerdict();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

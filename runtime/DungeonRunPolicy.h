@@ -5670,6 +5670,49 @@ struct StandHostile
     std::uint32_t entry = 0;
 };
 
+// The run leader's walk of one bot (RunBotWalk, the glue's `walk <bot> x y z`) on the bot's own navmesh path:
+// refused (the reason; empty: it goes) when the path is more than kDetourMaxPathYd longer than the straight line
+// (the stand-in detour's cap: a long way round through the dungeon), when it passes a pull or boss group not
+// cleared yet (PathCrossesUnclearedPack, from the current step; `plan` null: no plan to read), or when it passes
+// within kHopPullYd of a living hostile out of combat (`hostiles`, the glue's scan around the bot). Codex
+// adversarial review of 95f66dd8: the path check only asked that it ended at the point. A refused ladder walk
+// goes on to the summon (StragglerWalkRefused).
+inline std::string BotWalkRefusal(const std::vector<PathPoint>& path, float straightYd, float pathYd,
+    const DungeonPlan* plan, std::size_t from, std::uint32_t team, const std::unordered_set<std::size_t>& notCleared,
+    const std::vector<StandHostile>& hostiles)
+{
+    if (pathYd > straightYd + kDetourMaxPathYd)
+        return "detour: the path is " + Num(pathYd) + " yd for " + Num(straightYd) + " yd in a straight line";
+    if (plan && PathCrossesUnclearedPack(*plan, from, path, team, notCleared))
+        return "pack: the path passes a pack not cleared yet";
+    for (const StandHostile& h : hostiles)
+    {
+        bool near = path.size() == 1 && ai::PlanDistance(path[0].x, path[0].y, path[0].z, h.x, h.y, h.z) <= kHopPullYd;
+        for (std::size_t k = 1; k < path.size() && !near; ++k)
+            near = SegmentDistance(path[k - 1], path[k], h.x, h.y, h.z) <= kHopPullYd;
+        if (near)
+            return "hostile: the path passes within " + Num(kHopPullYd) + " yd of " + std::to_string(h.entry);
+    }
+    return std::string();
+}
+
+// One walker of the run leader's (RunBotWalk) at the glue's sync (SyncRunWalkers): kept on its stay; dropped from
+// the list untouched (no longer on stay: the party's next move formed it up, or the bot is gone); or released, its
+// run-imposed stay cleared before it leaves the list (dead, in a fight, its run not running, or no longer a
+// member of the lead bot's group, the lead bot or the binding gone, or on another map than the lead bot: Codex
+// adversarial review of 95f66dd8, a bot kept on the run's stay after it left the party).
+enum class WalkerFate : std::uint8_t { Keep, Drop, Release };
+
+inline WalkerFate WalkerVerdict(bool botFound, bool onStay, bool botAlive, bool inCombat, bool runRunning,
+    bool leadAvailable, bool inLeadGroup, bool sameMap)
+{
+    if (!botFound || !onStay)
+        return WalkerFate::Drop;
+    if (!botAlive || inCombat || !runRunning || !leadAvailable || !inLeadGroup || !sameMap)
+        return WalkerFate::Release;
+    return WalkerFate::Keep;
+}
+
 // A leg of a move refused too-far (TooFarLegWanted) never ends beside a hostile: the
 // hop point's check (kHopPullYd) for its end too (the Opus review of f1fdeb67). The
 // longest of maxYd, 3/4, 1/2 and 1/4 of it along the path whose end has no hostile

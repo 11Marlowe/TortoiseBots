@@ -61,12 +61,36 @@ class StragglerWalkWiringTest(unittest.TestCase):
         ):
             self.assertIn(line, walk)
 
+    def test_walk_refuses_a_detour_a_pack_or_a_hostile_before_it_touches_the_bot(self):
+        # Codex adversarial review of 95f66dd8, FIX FIRST 1 (1).
+        walk = body(COMMANDS, "bool RunBotWalk(Player* commander, std::string const& order, std::string& answer)\n{",
+            "bool RunIslandEscape(Player* commander, std::string const& order, std::string& answer)\n{")
+        self.assertIn("TortoiseBots::DungeonRun::BotWalkRefusal(points, straight, pathYd,", walk)
+        self.assertIn("hasRun ? run->second.run.plan : nullptr, hasRun ? run->second.run.step : 0,", walk)
+        self.assertIn("hasRun ? run->second.run.notCleared : std::unordered_set<std::size_t>(), hostiles);", walk)
+        self.assertIn("float const pathYd = path.Length();", walk)
+        self.assertIn("for (Vector3 const& v : path.getPath())", walk)
+        self.assertIn("if (unit->IsAlive() && !unit->IsInCombat())", walk)
+        self.assertIn("HostileCreaturesAround(bot,", walk)
+        self.assertIn('answer = "unreachable: " + std::string(name) + ": " + refusal;\n            return false;', walk)
+        self.assertLess(walk.index("BotWalkRefusal("), walk.index('ai->SetMovementStrategy("stay");'))
+
     def test_sync_lets_walkers_go(self):
         sync = body(COMMANDS, "void SyncRunWalkers()\n{", "// Once a second: the healers of every running run")
-        self.assertIn('!ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT)', sync)
+        self.assertIn('found && ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT)', sync)
         self.assertIn("run->second.run.state == TortoiseBots::DungeonRun::State::Running", sync)
-        self.assertIn("if (running && !bot->IsInCombat())", sync)
-        self.assertIn("FormUpOnLead(commander, lead, std::vector<Player*>{ bot }, false);", sync)
+        self.assertIn("TortoiseBots::DungeonRun::WalkerVerdict(found,", sync)
+        self.assertIn("found && bot->IsInCombat(), running, leadAvailable, inGroup,", sync)
+        self.assertIn("found && leadAvailable && bot->GetMapId() == lead->GetMapId());", sync)
+        # FIX FIRST 1 (2): membership in the lead bot's commanded group, a lead bot from the live binding.
+        self.assertIn("RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(it->second);", sync)
+        self.assertIn("for (Player* member : CommandedBots(group, lead))", sync)
+        self.assertIn("inGroup = inGroup || member == bot;", sync)
+        release = body(sync, "if (fate == WalkerFate::Release)", "it = RunWalkers().erase(it);")
+        self.assertIn('ai->SetMovementStrategy("follow");', release)
+        self.assertLess(release.index('ai->SetMovementStrategy("follow");'), release.index("FormUpOnLead("))
+        self.assertIn("if (inGroup && bot->GetMapId() == lead->GetMapId())", release)
+        self.assertIn("FormUpOnLead(commander, lead, std::vector<Player*>{ bot }, false);", release)
         update = body(COMMANDS, "static void UpdateDungeonRuns(uint32 diff)", "static void PauseDungeonRunForPlayer(")
         # Before the early return for no runs: a stopped last run's walker follows again.
         self.assertLess(update.index("SyncRunWalkers();"), update.index("if (DungeonRuns().empty())\n    {"))

@@ -4687,9 +4687,9 @@ void SyncRunHealOnly();
 
 // Bots the run leader walked to the lead bot's spot (DungeonRun::WalkOrder, RunBotWalk: the straggler ladder, a
 // rogue back from a Sap that did not land): bot -> commander. Each holds on stay at that spot until the party's
-// next move forms it up again (it is no longer on stay: only dropped from the list), its next fight, or its run
-// no longer running (both: it follows the lead bot again, SyncRunWalkers). A player's order to the party drops
-// the list without touching the bots (PauseDungeonRunForPlayer).
+// next move forms it up again (it is no longer on stay: only dropped from the list), its next fight, its run no
+// longer running, or it leaving the lead bot's group or map (then its stay is cleared: SyncRunWalkers). A
+// player's order to the party drops the list without touching the bots (PauseDungeonRunForPlayer).
 std::unordered_map<uint64, uint64>& RunWalkers()
 {
     static std::unordered_map<uint64, uint64> bots;
@@ -9705,6 +9705,34 @@ bool RunBotWalk(Player* commander, std::string const& order, std::string& answer
             std::to_string(static_cast<int>(short_)) + " yd short)";
         return false;
     }
+    // Nor a long way round, nor past a pack not cleared yet or a hostile out of combat (DungeonRun::BotWalkRefusal):
+    // the summon goes instead (DungeonRun::StragglerWalkRefused).
+    {
+        std::vector<TortoiseBots::DungeonRun::PathPoint> points;
+        for (Vector3 const& v : path.getPath())
+            points.push_back(TortoiseBots::DungeonRun::PathPoint{v.x, v.y, v.z});
+        float const bx = bot->GetPositionX(), by = bot->GetPositionY(), bz = bot->GetPositionZ();
+        float const straight = std::sqrt((x - bx) * (x - bx) + (y - by) * (y - by) + (z - bz) * (z - bz));
+        float const pathYd = path.Length();
+        auto const run = DungeonRuns().find(commanderRaw);
+        bool const hasRun = run != DungeonRuns().end() && run->second.run.plan;
+        std::vector<TortoiseBots::DungeonRun::StandHostile> hostiles;
+        std::list<Unit*> around;
+        HostileCreaturesAround(bot, std::min(pathYd, 120.0f) + TortoiseBots::DungeonRun::kHopPullYd, around);
+        for (Unit* unit : around)
+            if (unit->IsAlive() && !unit->IsInCombat())
+                hostiles.push_back(TortoiseBots::DungeonRun::StandHostile{unit->GetPositionX(), unit->GetPositionY(),
+                    unit->GetPositionZ(), unit->GetEntry()});
+        std::string const refusal = TortoiseBots::DungeonRun::BotWalkRefusal(points, straight, pathYd,
+            hasRun ? run->second.run.plan : nullptr, hasRun ? run->second.run.step : 0,
+            lead->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde,
+            hasRun ? run->second.run.notCleared : std::unordered_set<std::size_t>(), hostiles);
+        if (!refusal.empty())
+        {
+            answer = "unreachable: " + std::string(name) + ": " + refusal;
+            return false;
+        }
+    }
     // The same transition as a task's stay walk (StartTaskStayWalk) and the lead bot's `cmd move`.
     ai->DropQueuedMovementOrders();
     PlayerConvenience::Instance().NoteHoldOrder(bot->GetObjectGuid());
@@ -12149,34 +12177,48 @@ void SyncRunBackPassive()
     }
 }
 
-// Once a second, after the runs ticked: a bot the run leader walked to the lead bot's spot (RunBotWalk) that is no
-// longer on stay (the party's next move formed it up) leaves the list; one in a fight, or whose run is not running
-// or gone, follows the lead bot again (FormUpOnLead) and leaves it; a dead or vanished one leaves it.
+// Once a second, after the runs ticked: each bot the run leader walked to the lead bot's spot (RunBotWalk), by
+// DungeonRun::WalkerVerdict. No longer on stay (the party's next move formed it up), or gone: it leaves the list.
+// Dead, in a fight, its run not running, out of the lead bot's commanded group, the lead bot or the binding gone,
+// or on another map: its run-imposed stay is cleared (follow) before it leaves the list, and it forms up on the
+// lead bot when it is still in that group on that map.
 void SyncRunWalkers()
 {
+    using TortoiseBots::DungeonRun::WalkerFate;
     for (auto it = RunWalkers().begin(); it != RunWalkers().end();)
     {
         Player* bot = FindCharacter(it->first);
         PlayerbotAI* ai = bot ? PlayerbotAIStorage::Instance().GetAI(bot) : nullptr;
-        if (!bot || !ai || !bot->IsInWorld() || !bot->IsAlive() ||
-            !ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT))
-        {
-            it = RunWalkers().erase(it);
-            continue;
-        }
+        bool const found = bot && ai && bot->IsInWorld();
         auto run = DungeonRuns().find(it->second);
         bool const running = run != DungeonRuns().end() &&
             run->second.run.state == TortoiseBots::DungeonRun::State::Running;
-        if (running && !bot->IsInCombat())
+        Player* commander = FindCharacter(it->second);
+        RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(it->second);
+        Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+        bool const leadAvailable = commander && lead && lead != bot && lead->IsInWorld();
+        Group* group = leadAvailable ? lead->GetGroup() : nullptr;
+        bool inGroup = false;
+        if (found && group)
+            for (Player* member : CommandedBots(group, lead))
+                inGroup = inGroup || member == bot;
+        WalkerFate const fate = TortoiseBots::DungeonRun::WalkerVerdict(found,
+            found && ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT), found && bot->IsAlive(),
+            found && bot->IsInCombat(), running, leadAvailable, inGroup,
+            found && leadAvailable && bot->GetMapId() == lead->GetMapId());
+        if (fate == WalkerFate::Keep)
         {
             ++it;
             continue;
         }
-        Player* commander = FindCharacter(it->second);
-        RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(it->second);
-        Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
-        if (commander && lead && lead != bot && lead->IsInWorld())
-            FormUpOnLead(commander, lead, std::vector<Player*>{ bot }, false);
+        if (fate == WalkerFate::Release)
+        {
+            // The run's stay goes first, whatever else holds: then, with the lead bot in the same group and map,
+            // the follow on it.
+            ai->SetMovementStrategy("follow");
+            if (inGroup && bot->GetMapId() == lead->GetMapId())
+                FormUpOnLead(commander, lead, std::vector<Player*>{ bot }, false);
+        }
         it = RunWalkers().erase(it);
     }
 }
