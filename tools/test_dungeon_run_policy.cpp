@@ -13101,6 +13101,231 @@ static void TestUnattackableUnitIsNeverPulledOrPickedUp()
         CHECK(Tick(w, wf).find(std::to_string(kBombGuid)) == std::string::npos);
 }
 
+// Gnomeregan r23 step 181: the bomb 7897 held the priest Varcus in combat 35 yd from the lead bot for 8 min; the
+// gather paused the run four times. The run drops the combat of a bot held by units the group cannot attack only,
+// once the same set has stood the grace, and no gather waits for it meanwhile.
+static Facts HeldParty(const std::vector<UnitFact>& held)
+{
+    Facts f = Party(0);
+    f.anyInCombat = true;
+    f.engagedRead = true;
+    f.engagedUnits = held;
+    MemberFact lead = Mem("Tanky", 0);
+    MemberFact priest = Mem("Varcus", 35);
+    priest.inCombat = true;
+    priest.attackers = 1;
+    priest.engagedRead = true;
+    priest.engaged = held;
+    f.members = {lead, priest, Mem("Dinna", 3)};
+    f.maxMemberYd = 35;
+    return f;
+}
+
+static void TestBotHeldByUnattackableDropsCombat()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {6206}), Step(PlanStepKind::Move, 9)};
+    Facts f = HeldParty({Bomb()});
+    f.units = {Unit(2, 6206, 25)};
+    std::uint32_t const graceTicks = kUnattackableGraceMs / kTickMs;
+    Run r = Start(&plan);
+    // Inside the grace: no drop, and the gather still waits for the priest.
+    for (std::uint32_t i = 1; i < graceTicks; ++i)
+    {
+        Tick(r, f);
+        CHECK(r.combatDrops.empty() && r.state == State::Running);
+        CHECK(r.note.find("dropped combat") == std::string::npos);
+    }
+    // The grace's last tick: the drop, with its note.
+    Tick(r, f);
+    CHECK(r.combatDrops == std::vector<std::string>{"Varcus"});
+    CHECK(r.note.find("Varcus dropped combat with entry 7897 (cannot be attacked)") != std::string::npos);
+    // At most once per kCombatDropRepeatMs per bot: the bomb back on it does not drop it again at once.
+    std::uint32_t again = 0;
+    for (std::uint32_t i = 1; i <= kCombatDropRepeatMs / kTickMs && r.state == State::Running; ++i)
+    {
+        Tick(r, f);
+        if (!r.combatDrops.empty() && again == 0)
+            again = i;
+    }
+    CHECK(again == kCombatDropRepeatMs / kTickMs);
+    // An attackable unit in its set starts the grace over.
+    Run a = Start(&plan);
+    Facts mixed = f;
+    mixed.members[1].engaged = {Bomb(), Engaged(Unit(3, 6206, 30))};
+    for (int i = 0; i < 5; ++i)
+        Tick(a, f);
+    Tick(a, mixed);
+    for (std::uint32_t i = 1; i < graceTicks; ++i)
+    {
+        Tick(a, f);
+        CHECK(a.combatDrops.empty());
+    }
+    Tick(a, f);
+    CHECK(a.combatDrops == std::vector<std::string>{"Varcus"});
+    // A changed set starts it over too.
+    Run c = Start(&plan);
+    Facts other = f;
+    UnitFact second = Bomb();
+    second.guid = kBombGuid + 1;
+    other.members[1].engaged = {Bomb(), second};
+    for (int i = 0; i < 5; ++i)
+        Tick(c, f);
+    for (std::uint32_t i = 1; i < graceTicks; ++i)
+    {
+        Tick(c, other);
+        CHECK(c.combatDrops.empty());
+    }
+    Tick(c, other);
+    CHECK(c.combatDrops == std::vector<std::string>{"Varcus"});
+    // Never on a boss step or in an event, never while the run is not running.
+    DungeonPlan bossPlan;
+    PlanStep boss = Step(PlanStepKind::Boss);
+    boss.entry = 6206;
+    boss.entries = {6206};
+    bossPlan.steps = {boss};
+    Run b = Start(&bossPlan);
+    for (std::uint32_t i = 0; i < 2 * graceTicks; ++i)
+    {
+        Tick(b, f);
+        CHECK(b.combatDrops.empty() && b.combatDrop.empty());
+    }
+    DungeonPlan holdPlan;
+    PlanStep hold = Step(PlanStepKind::Hold);
+    hold.radius = 30;
+    holdPlan.steps = {hold};
+    Run e = Start(&holdPlan);
+    for (std::uint32_t i = 0; i < 2 * graceTicks; ++i)
+    {
+        Tick(e, f);
+        CHECK(e.combatDrops.empty());
+    }
+    Run p = Start(&plan);
+    Pause(p, "a player's order");
+    for (std::uint32_t i = 0; i < 2 * graceTicks; ++i)
+    {
+        Tick(p, f);
+        CHECK(p.combatDrops.empty());
+    }
+    // A bot with nothing engaged, or with an attackable unit only, is not held.
+    MemberFact free = Mem("Free", 30);
+    CHECK(!HeldByUnattackable(free));
+    free.engagedRead = true;
+    free.engaged = {Engaged(Unit(3, 6206, 30))};
+    CHECK(!HeldByUnattackable(free));
+    free.engaged[0].attackable = false;
+    CHECK(HeldByUnattackable(free));
+}
+
+// A gather's ceiling does not pause on bots held only by units the group cannot attack (their combat is being
+// dropped): it waits again, within the coming straggler's budget (kGatherComingMaxMs), then pauses as before.
+static void TestGatherWaitsForABotHeldByUnattackable()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {6206}), Step(PlanStepKind::Move, 9)};
+    Facts f = HeldParty({Bomb()});
+    f.anyInCombat = false; // the party's own fight is over; the priest alone stands in the bomb's combat
+    Run r = Start(&plan);
+    CHECK(!HeldStragglerWait(r, f)); // not held yet (no CombatDropTick)
+    CombatDropTick(r, f, kTickMs);
+    std::uint32_t waits = 0;
+    while (waits < 100 && HeldStragglerWait(r, f))
+        ++waits;
+    CHECK(waits == (kGatherComingMaxMs - 1) / kGatherCapMs);
+    CHECK(r.note.find("Varcus (35.0 yd) held in combat by units the group cannot attack only") != std::string::npos);
+    // A held bot is not sent on a run back (its attacker cannot be fought at the party either), and a run back
+    // under way ends once it is held.
+    Run rb = Start(&plan);
+    rb.regroup = true;
+    rb.reviveSent = true;
+    CombatDropTick(rb, f, kTickMs);
+    CHECK(!RunBack(rb, f, kTickMs) && rb.runBack.empty());
+    rb.combatDrop.clear();
+    CHECK(RunBack(rb, f, kTickMs) && rb.runBack.size() == 1);
+    CombatDropTick(rb, f, kTickMs);
+    CHECK(!RunBack(rb, f, kTickMs) && rb.runBack.empty());
+    // A far bot that is not held keeps the old rule: no wait.
+    Run o = Start(&plan);
+    Facts g = f;
+    g.members.push_back(Mem("Helmina", 36));
+    CombatDropTick(o, g, kTickMs);
+    CHECK(!HeldStragglerWait(o, g));
+    // A step's gather ceiling (GatherCeiling) waits the same way, and pauses for a far bot that is not held.
+    Run gc = Start(&plan);
+    CombatDropTick(gc, f, kTickMs);
+    std::string gorder;
+    GatherCeiling(gc, f, gorder, "the party did not gather within 30 s");
+    CHECK(gc.state == State::Running && gc.phase == Phase::Gather && gorder.empty() &&
+        gc.note.find("held in combat") != std::string::npos);
+    Facts gh = f;
+    MemberFact hunter = Mem("Helmina", 36);
+    hunter.inCombat = true;
+    gh.members.push_back(hunter);
+    Run gp = Start(&plan);
+    CombatDropTick(gp, gh, kTickMs);
+    GatherCeiling(gp, gh, gorder, "the party did not gather within 30 s");
+    CHECK(gp.state == State::Paused && gp.note == "the party did not gather within 30 s");
+    // Through the regroup: its gather ceiling past, the run does not pause while the held priest's budget lasts.
+    Run q = Start(&plan);
+    q.regroup = true;
+    q.reviveSent = true;
+    q.regroupGatherSent = true;
+    q.regroupGatherCapMs = kGatherCapMs;
+    q.regroupMs = kGatherCapMs + 1000;
+    Tick(q, f);
+    CHECK(q.state == State::Running && q.note.find("held in combat") != std::string::npos);
+    Run n = Start(&plan);
+    n.regroup = true;
+    n.reviveSent = true;
+    n.regroupGatherSent = true;
+    n.regroupGatherCapMs = kGatherCapMs;
+    n.regroupMs = kGatherCapMs + 1000;
+    Tick(n, g);
+    CHECK(n.state == State::Paused && n.note.find("regroup: the party did not gather within") != std::string::npos);
+}
+
+// Codex adversarial review of 5017a644: a bot whose pet alone is held by the bomb is a bot in combat (the glue's
+// MemberInCombat: Facts::anyInCombat, MemberFact::inCombat, and the pet's attackers in its count). Before the drop
+// it is not summoned, sent on a run back or pulled past; the regroup waits for it.
+static void TestPetHeldByUnattackableKeepsTheBotInTheFight()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {6206}), Step(PlanStepKind::Move, 9)};
+    Facts f = HeldParty({Bomb()}); // the hunter's pet held: the glue reads her in combat with 1 attacker (the pet's)
+    f.members[1].name = "Helmina";
+    f.units = {Unit(2, 6206, 25)};
+    std::uint32_t const graceTicks = kUnattackableGraceMs / kTickMs;
+    // Not summoned (a bot in combat or with attackers never is).
+    Run s = Start(&plan);
+    std::string order;
+    CHECK(!SummonStraggler(s, f, order) && order.empty());
+    // No pull before the drop: the party is in combat until the grace is over.
+    Run r = Start(&plan);
+    for (std::uint32_t i = 1; i < graceTicks; ++i)
+    {
+        CHECK(Tick(r, f).compare(0, 9, "pullback ") != 0);
+        CHECK(r.combatDrops.empty() && r.runBack.empty());
+    }
+    Tick(r, f);
+    CHECK(r.combatDrops == std::vector<std::string>{"Helmina"});
+    // In a regroup: no run back, no summon, and its ceiling waits for her instead of pausing.
+    Run q = Start(&plan);
+    q.regroup = true;
+    q.reviveSent = true;
+    q.regroupGatherSent = true;
+    q.regroupGatherCapMs = kGatherCapMs;
+    q.regroupMs = kGatherCapMs + 1000;
+    Facts g = f;
+    g.anyInCombat = false; // the party's fight is over; her pet's is not
+    for (std::uint32_t i = 0; i < 3; ++i)
+    {
+        std::string const o = Tick(q, g);
+        CHECK(o.compare(0, 7, "summon ") != 0 && q.runBack.empty() && q.state == State::Running);
+        if (i == 0)
+            CHECK(q.note.find("Helmina (35.0 yd) held in combat") != std::string::npos);
+    }
+}
+
 int main()
 {
     TestPatrollerOutsideTheRadiusIsWaitedForThenPulled();
@@ -13430,6 +13655,9 @@ int main()
     TestCeilingPauseResumesByItself();
     TestUnattackableOnlyFightIsNoFight();
     TestUnattackableUnitIsNeverPulledOrPickedUp();
+    TestBotHeldByUnattackableDropsCombat();
+    TestGatherWaitsForABotHeldByUnattackable();
+    TestPetHeldByUnattackableKeepsTheBotInTheFight();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

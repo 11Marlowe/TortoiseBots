@@ -530,9 +530,9 @@ struct MemberFact
     std::string name;
     float yd = 0.0f;        // from the lead bot (1000 on another map)
     bool polymorph = false; // a mage that knows Polymorph (kPolymorphSpells): the run's crowd control
-    bool inCombat = false;
+    bool inCombat = false;  // the bot or its living pet is in combat (the glue's MemberInCombat)
     float dz = 0.0f;        // height difference to the lead bot (another floor)
-    std::uint32_t attackers = 0; // units attacking it (the core's attacker set of that bot, no scan)
+    std::uint32_t attackers = 0; // units attacking it or its living pet (their attacker sets, no scan)
     float x = 0.0f, y = 0.0f, z = 0.0f; // where it stands (the stand-still watch: UpdateStill)
     bool ranged = false;    // a ranged bot or a healer: it stands behind the tank in a hold (HoldStands)
     // With Facts::directJoinRead: the glue's own direct-step test for this bot (the one `cmd move ... direct`
@@ -546,6 +546,14 @@ struct MemberFact
     // master is a live client (PlayerbotAI::HasRealPlayerMaster) and Sap is
     // not switched off ("no sap"). Without it no Sap is ordered.
     bool canSap = false;
+    // In combat: the units engaged with this bot or its pet (their attackers, their victims and the units holding
+    // either on their threat lists), each once, with
+    // UnitFact::attackable (engagedRead). Gnomeregan r23
+    // step 181: the Alarm-a-bomb 2600 (7897) took the priest as its victim; the priest and the hunter stood in
+    // combat 35 yd from the lead bot for 8 min, follow orders and the run back did not move them, and the gather
+    // paused the run four times (CombatDropTick).
+    std::vector<UnitFact> engaged{};
+    bool engagedRead = false;
 };
 
 // An instance door: where an area trigger into the plan's map puts a player
@@ -1146,6 +1154,17 @@ struct Run
     // how long that same set has stood so without a break.
     std::vector<std::uint64_t> unattackableSet;
     std::uint32_t unattackableMs = 0;
+    // CombatDropTick: per bot, the engaged units (guids, sorted) of its current only-unattackable stretch and how
+    // long that same set has stood so; the run time of its last combat drop; and this tick's drops, which the glue
+    // carries out (CombatStop on the bot and its pet) after Tick.
+    struct CombatDropState
+    {
+        std::vector<std::uint64_t> set;
+        std::uint32_t ms = 0;
+    };
+    std::unordered_map<std::string, CombatDropState> combatDrop;
+    std::unordered_map<std::string, std::uint64_t> combatDroppedAt;
+    std::vector<std::string> combatDrops;
     std::size_t ceilingResumedStep = static_cast<std::size_t>(-1); // the step that has used its one self-resume (ResetStep keeps it)
     std::uint32_t eventIdleMs = 0; // out of a fight with an awake event unit standing
     std::uint32_t eventUp = 0, eventDown = 0, eventTotal = 0; // the event's units now: awake, dead, all seen
@@ -1934,6 +1953,30 @@ inline bool SummonStraggler(Run& r, const Facts& f, std::string& order, bool sti
     return true;
 }
 
+// Every bot the gather still waits for (beyond kGatherYd) is held in combat by units the group cannot attack only
+// (Run::combatDrop: its combat is being dropped, CombatDropTick): the gather's ceiling does not pause on it but
+// waits again, within the same budget as a straggler that is coming (kGatherComingMaxMs in all, Run::
+// gatherComingMs). Gnomeregan r23 step 181: the bomb 7897 held the priest 35 yd out, and the gather paused the
+// run four times. True when it waits (the note is set).
+inline bool HeldStragglerWait(Run& r, const Facts& f)
+{
+    std::string held;
+    for (const MemberFact& m : f.members)
+    {
+        if (m.name.empty() || m.yd <= kGatherYd)
+            continue;
+        if (!r.combatDrop.count(m.name))
+            return false;
+        held += (held.empty() ? "" : ", ") + m.name + " (" + Num(m.yd) + " yd)";
+    }
+    if (held.empty() || kGatherCapMs + r.gatherComingMs >= kGatherComingMaxMs)
+        return false;
+    r.gatherComingMs += kGatherCapMs;
+    r.note = "gathering: " + held + " held in combat by units the group cannot attack only: its combat is dropped, "
+        "waiting for it";
+    return true;
+}
+
 // The ceiling of a pull's or a direct step's gather (kGatherCapMs). In order:
 // SummonStraggler (a stuck or far bot, once each). Else the farthest bot, if it
 // is still on its way (it is not still and came kStragglerGainYd closer since
@@ -2006,6 +2049,11 @@ inline void GatherCeiling(Run& r, const Facts& f, std::string& order, const std:
             EnterPhase(r, Phase::Gather);
             return;
         }
+    }
+    if (HeldStragglerWait(r, f))
+    {
+        EnterPhase(r, Phase::Gather);
+        return;
     }
     Pause(r, pauseText);
 }
@@ -7413,7 +7461,8 @@ inline bool RunBack(Run& r, const Facts& f, std::uint32_t dt)
         Run::RunBackState& st = r.runBackState[name];
         st.ms += dt;
         st.stillMs += dt;
-        bool done = !m || m->yd <= kRunBackArriveYd;
+        // Held only by units the group cannot attack (Run::combatDrop): no run back, its combat is dropped instead.
+        bool done = !m || m->yd <= kRunBackArriveYd || r.combatDrop.count(name);
         if (!done)
         {
             if (m->yd < st.bestYd - kStragglerGainYd)
@@ -7442,7 +7491,7 @@ inline bool RunBack(Run& r, const Facts& f, std::uint32_t dt)
         if (f.leadInCombat)
             break;
         if (m.name.empty() || m.name == f.carrier || !m.attackers || m.yd <= kGatherYd || m.yd > kRunBackMaxYd ||
-            r.runBackDone.count(m.name) ||
+            r.runBackDone.count(m.name) || r.combatDrop.count(m.name) ||
             std::find(r.runBack.begin(), r.runBack.end(), m.name) != r.runBack.end())
             continue;
         r.runBack.push_back(m.name);
@@ -7678,10 +7727,15 @@ inline bool UnattackableOnlyFight(const Facts& f)
 // UnattackableOnlyFight on a step where it is let go: not a boss step and not inside a scripted event (a hold,
 // or the steps leading into one), where a boss or an event unit may stand unattackable for a while in its own
 // fight (a phase, a submerge) and the fight must keep its handling, its timer and its ceiling.
-inline bool UnattackableFightLetGo(const Run& r, const Facts& f)
+inline bool UnattackableLetGoStep(const Run& r)
 {
     const PlanStep* const s = Current(r);
-    return s && s->kind != PlanStepKind::Boss && !InEvent(r) && UnattackableOnlyFight(f);
+    return s && s->kind != PlanStepKind::Boss && !InEvent(r);
+}
+
+inline bool UnattackableFightLetGo(const Run& r, const Facts& f)
+{
+    return UnattackableLetGoStep(r) && UnattackableOnlyFight(f);
 }
 
 // One snapshot proves nothing: a live mob can be unattackable for a moment (a burrow, a phase, a scripted
@@ -7718,6 +7772,72 @@ inline bool UnattackableGraceTick(Run& r, const Facts& f, std::uint32_t dt)
 inline bool FightOn(Run& r, const Facts& f, std::uint32_t dt)
 {
     return f.anyInCombat && !UnattackableGraceTick(r, f, dt);
+}
+
+// A bot of the party (not the commander: the glue lists the bound bots only) held in combat by units the group
+// cannot attack only: every unit engaged with it or its pet is one (MemberFact::engaged).
+inline bool HeldByUnattackable(const MemberFact& m)
+{
+    if (!m.engagedRead || m.engaged.empty())
+        return false;
+    for (const UnitFact& u : m.engaged)
+        if (u.attackable)
+            return false;
+    return true;
+}
+
+// How long apart two combat drops of one bot are at least (a re-aggro starts the grace over anyway).
+constexpr std::uint32_t kCombatDropRepeatMs = 10000;
+
+// Gnomeregan r23 step 181 (2026-10-23): the Alarm-a-bomb 2600 (7897), which the group cannot attack, took the
+// priest as its victim. He and the hunter stood in combat 35 yd from the lead bot for 8 min: a bot in combat
+// with nothing it can target only shields and fades, and neither `follow` nor the run back moved it; the gather
+// paused the run four times. Once a bot's engaged set (MemberFact::engaged, its pet's too) has been the same
+// units, all of them ones the group cannot attack, for kUnattackableGraceMs of ticks in a row, on a step that
+// lets such units go (not a boss step, not in an event), the run drops its combat: the bot's name goes into
+// Run::combatDrops for the glue (CombatStop on the bot and its pet, off the units' threat lists), at most once
+// per kCombatDropRepeatMs per bot. An attackable unit, a changed set or another step kind starts it over.
+// Returns the note for the drops of this tick ("Varcus dropped combat with entry 7897 (cannot be attacked)").
+inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
+{
+    r.combatDrops.clear();
+    if (r.state != State::Running || !UnattackableLetGoStep(r))
+    {
+        r.combatDrop.clear();
+        return std::string();
+    }
+    std::string note;
+    std::unordered_map<std::string, Run::CombatDropState> next;
+    for (const MemberFact& m : f.members)
+    {
+        if (m.name.empty() || !HeldByUnattackable(m))
+            continue;
+        std::vector<std::uint64_t> set;
+        for (const UnitFact& u : m.engaged)
+            set.push_back(u.guid);
+        std::sort(set.begin(), set.end());
+        Run::CombatDropState st;
+        auto const it = r.combatDrop.find(m.name);
+        if (it != r.combatDrop.end() && it->second.set == set)
+            st = it->second;
+        else
+            st.set = std::move(set);
+        st.ms += dt;
+        auto const last = r.combatDroppedAt.find(m.name);
+        bool const spaced = last == r.combatDroppedAt.end() || r.runMs >= last->second + kCombatDropRepeatMs;
+        if (st.ms >= kUnattackableGraceMs && spaced)
+        {
+            r.combatDrops.push_back(m.name);
+            r.combatDroppedAt[m.name] = r.runMs;
+            std::string units;
+            for (const UnitFact& u : m.engaged)
+                units += (units.empty() ? "entry " : ", entry ") + std::to_string(u.entry) + " (cannot be attacked)";
+            note += (note.empty() ? "" : "; ") + m.name + " dropped combat with " + units;
+        }
+        next[m.name] = std::move(st);
+    }
+    r.combatDrop = std::move(next);
+    return note;
 }
 
 // A creature guid as the traces print it (0xF130001ED90075B6).
@@ -7792,6 +7912,9 @@ inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, con
         quiet.leadInCombat = false;
         quiet.staleCombat = false;
     }
+    // The bots held by such units only: their combat is dropped after the same grace (CombatDropTick), and a
+    // gather's ceiling waits for them meanwhile (HeldStragglerWait).
+    std::string const dropNote = CombatDropTick(r, in, dt);
     const Facts& f = unattackable ? quiet : in;
     bool const firstUnattackable = unattackable && !r.unattackableFight;
     r.unattackableFight = unattackable;
@@ -7815,6 +7938,8 @@ inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, con
     if (firstUnattackable && r.state == State::Running)
         r.note += (r.note.empty() ? "" : "; ") + std::string("in combat with units the group cannot attack only (") +
             EngagedUnitsNote(in) + "): not counted as a fight";
+    if (!dropNote.empty())
+        r.note += (r.note.empty() ? "" : "; ") + dropNote;
     return order;
 }
 
@@ -8086,7 +8211,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                     return order;
                 if (r.regroupMs > r.regroupGatherCapMs)
                 {
-                    if (SummonStraggler(r, f, order))
+                    if (SummonStraggler(r, f, order) || HeldStragglerWait(r, f))
                         r.RestartRegroupClock();
                     else
                         Pause(r, "regroup: the party did not gather within " +
