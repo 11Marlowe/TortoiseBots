@@ -632,7 +632,7 @@ class DungeonPlanSql(unittest.TestCase):
         # The map 48 ai_dungeon_boss rows stay in 20261022210800 (the seed test holds them to one seeding).
 
     def test_windhorn_canyon_is_the_plan_with_the_pack_fixes(self):
-        # 20261023130000 (turtle-agent 5f8f002, 2026-10-23): the Windhorn Canyon draft with the pack fixes of
+        # 20261023130000 (turtle-agent 0afaeeb, 2026-10-23): the Windhorn Canyon draft with the pack fixes of
         # PREP-WINDHORN-CANYON-2026-10-23.md, no row hand-set, with the boss rows of map 820. 7 legs, 1890 steps
         # (1898 rows: 188 pulls (46 + 32 + 17 + 14 + 36 + 9 + 34), the 7 boss rows and approach moves), bosses in
         # leg order, no door or event step. The plan row has

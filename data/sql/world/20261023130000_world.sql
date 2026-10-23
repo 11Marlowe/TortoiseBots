@@ -1,5 +1,5 @@
--- Windhorn Canyon (map 820): the draft plan, exported from turtle-agent 5f8f002 (dungeons/windhorn_canyon.json) with
--- `turtle-agent plan-export --mmaps ~/turtle-agent-mmaps --allow-draft --gm-cross-direct --approach-hops --rev 5f8f002
+-- Windhorn Canyon (map 820): the draft plan, exported from turtle-agent 0afaeeb (dungeons/windhorn_canyon.json) with
+-- `turtle-agent plan-export --mmaps ~/turtle-agent-mmaps --allow-draft --gm-cross-direct --approach-hops --rev 0afaeeb
 --  --stamp 20261023130000 --out <dir> windhorn_canyon` (the stockade-prep options); NO ROW IS HAND-SET.
 -- 7 legs, 1890 steps, 1898 rows: 188 pulls (46 + 32 + 17 + 14 + 36 + 9 + 34), the 7 boss rows and approach moves.
 -- draft (not mapped, not live-checked): the run needs allow_draft. Boss order is the nearest-neighbour walk
@@ -13,7 +13,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'windhorn_canyon';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'windhorn_canyon';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'windhorn_canyon';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('windhorn_canyon', 820, '', '', '', 'turtle-agent 5f8f002 dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');
+('windhorn_canyon', 820, '', '', '', 'turtle-agent 0afaeeb dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('windhorn_canyon', 0, 'walgan_bloodcaller', ''),
 ('windhorn_canyon', 1, 'ambassador_vortalus', ''),
