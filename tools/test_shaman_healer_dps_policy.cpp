@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/shaman/ShamanHealerDpsPolicy.h"
+#include "../ai/playerbot/policy/class/ShamanHealerDpsPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

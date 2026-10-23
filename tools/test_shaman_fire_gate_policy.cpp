@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/shaman/ShamanFireGatePolicy.h"
+#include "../ai/playerbot/policy/class/ShamanFireGatePolicy.h"
 
 #include <cstdlib>
 #include <iostream>

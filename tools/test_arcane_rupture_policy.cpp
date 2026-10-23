@@ -6,7 +6,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_arcane_rupture_policy.cpp -o /tmp/test_arcane_rupture
 //   /tmp/test_arcane_rupture
 
-#include "../ai/playerbot/ArcaneRupturePolicy.h"
+#include "../ai/playerbot/policy/class/ArcaneRupturePolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

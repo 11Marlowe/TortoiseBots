@@ -1,7 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "ShamanPullStrategy.h"
-#include "ShamanTankPolicy.h"
+#include "playerbot/policy/class/ShamanTankPolicy.h"
 
 std::string ShamanPullStrategy::GetPullActionName() const
 {

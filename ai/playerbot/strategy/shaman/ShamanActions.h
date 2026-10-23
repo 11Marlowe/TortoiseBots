@@ -3,8 +3,8 @@
 #include "playerbot/GroupMembers.h"
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/actions/ChangeStrategyAction.h"
-#include "ShamanFireGatePolicy.h"
-#include "ShamanTankPolicy.h"
+#include "playerbot/policy/class/ShamanFireGatePolicy.h"
+#include "playerbot/policy/class/ShamanTankPolicy.h"
 
 namespace ai
 {

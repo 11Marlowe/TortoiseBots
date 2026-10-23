@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/shaman/ShamanManaLoopPolicy.h"
+#include "../ai/playerbot/policy/class/ShamanManaLoopPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

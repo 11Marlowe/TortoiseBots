@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/shaman/ShamanTankPolicy.h"
+#include "../ai/playerbot/policy/class/ShamanTankPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

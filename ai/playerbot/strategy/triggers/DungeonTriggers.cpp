@@ -1,5 +1,5 @@
 
-#include "playerbot/ResistAuraPolicy.h"
+#include "playerbot/policy/class/ResistAuraPolicy.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/playerbot.h"
 #include "DungeonTriggers.h"
