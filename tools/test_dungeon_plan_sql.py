@@ -748,7 +748,7 @@ class DungeonPlanSql(unittest.TestCase):
         # 20261024020400 (turtle-agent 45267e3, 2026-10-24): the first plan of Dire Maul North, rebuilt from the map-429 spawn census of
         # PREP-DIRE-MAUL-NORTH-2026-10-24.md. 5 legs in door order (Mol'dar, the great hall + Fengus, Slip'kik, the Kromcrush tier, the King),
         # 153 steps (19 + 28 + 9 + 10 + 4 pulls, 78 moves, the 5 bosses), no row hand-set. The skeleton's 13 Gordok Spirit pulls (11446,
-        # non-attackable) are gone, and the 114 Gordok ogres the generator dropped for their gossip flag are pull members. The plan row
+        # non-attackable) are gone, and the Gordok ogres the generator dropped for their gossip flag (114 rows, 99 spawned) are pull members. The plan row
         # carries cc_priority for the three casters; no fleer and no trash healer in the wing, so kill_first is empty. Cho'Rush 14324 is
         # the King's first, not a pull and not a boss of the table.
         name, text = newest_plan_text("dire_maul_north")

@@ -8,7 +8,8 @@
 -- What the census found and the plan does:
 --   * The generated skeleton carried only 13036 mastiffs, 13160 Carrion Swarmers and 11446 Gordok Spirit: the generator drops every spawn
 --     with npc_flags != 0, and the Gordok ogres carry npc_flags 1 (gossip). They are hostile (faction 45) -- 11441 Brute, 11444 Mage-Lord,
---     11445 Captain, 11448 Warlock, 11450 Reaver -- and are 114 of the 233 hostile spawns. The plan pulls them: 70 pull groups.
+--     11445 Captain, 11448 Warlock, 11450 Reaver -- and are 99 of the 225 hostile trash spawns (114 export rows: 15 are unused variants
+--     of the First Pack pool). The plan pulls them: 70 pull groups.
 --   * 11446 Gordok Spirit (13 spawns in the King's ring) has unit_flags 514 (non-attackable) and 1 hp: no pull can land on it. The 13
 --     spirit pulls of the skeleton are gone. 14338 Knot Thimblejack (faction 35) and 14322 Stomper Kreeg (vendor) are not pulled.
 --   * The courtyard's First Pack is pool-of-pools 4294 (one of six variants 4295-4300 live, max_limit 1): 4 ogres at the four points
