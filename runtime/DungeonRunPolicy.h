@@ -7852,7 +7852,8 @@ inline std::string GuidHex(std::uint64_t guid)
 // counts (HpHeldLow): a target with more is never held, whatever its shields, heals or armour do (a Codex review:
 // a victim is no proof of damage landing). Each such engaged unit the group can attack, not evading: while a party
 // bot or pet has it as its victim (UnitFact::partyHits) and its hp does not change, its time runs; any change of
-// its hp starts it over, and a unit out of that band or no longer engaged is forgotten. At kHpHeldMs the run
+// its hp or a tick with no party member on it starts it over, and a unit out of that band or no longer engaged is
+// forgotten. At kHpHeldMs the run
 // pauses with its own note. A resume is allowed (the step's stop rule bounds the repeats). True when it paused.
 inline bool HpHeldLow(const UnitFact& u)
 {
@@ -7875,8 +7876,10 @@ inline bool HpHeldTick(Run& r, const Facts& f, std::uint32_t dt)
         Run::HpWatch w;
         w.entry = u.entry;
         w.hp = u.health;
-        if (had != r.hpWatch.end() && had->second.hp == u.health)
-            w.ms = had->second.ms + (u.partyHits ? dt : 0);
+        // The 60 s are continuous targeting at the same hp: a tick with no party member on it starts them over
+        // (Codex review round 2).
+        if (had != r.hpWatch.end() && had->second.hp == u.health && u.partyHits)
+            w.ms = had->second.ms + dt;
         next[u.guid] = w;
     }
     r.hpWatch = std::move(next);

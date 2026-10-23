@@ -13339,7 +13339,8 @@ static void TestUnitThatCannotDieNowPauses()
         }
         CHECK(u.state == State::Running);
     }
-    // A party that stops hitting it for a while does not run the time, nor reset it: 30 s hit, 10 s not, 30 s hit.
+    // The 60 s are continuous targeting (Codex review round 2): 30 s targeted, a 10 s gap with nobody on it, 30 s
+    // targeted again is no pause; 60 s targeted after the gap is.
     Run b = Start(&plan);
     b.fighting = true;
     Facts off = f;
@@ -13350,9 +13351,12 @@ static void TestUnitThatCannotDieNowPauses()
     for (int i = 0; i < 10; ++i)
         Tick(b, off);
     CHECK(b.state == State::Running);
-    for (std::uint32_t i = 0; i <= heldTicks / 2 && b.state == State::Running; ++i)
+    for (std::uint32_t i = 0; i <= heldTicks / 2 + 1; ++i)
         Tick(b, f);
-    CHECK(b.state == State::Paused);
+    CHECK(b.state == State::Running);
+    for (std::uint32_t i = 0; i <= heldTicks && b.state == State::Running; ++i)
+        Tick(b, f);
+    CHECK(b.state == State::Paused && b.note.find("entry 3977 stays at 1 hp") == 0);
     // Out of combat between two stretches: the watch starts over.
     Run c = Start(&plan);
     c.fighting = true;
