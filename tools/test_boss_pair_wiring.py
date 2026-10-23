@@ -38,12 +38,16 @@ class BossPairWiringTest(unittest.TestCase):
         self.assertIn("party.insert(bot->GetObjectGuid().GetRawValue());", read)
         self.assertIn("party.insert(pet->GetObjectGuid().GetRawValue());", read)
         self.assertIn("party.count(other->GetObjectGuid().GetRawValue())", read)
+        # A charmed party bot fighting the party is named for the note, never engaged.
+        self.assertIn("f.charmedFighting.push_back(other->GetName());", read)
+        self.assertLess(read.index("f.charmedFighting.push_back"), read.index("f.engagedUnits.push_back(fact);"))
         # The party set is filled before any unit is added.
         self.assertLess(read.index("party.insert(bot->"), read.index("for (Unit* attacker : unit->GetAttackers())"))
 
     def test_engaged_units_carry_hp_and_party_hits(self):
         read = body(CODE, "void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots,")
         self.assertIn("fact.health = other->GetHealth();", read)
+        self.assertIn("fact.maxHealth = other->GetMaxHealth();", read)
         self.assertIn("fact.partyHits = victims.count(fact.guid) != 0;", read)
         self.assertIn("victims.insert(victim->GetObjectGuid().GetRawValue());", read)
         self.assertIn("if (Unit* victim = pet->GetVictim())", read)
@@ -56,21 +60,28 @@ class BossPairWiringTest(unittest.TestCase):
                       "                ReadBossInInstance(*step, lead, f);", facts)
         search = body(CODE, "void ReadBossInInstance(ai::PlanStep const& step, Player* lead,")
         self.assertIn("f.bossSearchRead = true;", search)
-        self.assertIn("for (uint32 low : BossSpawnLowGuids(lead->GetMapId(), step.entry))", search)
+        self.assertIn("std::vector<uint32> const& spawns = BossSpawnLowGuids(lead->GetMapId(), step.entry);", search)
         self.assertIn("map->GetCreature(data->GetObjectGuid(low))", search)
         self.assertIn("f.bossSearchAlive = true;", search)
         self.assertIn("f.bossSearchDead = true;", search)
         self.assertNotIn("GetCreatureListWithEntryInGrid", search)
+        # A spawn not in the map whose grid is not loaded is noted, never loaded for the search.
+        self.assertIn("if (!creature && !map->IsLoaded(data->position.x, data->position.y))\n        {\n"
+                      "            f.bossSearchUnloaded = true;", search)
+        self.assertNotIn("LoadGrid", search)
+        # The step's own spawn (the row nearest to the step's point) lying dead is boss down whatever another row does.
+        self.assertIn("f.bossSearchNoSpawn = spawns.empty();", search)
+        self.assertIn("if (low == own)\n            f.bossSearchOwnDead = true;", search)
+        self.assertIn("ai::PlanDistance(data->position.x, data->position.y, data->position.z, step.x, step.y, step.z)", search)
         spawns = body(CODE, "std::vector<uint32> const& BossSpawnLowGuids(uint32 mapId, uint32 entry)")
         self.assertIn("std::lock_guard<std::mutex> guard(lock);", spawns)
         self.assertIn("if (it != cache.end())\n        return it->second;", spawns)
         self.assertIn("sObjectMgr.DoCreatureData(worker);", spawns)
 
-    def test_resume_of_a_unit_that_cannot_die_is_refused(self):
-        resume = body(CODE, "    else if (verb == \"resume\")", "        done = Skip(slot.run);")
-        self.assertIn("bool const hpHeld = slot.run.hpHeldPaused;\n        done = ResumeChecked(slot.run, spot, refusal);", resume)
-        self.assertIn('SendActionError(handler, intent, "unit-cannot-die", refusal.c_str());', resume)
-
+    def test_resume_of_a_held_unit_is_not_refused(self):
+        # Codex review round 1: the pause for a unit held at 1 hp is resumed like any other.
+        self.assertNotIn("unit-cannot-die", CODE)
+        self.assertNotIn("hpHeldPaused", CODE)
 
 if __name__ == "__main__":
     unittest.main()

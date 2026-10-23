@@ -9799,7 +9799,7 @@ bool GroupCanAttack(Player* judge, Unit* unit)
 // before (Facts::staleCombat: none of them), now each with whether the group can attack it. No grid or world scan.
 // A party bot or a party pet is never one of them (a charmed bot hits the party: Scarlet Cathedral r23 slot 5 listed
 // Hele under Dominate Mind as "entry 0 cannot be attacked"). Each carries its hit points and whether a party bot
-// or pet has it as its victim (DungeonRun::HpHeldTick).
+// or pet has it as its victim (DungeonRun::HpHeldTick: a unit held at 1 hp).
 void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
 {
     Player* const judge = RunJudge(lead, bots);
@@ -9821,8 +9821,16 @@ void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots, TortoiseBo
     std::unordered_set<uint64> seen;
     auto const add = [&](Unit* other)
     {
-        if (!other || !other->IsAlive() || party.count(other->GetObjectGuid().GetRawValue()) ||
-            sServerFacade.IsFriendlyTo(other, lead) || !seen.insert(other->GetObjectGuid().GetRawValue()).second)
+        if (other && other->IsAlive() && party.count(other->GetObjectGuid().GetRawValue()))
+        {
+            // A party bot under an enemy's charm fights the party: never an engaged unit, but the note names it.
+            if (other->IsCharmed() && other->GetTypeId() == TYPEID_PLAYER &&
+                std::find(f.charmedFighting.begin(), f.charmedFighting.end(), other->GetName()) == f.charmedFighting.end())
+                f.charmedFighting.push_back(other->GetName());
+            return;
+        }
+        if (!other || !other->IsAlive() || sServerFacade.IsFriendlyTo(other, lead) ||
+            !seen.insert(other->GetObjectGuid().GetRawValue()).second)
             return;
         TortoiseBots::DungeonRun::UnitFact fact;
         fact.guid = other->GetObjectGuid().GetRawValue();
@@ -9832,6 +9840,7 @@ void ReadEngagedUnits(Player* lead, std::vector<Player*> const& bots, TortoiseBo
         fact.attackable = GroupCanAttack(judge, other);
         fact.evading = other->IsCreature() && static_cast<Creature*>(other)->IsInEvadeMode();
         fact.health = other->GetHealth();
+        fact.maxHealth = other->GetMaxHealth();
         fact.partyHits = victims.count(fact.guid) != 0;
         f.engagedUnits.push_back(fact);
     };
@@ -10183,7 +10192,8 @@ void RetireLostCarrier(DungeonRunSlot& slot, Player* lead, std::vector<Player*> 
 }
 
 // The spawn rows (creature table low guids) of a creature entry on a map, for the boss step's instance search.
-// Built once per (map, entry) by one pass over the spawn table (O(rows)), then kept for the server's life.
+// Built once per (map, entry) by one pass over the spawn table (O(rows)), then kept for the server's life: a spawn a
+// GM adds later (.npc add) is not in it until a restart.
 std::vector<uint32> const& BossSpawnLowGuids(uint32 mapId, uint32 entry)
 {
     static std::mutex lock;
@@ -10214,18 +10224,45 @@ std::vector<uint32> const& BossSpawnLowGuids(uint32 mapId, uint32 entry)
 // A boss step's instance search (DungeonRun::Facts::bossSearch*), on the tick after the policy asked for it
 // (Run::bossSearchWanted, once per kBossSearchMs window): every spawn of the boss's entry on the lead bot's map,
 // looked up by guid in that map (no grid or world scan), wherever it stands. Alive: one lives (where); dead: one
-// lies dead (the corpse nearest to his spot). A spawn whose grid is not loaded is not seen.
+// lies dead (the corpse nearest to his spot; the step's own spawn, the row nearest to the step's point, wins:
+// Facts::bossSearchOwnDead). A spawn whose grid is not loaded is not seen and not loaded for it:
+// Facts::bossSearchUnloaded says the search missed that area; no spawn row at all (a script summons him):
+// Facts::bossSearchNoSpawn.
 void ReadBossInInstance(ai::PlanStep const& step, Player* lead, TortoiseBots::DungeonRun::Facts& f)
 {
     Map* map = lead->GetMap();
     if (!map || !step.entry)
         return;
     f.bossSearchRead = true;
+    std::vector<uint32> const& spawns = BossSpawnLowGuids(lead->GetMapId(), step.entry);
+    f.bossSearchNoSpawn = spawns.empty();
+    // The step's own spawn: the spawn row nearest to the step's point.
+    uint32 own = 0;
+    float ownYd = 0.0f;
+    for (uint32 low : spawns)
+        if (CreatureData const* data = sObjectMgr.GetCreatureData(low))
+        {
+            float const yd = ai::PlanDistance(data->position.x, data->position.y, data->position.z, step.x, step.y, step.z);
+            if (!own || yd < ownYd)
+            {
+                own = low;
+                ownYd = yd;
+            }
+        }
     float corpseFromSpot = 0.0f;
-    for (uint32 low : BossSpawnLowGuids(lead->GetMapId(), step.entry))
+    for (uint32 low : spawns)
     {
         CreatureData const* data = sObjectMgr.GetCreatureData(low);
-        Creature* creature = data ? map->GetCreature(data->GetObjectGuid(low)) : nullptr;
+        if (!data)
+            continue;
+        Creature* creature = map->GetCreature(data->GetObjectGuid(low));
+        // Not in the map and its spawn point in a grid nobody has loaded: that area was not searched, and the note
+        // says so (no grid is loaded for the search). A creature that walked off its spawn grid is found by guid.
+        if (!creature && !map->IsLoaded(data->position.x, data->position.y))
+        {
+            f.bossSearchUnloaded = true;
+            continue;
+        }
         if (!creature || creature->GetEntry() != step.entry)
             continue;
         if (creature->IsAlive())
@@ -10240,7 +10277,9 @@ void ReadBossInInstance(ai::PlanStep const& step, Player* lead, TortoiseBots::Du
             continue;
         }
         float const fromSpot = DistanceTo(creature, step.x, step.y, step.z);
-        if (!f.bossSearchDead || fromSpot < corpseFromSpot)
+        if (low == own)
+            f.bossSearchOwnDead = true; // his own corpse: kept whatever other corpse is nearer
+        if (low == own || (!f.bossSearchOwnDead && (!f.bossSearchDead || fromSpot < corpseFromSpot)))
         {
             f.bossSearchDead = true;
             f.bossSearchCorpseGuid = creature->GetObjectGuid().GetRawValue();
@@ -12037,17 +12076,8 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
                 spot.y = lead->GetPositionY();
                 spot.z = lead->GetPositionZ();
             }
-        // A pause for a unit that cannot die now (DungeonRun::HpHeldTick) is not resumed either: the same unkillable
-        // fight would start again; the player skips the step or stops the run.
         std::string refusal;
-        bool const hpHeld = slot.run.hpHeldPaused;
         done = ResumeChecked(slot.run, spot, refusal);
-        if (!refusal.empty() && hpHeld)
-        {
-            SendActionError(handler, intent, "unit-cannot-die", refusal.c_str());
-            SendRunLine(commander, slot, true); // still paused, with its note
-            return true;
-        }
         if (!refusal.empty())
         {
             SendActionError(handler, intent, "lead-other-part", refusal.c_str());

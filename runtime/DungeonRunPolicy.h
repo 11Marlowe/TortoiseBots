@@ -217,9 +217,9 @@ constexpr std::uint32_t kUseOnProofMs = 30000;    // use_on: after the ACK, the 
 constexpr float kUseOnSummonYd = 150.0f;          // use_on: how far around the lead bot the glue looks for the summoned boss
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
-// A unit the party hits that stays at 1 hp, or loses no hp, this long cannot die now (HpHeldTick; Scarlet
-// Cathedral r23 slot 5: Whitemane sat at 1 hp of 5284 under her script's invincibility, and the fight ceiling
-// paused four times on the same unkillable fight).
+// A unit a party member has as its victim that stays at 1 hp (or at 1 % or less, unchanged) this long cannot die
+// now (HpHeldTick; Scarlet Cathedral r23 slot 5: Whitemane sat at 1 hp of 5284 under her script's invincibility,
+// and the fight ceiling paused four times on the same unkillable fight).
 constexpr std::uint32_t kHpHeldMs = 60000;
 // A pull step's patroller (WaitForPatroller; Uldaman r10-19z29 step 66): the
 // Stone Steward 4860 walks a lane whose north end only is in the step's 10 yd
@@ -439,9 +439,10 @@ struct UnitFact
     // group cannot attack is never pulled, picked up, engaged, focused or crowd-controlled by the run, and a
     // fight with only such units left is no fight (UnattackableOnlyFight). Unread: true.
     bool attackable = true;
-    // Facts::engagedUnits only: its hit points now (0: not read), and a party bot or pet has it as its victim
-    // (the party hits it). HpHeldTick watches a unit the party hits that stays at 1 hp or loses none.
+    // Facts::engagedUnits only: its hit points now and its most (0: not read), and a party bot or pet has it as
+    // its victim. HpHeldTick watches such a unit that stays at 1 hp (or 1 % or less, unchanged).
     std::uint32_t health = 0;
+    std::uint32_t maxHealth = 0;
     bool partyHits = false;
 };
 
@@ -590,6 +591,9 @@ struct Facts
     // (engagedRead) by the glue on every tick in combat; a policy test that does not set it keeps the old rules.
     std::vector<UnitFact> engagedUnits;
     bool engagedRead = false;
+    // ... the party's own bots under an enemy's charm (Dominate Mind, Mind Control) that fight the party: never
+    // engaged units, but named in the note when nothing else is engaged (EngagedUnitsNote).
+    std::vector<std::string> charmedFighting;
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     bool leadMoving = false;           // the lead bot is moving now (Unit::IsMoving): an exact point's proof waits
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
@@ -681,6 +685,14 @@ struct Facts
     bool bossSearchAlive = false;
     float bossAliveX = 0.0f, bossAliveY = 0.0f, bossAliveZ = 0.0f;
     bool bossSearchDead = false;
+    // ... a spawn of the entry stands in a grid that is not loaded (Map::IsLoaded false): that area was not searched.
+    bool bossSearchUnloaded = false;
+    // ... the step's own spawn (the spawn row nearest to the step's point) lies dead: boss down whatever another
+    // spawn row of the entry does (a second living one elsewhere never turns his corpse into a pause). The corpse
+    // fields are then his.
+    bool bossSearchOwnDead = false;
+    // ... the entry has no spawn row on the map (a script summons him): nothing could be searched.
+    bool bossSearchNoSpawn = false;
     std::uint64_t bossSearchCorpseGuid = 0;
     float bossSearchCorpseX = 0.0f, bossSearchCorpseY = 0.0f, bossSearchCorpseZ = 0.0f;
     int objectState = -1;               // wait_object, hold done by object: 0 ready, 1 active, 2 active_alt; -1 not found
@@ -1168,18 +1180,15 @@ struct Run
     // how long that same set has stood so without a break.
     std::vector<std::uint64_t> unattackableSet;
     std::uint32_t unattackableMs = 0;
-    // HpHeldTick: per engaged unit (guid) its entry, the lowest hit points seen in this fight, and how long the
-    // party has hit it since without it losing any (or at 1 hp). Cleared out of combat and by ResetStep.
+    // HpHeldTick: per engaged unit (guid) at 1 hp (or 1 % or less) its entry, the hit points it stands at, and how
+    // long a party member has had it as its victim since without a change. Cleared out of combat and by ResetStep.
     struct HpWatch
     {
         std::uint32_t entry = 0;
-        std::uint32_t lowest = 0;
+        std::uint32_t hp = 0;
         std::uint32_t ms = 0;
     };
     std::unordered_map<std::uint64_t, HpWatch> hpWatch;
-    // The run is paused for such a unit (HpHeldTick; Pause clears it): `.bot run resume` would start the same
-    // unkillable fight again, so it is refused (ResumeChecked); skip or stop goes on.
-    bool hpHeldPaused = false;
     std::size_t ceilingResumedStep = static_cast<std::size_t>(-1); // the step that has used its one self-resume (ResetStep keeps it)
     std::uint32_t eventIdleMs = 0; // out of a fight with an awake event unit standing
     std::uint32_t eventUp = 0, eventDown = 0, eventTotal = 0; // the event's units now: awake, dead, all seen
@@ -1437,7 +1446,6 @@ inline void Pause(Run& r, const std::string& why)
     r.holdDue = false;
     r.holdWhilePaused = false;
     r.otherPartPaused = false; // PauseOtherPart sets it after
-    r.hpHeldPaused = false;    // HpHeldTick sets it after
     r.holdStands.clear();
     r.holdPlaced = false;
     r.holdFarTicks = 0;
@@ -1538,7 +1546,6 @@ inline void ResetStep(Run& r)
     r.bossSeenAlive = false;
     r.bossSearchWanted = false;
     r.hpWatch.clear();
-    r.hpHeldPaused = false;
     r.patrolWaitMs = 0;
     r.patrolSeen.clear();
     EndBigWalk(r);
@@ -2611,18 +2618,9 @@ struct LeadSpot
 // decision), so the resume is refused with a plain answer and the pause, its
 // note and its hold stay. Every other case resumes as Resume does. True when
 // the run resumed; refusal is set only when it was refused for this reason.
-// A pause for a unit that cannot die now (HpHeldTick, Run::hpHeldPaused) is refused too: Resume restarts the
-// step, and the same unkillable fight would start again (Scarlet Cathedral r23 slot 5: Whitemane at 1 hp, the
-// fight ceiling's pause resumed four times). The player stops the run or skips the step.
 inline bool ResumeChecked(Run& r, const LeadSpot& lead, std::string& refusal)
 {
     refusal.clear();
-    if (r.state == State::Paused && r.hpHeldPaused)
-    {
-        refusal = "not resumed: " + r.note.substr(0, r.note.find(';')) +
-            "; a resume would fight it again: .bot run skip goes on without this step, .bot run stop ends the run";
-        return false;
-    }
     if (r.state == State::Paused && r.otherPartPaused && lead.read && lead.alive && lead.onPlanMap)
     {
         float const planYd = PlanNearestYd(r, lead.x, lead.y, lead.z);
@@ -5633,6 +5631,16 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
             return;
         }
         r.bossSearchWanted = false;
+        if (f.bossSearchRead && f.bossSearchOwnDead)
+        {
+            r.corpses[s.entry] = CorpseMark{f.bossSearchCorpseGuid, f.bossSearchCorpseX, f.bossSearchCorpseY,
+                f.bossSearchCorpseZ};
+            NextStep(r, "boss down: his corpse lies at " + Num(f.bossSearchCorpseX) + " " + Num(f.bossSearchCorpseY) + " " +
+                Num(f.bossSearchCorpseZ) + ", " +
+                Num(ai::PlanDistance(f.bossSearchCorpseX, f.bossSearchCorpseY, f.bossSearchCorpseZ, s.x, s.y, s.z)) +
+                " yd from his spot (an instance search after " + std::to_string(kBossSearchMs / 1000) + " s)");
+            return;
+        }
         if (f.bossSearchRead && f.bossSearchAlive)
         {
             // Alive elsewhere: the party is not sent after him (he may be on a patrol, or in another part of the
@@ -5653,10 +5661,14 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
                 " yd from his spot (an instance search after " + std::to_string(kBossSearchMs / 1000) + " s)");
             return;
         }
+        // Searched with a spawn in an unloaded grid: the note says only the loaded parts were looked at.
+        std::string const searched = !f.bossSearchRead ? std::string()
+            : f.bossSearchNoSpawn ? std::string("; the instance was not searched: he has no spawn row on this map (a script summons him)")
+            : f.bossSearchUnloaded ? std::string(" nor in the loaded parts of the instance (an unloaded area was not searched)")
+                                   : std::string(" nor anywhere in the instance");
         Pause(r, "boss " + std::to_string(s.entry) + " not found: not alive or dead within " + Num(s.radius) +
             " yd of " + Num(s.x) + " " + Num(s.y) + " " + Num(s.z) + " for " +
-            std::to_string(kBossSearchMs / 1000) + " s" + (f.bossSearchRead ? " nor anywhere in the instance" : "") +
-            " (.bot run skip if he is already dead)");
+            std::to_string(kBossSearchMs / 1000) + " s" + searched + " (.bot run skip if he is already dead)");
     }
 }
 
@@ -7836,10 +7848,17 @@ inline std::string GuidHex(std::uint64_t guid)
 
 // One fight tick of the watch on units that cannot die now (Scarlet Cathedral r23 slot 5: Whitemane sat at 1 hp
 // of 5284 under her script's invincibility, her revive of a dead Mograine never came, and the fight ceiling's
-// pause was resumed four times into the same fight). Each engaged unit the group can attack, not evading, with
-// its hit points read: while the party hits it (UnitFact::partyHits) and it stays at 1 hp or loses none below
-// the lowest seen, its time runs; a loss starts it over. A unit no longer engaged is forgotten. At kHpHeldMs the
-// run pauses with its own note and Run::hpHeldPaused (ResumeChecked refuses the resume). True when it paused.
+// pause was resumed four times into the same fight). Only a unit at exactly 1 hp, or at 1 % of its most or less,
+// counts (HpHeldLow): a target with more is never held, whatever its shields, heals or armour do (a Codex review:
+// a victim is no proof of damage landing). Each such engaged unit the group can attack, not evading: while a party
+// bot or pet has it as its victim (UnitFact::partyHits) and its hp does not change, its time runs; any change of
+// its hp starts it over, and a unit out of that band or no longer engaged is forgotten. At kHpHeldMs the run
+// pauses with its own note. A resume is allowed (the step's stop rule bounds the repeats). True when it paused.
+inline bool HpHeldLow(const UnitFact& u)
+{
+    return u.health == 1 || (u.health && u.maxHealth && static_cast<std::uint64_t>(u.health) * 100u <= u.maxHealth);
+}
+
 inline bool HpHeldTick(Run& r, const Facts& f, std::uint32_t dt)
 {
     if (!f.anyInCombat || !f.engagedRead)
@@ -7850,26 +7869,14 @@ inline bool HpHeldTick(Run& r, const Facts& f, std::uint32_t dt)
     std::unordered_map<std::uint64_t, Run::HpWatch> next;
     for (const UnitFact& u : f.engagedUnits)
     {
-        if (!u.health || !u.attackable || u.evading)
+        if (!HpHeldLow(u) || !u.attackable || u.evading)
             continue;
         auto const had = r.hpWatch.find(u.guid);
         Run::HpWatch w;
-        if (had == r.hpWatch.end())
-        {
-            w.entry = u.entry;
-            w.lowest = u.health;
-        }
-        else
-        {
-            w = had->second;
-            if (u.health < w.lowest)
-            {
-                w.lowest = u.health;
-                w.ms = 0;
-            }
-            else if (u.partyHits)
-                w.ms += dt;
-        }
+        w.entry = u.entry;
+        w.hp = u.health;
+        if (had != r.hpWatch.end() && had->second.hp == u.health)
+            w.ms = had->second.ms + (u.partyHits ? dt : 0);
         next[u.guid] = w;
     }
     r.hpWatch = std::move(next);
@@ -7877,12 +7884,10 @@ inline bool HpHeldTick(Run& r, const Facts& f, std::uint32_t dt)
     {
         if (w.ms < kHpHeldMs)
             continue;
-        std::string const head = w.lowest <= 1
-            ? "entry " + std::to_string(w.entry) + " stays at 1 hp: it cannot die now (an event or script holds it)"
-            : "entry " + std::to_string(w.entry) + " has lost no hp in " + std::to_string(kHpHeldMs / 1000) +
-              " s of hits: it cannot die now (an event or script holds it)";
-        Pause(r, head + "; unit " + GuidHex(guid) + ": .bot run skip goes on without this step, .bot run stop ends the run");
-        r.hpHeldPaused = true;
+        std::string const at = w.hp == 1 ? std::string("1 hp") : std::to_string(w.hp) + " hp (1 % or less)";
+        Pause(r, "entry " + std::to_string(w.entry) + " stays at " + at +
+            ": it cannot die now (an event or script holds it); unit " + GuidHex(guid) +
+            ": .bot run skip goes on without this step, .bot run stop ends the run (a resume fights it again)");
         return true;
     }
     return false;
@@ -7898,6 +7903,13 @@ inline std::string EngagedUnitsNote(const Facts& f)
 {
     if (!f.engagedRead)
         return std::string();
+    if (f.engagedUnits.empty() && !f.charmedFighting.empty())
+    {
+        std::string names;
+        for (const std::string& name : f.charmedFighting)
+            names += (names.empty() ? "" : ", ") + name;
+        return "nothing hostile engaged but a charmed party member fighting the party (" + names + ")";
+    }
     if (f.engagedUnits.empty())
         return "nothing hostile engaged";
     std::string note;
@@ -8384,8 +8396,11 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         std::uint32_t const cap = event ? holdCap
                                 : s->kind == PlanStepKind::Boss ? kBossFightCapMs : kFightCapMs;
         // A unit the party hits that cannot die now (HpHeldTick) pauses before any ceiling: the ceiling's pause
-        // would be resumed into the same fight.
-        if (HpHeldTick(r, f, dt))
+        // would be resumed into the same fight. Not in a wipe (kWipeDead or more dead): the regroup that follows
+        // wins, and the watch starts over after it (Opus cold review of bfd5aa1e).
+        if (wipe)
+            r.hpWatch.clear();
+        else if (HpHeldTick(r, f, dt))
             return order;
         if (r.fightMs > cap && autoRegroup)
         {
