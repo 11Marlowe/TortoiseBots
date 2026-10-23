@@ -568,6 +568,10 @@ public:
     // A run leader loot step whose item is another member's under the group's loot rules sets free-for-all for the
     // carrier's loot and puts the method back (DungeonRunPolicy.h LootFfaStep; default off).
     bool dungeonRunLootFfa;
+    // Player-led runs (`.bot run start ... player`, PlayerLedPolicy.h; default off): a player walks his own party,
+    // the run leader pulls the plan's packs near him (within dungeonRunPlayerLedPullYd, default 40 yd).
+    bool dungeonRunPlayerLed;
+    float dungeonRunPlayerLedPullYd;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
     bool avoidCreatureAuras;
     // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).

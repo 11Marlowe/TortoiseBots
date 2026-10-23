@@ -64,6 +64,9 @@ struct Binding
     // bots, the lead bot always a bot). Real players in the group do not end
     // this binding; the lead bot still leads it.
     bool inParty = false;
+    // Player-led run (`.bot run start ... player`, 2026-10-24; PlayerLedPolicy.h): the binding the start made. The
+    // commander leads the party and walks it; the lead bot is the run's tank (the puller). Always inParty too.
+    bool playerLed = false;
 };
 
 enum class BindResult : uint8_t
@@ -199,6 +202,7 @@ struct BindingState
     bool leadGroupIsRaidOrBg = false; // the group converted to a raid (or is a battleground group)
     bool realPlayerInGroup = false; // a human other than the commander is in the bound group
     size_t memberCount = 0;
+    bool commanderIsLeader = false; // the commander leads the lead bot's group (a player-led binding's rule)
 };
 
 enum class ReleaseReason : uint8_t
@@ -214,6 +218,8 @@ enum class ReleaseReason : uint8_t
     GroupRaid,
     // Not a CheckBinding verdict: the commander's own `.bot commander unbind`.
     Unbound,
+    // A player-led binding: the commander handed the party's lead to somebody else.
+    CommanderNotLeader,
 };
 
 // None while the binding still stands; otherwise why it ends. A binding never
@@ -229,7 +235,10 @@ inline ReleaseReason CheckBinding(Binding const& binding, BindingState const& st
         return ReleaseReason::LeadLeft;
     if (!state.leadGroupId || state.leadGroupId != binding.groupId)
         return ReleaseReason::GroupChanged;
-    if (!state.leadIsLeader)
+    // Player-led: the commander leads the party, the lead bot (the tank) does not.
+    if (binding.playerLed && !state.commanderIsLeader)
+        return ReleaseReason::CommanderNotLeader;
+    if (!binding.playerLed && !state.leadIsLeader)
         return ReleaseReason::LeaderChanged;
     // A bound party is never a raid, even one of five: a conversion ends the binding.
     if (state.leadGroupIsRaidOrBg)
@@ -280,6 +289,7 @@ inline char const* ReleaseReasonText(ReleaseReason reason)
         case ReleaseReason::GroupTooLarge: return "the group grew beyond five";
         case ReleaseReason::GroupRaid: return "the group became a raid";
         case ReleaseReason::Unbound: return "unbound by the commander";
+        case ReleaseReason::CommanderNotLeader: return "the player no longer leads the party";
     }
     return "unknown";
 }

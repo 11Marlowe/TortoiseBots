@@ -60,6 +60,7 @@
 #include "../runtime/GossipOrderPolicy.h"
 #include "../runtime/CommanderTelemetry.h"
 #include "../runtime/DungeonRunPolicy.h"
+#include "../runtime/PlayerLedPolicy.h"
 #include "../ai/playerbot/DungeonPlanMgr.h"
 #include "../ai/playerbot/PullAggroEstimatePolicy.h"
 #include "CreatureGroups.h"
@@ -4599,6 +4600,8 @@ struct DungeonRunSlot
     std::unordered_map<uint64, RemoteCommander::Point3> placedAt; // ... and the point each was sent to
     // The forward run's move-point reading (DungeonRun::MoveProbeHit): ReadRunFacts reads a const slot.
     mutable TortoiseBots::DungeonRun::MoveProbeCache moveProbe;
+    // A player-led run (`.bot run start ... player`, PlayerLedPolicy.h): its own state beside the run.
+    TortoiseBots::PlayerLed::State playerLed;
 };
 
 std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
@@ -4793,6 +4796,8 @@ RemoteCommander::BindingState ReadBindingState(RemoteCommander::Binding const& b
         state.leadIsLeader = group->IsLeader(lead->GetObjectGuid());
         state.leadGroupIsRaidOrBg = group->isRaidGroup() || group->isBGGroup();
         state.memberCount = group->GetMembersCount();
+        // A player-led binding stands while the commander leads the party (RemoteCommander::CheckBinding).
+        state.commanderIsLeader = group->IsLeader(::ObjectGuid(binding.commanderGuid));
         // The commander in his own bound group is no joined player (an in-party binding keeps him there; a
         // classic one stands when he comes back into it). Any other real player is counted.
         for (Group::MemberSlot const& slot : group->GetMemberSlots())
@@ -12096,7 +12101,26 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         SendRunLine(commander, slot, true);
         ReleaseRunHold(commander, binding->leadGuid, slot);
         ClearRunCcIcons(binding->leadGuid, binding->groupId, slot);
+        bool const playerLed = slot.playerLed.on;
         DungeonRuns().erase(it);
+        if (playerLed)
+            ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Unbound, false); // the start's binding
+        return;
+    }
+    // A player-led run whose key was switched off by a config reload ends; so does one that is done (the plan's
+    // packs cleared): the binding the start made goes with it, the bots follow the player as before.
+    if (slot.playerLed.on && (!sPlayerbotAIConfig.dungeonRunPlayerLed ||
+            slot.run.state == TortoiseBots::DungeonRun::State::Done))
+    {
+        if (slot.run.state != TortoiseBots::DungeonRun::State::Done)
+        {
+            slot.run.state = TortoiseBots::DungeonRun::State::Done;
+            slot.run.note = "stopped: player-led runs were switched off (AiPlayerbot.DungeonRunPlayerLed)";
+        }
+        SendRunLine(commander, slot, false);
+        ReleaseRunHold(commander, binding->leadGuid, slot);
+        // ReleaseBinding clears the run's cc marks and erases the run too.
+        ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Unbound, false);
         return;
     }
     // A paused run whose hold is done (DungeonRun::HoldDoneWhilePaused): the
@@ -12453,8 +12477,11 @@ static void UpdateDungeonRuns(uint32 diff)
     // Switched off by a config reload: every run ends, with a last status line.
     if (!sPlayerbotAIConfig.dungeonSelfClear || !sPlayerbotAIConfig.remoteCommander)
     {
+        std::vector<uint64> playerLedRuns; // their bindings were the starts': released after the runs are gone
         for (auto& entry : DungeonRuns())
         {
+            if (entry.second.playerLed.on)
+                playerLedRuns.push_back(entry.first);
             entry.second.run.state = TortoiseBots::DungeonRun::State::Done;
             entry.second.run.note = "stopped: the run leader was switched off (AiPlayerbot.DungeonSelfClear)";
             SendRunLine(FindCharacter(entry.first), entry.second, false);
@@ -12467,6 +12494,8 @@ static void UpdateDungeonRuns(uint32 diff)
             }
         }
         DungeonRuns().clear();
+        for (uint64 commanderRaw : playerLedRuns)
+            ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Disabled, true);
         s_dungeonRunMs = 0;
         return;
     }
@@ -12574,7 +12603,101 @@ static bool HandleReloadPlans(ChatHandler* handler, std::string const& intent)
     return true;
 }
 
-// .bot run start [plan] | pause | resume | skip | stop | status | list | reloadplans (GameMaster)
+// `.bot run start ... player [tank <Bot>]` (player-led, PlayerLedPolicy.h, 2026-10-24): the start makes its own
+// in-party binding of the commander's party. The commander stays its leader and the bots keep following him (no
+// follow target is changed, nothing is formed up on the tank); the tank bot is the binding's lead bot (the run's
+// puller). The commander's hires stay hires while bound, as with `bind ... inparty`. A player-led binding left over
+// from an ended run is released first. False (an ERR sent) when refused; the binding then is not made.
+static bool BindPlayerLed(ChatHandler* handler, Player* commander, std::string const& tankName, std::string const& intent)
+{
+    namespace PL = TortoiseBots::PlayerLed;
+    uint64 const commanderRaw = commander->GetObjectGuid().GetRawValue();
+    if (RemoteCommander::Binding const* old = CommanderBindings().FindByCommander(commanderRaw))
+        if (old->playerLed && !DungeonRuns().count(commanderRaw))
+            ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Unbound, false);
+    PL::BindFacts facts;
+    facts.enabled = sPlayerbotAIConfig.dungeonRunPlayerLed && sPlayerbotAIConfig.dungeonSelfClear &&
+        sPlayerbotAIConfig.remoteCommander;
+    facts.commanderIsBot = BotManager::Instance().IsBot(commander->GetObjectGuid());
+    facts.commanderAlreadyBound = CommanderBindings().FindByCommander(commanderRaw) != nullptr;
+    facts.tankName = tankName;
+    Group* group = commander->GetGroup();
+    std::vector<Player*> memberPlayers;
+    if (group)
+    {
+        facts.grouped = true;
+        facts.raidOrBg = group->isRaidGroup() || group->isBGGroup();
+        facts.commanderLeads = group->IsLeader(commander->GetObjectGuid());
+        facts.groupBound = CommanderBindings().FindByGroup(group->GetId()) != nullptr;
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+        {
+            if (slot.guid == commander->GetObjectGuid())
+                continue;
+            Player* member = ObjectAccessor::FindPlayer(slot.guid);
+            PL::Member m;
+            m.name = member ? member->GetName() : slot.name;
+            m.bot = BotManager::Instance().IsBot(slot.guid);
+            if (m.bot)
+            {
+                RemoteCommander::BindMember const bind = MemberFacts(commander, member);
+                m.controllable = bind.controllable;
+                m.liveBot = bind.liveBot;
+                m.hired = bind.hired;
+                m.inOtherBinding = bind.inOtherBinding;
+                m.tankRole = member && PlayerbotAI::IsTank(member);
+            }
+            facts.members.push_back(m);
+            memberPlayers.push_back(member);
+        }
+    }
+    PL::BindVerdict const verdict = PL::CheckBind(facts);
+    Player* tank = verdict.refusal == PL::Refusal::None ? memberPlayers[static_cast<std::size_t>(verdict.tank)] : nullptr;
+    if (verdict.refusal != PL::Refusal::None || !tank)
+    {
+        PL::Refusal const why = verdict.refusal != PL::Refusal::None ? verdict.refusal : PL::Refusal::NotLive;
+        SendActionError(handler, intent, PL::RefusalCode(why), PL::RefusalText(why));
+        return false;
+    }
+    // The commander's hires in the party: in transition, then bound (as `bind ... inparty`, HandleCommanderBind).
+    HireLifecycle& hires = HireLifecycle::Instance();
+    for (Player* member : memberPlayers)
+        if (member)
+            hires.BeginCommand(member->GetObjectGuid(), commander->GetObjectGuid());
+    RemoteCommander::Binding binding;
+    binding.commanderGuid = commanderRaw;
+    binding.leadGuid = tank->GetObjectGuid().GetRawValue();
+    binding.groupId = group->GetId();
+    binding.inParty = true;
+    binding.playerLed = true;
+    if (CommanderBindings().Bind(binding) != RemoteCommander::BindResult::Bound)
+    {
+        hires.EndCommand(commander->GetObjectGuid());
+        SendActionError(handler, intent, "already-bound", "The party or you are already bound.");
+        return false;
+    }
+    hires.ConfirmCommand(commander->GetObjectGuid());
+    CommanderViews()[commanderRaw] = CommanderView();
+    for (Player* bot : CommandedBots(group, tank))
+    {
+        GiveCommanderThreatBackoff(bot);
+        HoldCommanderAutonomy(bot, PlayerbotAIStorage::Instance().GetAI(bot), false);
+    }
+    return true;
+}
+
+// A player-led binding the start just made is released again when the start is refused after it (wrong map, no
+// plan, ...): the party is as it was before the command.
+struct PlayerLedStartGuard
+{
+    uint64 commanderRaw = 0;
+    ~PlayerLedStartGuard()
+    {
+        if (commanderRaw)
+            ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Unbound, false);
+    }
+};
+
+// .bot run start [plan] [player [tank <Bot>]] | pause | resume | skip | stop | status | mode | list | reloadplans (GameMaster)
 static bool HandleDungeonRun(ChatHandler* handler, char const* args)
 {
     using namespace TortoiseBots::DungeonRun;
@@ -12594,9 +12717,9 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         return HandleReloadPlans(handler, intent);
 
     if (verb != "start" && verb != "pause" && verb != "resume" && verb != "skip" && verb != "stop" &&
-        verb != "status" && verb != "list")
+        verb != "status" && verb != "list" && verb != "mode")
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot run start [plan] [from <leg|step N>] / pause / resume / skip / stop [reason] / status / list / reloadplans (GameMaster)");
+        SendActionError(handler, intent, "invalid", "Usage: .bot run start [plan] [from <leg|step N>] [player [tank <Bot>]] / pause / resume / skip / stop [reason] / status / mode / list / reloadplans (GameMaster)");
         return true;
     }
     Player* commander = Requester(handler);
@@ -12632,11 +12755,47 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         return true;
     }
 
+    // `.bot run mode`: player-led or bot-led (needs no binding: no run, no mode).
+    if (verb == "mode")
+    {
+        auto const shown = DungeonRuns().find(commanderRaw);
+        TortoiseBots::PlayerLed::State const none;
+        bool const exists = shown != DungeonRuns().end();
+        std::string const text = TortoiseBots::PlayerLed::ModeText(exists ? shown->second.playerLed : none, exists);
+        handler->PSendSysMessage("Run mode: %s", text.c_str());
+        SendActionAck(handler, intent, exists && shown->second.playerLed.on ? "player" : "bot", exists ? 1u : 0u);
+        return true;
+    }
+
+    // Player-led (`start ... player [tank <Bot>]`, PlayerLedPolicy.h): the start makes its own binding of the
+    // commander's party; the rest of the start is the bot-led one, with the tank as the lead bot. A start refused
+    // after the bind releases it again (PlayerLedStartGuard).
+    TortoiseBots::PlayerLed::StartArgs const playerLedStart =
+        verb == "start" ? TortoiseBots::PlayerLed::TakeStart(rawArg) : TortoiseBots::PlayerLed::StartArgs();
+    PlayerLedStartGuard playerLedGuard;
+    if (playerLedStart.playerLed)
+    {
+        if (!playerLedStart.ok)
+        {
+            SendActionError(handler, intent, "invalid", "Usage: .bot run start [plan] [from <leg|step N>] player [tank <Bot>]");
+            return true;
+        }
+        auto const running = DungeonRuns().find(commanderRaw);
+        if (running != DungeonRuns().end() && running->second.run.state != State::Done)
+        {
+            SendActionError(handler, intent, "busy", "A run is already going: .bot run stop first.");
+            return true;
+        }
+        if (!BindPlayerLed(handler, commander, playerLedStart.tank, intent))
+            return true;
+        playerLedGuard.commanderRaw = commanderRaw;
+        arg = playerLedStart.rest;
+    }
     RemoteCommander::Binding const* binding = StandingBinding(commanderRaw);
     if (!binding)
     {
         SendActionError(handler, intent, "not-bound",
-            "A run leads a bound party: use .bot commander bind <LeadBot> first.");
+            "A run leads a bound party: use .bot commander bind <LeadBot> first, or start a player-led run in your own party (.bot run start [plan] player).");
         return true;
     }
     auto it = DungeonRuns().find(commanderRaw);
@@ -12686,6 +12845,12 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
                 "The lead bot is not on that plan's map: bring the party in first (.bot cmd enter).");
             return true;
         }
+        // Player-led: the run follows where the commander stands, so he is in the dungeon too.
+        if (playerLedStart.playerLed && plan->map != commander->GetMapId())
+        {
+            SendActionError(handler, intent, "wrong-map", "A player-led run starts inside the plan's dungeon: walk your party in first.");
+            return true;
+        }
         std::size_t startStep = 0;
         bool movedBack = false;
         FromResult const resolved = ResolveStartStep(*plan, startArgs.from, startArgs.value, startStep, &movedBack);
@@ -12719,7 +12884,11 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         }
         DungeonRunSlot slot;
         slot.run = Start(plan, startStep);
+        slot.playerLed.on = playerLedStart.playerLed;
+        if (slot.playerLed.on)
+            slot.playerLed.tank = lead->GetName();
         DungeonRunSlot& stored = DungeonRuns()[commanderRaw] = slot;
+        playerLedGuard.commanderRaw = 0; // started: the binding stays with the run
         s_dungeonRunMs = 0;
         TB_LOG_DETAIL("TortoiseBots: run leader of %s started plan %s at step %u", commander->GetName(), plan->name.c_str(),
             static_cast<uint32>(startStep + 1));
@@ -12731,6 +12900,8 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
                 legName.empty() ? std::to_string(plan->steps[startStep].leg).c_str() : legName.c_str(),
                 movedBack ? " The start was moved back to the step that starts the event it fell in." : "");
         }
+        if (stored.playerLed.on)
+            handler->PSendSysMessage("Run mode: %s.", TortoiseBots::PlayerLed::ModeText(stored.playerLed, true).c_str());
         SendActionAck(handler, intent, "party", static_cast<uint32>(plan->steps.size()), plan->name);
         SendRunLine(commander, stored, true);
         return true;
@@ -12755,7 +12926,11 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         SendRunLine(commander, slot, true);
         ReleaseRunHold(commander, binding->leadGuid, slot); // held bots follow the lead bot again
         ClearRunCcIcons(binding->leadGuid, binding->groupId, slot);
+        bool const playerLed = slot.playerLed.on;
         DungeonRuns().erase(it);
+        // A player-led run's binding was the start's: it ends with the run (the bots follow the player as before).
+        if (playerLed)
+            ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Unbound, false);
         SendActionAck(handler, intent, "party", 0);
         return true;
     }
