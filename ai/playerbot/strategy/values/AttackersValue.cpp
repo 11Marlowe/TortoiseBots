@@ -3,6 +3,8 @@
 #include "AttackersValue.h"
 #include "PossibleTargetsValue.h"
 #include "EnemyPlayerValue.h"
+#include "Movement/spline/MoveSpline.h"
+#include "playerbot/RunnerFinishPolicy.h"
 
 using namespace ai;
 using namespace MaNGOS;
@@ -588,6 +590,64 @@ bool AttackersValue::IsKeepoutSetAside(Unit* target, Player* bot)
     return false;
 }
 
+bool AttackersValue::IsRunningMob(Unit* unit)
+{
+    if (!unit)
+        return false;
+    if (unit->HasUnitState(UNIT_STAT_FLEEING))
+        return true;
+    switch (unit->GetMotionMaster()->GetCurrentMovementGeneratorType())
+    {
+        case FLEEING_MOTION_TYPE:
+        case TIMED_FLEEING_MOTION_TYPE:
+        case ASSISTANCE_MOTION_TYPE:
+        case ASSISTANCE_DISTRACT_MOTION_TYPE:
+            return true;
+        default:
+            return false;
+    }
+}
+
+float AttackersValue::RunnerDropYd(Unit* target, Player* bot)
+{
+    // An uninitialized spline answers (0,0,0): never read as the end of a run.
+    bool const runEndKnown = target->movespline->Initialized() && !target->movespline->Finalized();
+    float const runEndZ = runEndKnown ? target->movespline->FinalDestination().z : 0.0f;
+    return ai::RunnerDropYd(bot->GetPositionZ(), target->GetPositionZ(), runEndKnown, runEndZ);
+}
+
+bool AttackersValue::RunnerLetGoAtLedge(Unit* target, Player* bot)
+{
+    if (!target || !bot || target->IsPlayer() || !target->IsInWorld() || !bot->IsInWorld() ||
+        target->GetMapId() != bot->GetMapId())
+        return false;
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    if (!ai)
+        return false;
+    std::map<ObjectGuid, uint32>& letGo =
+        ai->GetAiObjectContext()->GetValue<std::map<ObjectGuid, uint32>&>("runners let go")->Get();
+    bool const running = IsRunningMob(target);
+    if (!running && letGo.empty())
+        return false; // the common case: nothing to read
+    ai::RunnerFacts facts;
+    facts.alive = target->IsAlive();
+    facts.running = running;
+    facts.dropYd = RunnerDropYd(target, bot);
+    uint32 const now = WorldTimer::getMSTime();
+    if (ai::RunnerOverLedge(facts))
+    {
+        letGo[target->getObjectGuid()] = now + ai::kRunnerLetGoMs;
+        return true;
+    }
+    auto entry = letGo.find(target->getObjectGuid());
+    if (entry == letGo.end())
+        return false;
+    if (facts.alive && ai::RunnerStaysLetGo(true, now, entry->second, facts.dropYd))
+        return true;
+    letGo.erase(entry);
+    return false;
+}
+
 bool AttackersValue::IgnoreTarget(Unit* target, Player* playerToCheckAgainst)
 {
     if (!PlayerbotAIStorage::Instance().GetAI(playerToCheckAgainst))
@@ -595,6 +655,11 @@ bool AttackersValue::IgnoreTarget(Unit* target, Player* playerToCheckAgainst)
 
     PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(playerToCheckAgainst);
     AiObjectContext* context = ai->GetAiObjectContext();
+
+    // Chases stop at ledges: a runner more than 6 yd below the bot's floor
+    // (or running there) is let go, and stays let go while it is down there.
+    if (RunnerLetGoAtLedge(target, playerToCheckAgainst))
+        return true;
 
     // A target the bot gave up on (out of line of sight with no way to close the
     // distance, see ReachTargetAction) is left alone for a while - unless it comes

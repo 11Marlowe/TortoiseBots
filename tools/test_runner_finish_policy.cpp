@@ -1,5 +1,6 @@
 #include "../ai/playerbot/RunnerFinishPolicy.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -120,6 +121,49 @@ int main()
         RunnerFacts nearer = Runner(25.0f, 10.0f);
         CHECK(RunnerBetter(nearer, false, current, false));
         std::cout << "  [PASS] current runner kept\n";
+    }
+
+    // (7) Chases stop at ledges (owner 2026-10-23, Sunken Temple r26 slot 6b:
+    // the lead bot went from z -172.9 to -185.7 in 5 s onto an island with no
+    // way back). A runner more than 6 yd below the bot's floor, or running to
+    // a point more than 6 yd below it, is let go, by every bot.
+    {
+        // The drop: the lower of the mob and the end of its run.
+        CHECK(RunnerDropYd(-172.9f, -172.9f, false, 0.0f) == 0.0f);
+        CHECK(std::fabs(RunnerDropYd(-172.9f, -173.0f, true, -185.7f) - 12.8f) < 0.01f);
+        CHECK(std::fabs(RunnerDropYd(-172.9f, -185.7f, true, -172.0f) - 12.8f) < 0.01f); // coming back up: where it is
+        CHECK(RunnerDropYd(-172.9f, -170.0f, true, -160.0f) < 0.0f);                       // above the bot: no drop
+
+        RunnerFacts ledge = Runner(15.0f, 8.0f);
+        ledge.dropYd = 6.5f;
+        CHECK(RunnerOverLedge(ledge));
+        CHECK(IsFinishableRunner(ledge));                        // still a runner of the fight ...
+        CHECK(!ShouldFinishRunner(ledge, Ranged(false)));        // ... nobody goes after it
+        CHECK(!ShouldFinishRunner(ledge, Melee(true, false)));
+        RunnerFacts edge = Runner(15.0f, 8.0f);
+        edge.dropYd = 6.0f;                                      // exactly 6 yd: a stair, not a ledge
+        CHECK(!RunnerOverLedge(edge));
+        CHECK(ShouldFinishRunner(edge, Ranged(false)));
+        CHECK(ShouldFinishRunner(edge, Melee(true, false)));
+        // Any running unit, whatever its health (the tank's victim at 60 %).
+        RunnerFacts healthy = Runner(60.0f, 3.0f);
+        healthy.dropYd = 13.0f;
+        CHECK(RunnerOverLedge(healthy));
+        // A unit that stands below (not running) is no runner over a ledge.
+        RunnerFacts standing = healthy;
+        standing.running = false;
+        CHECK(!RunnerOverLedge(standing));
+        RunnerFacts dead = healthy;
+        dead.alive = false;
+        CHECK(!RunnerOverLedge(dead));
+
+        // The mark: let go while it holds and the unit is still below.
+        CHECK(RunnerStaysLetGo(true, 1000, 31000, 12.0f));
+        CHECK(!RunnerStaysLetGo(true, 31000, 31000, 12.0f));     // the mark ran out
+        CHECK(!RunnerStaysLetGo(true, 1000, 31000, 6.0f));       // back up on the bot's floor
+        CHECK(!RunnerStaysLetGo(false, 1000, 31000, 12.0f));     // never let go
+        CHECK(kRunnerLetGoMs == 30000);
+        std::cout << "  [PASS] chases stop at ledges\n";
     }
 
     std::cout << "All runner-finish tests passed.\n";

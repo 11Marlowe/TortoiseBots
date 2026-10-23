@@ -330,25 +330,6 @@ namespace
         return target;
     }
 
-    // A mob running from the fight: the fleeing state (fear-style flee, the
-    // timed flee) or the core's flee-for-assistance walk and its pause at the
-    // helper (Creature::DoFleeToGetAssistance), which carries no fleeing state.
-    bool IsRunningMob(Unit* unit)
-    {
-        if (unit->HasUnitState(UNIT_STAT_FLEEING))
-            return true;
-        switch (unit->GetMotionMaster()->GetCurrentMovementGeneratorType())
-        {
-            case FLEEING_MOTION_TYPE:
-            case TIMED_FLEEING_MOTION_TYPE:
-            case ASSISTANCE_MOTION_TYPE:
-            case ASSISTANCE_DISTRACT_MOTION_TYPE:
-                return true;
-            default:
-                return false;
-        }
-    }
-
     // A gap closer castable on this mob right now. In 1.12 only Intercept
     // counts: Charge is out-of-combat only, and Feral Charge needs bear form
     // (bears tank, and tanks never chase runners). Intercept still needs
@@ -388,7 +369,8 @@ namespace
             ai::RunnerFacts facts;
             facts.alive = unit->IsAlive();
             facts.inPartyFight = true;
-            facts.running = IsRunningMob(unit);
+            facts.running = AttackersValue::IsRunningMob(unit);
+            facts.dropYd = AttackersValue::RunnerDropYd(unit, bot);
             facts.feared = unit->HasAuraType(SPELL_AURA_MOD_FEAR);
             facts.healthPct = unit->GetHealthPercent();
             facts.distance = bot->GetDistance(unit);

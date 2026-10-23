@@ -294,6 +294,12 @@ bool PossibleAttackTargetsValue::IsValid(Unit* target, Player* player, float ran
     if (target && target->IsCreature() && static_cast<Creature*>(target)->IsInEvadeMode())
         return false;
 
+    // Chases stop at ledges (owner decision 2026-10-23): a running unit more
+    // than 6 yd below the bot's floor is let go, whatever path picked it (the
+    // tank's victim, a raid mark, an explicit order, the current target).
+    if (AttackersValue::RunnerLetGoAtLedge(target, player))
+        return false;
+
     // Check for the valid attackers value
     if (checkAttackerValid && !AttackersValue::IsValid(target, player))
     {

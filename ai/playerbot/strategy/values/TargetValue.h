@@ -205,6 +205,20 @@ namespace ai
         std::map<ObjectGuid, uint32> data;
     };
 
+    // Runners a bot let go at a ledge (AttackersValue::RunnerLetGoAtLedge,
+    // RunnerFinishPolicy kRunnerLedgeDropYd), mapped to the time (ms) until
+    // which they stay let go while they are still below the bot's floor.
+    // A book of its own, apart from "unreachable targets": that one is lifted
+    // when the mob hits the bot in sight, which a mob below the ledge can do.
+    class RunnersLetGoValue : public ManualSetValue<std::map<ObjectGuid, uint32>& >
+    {
+    public:
+        RunnersLetGoValue(PlayerbotAI* ai) : ManualSetValue<std::map<ObjectGuid, uint32>& >(ai, data, "runners let go") {}
+
+    private:
+        std::map<ObjectGuid, uint32> data;
+    };
+
     // The kinds (creature entries) a reach action gave up on, mapped to the time (ms) until
     // which the bot leaves that kind alone. A spot full of the same creatures - a mine full
     // of kobolds - was otherwise given up on one creature at a time (measured: one bot gave

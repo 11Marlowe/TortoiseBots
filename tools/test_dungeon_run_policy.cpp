@@ -9888,6 +9888,120 @@ static void TestNoPathPauseResumeTriesTheSameMovesAgain()
     CHECK(n.walkBack && n.walkBackIdx == 3);
 }
 
+// Sunken Temple r26 slot 6b step 235 (owner decision 2026-10-23): the lead bot sat on an island 13 yd below the
+// route (-448.0 103.2 -191.0); each resume: the hop off it found no spot, then 'walk back: the point of step 234
+// refused (unreachable)', then the same three moves skipped and the pause. As the last resort the run teleports
+// the lead bot to the last point it reached (the route checkpoint), out of combat only, at most once a step.
+static void TestStrandedLeadIsTeleportedToTheLastReachedPoint()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, -460.0f, 50.0f, -172.9f), Step(PlanStepKind::Move, -422.4f, 82.4f, -172.9f),
+        Step(PlanStepKind::Move, -422.9f, 104.3f, -172.9f), Step(PlanStepKind::Move, -422.4f, 106.7f, -172.9f),
+        Step(PlanStepKind::Move, -420.0f, 120.0f, -172.9f), Step(PlanStepKind::Rest)};
+    std::string const back = MoveOrder(-422.4f, 82.4f, -172.9f, false);
+    std::string const noSpot = "no-spot: no spot within 10 yd in the lead bot's sight has a floor, a clear line and a way on";
+    // The run as the resume left it: at step 3 (the first of the three skipped), walking back to step 2's point,
+    // the last point the lead bot reached; the hop off the island found no spot where it stands.
+    auto stranded = [&]()
+    {
+        Run r = Start(&plan, 2);
+        NoteCheckpoint(r, 1);
+        r.noPathSkips = {2, 3, 4};
+        r.walkBack = true;
+        r.walkBackIdx = 1;
+        r.walkBackStart = 1;
+        r.leadLastX = -448.0f;
+        r.leadLastY = 103.2f;
+        r.leadLastZ = -191.0f;
+        OrderRefused(r, "escape from -448.0 103.2 -191.0 toward -422.4 82.4 -172.9", noSpot);
+        CHECK(r.noSpotKnown && r.note.find("the straight hop off the navmesh island was not made (no-spot") == 0);
+        return r;
+    };
+    Facts f = Party(-448.0f);
+    f.leadY = 103.2f;
+    f.leadZ = -191.0f;
+    f.seen = true;
+
+    Run r = stranded();
+    OrderRefused(r, back, kBareUnreachable);
+    CHECK(r.strandDue && r.strandIdx == 1 && r.walkBackIdx == 1 && r.state == State::Running);
+    CHECK(r.note == std::string("walk back: the point of step 2 refused (") + kBareUnreachable + ") where the hop off "
+        "the island found no spot: the lead bot is stranded; it is teleported to the last reached point out of combat");
+    // In combat: nothing goes out; it waits.
+    Facts fight = f;
+    fight.anyInCombat = true;
+    std::string order;
+    CHECK(StrandedTeleportTick(r, fight, kTickMs, order) && order.empty() && r.strandDue);
+    CHECK(r.note == "the lead bot is stranded at -448.0 103.2 -191.0 with no way back: the teleport to the last reached "
+        "point (step 2) waits for the fight to end");
+    fight.anyInCombat = false;
+    fight.leadInCombat = true;
+    CHECK(StrandedTeleportTick(r, fight, kTickMs, order) && order.empty() && r.strandDue);
+    // Out of combat: the teleport, through the walk back's own tick.
+    order = Tick(r, f);
+    CHECK(order == "rescue from -448.0 103.2 -191.0 to -422.4 82.4 -172.9");
+    CHECK(r.note == "the lead bot was stranded at -448.0 103.2 -191.0 with no way back: teleported to the last reached "
+        "point (step 2)");
+    CHECK(!r.strandDue && r.strandOn && r.strandStep == 2 && !r.noSpotKnown);
+    // It settles: no other order for kStrandSettleMs.
+    for (std::uint32_t ms = kTickMs; ms < kStrandSettleMs; ms += kTickMs)
+        CHECK(Tick(r, f).empty());
+    // Then the walk back goes on from the point it stands on.
+    f.leadX = -422.4f;
+    f.leadY = 82.4f;
+    f.leadZ = -172.9f;
+    std::string next;
+    for (int i = 0; i < 6 && next.empty(); ++i)
+        next = Tick(r, f);
+    CHECK(!r.strandOn && next.compare(0, 7, "rescue ") != 0);
+
+    // At most once a step: the same strand again on step 3 passes the point as before.
+    Run again = stranded();
+    again.strandStep = 2;
+    OrderRefused(again, back, kBareUnreachable);
+    CHECK(!again.strandDue && again.walkBackIdx == 2 && again.note.find(": on to the next") != std::string::npos);
+    // ... and a resume (ResetStep) does not give it back.
+    ResetStep(again);
+    CHECK(again.strandStep == 2);
+
+    // Not stranded: the hop off found a spot (or never ran) here.
+    Run hop = stranded();
+    hop.noSpotKnown = false;
+    OrderRefused(hop, back, kBareUnreachable);
+    CHECK(!hop.strandDue && hop.walkBackIdx == 2);
+    Run moved = stranded();
+    moved.leadLastX = -440.0f; // the no-spot reading was from another spot
+    OrderRefused(moved, back, kBareUnreachable);
+    CHECK(!moved.strandDue);
+    // Not the last reached point: a point before the checkpoint is passed as before.
+    Run early = stranded();
+    early.walkBackIdx = 0;
+    OrderRefused(early, MoveOrder(-460.0f, 50.0f, -172.9f, false), kBareUnreachable);
+    CHECK(!early.strandDue && early.walkBackIdx == 1);
+    // Not unreachable: another path refusal passes the point as before.
+    Run los = stranded();
+    OrderRefused(los, back, "no-los: the point is out of sight");
+    CHECK(!los.strandDue && los.walkBackIdx == 2);
+    // Not on a walk back: no teleport.
+    Run fwd = stranded();
+    fwd.walkBack = false;
+    CHECK(!StrandedLead(fwd, kBareUnreachable));
+
+    // The glue refuses: "wait" keeps it due (not counted); anything else ends it for the step.
+    Run w = stranded();
+    OrderRefused(w, back, kBareUnreachable);
+    order = Tick(w, f);
+    CHECK(order.compare(0, 7, "rescue ") == 0 && w.strandStep == 2);
+    OrderRefused(w, order, "wait: a party bot is in combat");
+    CHECK(w.strandDue && !w.strandOn && w.strandStep == static_cast<std::size_t>(-1));
+    CHECK(w.note == "the teleport of the stranded lead bot waits (wait: a party bot is in combat)");
+    order = Tick(w, f);
+    CHECK(order.compare(0, 7, "rescue ") == 0);
+    OrderRefused(w, order, "lead-unavailable: the lead bot is dead, on a taxi, teleporting or has no AI");
+    CHECK(!w.strandDue && !w.strandOn && w.strandStep == 2);
+    CHECK(w.note.find("the teleport of the stranded lead bot was refused (lead-unavailable") == 0);
+}
+
 static void TestR22PullAndDirectStepsKeepTheirRefusals()
 {
     DungeonPlan plan = RfkS85Plan();
@@ -12806,6 +12920,29 @@ static void TestShotStandOnPath()
         CHECK(!ShotStandOnPath(path, unit, 24.5f, none).known);
         CHECK(!ShotStandOnPath(path, unit, 0.0f, seesAll).known);
     }
+    // Sunken Temple r26 slot 6b step 233: firing stand 1 for 5228 lay 13 yd down a ledge (the lead bot went from
+    // z -172.9 to -185.7 onto an island with no way back). The path is cut before its first point more than 6 yd
+    // below the lead bot's floor: the stand is the last point on that floor, or none.
+    {
+        auto Q = [](float x, float y, float z) { ApproachPoint p; p.x = x; p.y = y; p.z = z; return p; };
+        ApproachPoint const below = Q(0, 0, -186.0f);
+        std::vector<ApproachPoint> path = {Q(40, 0, -172.9f), Q(30, 0, -173.2f), Q(20, 0, -185.7f), Q(0, 0, -186.0f)};
+        ShotStand const s = ShotStandOnPath(path, below, 24.5f, seesAll);
+        CHECK(s.known && s.x == 30.0f && s.z > -173.5f); // not 24.5 yd from it, down the ledge
+        // A stair down of under 6 yd is no ledge: the stand is the ranged reach's own point.
+        std::vector<ApproachPoint> stair = {Q(40, 0, -172.9f), Q(30, 0, -175.0f), Q(20, 0, -178.8f), Q(0, 0, -178.8f)};
+        ShotStand const t = ShotStandOnPath(stair, Q(0, 0, -178.8f), 24.5f, seesAll);
+        CHECK(t.known && t.x < 30.0f && t.x > 20.0f); // between the stair's points, 24.5 yd from the unit (3D)
+        CHECK(std::fabs(std::sqrt(t.x * t.x + (t.z + 178.8f) * (t.z + 178.8f)) - 24.5f) < 0.05f);
+        // The ledge right at the lead bot's feet: no stand (the order goes out as before).
+        std::vector<ApproachPoint> cliff = {Q(40, 0, -172.9f), Q(38, 0, -185.0f), Q(20, 0, -186.0f), Q(0, 0, -186.0f)};
+        CHECK(!ShotStandOnPath(cliff, below, 24.5f, seesAll).known);
+        // In range but out of sight: no stand past the ledge either.
+        std::vector<ApproachPoint> near = {Q(22, 0, -172.9f), Q(15, 0, -185.0f), Q(10, 0, -186.0f), Q(0, 0, -186.0f)};
+        auto low = [](const ApproachPoint& p) { return p.z < -180.0f; };
+        CHECK(!ShotStandOnPath(near, below, 24.5f, low).known);
+        CHECK(kStandLedgeDropYd == 6.0f);
+    }
 }
 
 // Uldaman run 4, step 38: a fight past the 180 s ceiling paused the run, the
@@ -15252,6 +15389,7 @@ int main()
     TestPickPackPullPrefersShootable();
     TestStandTicksAreNotFruitlessPulls();
     TestShotStandOnPath();
+    TestStrandedLeadIsTeleportedToTheLastReachedPoint();
     TestPullStandNeedsMoreRangeThanTheMargin();
     TestStandRequestIsReadOnce();
     TestStandWalkStuckOrdersFromHere();

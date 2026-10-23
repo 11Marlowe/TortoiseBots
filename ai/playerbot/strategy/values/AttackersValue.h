@@ -33,6 +33,21 @@ namespace ai
         // bypasses the attackers list (group tank's victim, raid marks).
         // Drops an entry that no longer holds.
         static bool IsKeepoutSetAside(Unit* target, Player* bot);
+        // A mob running from the fight: the fleeing state (fear-style flee,
+        // the timed flee) or the core's flee-for-assistance walk and its pause
+        // at the helper (Creature::DoFleeToGetAssistance).
+        static bool IsRunningMob(Unit* unit);
+        // How far `target`, or the end of its run (its spline's last point),
+        // lies below `bot`'s floor (RunnerFinishPolicy RunnerDropYd).
+        static float RunnerDropYd(Unit* target, Player* bot);
+        // Chases stop at ledges (RunnerFinishPolicy kRunnerLedgeDropYd, owner
+        // decision 2026-10-23): true while `bot` lets `target` go, a running
+        // unit more than 6 yd below its floor (or running there). Such a unit
+        // is written to the bot's own "runners let go" book and stays refused
+        // while it is still below (RunnerStaysLetGo). Asked by IgnoreTarget
+        // (the attackers list) and PossibleAttackTargetsValue::IsValid (every
+        // pick path that bypasses that list, and the current target's check).
+        static bool RunnerLetGoAtLedge(Unit* target, Player* bot);
         virtual std::string Format() override;
 
 #ifdef GenerateBotHelp

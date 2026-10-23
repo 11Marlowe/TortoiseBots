@@ -49,6 +49,7 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/SurvivePolicy.h"
+#include "playerbot/RunnerFinishPolicy.h"
 #include "runtime/OwnedBotQolPolicy.h"
 #include "../runtime/RemoteCommanderPolicy.h"
 #include "../ai/playerbot/AiFactory.h"
@@ -9348,6 +9349,7 @@ void SendRunLine(Player* commander, DungeonRunSlot& slot, bool force)
 }
 
 bool RunIslandEscape(Player* commander, std::string const& order, std::string& answer);
+bool RunStrandedTeleport(Player* commander, std::string const& order, std::string& answer);
 
 // Sends one order as the commander's own `.bot cmd <text>`. False with the
 // module's answer when it was refused (ERR). A pending task answers later.
@@ -9357,6 +9359,8 @@ bool IssueRunOrder(Player* commander, std::string const& text, std::string& answ
 {
     if (text.compare(0, 7, "escape ") == 0)
         return RunIslandEscape(commander, text, answer);
+    if (text.compare(0, 7, "rescue ") == 0)
+        return RunStrandedTeleport(commander, text, answer);
     ChatHandler handler(commander);
     s_runOrderCapture = RunOrderCapture();
     s_runOrderCapture.active = true;
@@ -9777,6 +9781,77 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
             sPlayerbotAIConfig.reactDelay, RemoteCommander::kDirectMaxSleepMs));
     }
     answer = "escape to " + Num(x) + " " + Num(y) + " " + Num(ground);
+    return true;
+}
+
+// The stranded lead bot's teleport (DungeonRun::StrandedLead, owner decision
+// 2026-10-23): "rescue from lx ly lz to x y z", the run's own order, not a
+// `cmd`. The last resort after the hop off an island found no spot and the
+// walk back to the last reached point was refused unreachable: the lead bot
+// alone is put on stay at that point and moved there with the core's near
+// teleport (Unit::NearTeleportTo, as the module's own position fixes do). False
+// with "wait: ..." (a fight, or the lead bot moved more than kEscapeMovedYd from
+// lx ly lz since the run read it: kept due) or another refusal (ends it for the
+// step). Nothing is touched before every check passed.
+bool RunStrandedTeleport(Player* commander, std::string const& order, std::string& answer)
+{
+    using namespace TortoiseBots::DungeonRun;
+    RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(commander->GetObjectGuid().GetRawValue());
+    Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+    if (!lead || !lead->IsInWorld())
+    {
+        answer = "lead-unavailable: no lead bot in the world";
+        return false;
+    }
+    float fx = 0.0f, fy = 0.0f, fz = 0.0f, x = 0.0f, y = 0.0f, z = 0.0f;
+    if (std::sscanf(order.c_str(), "rescue from %f %f %f to %f %f %f", &fx, &fy, &fz, &x, &y, &z) != 6)
+    {
+        answer = "invalid: " + order;
+        return false;
+    }
+    PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead);
+    if (!leadAi || !lead->IsAlive() || lead->IsTaxiFlying() || lead->IsBeingTeleported())
+    {
+        answer = "lead-unavailable: the lead bot is dead, on a taxi, teleporting or has no AI";
+        return false;
+    }
+    Map* const map = lead->GetMap();
+    if (!map || !MaNGOS::IsValidMapCoord(x, y, z))
+    {
+        answer = "invalid: the point is not on the map";
+        return false;
+    }
+    if (ai::PlanDistance(lead->GetPositionX(), lead->GetPositionY(), lead->GetPositionZ(), fx, fy, fz) > kEscapeMovedYd)
+    {
+        answer = "wait: the lead bot moved since it was read stranded";
+        return false;
+    }
+    // Out of combat only: a fight is the bots' own; the teleport waits for it.
+    bool fight = lead->IsInCombat();
+    if (Group* group = lead->GetGroup())
+        for (Player* bot : CommandedBots(group, lead))
+            fight = fight || (bot && bot->IsInWorld() && bot->IsAlive() && bot->IsInCombat());
+    if (fight)
+    {
+        answer = "wait: a party bot is in combat";
+        return false;
+    }
+    // The plan's point was reached by walking: its floor, read just above it.
+    float const floor = map->GetHeight(x, y, z + 2.0f, true, 4.0f);
+    float const ground = floor > INVALID_HEIGHT ? floor : z;
+    SupersedeCommanderTasks(commander->GetObjectGuid().GetRawValue(), 0, RemoteCommander::LaterOrder::Move);
+    leadAi->DropQueuedMovementOrders();
+    PlayerConvenience::Instance().NoteHoldOrder(lead->GetObjectGuid());
+    leadAi->Reset();
+    leadAi->SetMovementStrategy("stay");
+    SetStayAnchor(leadAi, x, y, ground, lead->GetMapId());
+    lead->GetMotionMaster()->Clear();
+    if (!lead->NearTeleportTo(x, y, ground + 0.5f, lead->GetOrientation()))
+    {
+        answer = "failed: the near teleport was refused";
+        return false;
+    }
+    answer = "teleported to " + Num(x) + " " + Num(y) + " " + Num(ground);
     return true;
 }
 
@@ -10853,6 +10928,8 @@ void ReadPullStand(DungeonRunSlot const& slot, Player* lead, TortoiseBots::Dunge
     {
         return map->isInLineOfSight(point.x, point.y, point.z + leadHeight, goal.x, goal.y, goal.z + unitHeight, true);
     };
+    static_assert(kStandLedgeDropYd == ai::kRunnerLedgeDropYd,
+        "the run leader's firing stand keeps to the bots' own ledge rule (owner decision 2026-10-23)");
     ShotStand const stand = ShotStandOnPath(points, goal, f.leadShotYd - kShotMarginYd, sees);
     if (!stand.known)
         return;

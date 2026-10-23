@@ -36,6 +36,17 @@ namespace ai
     // few steps (not holding).
     constexpr float kRunnerRangedSlack = 5.0f;
 
+    // Chases stop at ledges (owner decision 2026-10-23, Sunken Temple r26
+    // slot 6b step 233: the lead bot went 13 yd down off the z -172.9 floor
+    // onto an island with no navmesh route back, and the run stopped there).
+    // A running unit more than this far below the bot's floor, or whose run
+    // ends more than this far below it, is let go: the bot stays on its floor.
+    constexpr float kRunnerLedgeDropYd = 6.0f;
+
+    // How long a runner let go at a ledge stays let go while it is still
+    // below the bot (it may stop running down there): RunnerStaysLetGo.
+    constexpr unsigned kRunnerLetGoMs = 30000;
+
     struct RunnerFacts
     {
         bool running = false;      // fleeing state or flee / seek-assistance motion
@@ -45,6 +56,10 @@ namespace ai
         bool inPartyFight = false; // in the bot's attackers list
         float healthPct = 100.0f;
         float distance = 0.0f;     // bot to mob, yards
+        // How far the mob, or the end of its run (its movement's last point
+        // when it has one), lies below the bot's floor, whichever is lower;
+        // 0 or less: not below.
+        float dropYd = 0.0f;
     };
 
     struct RunnerChaser
@@ -65,6 +80,31 @@ namespace ai
             mob.healthPct < kRunnerFinishHealthPct;
     }
 
+    // How far below the bot's floor the runner is or ends its run: the
+    // lower of the two (a unit still on the bot's floor that runs off a
+    // ledge counts by where its run ends).
+    inline float RunnerDropYd(float botZ, float mobZ, bool runEndKnown, float runEndZ)
+    {
+        float const low = runEndKnown && runEndZ < mobZ ? runEndZ : mobZ;
+        return botZ - low;
+    }
+
+    // A running unit over a ledge (more than kRunnerLedgeDropYd below the
+    // bot's floor, or running there): the bot lets it go, whoever it is (the
+    // tank, a DPS, an explicit target too) and whatever its health.
+    inline bool RunnerOverLedge(RunnerFacts const& mob)
+    {
+        return mob.alive && mob.running && mob.dropYd > kRunnerLedgeDropYd;
+    }
+
+    // A runner let go at a ledge stays let go while the mark holds and it is
+    // still more than kRunnerLedgeDropYd below the bot, running or not; once
+    // it is back up on the bot's floor (it came back), it is a target again.
+    inline bool RunnerStaysLetGo(bool marked, unsigned nowMs, unsigned untilMs, float dropYd)
+    {
+        return marked && nowMs < untilMs && dropYd > kRunnerLedgeDropYd;
+    }
+
     // How far this bot may go after a runner (0 = not at all).
     inline float RunnerLeash(RunnerChaser const& bot)
     {
@@ -82,7 +122,7 @@ namespace ai
     // This bot should go after this runner now.
     inline bool ShouldFinishRunner(RunnerFacts const& mob, RunnerChaser const& bot)
     {
-        if (!IsFinishableRunner(mob))
+        if (!IsFinishableRunner(mob) || RunnerOverLedge(mob))
             return false;
         float const leash = RunnerLeash(bot);
         return leash > 0.0f && mob.distance <= leash;
