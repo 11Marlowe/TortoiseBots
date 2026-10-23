@@ -1,4 +1,4 @@
-#include "../ai/playerbot/DpsTargetPolicy.h"
+#include "../ai/playerbot/policy/combat/DpsTargetPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

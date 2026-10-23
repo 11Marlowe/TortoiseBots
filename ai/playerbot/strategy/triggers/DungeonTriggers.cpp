@@ -12,7 +12,7 @@
 #include "playerbot/strategy/actions/MovementActions.h"
 #include "playerbot/strategy/actions/UseItemAction.h"
 #include "playerbot/CombatSpreadPolicy.h"
-#include "playerbot/DebuffSpreadPolicy.h"
+#include "playerbot/policy/combat/DebuffSpreadPolicy.h"
 #include "playerbot/BombRunoutPolicy.h"
 #include "Maps/GridNotifiers.h"
 #include "Maps/GridNotifiersImpl.h"

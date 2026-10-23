@@ -1,4 +1,4 @@
-#include "../ai/playerbot/CombatStuckPolicy.h"
+#include "../ai/playerbot/policy/combat/CombatStuckPolicy.h"
 
 #include <cstdint>
 #include <cstdlib>

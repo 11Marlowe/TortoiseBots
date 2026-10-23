@@ -3,7 +3,7 @@
 #include "InterruptTargetValue.h"
 #include "TargetValue.h"
 #include "CcMarkHoldPolicy.h"
-#include "InterruptTargetPolicy.h"
+#include "playerbot/policy/combat/InterruptTargetPolicy.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/actions/GenericSpellActions.h"
 

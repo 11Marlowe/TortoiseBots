@@ -5,7 +5,7 @@
 #include "playerbot/LongStuckRescuePolicy.h"
 #include "playerbot/GraveyardTeleportPolicy.h"
 #include "playerbot/TravelRepickPolicy.h"
-#include "playerbot/CombatStuckPolicy.h"
+#include "playerbot/policy/combat/CombatStuckPolicy.h"
 #include "playerbot/TravelMgr.h"
 #include "runtime/BotManager.h"
 

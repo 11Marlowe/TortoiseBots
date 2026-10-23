@@ -1,6 +1,6 @@
 #pragma once
 #include "playerbot/PlayerbotAI.h"
-#include "playerbot/BandageSafetyPolicy.h"
+#include "playerbot/policy/combat/BandageSafetyPolicy.h"
 #include "GenericActions.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/RandomItemMgr.h"

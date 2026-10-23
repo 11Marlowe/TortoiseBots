@@ -10,7 +10,7 @@
 #include "playerbot/strategy/values/LastMovementValue.h"
 #include "playerbot/CreatureAuraKeepoutPolicy.h"
 #include "playerbot/LedgeStepDownPolicy.h"
-#include "playerbot/SetBehindPolicy.h"
+#include "playerbot/policy/combat/SetBehindPolicy.h"
 #include <atomic>
 
 namespace ai

@@ -1,4 +1,4 @@
-#include "../ai/playerbot/InterruptTargetPolicy.h"
+#include "../ai/playerbot/policy/combat/InterruptTargetPolicy.h"
 
 #include <iostream>
 
