@@ -31,7 +31,8 @@ BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulf
               "blackfathom_deeps": 48,
               "shadowfang_keep": 33,
               "sunken_temple": 109,
-              "razorfen_downs": 129}
+              "razorfen_downs": 129,
+              "crescent_grove": 802}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -69,6 +70,7 @@ SEEDED_BOSSES = {
     (109, 5710): "Jammal'an the Prophet", (109, 5719): "Morphaz", (109, 5709): "Shade of Eranikus",
     (129, 7357): "Mordresh Fire Eye", (129, 8567): "Glutton", (129, 62679): "Death Prophet Rakameg",
     (129, 7358): "Amnennar the Coldbringer",
+    (802, 92107): "Grovetender Engryss", (802, 92109): "Keeper Ranathos", (802, 92108): "High Priestess A'lathea", (802, 92111): "Fenektis the Deceiver", (802, 92110): "Master Raxxieth",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
 # Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080,
@@ -132,8 +134,8 @@ def newest_uldaman_rows():
 
 def leg_rows(text, plan):
     """The ai_dungeon_leg rows of a migration for the plan as {leg: (name, comment)}."""
-    return {int(m.group(1)): (m.group(2), m.group(3).replace("''", "'")) for m in
-            re.finditer(r"^\('%s', (\d+), '([\w-]+)', '((?:[^']|'')*)'\)[,;]$" % plan, text, re.M)}
+    return {int(m.group(1)): (m.group(2).replace("''", "'"), m.group(3).replace("''", "'")) for m in
+            re.finditer(r"^\('%s', (\d+), '((?:[\w-]|'')+)', '((?:[^']|'')*)'\)[,;]$" % plan, text, re.M)}
 
 
 def leg_steps(rows, leg):
@@ -630,6 +632,44 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertLessEqual(max(float(r["radius"]) for r in pulls), 16.0)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["razorfen_downs"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
+
+    def test_crescent_grove_is_the_census_fixed_draft(self):
+        # 20261023130100 (turtle-agent prep/crescent_grove ba00e7c, 2026-10-23): the Crescent Grove draft (map 802) with the census
+        # fixes of PREP-CRESCENT-GROVE-2026-10-23.md, no row hand-set, with the boss rows of map 802. 5 legs, 561 steps (59 + 101 + 53 +
+        # 59 + 27 pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the 14 Deer 883 (critters) are out
+        # of every group, the Elders 92105/92106 are Grovetender Engryss' first (they stood 11 yd from him), and the two pulls at the
+        # patrolling Roaming Felguard 2566320 are one group of four. No pull row stands within 25 yd of a boss.
+        name, text = newest_plan_text("crescent_grove")
+        self.assertEqual(name, "20261023130100_world.sql")
+        self.assertIn("('crescent_grove', 802, '92101', '92101', '92124,92123,92119,92125,92126,92114,92121', 'turtle-agent ba00e7c dungeons/crescent_grove.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(leg_rows(text, "crescent_grove"),
+                         {0: ("grovetender_engryss", ""), 1: ("keeper_ranathos", ""), 2: ("high_priestess_a'lathea", ""),
+                          3: ("fenektis_the_deceiver", ""), 4: ("master_raxxieth", "")})
+        rows = [r for r in self.step_rows(text) if r["plan"] == "crescent_grove"]
+        self.assertEqual(len(rows), 561)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(5)}, {0: 103, 1: 190, 2: 96, 3: 110, 4: 62})
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [59, 101, 53, 59, 27])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["92107", "92109", "92108", "92111", "92110"])
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["92105,92106", "", "", "", ""])
+        for leg in range(5):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        # The critter and the pack sizes: no 883 anywhere, the merged patrol pack as one row, and the radii cut to the own members.
+        self.assertFalse([r for r in pulls if "883" in r["entries"].split(",")])
+        self.assertEqual(max(len(r["entries"].split(",")) for r in pulls), 3)
+        radii = {(r["leg"], r["x"], r["y"]): r["radius"] for r in pulls}
+        for leg, x, y, want in [("0", "506.37", "-98.07", "10"), ("0", "511", "-124.74", "10"), ("0", "528.34", "-125", "10"),
+                                ("0", "308.02", "-34.71", "10"), ("0", "220.36", "-49.59", "10"),
+                                ("1", "296.43", "59.62", "13"), ("1", "312.96", "257.41", "10"), ("1", "199.99", "202.65", "16"),
+                                ("3", "-501.08", "-64.54", "14")]:
+            self.assertEqual(radii.get((leg, x, y)), want, "%s %s %s" % (leg, x, y))
+        self.assertIn(("2", "92120,92122", "10", "-405.38", "-186.68"),
+                      [(r["leg"], r["entries"], r["radius"], r["x"], r["y"]) for r in pulls])
+        bosses = [(261.576, -148.21), (122.596, 67.9047), (-308.922, -307.698), (-510.094, 62.3177), (-659.29, -390.521)]
+        for r in pulls:
+            for x, y in bosses:
+                self.assertGreaterEqual(dist(r, x, y), 25.0, r["comment"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (802) AND `entry` IN (92107, 92109, 92108, 92111, 92110);", text)
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
         # 20261023160000 (turtle-agent rfk-fix6 0a72713f, 2026-10-23, after live run r24 slot8 run 5 stopped at step 343 in the
