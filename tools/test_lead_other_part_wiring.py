@@ -51,5 +51,29 @@ class LeadOtherPartWiringTest(unittest.TestCase):
         self.assertIn("r.holdWhilePaused = false;", pause)
 
 
+    def test_resume_is_refused_while_the_lead_is_still_away(self):
+        # SM-REVIVE-PATH-2026-10-23 fix 5: `.bot run resume` (the agent's dungeon_resume) asks
+        # ResumeChecked with the lead bot as it stands, and a refusal answers ACTION_ERR and keeps the pause.
+        resume = body(COMMANDS, 'else if (verb == "resume")', "else // skip")
+        self.assertNotIn("done = Resume(slot.run);", resume)
+        self.assertIn("done = ResumeChecked(slot.run, spot, refusal);", resume)
+        self.assertIn("Player* lead = FindCharacter(binding->leadGuid)", resume)
+        self.assertIn("if (lead->IsInWorld())", resume)
+        self.assertIn("spot.read = true;", resume)
+        self.assertIn("spot.alive = lead->IsAlive();", resume)
+        self.assertIn("spot.onPlanMap = lead->GetMapId() == slot.run.plan->map;", resume)
+        for axis in "XYZ":
+            self.assertIn(f"spot.{axis.lower()} = lead->GetPosition{axis}();", resume)
+        refused = body(resume, "if (!refusal.empty())", "}")
+        self.assertIn('SendActionError(handler, intent, "lead-other-part", refusal.c_str());', refused)
+        self.assertIn("return true;", refused)
+
+    def test_policy_pause_marks_and_resume_clears_the_other_part_pause(self):
+        other = body(POLICY, "inline void PauseOtherPart(", "\n}\n")
+        self.assertIn("r.otherPartPaused = true;", other)
+        self.assertGreater(other.index("r.otherPartPaused = true;"), other.index("Pause(r, "))
+        self.assertIn("r.otherPartPaused = false;", body(POLICY, "inline void Pause(Run& r, const std::string& why)", "\n}\n"))
+        self.assertIn("r.otherPartPaused = false;", body(POLICY, "inline bool Resume(Run& r)", "\n}\n"))
+
 if __name__ == "__main__":
     unittest.main()

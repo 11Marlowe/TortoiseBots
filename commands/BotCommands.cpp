@@ -11848,7 +11848,29 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
             PausePlayer(slot.run, "paused by .bot run pause"); // never resumed by the run itself
     }
     else if (verb == "resume")
-        done = Resume(slot.run);
+    {
+        // A pause for a lead bot in another part of the instance is not resumed while it is still there
+        // (DungeonRun::ResumeChecked): the regroup would pause again on the next tick.
+        LeadSpot spot;
+        if (Player* lead = FindCharacter(binding->leadGuid))
+            if (lead->IsInWorld())
+            {
+                spot.read = true;
+                spot.alive = lead->IsAlive();
+                spot.onPlanMap = lead->GetMapId() == slot.run.plan->map;
+                spot.x = lead->GetPositionX();
+                spot.y = lead->GetPositionY();
+                spot.z = lead->GetPositionZ();
+            }
+        std::string refusal;
+        done = ResumeChecked(slot.run, spot, refusal);
+        if (!refusal.empty())
+        {
+            SendActionError(handler, intent, "lead-other-part", refusal.c_str());
+            SendRunLine(commander, slot, true); // still paused, with its note
+            return true;
+        }
+    }
     else // skip
         done = Skip(slot.run);
     if (!done)
