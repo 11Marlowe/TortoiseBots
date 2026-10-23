@@ -28,7 +28,8 @@ BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulf
               "gnomeregan": 90,
               "scarlet_library": 189,
               "scarlet_armory": 189, "scarlet_cathedral": 189, "scarlet_graveyard": 189,
-              "blackfathom_deeps": 48}
+              "blackfathom_deeps": 48,
+              "sunken_temple": 109}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -59,6 +60,8 @@ SEEDED_BOSSES = {
     (189, 61982): "Armory Quartermaster Daghelm", (189, 3975): "Herod",
     (189, 4542): "High Inquisitor Fairbanks", (189, 3976): "Scarlet Commander Mograine", (189, 3977): "High Inquisitor Whitemane",
     (189, 3983): "Interrogator Vishas", (189, 14693): "Scorn", (189, 4543): "Bloodmage Thalnos", (189, 61972): "Duke Dreadmoore",
+    (109, 8580): "Atal'alarion", (109, 5720): "Weaver", (109, 5721): "Dreamscythe",
+    (109, 5710): "Jammal'an the Prophet", (109, 5719): "Morphaz", (109, 5709): "Shade of Eranikus",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
 # Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080,
@@ -469,6 +472,36 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((last["entries"], float(last["radius"])), ("1708", 7.0))
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwind_stockade"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
+
+    def test_sunken_temple_is_the_plan_with_the_census_fixes(self):
+        # 20261023130200 (turtle-agent e63e6ab, 2026-10-23): the Temple of Atal'Hakkar draft with the census fixes of
+        # PREP-SUNKEN-TEMPLE-2026-10-23.md, no row hand-set, with the entry-scoped boss rows of map 109. 6 legs, 1365 steps
+        # (16 + 37 + 25 + 8 + 2 + 1 pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the
+        # radii that reached the next pack are cut (0.5, 3.2, 3.3) and the seven wandering Frostwing pulls are 17 yd.
+        name, text = newest_plan_text("sunken_temple")
+        self.assertEqual(name, "20261023130200_world.sql")
+        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent e63e6ab dungeons/sunken_temple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(len(re.findall(r"(?m)^\('sunken_temple', \d+, '(?:[^']|'')*', '(?:[^']|'')*'\)[,;]$", text)), 6)
+        self.assertEqual([n.replace("''", "'") for n in re.findall(r"(?m)^\('sunken_temple', \d+, '((?:[^']|'')*)', '(?:[^']|'')*'\)[,;]$", text)],
+                         ["atal'alarion", "weaver", "dreamscythe", "jammal'an_the_prophet", "morphaz", "shade_of_eranikus"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "sunken_temple"]
+        self.assertEqual(len(rows), 1365)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [16, 37, 25, 8, 2, 1])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["8580", "5720", "5721", "5710", "5719", "5709"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(6):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        # Jammal'an's Ogom 5711 and Morphaz's Hazzas 5722 are the boss rows' `first` (their creature groups aggro together); the other
+        # four have no linked add.
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "", "5711", "5722", ""])
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        # The three radii that reached the next pack (same entries 14.4-26.8 yd out) and the seven 5291 pulls with its 15 yd wander.
+        self.assertEqual(float([r for r in leg_steps(rows, 0) if r["kind"] == "pull"][5]["radius"]), 17.5)
+        self.assertEqual([float(r["radius"]) for r in leg_steps(rows, 3) if r["kind"] == "pull"][2:4], [14.3, 15.6])
+        self.assertEqual([float(r["radius"]) for r in pulls if r["entries"] == "5291"], [17.0] * 7)
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["sunken_temple"])
+        # Entry-scoped on the shared map: only this plan's six bosses are deleted and replaced (the SM-wing rule on map 189).
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (109) AND `entry` IN (8580, 5720, 5721, 5710, 5719, 5709);", text)
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
         # 20261023120000 (turtle-agent rfk-fix5 32d3b491, 2026-10-23, after live run r24 slot8 stopped at step 15): the plan of
