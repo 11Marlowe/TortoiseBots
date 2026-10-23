@@ -51,16 +51,18 @@ namespace ai
     constexpr std::uint32_t kLiquidTypeOcean = 0x02;
     constexpr std::uint32_t kLiquidTypeSlime = 0x04;
     constexpr std::uint32_t kLiquidTypeWater = 0x08;
-    // A swim line asks for every liquid (MAP_ALL_LIQUIDS) and refuses magma and
-    // slime by the answer's type flags (GridMapLiquidData::type_flags, from
-    // LiquidType.dbc), as Player::UpdateTerainEnvironmentFlags does. Asking for
-    // water and ocean only found no water in Blackfathom Deeps at all
-    // (r26-19z44e, step 82): the vmap test VMapManager2::GetLiquidLevel ANDs the
-    // request with the WMO's raw liquid type id, not a flag, and every BFD WMO
-    // liquid has id 1, so 1 & (WATER 0x08 | OCEAN 0x02) = 0 refused every swim
-    // line there, and the lead bot's move failed (dispatch-short) as before.
-    constexpr std::uint32_t kSwimLiquidRequest =
-        kLiquidTypeMagma | kLiquidTypeOcean | kLiquidTypeSlime | kLiquidTypeWater;
+    // A swim line asks the core for any liquid with no type filter (request 0)
+    // and decides water against magma and slime by the answer's type flags
+    // (GridMapLiquidData::type_flags, from LiquidType.dbc), as
+    // Player::UpdateTerainEnvironmentFlags reads them. A filtered request is
+    // unusable: the vmap test VMapManager2::GetLiquidLevel ANDs the request with
+    // the WMO's raw liquid type id, not a flag (`if (ReqLiquidType && !(type &
+    // ReqLiquidType)) return false;`; the ADT test, GridMap::getLiquidStatus,
+    // skips its filter for 0 too). Every Blackfathom Deeps WMO liquid has raw id
+    // 1, so water | ocean (0x0A) found no water there at all (r26-19z44e, step
+    // 82), and even all liquids (0x0F) would miss a raw id with none of the low
+    // four bits set (16, 32, ...). Codex review 2026-10-23.
+    constexpr std::uint32_t kSwimLiquidRequest = 0;
 
     // Samples along a swim line at most this far apart, always: a line longer
     // than kSwimMaxLineYd is refused rather than sampled more sparsely (a capped
@@ -102,7 +104,9 @@ namespace ai
     {
         if (liquidStatus != kLiquidInWater && liquidStatus != kLiquidUnderWater && liquidStatus != kLiquidWaterWalk)
             return false;
-        return !(typeFlags & (kLiquidTypeMagma | kLiquidTypeSlime));
+        // Water or ocean, and neither magma nor slime (a raw id LiquidType.dbc does
+        // not know reads type flags 0x01, magma, and is refused).
+        return (typeFlags & (kLiquidTypeWater | kLiquidTypeOcean)) && !(typeFlags & (kLiquidTypeMagma | kLiquidTypeSlime));
     }
 
     // How many samples a line of `length` yd takes (both ends included), at most

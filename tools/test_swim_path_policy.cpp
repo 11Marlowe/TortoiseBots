@@ -145,6 +145,12 @@ static void TestSampling()
     // Magma and slime are no swim water (the type flags decide, as for a player).
     CHECK(!SwimSampleInWater(kLiquidUnderWater, kLiquidTypeMagma));
     CHECK(!SwimSampleInWater(kLiquidInWater, kLiquidTypeSlime));
+    // The flags must say water or ocean, and a magma or slime bit beside them refuses.
+    CHECK(!SwimSampleInWater(kLiquidUnderWater, 0));
+    CHECK(!SwimSampleInWater(kLiquidUnderWater, 0x10));               // dark water bit alone
+    CHECK(SwimSampleInWater(kLiquidUnderWater, kLiquidTypeWater | 0x10));
+    CHECK(!SwimSampleInWater(kLiquidUnderWater, kLiquidTypeWater | kLiquidTypeMagma));
+    CHECK(!SwimSampleInWater(kLiquidUnderWater, kLiquidTypeOcean | kLiquidTypeSlime));
     // The ridge is 2 yd wide: samples 2 yd apart still find it on a 25 yd line.
     CHECK(!SwimLineInWater(6.0f, 0.0f, -5.0f, 31.0f, 0.0f, -5.0f, Water(Pool)));
 }
@@ -205,13 +211,98 @@ static void TestBlackfathomPoolLineIsKept()
     // The old request (water | ocean) found no water: the line was refused.
     std::uint32_t flags = 0;
     CHECK(BfdPool(-357.5f, 283.0f, -76.5f, kLiquidTypeWater | kLiquidTypeOcean, flags) == kLiquidNoWater);
-    // The request a swim line makes now (all liquids) finds it, and the step is kept.
-    CHECK(kSwimLiquidRequest == (kLiquidTypeMagma | kLiquidTypeOcean | kLiquidTypeSlime | kLiquidTypeWater));
+    // The request a swim line makes now (0: no raw-id filter) finds it, and the step is kept.
     bool const inWater = SwimLineInWater(-357.5f, 283.0f, -76.5f, -362.7f, 277.3f, -77.2f, BfdPool);
     CHECK(inWater);
     CHECK(KeepPathStep(0x81, false, inWater, true));
     // The land rule stands: the same line leaving the pool is refused.
     CHECK(!SwimLineInWater(-357.5f, 283.0f, -76.5f, -330.0f, 283.0f, -76.5f, BfdPool));
+}
+
+// Codex review 2026-10-23: even all liquids (0x0F) as the request would miss a raw
+// WMO liquid id with none of the low four bits set (16, 32, ...), since the vmap ANDs
+// the request with the raw id. The request is 0 (no filter, in both the vmap and the
+// ADT test) and the answer's type flags (LiquidType.dbc) decide: water or ocean yes,
+// magma or slime no; a raw id the DBC does not know reads type flag 0x01 (magma).
+struct RawPool
+{
+    std::uint32_t rawId = 1;
+    // The middle stretch x in [midFrom, midTo] (on the line y = 283): its own raw id,
+    // or dry (midDry).
+    float midFrom = 0.0f, midTo = -1.0f;
+    std::uint32_t midRawId = 1;
+    bool midDry = false;
+
+    static std::uint32_t Flags(std::uint32_t id)
+    {
+        switch (id)
+        {
+            case 1: case 16: case 32: return kLiquidTypeWater; // water (16, 32: ids with no low bits)
+            case 2: return kLiquidTypeOcean;
+            case 3: return kLiquidTypeMagma;
+            case 4: return kLiquidTypeSlime;
+            default: return kLiquidTypeMagma;                  // unknown to LiquidType.dbc: 1 << 0
+        }
+    }
+
+    std::uint32_t operator()(float x, float y, float z, std::uint32_t request, std::uint32_t& typeFlags) const
+    {
+        typeFlags = 0;
+        bool const mid = x >= midFrom && x <= midTo;
+        if (mid && midDry)
+            return kLiquidNoWater;
+        std::uint32_t const id = mid ? midRawId : rawId;
+        if (request && !(id & request))
+            return kLiquidNoWater;                             // VMapManager2::GetLiquidLevel
+        if (x > -340.0f || x < -380.0f || y < 260.0f || y > 300.0f || z < -80.5f)
+            return kLiquidNoWater;
+        typeFlags = Flags(id);
+        return z < -58.0f ? kLiquidUnderWater : kLiquidInWater;
+    }
+};
+
+static void TestRawLiquidIdsAreNotFiltered()
+{
+    CHECK(kSwimLiquidRequest == 0);
+    // Water under raw ids 1, 16 and 32: a swim line.
+    for (std::uint32_t id : {1u, 16u, 32u, 2u})
+    {
+        RawPool pool;
+        pool.rawId = id;
+        CHECK(SwimLineInWater(-375.0f, 283.0f, -76.0f, -345.0f, 283.0f, -76.0f, pool));
+        // 16 and 32 had read dry under an all-liquids request (0x0F).
+        std::uint32_t flags = 0;
+        if (id >= 16)
+            CHECK(pool(-360.0f, 283.0f, -76.0f, 0x0F, flags) == kLiquidNoWater);
+    }
+    // Magma or slime, by raw id, or a raw id the DBC does not know: refused.
+    for (std::uint32_t id : {3u, 4u, 99u})
+    {
+        RawPool pool;
+        pool.rawId = id;
+        CHECK(!SwimLineInWater(-375.0f, 283.0f, -76.0f, -345.0f, 283.0f, -76.0f, pool));
+    }
+    // A water line with a magma, slime or dry middle: refused (the INCOMPLETE swim
+    // step in getPathStepFrom asks this same full-line test now, not its two ends).
+    for (int c = 0; c < 3; ++c)
+    {
+        RawPool pool;
+        pool.midFrom = -361.0f;
+        pool.midTo = -359.0f;
+        if (c == 0)
+            pool.midRawId = 3;
+        else if (c == 1)
+            pool.midRawId = 4;
+        else
+            pool.midDry = true;
+        CHECK(!SwimLineInWater(-375.0f, 283.0f, -76.0f, -345.0f, 283.0f, -76.0f, pool));
+        // Both ends are in water all the same (what the old ends-only check asked).
+        std::uint32_t flags = 0;
+        std::uint32_t const first = pool(-375.0f, 283.0f, -76.0f, 0, flags);
+        CHECK(SwimSampleInWater(first, flags));
+        std::uint32_t const last = pool(-345.0f, 283.0f, -76.0f, 0, flags);
+        CHECK(SwimSampleInWater(last, flags));
+    }
 }
 
 int main()
@@ -223,6 +314,7 @@ int main()
     TestSampling();
     TestLongLinesAreNeverSampledSparsely();
     TestBlackfathomPoolLineIsKept();
+    TestRawLiquidIdsAreNotFiltered();
     std::cout << "swim path policy: all tests passed\n";
     return 0;
 }

@@ -36,7 +36,7 @@ static_assert(ai::kLiquidNoWater == LIQUID_MAP_NO_WATER && ai::kLiquidAboveWater
     "SwimPathPolicy.h liquid states out of step with the core's GridMapDefines.h");
 static_assert(ai::kLiquidTypeMagma == MAP_LIQUID_TYPE_MAGMA && ai::kLiquidTypeOcean == MAP_LIQUID_TYPE_OCEAN &&
     ai::kLiquidTypeSlime == MAP_LIQUID_TYPE_SLIME && ai::kLiquidTypeWater == MAP_LIQUID_TYPE_WATER &&
-    ai::kSwimLiquidRequest == MAP_ALL_LIQUIDS,
+    ai::kSwimLiquidRequest == 0,
     "SwimPathPolicy.h liquid types out of step with the core's GridMapDefines.h");
 
 namespace
@@ -1327,13 +1327,20 @@ std::vector<WorldPosition> WorldPosition::getPathStepFrom(const WorldPosition& s
 
     std::vector<WorldPosition> retvec = fromPointsArray(points);
 
-    if (type == PATHFIND_INCOMPLETE)
+    // A partial path that stops in the water short of a point in the water swims
+    // on toward it, at most 5 yd a step. Only when the whole straight line from the
+    // path's end to the point is a swim line (SwimPathFits: every 2 yd sample in
+    // water or ocean, no magma or slime, in sight). It used to ask only the two
+    // ends (WorldPosition::isUnderWater, a water | ocean request the vmap refuses
+    // for every Blackfathom Deeps liquid) and the sight line: a dry or magma
+    // middle passed, and in BFD it never fired (Codex review 2026-10-23).
+    if (type == PATHFIND_INCOMPLETE && !retvec.empty())
     {
         WorldPosition lastPoint = retvec.back();
 
         float dist = lastPoint.distance(end);
 
-        if (lastPoint.distance(end) < 50.0f && lastPoint.isUnderWater() && end.isUnderWater() && lastPoint.IsInLineOfSight(end))
+        if (dist < 50.0f && SwimPathFits({ lastPoint, end }, bot))
         {
             if (dist < 5.0f)
                 retvec.push_back(end);
