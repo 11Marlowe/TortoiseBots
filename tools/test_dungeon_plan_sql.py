@@ -400,8 +400,9 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("gm_cross", text)  # the header names every step the run leader cannot do
 
     def test_shadowfang_keep_is_the_whole_plan_as_exported(self):
-        # 20261024050100 (turtle-agent d1f521a, 2026-10-24, the interaction audit's gone-door wait and Sorcerer's Gate
-        # steps on top of 20261023200000, turtle-agent c77e8cf, the Data fix of r25 shadowfang_keep slot5): the whole draft is
+        # 20261024153300 (turtle-agent fed4fe0, 2026-10-24, the r36 slotA + r30 slotB Fenrus fix on top of
+        # 20261024050100, turtle-agent d1f521a, the interaction audit's gone-door wait and Sorcerer's Gate steps on top of
+        # 20261023200000, turtle-agent c77e8cf, the Data fix of r25 shadowfang_keep slot5): the whole draft is
         # 10 legs. Leg 4 is the courtyard_door leg (the Adamant gossip and the 18895 wait); leg 5 the old leg 4's
         # entrance-side pulls (10, no boss); leg 6 crosses the navmesh stair-top seam with the only move_direct, then the
         # four walkway pulls and Odo; legs 7-9 are Fenrus, Nandos and Arugal. The plan row carries cc_priority
@@ -409,8 +410,8 @@ class DungeonPlanSql(unittest.TestCase):
         # byte-identical to 20261023180000_world.sql; leg 2 is the r25 step-39 fix (see the test below); leg 7 ends in the
         # voidwalker wait and the Sorcerer's Gate wait (see the test after it). Every pin fails when its row is cut.
         name, text = newest_plan_text("shadowfang_keep")
-        self.assertEqual(name, "20261024050100_world.sql")
-        self.assertIn("('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent d1f521a dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024153300_world.sql")
+        self.assertIn("('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent fed4fe0 dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "shadowfang_keep")
         self.assertEqual(list(legs[i][0] for i in range(10)),
                          ["rethilgore", "razorclaw_the_butcher", "baron_silverlaine", "commander_springvale",
@@ -418,16 +419,17 @@ class DungeonPlanSql(unittest.TestCase):
                           "fenrus_the_devourer", "wolf_master_nandos", "archmage_arugal"])
         self.assertEqual(len(legs), 10)
         rows = [r for r in self.step_rows(text) if r["plan"] == "shadowfang_keep"]
-        self.assertEqual(len(rows), 314)
+        self.assertEqual(len(rows), 318)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
                          [4, 16, 21, 5, 0, 10, 4, 13, 3, 2])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
                          ["3914", "3886", "3887", "4278", "4279", "4274", "3927", "4275"])
-        self.assertEqual({r["kind"] for r in rows}, {"move", "move_direct", "pull", "boss", "gossip", "wait_object"})
+        self.assertEqual({r["kind"] for r in rows}, {"move", "move_direct", "pull", "boss", "gossip", "wait_object", "wait_clear"})
         for leg in (0, 1, 2, 3, 6, 8, 9):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
         self.assertEqual(leg_steps(rows, 4)[-1]["kind"], "wait_object")
-        self.assertEqual([r["kind"] for r in leg_steps(rows, 7)[-2:]], ["boss", "wait_object"])
+        self.assertEqual([r["kind"] for r in leg_steps(rows, 7)[-6:]],
+                         ["move", "move", "move", "boss", "wait_clear", "wait_object"])
         self.assertEqual(leg_steps(rows, 5)[-1]["kind"], "pull")
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
                          ["3861,3851", "3875,2110", "", "", "3866,3868", "", "", ""])
@@ -459,33 +461,51 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(len(old_rows), 282)
         self.assertEqual(old_rows, mid_rows)
         # The 2026-10-24 migration against 20261023200000: the same rows, except the flag and comment of leg 4's wait (row 47)
-        # and the row leg 7 gained after Fenrus (seq 15).
+        # and the row leg 7 gained after Fenrus (seq 15). The 20261024153300 migration keeps that wait and adds the
+        # boss approach (seq 14-16), the boss reseq and the wait_clear (seq 18); byte-identity against 20261023200000 is
+        # checked on the earlier pair only, not here.
         mid_all = [r for r in self.step_rows(mid) if r["plan"] == "shadowfang_keep"]
         self.assertEqual(len(mid_all), 313)
-        rest = [r for r in rows if not (r["leg"] == "7" and r["seq"] == "15")]
-        self.assertEqual(len(rest), 313)
-        changed = [(a, b) for a, b in zip(mid_all, rest) if a != b]
-        self.assertEqual([(a["leg"], a["seq"], a["kind"]) for a, b in changed], [("4", "47", "wait_object")])
-        a, b = changed[0]
+        rest = [r for r in rows if not (r["leg"] == "7" and int(r["seq"]) >= 14)]
+        old_rest = [r for r in mid_all if not (r["leg"] == "7" and int(r["seq"]) >= 14)]
+        self.assertEqual(len(rest), 312)
+        self.assertEqual(len(old_rest), 312)
+        self.assertEqual([(r["leg"], r["seq"]) for r in rest], [(r["leg"], r["seq"]) for r in old_rest])
+        mid_key = {(r["leg"], r["seq"]): r for r in mid_all}
+        rows_key = {(r["leg"], r["seq"]): r for r in rows}
+        changed = [(k, mid_key[k], rows_key[k]) for k in mid_key if k in rows_key and mid_key[k] != rows_key[k]]
+        self.assertEqual([(k[0], k[1], a["kind"]) for k, a, b in changed],
+                         [("4", "47", "wait_object"), ("7", "14", "boss")])
+        _k, a, b = changed[0]
         self.assertEqual({k for k in a if a[k] != b[k]}, {"flags", "comment"})
         self.assertEqual((a["flags"], b["flags"]), ("0", "256"))
+        # leg 7 grew: the boss moved 14 -> 17, the gate wait 15 -> 19, plus 3 approach moves and the wait_clear.
+        self.assertFalse(("7", "14") in rows_key and rows_key[("7", "14")]["kind"] == "boss")
+        self.assertEqual(rows_key[("7", "17")]["kind"], "boss")
 
     def test_shadowfang_keep_voidwalkers_and_the_sorcerers_gate(self):
-        # 20261024050100, INTERACTIONS-VERIFIED-2026-10-24 (shadowfang_keep): Fenrus' death summons four Arugal's Voidwalkers
-        # (4627) 14 s later and the fourth voidwalker death opens the Sorcerer's Gate 18972. Leg 7 ends with the wait for the
-        # gate to be active; a wait_clear before it passes before the summon, so it is not in the rows.
+        # 20261024153300, r36 slotA + r30 slotB (shadowfang_keep): Fenrus' death summons four Arugal's Voidwalkers
+        # (4627) 14 s later and the fourth voidwalker death opens the Sorcerer's Gate 18972. Leg 7 walks the party up to
+        # Fenrus' own floor (three boss-approach moves ending on the ranged stand -152 2168 z128.69), fights the boss,
+        # holds on the voidwalker wait_clear until the four are dead, then waits for the gate to be active.
         name, text = newest_plan_text("shadowfang_keep")
-        self.assertEqual(name, "20261024050100_world.sql")
+        self.assertEqual(name, "20261024153300_world.sql")
         rows = [r for r in self.step_rows(text) if r["plan"] == "shadowfang_keep"]
         fenrus = leg_steps(rows, 7)
-        boss, gate = fenrus[-2:]
-        self.assertEqual((boss["kind"], boss["entry"]), ("boss", "4274"))
+        approach, boss, clear, gate = fenrus[-6:-3], fenrus[-3], fenrus[-2], fenrus[-1]
+        self.assertEqual([(r["kind"], r["seq"]) for r in approach],
+                         [("move", "14"), ("move", "15"), ("move", "16")])
+        self.assertEqual([(r["x"], r["y"]) for r in approach],
+                         [("-145.07", "2182.13"), ("-150", "2175"), ("-152", "2168")])
+        self.assertEqual((boss["kind"], boss["seq"], boss["entry"]), ("boss", "17", "4274"))
+        self.assertEqual((clear["kind"], clear["seq"], clear["radius"], clear["timeout_s"]),
+                         ("wait_clear", "18", "35", "120"))
+        self.assertEqual((clear["x"], clear["y"], clear["z"]), ("-147.1", "2171.6", "128.6"))
+        self.assertIn("4627", clear["comment"])
         self.assertEqual((gate["kind"], gate["seq"], gate["entry"], gate["param"], gate["timeout_s"], gate["flags"]),
-                         ("wait_object", "15", "18972", "1", "90", "0"))
+                         ("wait_object", "19", "18972", "1", "90", "0"))
         self.assertEqual((gate["x"], gate["y"], gate["z"]), ("-129.034", "2166.16", "129.187"))
-        self.assertIn("4627", gate["comment"])
-        self.assertEqual(int(boss["seq"]) + 1, int(gate["seq"]))
-        self.assertFalse([r for r in rows if r["kind"] == "wait_clear"])
+        self.assertIn("voidwalker", gate["comment"])
         # The header says the module change is needed (a build without it skips the flag-256 row and the plan is refused).
         self.assertIn("NEEDS THE MODULE CHANGE", text)
         self.assertIn("which the run client refuses", text)
@@ -499,7 +519,7 @@ class DungeonPlanSql(unittest.TestCase):
         # stand each (20 yd clear of every pack pulled later) and the rat out, and the walk up to the upper court is
         # three approach moves through the stair's real top. Every pin fails when its row is cut.
         name, text = newest_plan_text("shadowfang_keep")
-        self.assertEqual(name, "20261024050100_world.sql")  # 20261023200000 added the split; its leg 2 rows are unchanged since
+        self.assertEqual(name, "20261024153300_world.sql")  # 20261023200000 added the split; its leg 2 rows are unchanged since
         rows = [r for r in self.step_rows(text) if r["plan"] == "shadowfang_keep"]
         steps = leg_steps(rows, 2)
         self.assertEqual(len(steps), 31)
