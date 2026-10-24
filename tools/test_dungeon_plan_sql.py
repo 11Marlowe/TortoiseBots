@@ -752,7 +752,7 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
 
     def test_stratholme_undead_has_the_rivendare_room_leg(self):
-        # 20261024152000 (turtle-agent prep/stratholme_undead 47c914f, 2026-10-24): 20261024150200 again with the
+        # 20261024152300 (turtle-agent prep/stratholme_undead 47c914f, 2026-10-24): 20261024150200 again with the
         # Rivendare pull for RUN-LESSONS r32 slotD (round 1's hold worked through Slaughter Square: every abomination
         # pull passed, the hold ended '13 of 13 down', the Black Guards fought, Ramstein met; but the run ended
         # 'plan done' with Baron Rivendare 10440 ALIVE at 100 %, ~85 yd from the hold spot, never pulled: the plan
@@ -761,9 +761,10 @@ class DungeonPlanSql(unittest.TestCase):
         # opens) and its boss row pulls 10440 at his spawn (the normal boss row shape, entries ''). Legs 0-4
         # byte-identical to 20261024150200. 6 legs, 253 steps (15 + 20 + 22 + 13 + 13 + 0 pulls; 164 moves;
         # 5 boss rows + 1 hold); the new leg's 10 rows are the only step rows added. Boss table unchanged (all five);
-        # the ai_boss_tactic row (329, 10440, kill_first 10440) is carried over unchanged.
+        # the ai_boss_tactic row (329, 10440, kill_first 10440) is carried over, now with its own DELETE first
+        # (20261024152000's plain INSERT failed on boots that already had the row from 20261024150200; replaced here).
         name, text = newest_plan_text("stratholme_undead")
-        self.assertEqual(name, "20261024152000_world.sql")
+        self.assertEqual(name, "20261024152300_world.sql")
         self.assertIn("('stratholme_undead', 329, '', '', '10393,10411,10400,10398', 'turtle-agent 47c914f dungeons/stratholme_undead.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "stratholme_undead")
         self.assertEqual([legs[i][0] for i in range(6)],
@@ -827,8 +828,9 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (329) AND `entry` IN (10435, 10437, 10438, 10436, 10440);", text)
         self.assertEqual([(m, e) for m, e, _n in self.boss_rows(text)],
                          [(329, 10435), (329, 10437), (329, 10438), (329, 10436), (329, 10440)])
-        # Rivendare's tactic: DPS take him before anything else while he attacks the party (unchanged from round 1)
-        self.assertIn("(329, 10440, 'kill_first', 0, 0, 1, 0, 'Rivendare: engage him the moment he is in combat with the party (r28d slotD)');", text)
+        # Rivendare's tactic: DPS take him before anything else while he attacks the party (unchanged from round 1,
+        # with its own DELETE first: the hand-boss block deletes what it inserts, scoped to map 329 entry 10440)
+        self.assertIn("DELETE FROM `ai_boss_tactic` WHERE `map` = 329 AND `boss_entry` IN (10440);", text)
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
         # 20261023210000 (turtle-agent cg-fix1 479dc0d) re-exports the 20261023130100 draft (prep/crescent_grove ba00e7c, the census
@@ -1778,6 +1780,31 @@ class DungeonPlanSql(unittest.TestCase):
             if scoped[0][1]:
                 self.assertEqual({int(e) for e in scoped[0][1].split(",")}, {e for _m, e in seeded_entries}, name)
             self.assertEqual({int(m) for m in scoped[0][0].split(",")}, seeded, name)
+
+    def test_boss_tactic_inserts_delete_their_own_keys_first(self):
+        # ai_boss_tactic's key is (map, boss_entry, kind, target_entry, spell_id): a migration that re-INSERTs a
+        # tactic row an earlier migration already wrote, without DELETEing it, fails on a boot that runs both
+        # (20261024152000 re-INSERTed 20261024150200's (329, 10440) kill_first row). The first migration that
+        # INSERTs a (map, boss_entry) key needs no DELETE (fresh table); every later migration that INSERTs the
+        # same key first DELETEs it: a whole-map DELETE, or a DELETE scoped to its own boss entries (the shape
+        # the other plan migrations use for their boss rows).
+        seen = set()
+        for name, text in migrations():
+            if "INSERT INTO `ai_boss_tactic`" not in text:
+                continue
+            inserted = set()
+            for block in re.findall(r"INSERT INTO `ai_boss_tactic` \(([^)]*)\) VALUES(.*?);\n", text, re.S):
+                cols = [c.strip(" `") for c in block[0].split(",")]
+                map_at, entry_at = cols.index("map"), cols.index("boss_entry")
+                for row in re.findall(r"(?m)^\((\d+), (\d+), '", block[1]):
+                    inserted.add((row[0], row[1]))
+            whole = set(re.findall(r"DELETE FROM `ai_boss_tactic` WHERE `map` = (\d+);", text))
+            scoped = {}
+            for map_id, entries in re.findall(r"DELETE FROM `ai_boss_tactic` WHERE `map` = (\d+) AND `boss_entry` IN \(([\d, ]+)\);", text):
+                scoped.setdefault(map_id, set()).update(e.strip() for e in entries.split(","))
+            missing = sorted((m, e) for m, e in (inserted & seen) if not (m in whole or e in scoped.get(m, set())))
+            self.assertFalse(missing, "%s: tactic INSERTs with no DELETE of the same (map, boss_entry): %s" % (name, missing))
+            seen |= inserted
 
 
 if __name__ == "__main__":

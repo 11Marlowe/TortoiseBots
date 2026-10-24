@@ -1,23 +1,21 @@
--- Stratholme, undead side (map 329), 20261024150200 again with the Rivendare pull for RUN-LESSONS
--- r32 slotD (turtle-agent prep/stratholme_undead 47c914f, dungeons/stratholme_undead.json, status 'draft (not mapped,
--- not live-checked)'): round 1 replaced leg 4 (baron_rivendare)'s boss row with the whole-square units hold, so the
--- run ended 'plan done' with Baron Rivendare 10440 ALIVE at 100 %, ~85 yd from the hold spot, never pulled. The plan
--- format cannot hold a boss row after a hold in the same leg (Leg.Boss is one struct: boss() writes the hold INSTEAD
--- OF the boss row), so this adds a new last leg 5 'baron_rivendare_room': its 'to' walks from the hold spot
--- (4040.01 -3413.15 117.77) through the gate the event opens to Rivendare's room, and its boss row pulls 10440 at his
--- spawn (4032.79 -3333.02 115.06, the normal boss row shape, entries ''). The existing kill_first 10440 tactic
--- (ai_boss_tactic, carried over below) engages him the moment he is in combat with the party. Legs 0-4 are
--- byte-identical to 20261024150200. Row count 243 -> 253 steps (leg 5: 9 moves + 1 boss = 10 rows; 164 moves,
--- 83 pulls, 5 boss rows, 1 hold row).
+-- Stratholme, undead side (map 329), 20261024152000 again (same rows, new stamp): 20261024152000's plain
+-- INSERT INTO ai_boss_tactic for (329, 10440) fails on a boot that already has the row (20261024150200 wrote
+-- it; the hot-apply of 152000 on server 2 ran it by hand, so no boot has 152000's steps either). This file
+-- replaces 20261024152000 (deleted in the same commit): its only change is the hand-boss block below, which
+-- now DELETEs its own tactic rows (map 329, entry 10440) right before inserting, the same shape the other
+-- plan migrations use for their boss rows (e.g. 20261020083400 for map 209). Step rows, boss table, tactic
+-- row, plan-check and exporter options are otherwise byte-identical to 20261024152000 (turtle-agent
+-- prep/stratholme_undead 47c914f, dungeons/stratholme_undead.json, status 'draft (not mapped, not live-checked)').
+-- 6 legs, 253 steps (164 moves, 83 pulls, 5 boss rows, 1 hold row).
 -- Exported from turtle-agent prep/stratholme_undead 47c914feb09e935ba67e0a703169addac9403c3d (dungeons/stratholme_undead.json, status 'draft (not mapped,
 -- not live-checked)') with the options of the 20261023190000 header:
 --   turtle-agent plan-export --dir dungeons --mmaps <map 329 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 47c914f \
---     --stamp 20261024152000 --out <dir> stratholme_undead
--- Plan check (turtle-agent plan-check, map 329 mmaps): ok, 289 points on the navmesh (287 in 20261024150200; the new
--- leg's to + boss look are the 2 new points, and from_leg 5 alone is ok), 61 run-leader hop notices (unchanged: the
--- new leg's boss stands on its to, so no new hop), no detour warning, no failing point. Legs 0-4 byte-identical to
--- 20261024150200: the new leg's 10 rows are the only step rows added. No row is hand-set beyond the plan file (the
--- exporter wrote every row except the boss table and the tactic row below, which the exporter has no columns for).
+--     --stamp 20261024152300 --out <dir> stratholme_undead
+-- Plan check (turtle-agent plan-check, map 329 mmaps, unchanged from 20261024152000: no step row moved): ok, 289
+-- points on the navmesh (287 in 20261024150200; the new leg's to + boss look are the 2 new points, and from_leg 5
+-- alone is ok), 61 run-leader hop notices (unchanged: the new leg's boss stands on its to, so no new hop), no detour
+-- warning, no failing point. Legs 0-4 byte-identical to 20261024150200: the new leg's 10 rows are the only step rows
+-- added. No row is hand-set beyond the plan file (the exporter wrote every row except the boss table and the tactic row below, which the exporter has no columns for).
 -- What the rows cannot carry (unchanged from 20261024150200):
 --   * Ramstein 10439 (summoned at 4032.35 -3380.57) and the five Black Guards 10394 have no spawn rows and no hold
 --     entries: the hold fights the 13 abominations and Rivendare where they stand; the party fights Ramstein and the
@@ -319,5 +317,6 @@ REPLACE INTO `ai_dungeon_boss` (`map`, `entry`, `name`) VALUES
 -- walks to the party at 100%% he must be engaged at once (RUN-LESSONS r28d slotD blocker 2: three 'boss took more
 -- than 300 s out of combat' pauses and a wipe with Rivendare untouched). DPS take him before anything else while he
 -- attacks the party; the temporary adds (skeletons) die after him (priority 1, then nothing: lowest first).
+DELETE FROM `ai_boss_tactic` WHERE `map` = 329 AND `boss_entry` IN (10440);
 INSERT INTO `ai_boss_tactic` (`map`, `boss_entry`, `kind`, `target_entry`, `spell_id`, `priority`, `param`, `comment`) VALUES
 (329, 10440, 'kill_first', 0, 0, 1, 0, 'Rivendare: engage him the moment he is in combat with the party (r28d slotD)');
