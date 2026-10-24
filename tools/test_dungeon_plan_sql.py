@@ -1266,38 +1266,61 @@ class DungeonPlanSql(unittest.TestCase):
                             (14325, "Captain Kromcrush"), (11501, "King Gordok")):
             self.assertIn("(429, %d, '%s')" % (entry, boss.replace("'", "''")), text)
 
-    def test_dire_maul_west_is_the_plan_with_the_census_fixes(self):
-        # 20261024153000 (turtle-agent 83a881b, 2026-10-24): the Dire Maul West draft with the census fixes of
-        # PREP-DIRE-MAUL-WEST-2026-10-24.md plus the two r33 fix rounds (the two hall packs the leg-1 walk crosses are
-        # Revanchion-leg pulls before the boss walk; round 2 adds the pit climb and the east-stairs climb of the illyanna
-        # leg and puts the Tendris boss approach back on the mesh), with the boss rows of map 429 scoped to this plan's own six
-        # entries. 6 legs, 547 steps (45 + 2 + 18 + 13 + 29 + 4 pulls), bosses in leg order, no door or event step. The plan
-        # row's kill_first is the two healers/regrowthers (14303, 11473), the Polymorphing Sorcerer (11470) and the summoner
-        # (11484); cc_priority and cc_always stay empty (no trash is polymorphable). The 29 Shen'dralar Wisps (14361) and the
-        # 16 neutral Highborne Summoners (11466) are out of every pull, and so are the courtyard's Gordok mobs; Revanchion
-        # 14690 has a leg of his own, first in the hall; Ferra 14308 is Illyanna's boss.first; Tsu'zee 11467 (rare) is a
-        # member of the Kalendris hall's pull; every pull is at most 6 units and every radius <= 19 yd.
+    def test_dire_maul_west_is_the_crystal_event_and_the_r36_fixes(self):
+        # 20261024153600 (turtle-agent 940fc091, 2026-10-24): the Dire Maul West draft with the census fixes, the two r33 fix
+        # rounds and the r36 crystal-event fix. The five CrystalGenerator game objects (177259, 177257, 177258, 179504, 179505)
+        # are each used when the four Mana Remnants 11483 within 20 yd of it die (instance_dire_maul.cpp SetData64
+        # TYPE_CRISTAL_EVENT, DoSortCristalsEventMobs); the last one opens the force field 179503 and makes Immol'thar
+        # selectable. Each crystal has one four-remnant pull from a stand 15-25 yd off the pack followed by a hold on the
+        # crystal's object state (entry the crystal, param 1 active, flags 16 done-by-object, radius 40, timeout 120,
+        # entries 11483): the hold fights a remnant the pull left and ends only when the crystal reads active, so a missed
+        # guardian pauses at the crystal and not at Immol'thar (r36 step 465 sat 300 s on the boss, unattackable). The 18
+        # Residual Monstrosities 11484 are not pulled (they guard nothing; all 18 share one 705 yd ring path, so no stand is
+        # off it; r36 steps 421/425 wiped 5 times). 6 legs, 571 steps (36 + 2 + 18 + 13 + 5 + 4 pulls, plus 5 holds), bosses in
+        # leg order. The plan row's kill_first is the two healers/regrowthers (14303, 11473), the Polymorphing Sorcerer
+        # (11470) and the summoner (11484); cc_priority and cc_always stay empty. The 29 Shen'dralar Wisps (14361), the 16
+        # neutral Highborne Summoners (11466) and the 18 Monstrosities are out of every pull, and so are the courtyard's Gordok
+        # mobs; Revanchion 14690 has a leg of his own; Ferra 14308 is Illyanna's boss.first; Tsu'zee 11467 (rare) is a member of
+        # the Kalendris hall's pull; every pull is at most 6 units and every radius <= 19 yd.
         name, text = newest_plan_text("dire_maul_west")
-        self.assertEqual(name, "20261024153000_world.sql")
-        self.assertIn("('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 83a881b dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024153600_world.sql")
+        self.assertIn("('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 940fc091 dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');", text)
         legs = leg_rows(text, "dire_maul_west")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["tendris_warpwood", "revanchion", "illyanna_ravenoak", "magister_kalendris", "immol'thar",
                           "prince_tortheldrin"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "dire_maul_west"]
-        self.assertEqual(len(rows), 547)
-        self.assertEqual([len(leg_steps(rows, leg)) for leg in range(6)], [114, 22, 161, 93, 75, 82])
+        self.assertEqual(len(rows), 571)
+        self.assertEqual([len(leg_steps(rows, leg)) for leg in range(6)], [141, 22, 162, 93, 71, 82])
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)],
-                         [45, 2, 18, 13, 29, 4])
+                         [36, 2, 18, 13, 5, 4])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["11489", "14690", "11488", "11487", "11496", "11486"])
-        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss", "hold"})
         for leg in range(6):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
-        # Ferra is Illyanna's boss.first (the row's entries), and no pull lists her or a neutral NPC.
+        # The five crystal holds: the object entry, its active state (param 1) and the done-by-object flag 16, at the stand
+        # of the pull group right before each, with the remnant entry as their only units.
+        holds = [r for r in rows if r["kind"] == "hold"]
+        self.assertEqual([(r["leg"], r["seq"], r["entry"], float(r["x"]), float(r["y"]), float(r["z"]), r["param"], r["flags"],
+                           r["timeout_s"], float(r["radius"]), r["entries"]) for r in holds],
+                         [("0", "13", "177259", 32.0, 300.0, -7.5, "1", "16", "120", 40.0, "11483"),
+                          ("0", "99", "177257", 130.6, 454.9, 29.2, "1", "16", "120", 40.0, "11483"),
+                          ("2", "70", "177258", -102.7, 426.9, 29.2, "1", "16", "120", 40.0, "11483"),
+                          ("4", "35", "179505", -111.3, 731.7, -24.0, "1", "16", "120", 40.0, "11483"),
+                          ("4", "45", "179504", 51.6, 855.5, -23.4, "1", "16", "120", 40.0, "11483")])
+        for r in holds:
+            self.assertIn("is active", r["comment"])
+        # The five crystal pulls: four 11483 at radius 18 (the 20 remnants in five groups), each before its own hold.
+        crystal_pulls = [r for r in rows if r["kind"] == "pull" and r["entries"] == "11483"]
+        self.assertEqual([(r["leg"], float(r["x"]), float(r["y"]), float(r["radius"])) for r in crystal_pulls],
+                         [("0", 17.1, 277.3, 18.0), ("0", 111.5, 435.8, 18.0), ("2", -85.3, 445.0, 18.0),
+                          ("4", -130.2, 712.8, 18.0), ("4", 70.7, 874.6, 18.0)])
+        # Ferra is Illyanna's boss.first (the row's entries); Immol'thar's row names the boss alone (entries empty: the step's
+        # own entry is 11496, and the plan refuses the boss in boss.first), and no pull lists her, a neutral NPC or a Monstrosity.
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "14308", "", "", ""])
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertFalse([r["entries"] for r in pulls
-                          if {"14361", "11466", "14308", "13036", "14690"} & set(r["entries"].split(","))])
+                          if {"14361", "11466", "14308", "13036", "14690", "11484"} & set(r["entries"].split(","))])
         # The row lists each entry once (3 Skeletal + 3 Rotting Highborne is "11477,11476"), so the densest planned pack is pinned by its row.
         self.assertEqual([(r["entries"], float(r["radius"])) for r in pulls if r["entries"] == "11477,11476"],
                          [("11477,11476", 8.5)])
@@ -1305,8 +1328,7 @@ class DungeonPlanSql(unittest.TestCase):
         # Tsu'zee 11467 is the rare of the Kalendris hall: a member of the pull nearest him (leg 3, pull group 6, radius 8.6).
         self.assertEqual([(r["entries"], float(r["radius"])) for r in pulls if "11467" in r["entries"].split(",")],
                          [("11467,11471", 8.6)])
-        # Revanchion's leg pulls the two hall packs the old walk died on (r33 step 128: groups 6 and 2, stands
-        # (120 505) and (67 522) on the mesh, outside the other packs' reach) before his boss row.
+        # Revanchion's leg pulls the two hall packs the old walk died on (r33 step 128) before his boss row.
         rev = leg_steps(rows, 1)
         self.assertEqual([(r["kind"], r["entries"], r["comment"]) for r in rev if r["kind"] != "move"],
                          [("pull", "11471,11472", "pull group 0"), ("pull", "11472,11471,11475", "pull group 1"),
@@ -1315,8 +1337,8 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in revmoves if r["comment"].endswith("approach")],
                          [("120", "505", "-4.3", "pull group 0 approach"),
                           ("67", "522", "-4.3", "pull group 1 approach")])
-        # Round 2 (r33 slot7b steps 152 and 157): the pit climb of pull group 3 and the east-stairs climb of pull group 7,
-        # the only walkable links from the z -23 pit and the z 28.6 balcony; the exporter's cut fills each pair in 50 yd hops.
+        # The pit climb of leg 2 group 3 and the east-stairs climb plus the crystal-3 stand of group 7 (the z 28.6 balcony's
+        # only walkable link from the hall; the stand is 25 yd from the crystal and 19 yd from its nearest remnant).
         il = leg_steps(rows, 2)
         self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in il
                           if r["comment"] in ("pull group 3 approach", "pull group 7 approach")],
@@ -1325,13 +1347,27 @@ class DungeonPlanSql(unittest.TestCase):
                           ("5.07", "371.47", "-3.02", "pull group 3 approach"),
                           ("-61.33", "515", "-3.52", "pull group 3 approach"),
                           ("-64", "493.6", "-4.32", "pull group 7 approach"),
-                          ("70.4", "498.4", "-3.52", "pull group 7 approach"),
                           ("125.07", "483.2", "-2.32", "pull group 7 approach"),
-                          ("124.8", "539.2", "28.68", "pull group 7 approach")])
+                          ("124.8", "539.2", "28.68", "pull group 7 approach"),
+                          ("-102.7", "426.9", "29.2", "pull group 7 approach")])
         # The Tendris boss approach is on the mesh (the cutter's 50 yd split put a point in mid air before).
         self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in leg_steps(rows, 0)
                           if r["comment"] == "boss approach"],
                          [("21.6", "420", "-4.4", "boss approach"), ("21.33", "448", "-20.5", "boss approach")])
+        # The ring walk after the crystal blocks: the three Arcane Torrent pulls keep the old ring route through approach
+        # points (the r36 moves 57-62 and 64-70), and the boss its own (the r36 moves 72-73).
+        imm = leg_steps(rows, 4)
+        self.assertEqual([(r["x"], r["y"], r["comment"]) for r in imm
+                          if r["comment"] == "pull group 4 approach"],
+                         [("17", "716", "pull group 4 approach"), ("-128", "725", "pull group 4 approach")])
+        self.assertEqual([(r["x"], r["y"], r["comment"]) for r in imm
+                          if r["comment"] == "pull group 5 approach"],
+                         [("-173", "789", "pull group 5 approach"), ("-146", "885", "pull group 5 approach")])
+        self.assertEqual([(r["x"], r["y"], r["comment"]) for r in imm
+                          if r["comment"] == "pull group 6 approach"],
+                         [("-86", "928.5", "pull group 6 approach"), ("13.9", "929.5", "pull group 6 approach")])
+        self.assertEqual([(r["x"], r["y"], r["comment"]) for r in imm if r["comment"] == "boss approach"],
+                         [("25.07", "891.66", "boss approach"), ("-7.05", "853.36", "boss approach")])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["dire_maul_west"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (429) AND `entry` IN (11489, 14690, 11488, 11487, 11496, 11486);", text)
 
