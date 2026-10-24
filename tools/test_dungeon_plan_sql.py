@@ -1235,15 +1235,19 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("(329, 10440, 'kill_first', 0, 0, 1, 0, 'Rivendare: engage him the moment he is in combat with the party (r28d slotD)');", text)
 
     def test_stormwrought_ruins_is_the_census_fixed_draft(self):
-        # 20261024021000 (turtle-agent e16271e, 2026-10-24): the generated Stormwrought Ruins draft with the pack census of
-        # PREP-STORMWROUGHT-RUINS-2026-10-24.md, no row hand-set, with the boss rows of map 818 scoped to its own eleven entries.
-        # 11 legs, 686 steps (251 pulls), bosses in leg order, no boss.first, no door or event step. The plan row carries cc_priority
-        # and kill_first; 15 duplicate rows were merged, every radius is the group's own members (max 17.7), the nine packs inside a
-        # boss's 18 yd detection are their leg's last pull, and Remains of the Innocent 62670 (boss-grade trash) is in leg 10's group 6
-        # and in kill_first. The 24 needs_walk groups and Eldermaw's boss point are the mapping walk's, not invented here.
+        # 20261024150100 (turtle-agent 60006a0, 2026-10-24): SW-FIX1 over the 20261024021000 census draft (see
+        # ~/TortoiseBots-audit/SW-FIX1-2026-10-24.md and RUN-LESSONS.md r28d): no row hand-set, boss rows of map 818
+        # scoped to its own eleven entries. 11 legs, 678 steps (251 pulls), bosses in leg order, no boss.first,
+        # no door or event step. Leg 5's south-shore packs g9-g13 (old order) now come right after g1, so the walk
+        # from the north-shore circuit to g9/g10 passes no living pack (the old walk ran 3.6 yd through unpulled
+        # g13 and 10-24 yd past unpulled g11/g12, whose join plus the patrolling 62542 evaded into the lake and
+        # paused step 251 4x); g9 radius 9.1 -> 8.0, g10 9.4 -> 8.0. Leg 4 keeps its 19 pulls: group 3 (upper
+        # shelf z233.2) radius 5 -> 4 so it no longer reaches the step-168 pull on the lower shelf (dz ~11.6,
+        # members 13.5-15.9 yd off). The nine packs inside a boss's 18 yd detection are still their leg's last
+        # pull, and Remains of the Innocent 62670 (boss-grade trash) is still in leg 10's group 6 and in kill_first.
         name, text = newest_plan_text("stormwrought_ruins")
-        self.assertEqual(name, "20261024021000_world.sql")
-        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent e16271e dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024150100_world.sql")
+        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 60006a0 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "stormwrought_ruins"),
                          {0: ("dagar_the_glutton", ""), 1: ("oronok_torn-heart", ""),
                           2: ("librarian_theodorus", ""), 3: ("duke_balor_the_iv", ""),
@@ -1252,7 +1256,7 @@ class DungeonPlanSql(unittest.TestCase):
                           8: ("eldermaw_the_primordial", ""), 9: ("lady_drazare", ""),
                           10: ("ighal'for", "")})
         rows = [r for r in self.step_rows(text) if r["plan"] == "stormwrought_ruins"]
-        self.assertEqual(len(rows), 686)
+        self.assertEqual(len(rows), 678)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(11)],
                          [11, 28, 18, 19, 19, 43, 28, 27, 16, 30, 12])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
@@ -1263,10 +1267,17 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], [""] * 11)
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertLessEqual(max(float(r["radius"]) for r in pulls), 17.7)
-        self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 5.0)
+        self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 4.0)
         # The nine packs inside a boss's 18 yd detection are the last pull of their leg (the boss joins by design).
         self.assertEqual([leg_steps(rows, leg)[-2]["entries"] for leg in (1, 3, 5, 7, 8, 9)],
                          ["62540", "62541,62543", "62542", "62646", "62648", "62667,62647,62663"])
+        # SW-FIX1: leg 5's south-shore packs come right after g1 (old g9-g13 first); leg 4 group 3 radius 4.
+        self.assertEqual([(r["entries"], r["radius"]) for r in leg_steps(rows, 5) if r["kind"] == "pull"][:7],
+                         [("62544,62540,62545", "13.4"), ("62545,62544,62540", "10.1"),
+                          ("62546,62545,62544", "8"), ("62542,62545,62544", "8"),
+                          ("62544,62546,62545", "10.5"), ("62546", "8.4"), ("62546", "5")])
+        self.assertEqual([(r["entries"], r["radius"]) for r in leg_steps(rows, 4) if r["kind"] == "pull"][3:5],
+                         [("62537,62539", "4"), ("62539,62537,62536", "5")])
         self.assertIn("62670", [r["entries"] for r in leg_steps(rows, 10) if r["kind"] == "pull"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (818) AND `entry` IN (62547, 62548, 62552, 62549, 62551, 62550, 62652, 62664, 62661, 62665, 62671);", text)
         self.assertIn("(818, 62671, 'Ighal''for');", text)
