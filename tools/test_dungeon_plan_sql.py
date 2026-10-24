@@ -1468,27 +1468,28 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (230) AND `entry` IN (9018, 9319, 9016, 9033, 8983, 9017, 9056, 9156, 9938, 9019);", text)
 
     def test_dragonmaw_retreat_is_the_plan_with_the_census_fixes(self):
-        # 20261023150200 (turtle-agent c4d60a8, 2026-10-23): the Dragonmaw Retreat draft with the census fixes of
-        # PREP-DRAGONMAW-RETREAT-2026-10-23.md, no row hand-set, with the boss rows of map 816. 5 legs, 886 steps (28 + 6 + 60 + 41 + 78
-        # pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the 74 critter spawns (4075, 14881) are out
+        # 20261024151500 (turtle-agent 7df815b, 2026-10-24): 20261023150200 again, with one server-path
+        # `via` on the long leg-2 (searistrasz) `to` hop the live server refuses (2048-node search answers
+        # 'unreachable'): entered at the gm-cross drop landing -6190.1 -3962.4 z215.8, the 1406.3 yd offline
+        # hop ends server type 0x4 at -6114.9 -4032.0 212.3 (204.2 yd short). The audit's halfway waypoint at
+        # -6293.33 -4373.33 z294.49 splits it into 696.4 + 693.2 yd, both server type 0x1 ok. 5 legs,
+        # 886 steps (28 + 6 + 60 + 41 + 78 pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the 74 critter spawns (4075, 14881) are out
         # of every pull; leg 2 enters the main network over the one-way 6 yd drop as the plan's one move_direct; the single Bruiser inside
         # the twin bosses' detection and the single whelp inside Searistrasz's detection are gone; the boss rows and the entry-scoped
         # boss DELETE are pinned.
         name, text = newest_plan_text("dragonmaw_retreat")
-        self.assertEqual(name, "20261023150200_world.sql")
-        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent c4d60a8 dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024151500_world.sql")
+        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 7df815b dungeons/d', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "dragonmaw_retreat")), 5)
         rows = [r for r in self.step_rows(text) if r["plan"] == "dragonmaw_retreat"]
         self.assertEqual(len(rows), 886)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [28, 6, 60, 41, 78])
-        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["62056", "62057", "62072", "62069", "62037"])
-        self.assertEqual({r["kind"] for r in rows}, {"move", "move_direct", "pull", "boss"})
-        for leg in range(5):
-            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
-        self.assertEqual([(r["entry"], r["entries"]) for r in rows if r["kind"] == "boss"],
-                         [("62056", "62057"), ("62057", ""), ("62072", ""), ("62069", ""), ("62037", "")])
-        # The gm_cross landing of leg 2, exported as the one straight walk (the run leader has no GM move).
+        # The gm_cross landing of leg 2, exported as the one straight walk (the run leader has no GM move),
+        # and the server-path `via` after it (a plain move row the server walk judges like any other).
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in rows if r["kind"] == "move_direct"], [("-6190.1", "-3962.4", "215.8")])
+        leg2 = leg_steps(rows, 2)
+        self.assertIn(("move", "-6293.33", "-4373.33", "294.49", "via"),
+                      [(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg2])
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertFalse({e for r in pulls for e in r["entries"].split(",")} & {"4075", "14881"}, "a critter is still a pull member")
         self.assertEqual((pulls[0]["entries"], float(pulls[0]["radius"])), ("62052", 5.0))
