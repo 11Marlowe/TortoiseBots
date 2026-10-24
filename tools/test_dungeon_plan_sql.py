@@ -873,25 +873,36 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["dragonmaw_retreat"])
 
     def test_black_morass_is_the_plan_with_the_census_fixes(self):
-        # 20261024020900 (turtle-agent c4eda29, 2026-10-24): The Black Morass draft with the census fixes of
-        # PREP-BLACK-MORASS-2026-10-24.md, no row hand-set, with the boss rows of map 269. 4 legs, 522 steps (131 + 23 + 66 + 32
-        # pulls), bosses in leg order, no boss.first and no door/event step. The 28 Snakes (2914, a level 1 critter) are out of
-        # every pull; the two split packs are merged; Epochronos' guard is the last pull of leg 2; every radius (< 16 yd) reaches
-        # its own group from the row point and no further. Medivh 50105 is faction 35 (friendly) and stays as a destination row.
+        # 20261024060800 (turtle-agent 7b712c15, 2026-10-24 bm-fix1): The Black Morass draft with the census fixes of
+        # PREP-BLACK-MORASS-2026-10-24.md plus the r28d step-1 fix (69 plain leg-0 via points from the landing to the
+        # to along the 2,678 yd live mesh path), no row hand-set, with the boss rows of map 269. 4 legs, 591 steps
+        # (596 rows: 335 move (69 via + 266), 252 pull, 4 boss; 131 + 23 + 66 + 32 pulls), bosses in leg order, no
+        # boss.first and no door/event step. The 28 Snakes (2914, a level 1 critter) are out of every pull; the two
+        # split packs are merged; Epochronos' guard is the last pull of leg 2; every radius (< 16 yd) reaches its own
+        # group from the row point and no further. Medivh 50105 is faction 35 (friendly) and stays as a destination row.
         name, text = newest_plan_text("black_morass")
-        self.assertEqual(name, "20261024020900_world.sql")
-        self.assertIn("('black_morass', 269, '', '', '65124,65102,65105,61575', 'turtle-agent c4eda29 dungeons/black_morass.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024060800_world.sql")
+        self.assertIn("('black_morass', 269, '', '', '65124,65102,65105,61575', 'turtle-agent 7b712c15 dungeons/black_morass.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "black_morass")
         self.assertEqual([legs[i][0] for i in range(4)],
                          ["antnormi", "medivh", "time-lord_epochronos", "chronar"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "black_morass"]
-        self.assertEqual(len(rows), 522)
+        self.assertEqual(len(rows), 591)
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(4)],
                          [131, 23, 66, 32])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["65125", "50105", "65116", "65113"])
-        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         for leg in range(4):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        # Leg 0 opens with the 69 via rows from the landing walk (the r28d step-1 fix), then the to row, then pulls.
+        steps0 = leg_steps(rows, 0)
+        self.assertEqual([r["kind"] for r in steps0[:69]], ["move"] * 69)
+        self.assertEqual([(r["x"], r["y"]) for r in steps0[:2]],
+                         [("-1950.93", "6581.6"), ("-1936", "6595.73")])
+        self.assertEqual((steps0[69]["kind"], steps0[69]["x"], steps0[69]["y"], steps0[69]["comment"]),
+                         ("move", "-1961.5", "6797", "to"))
+        self.assertEqual((steps0[70]["kind"], steps0[70]["x"], steps0[70]["y"], steps0[70]["z"], steps0[70]["entries"]),
+                         ("pull", "-1961.5", "6797", "26.53", "65112"))
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "", ""])
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertFalse([r for r in pulls if "2914" in r["entries"].split(",")], "a snake is still a pull member")
