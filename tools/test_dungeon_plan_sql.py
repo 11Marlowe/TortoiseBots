@@ -1912,21 +1912,23 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (230) AND `entry` IN (9018, 9319, 9016, 9033, 8983, 9017, 9056, 9156, 9938, 9019);", text)
 
     def test_dragonmaw_retreat_is_the_plan_with_the_census_fixes(self):
-        # 20261024151500 (turtle-agent 7df815b, 2026-10-24): 20261023150200 again, with one server-path
-        # `via` on the long leg-2 (searistrasz) `to` hop the live server refuses (2048-node search answers
-        # 'unreachable'): entered at the gm-cross drop landing -6190.1 -3962.4 z215.8, the 1406.3 yd offline
-        # hop ends server type 0x4 at -6114.9 -4032.0 212.3 (204.2 yd short). The audit's halfway waypoint at
-        # -6293.33 -4373.33 z294.49 splits it into 696.4 + 693.2 yd, both server type 0x1 ok. 5 legs,
-        # 886 steps (28 + 6 + 60 + 41 + 78 pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the 74 critter spawns (4075, 14881) are out
+        # 20261024154400 (turtle-agent 46a23862, 2026-10-24, after live run r35 slot6b stopped at step 475): 20261024151500 again, with the
+        # plan's one `avoid` box over the magma pool under the leg-3 low walkway (x -6416..-6378, y -3970..-3946, z 70.7..72.6,
+        # the pool floor at z 70.8-70.9 under a surface just below the 72.64 walkway). The old step 475 (leg 3 seq 118,
+        # -6404.53 -3950.93 70.94, the exporter's cut of the climb to pull group 24) sent the party down the shore slope into the
+        # lava: 605-610 a hit (EnvironmentalDamage.Min/Max, Player::OnMirrorTimerExpirationPulse DAMAGE_LAVA) with no hostile and no
+        # combat flag, 11 deaths at step 475 (trace t8572-t9017), while the lead refused its own walk on the rim. The avoid-aware cutter
+        # now walks the east rim (-6378.6665 -3968.0 and -6378.6665 -3946.6665, z 72.689). 5 legs, 884 steps (28 + 6 + 60 + 41 + 78
+        # pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the 74 critter spawns (4075, 14881) are out
         # of every pull; leg 2 enters the main network over the one-way 6 yd drop as the plan's one move_direct; the single Bruiser inside
         # the twin bosses' detection and the single whelp inside Searistrasz's detection are gone; the boss rows and the entry-scoped
         # boss DELETE are pinned.
         name, text = newest_plan_text("dragonmaw_retreat")
-        self.assertEqual(name, "20261024151500_world.sql")
-        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 7df815b dungeons/d', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024154400_world.sql")
+        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 46a23862 dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "dragonmaw_retreat")), 5)
         rows = [r for r in self.step_rows(text) if r["plan"] == "dragonmaw_retreat"]
-        self.assertEqual(len(rows), 886)
+        self.assertEqual(len(rows), 884)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [28, 6, 60, 41, 78])
         # The gm_cross landing of leg 2, exported as the one straight walk (the run leader has no GM move),
         # and the server-path `via` after it (a plain move row the server walk judges like any other).
@@ -1934,12 +1936,31 @@ class DungeonPlanSql(unittest.TestCase):
         leg2 = leg_steps(rows, 2)
         self.assertIn(("move", "-6293.33", "-4373.33", "294.49", "via"),
                       [(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg2])
+        # The magma pool of the leg-3 low walkway (r35 slot6b step 475): no row stands in the plan's avoid box, the old dip
+        # (-6404.53 -3950.93 70.94) is gone, and the leg-3 rows of the walk round the pool keep the walkway's z (72.636-72.689).
+        leg3 = leg_steps(rows, 3)
+        self.assertFalse([r for r in leg3
+                          if -6416 <= float(r["x"]) <= -6378 and -3970 <= float(r["y"]) <= -3946
+                          and 70.7 <= float(r["z"]) <= 72.6], "a row stands in the avoid box (the magma pool)")
+        self.assertFalse([r for r in leg3 if abs(float(r["x"]) + 6404.5337) < 0.01 and abs(float(r["y"]) + 3950.9333) < 0.01],
+                         "the old step 475 dip point is still exported")
+        low = [r for r in leg3 if 110 <= int(r["seq"]) <= 130]
+        self.assertTrue(low, "leg 3 has no rows around the pool")
+        self.assertEqual(min(float(r["z"]) for r in low), 72.6, "a leg-3 row round the pool left the walkway")
+        self.assertIn(("move", "-6378.6665", "-3968", "72.689"),
+                      [(r["kind"], r["x"], r["y"], r["z"]) for r in leg3], "the east-rim row round the pool is missing")
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertFalse({e for r in pulls for e in r["entries"].split(",")} & {"4075", "14881"}, "a critter is still a pull member")
         self.assertEqual((pulls[0]["entries"], float(pulls[0]["radius"])), ("62052", 5.0))
         # The Bruiser that stood inside Bogpaw's and Gowlfang's 20 yd detection is not a pull row any more.
         self.assertFalse([r for r in pulls if abs(float(r["x"]) + 5985.32) < 0.5 and abs(float(r["y"]) + 3626.44) < 0.5])
-        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (816) AND `entry` IN (62056,62057,62072,62069,62037);", text)
+        # The map's boss rows stay in the migration that introduced them (20261024151500): this one re-exports the same plan on
+        # the same map, so it must not delete or re-seed ai_dungeon_boss (the exporter writes no boss rows).
+        earlier = dict(migrations())["20261024151500_world.sql"]
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (816) AND `entry` IN (62056,62057,62072,62069,62037);", earlier)
+        self.assertIn("REPLACE INTO `ai_dungeon_boss` (`map`, `entry`, `name`) VALUES\n(816, 62056, 'Bogpaw Truthsay'),\n(816, 62057, 'Gowlfang'),\n(816, 62072, 'Searistrasz'),\n(816, 62069, 'Halgan Redbrand'),\n(816, 62037, 'Zuluhed the Whacked');", earlier)
+        self.assertNotIn("ai_dungeon_boss", text, "the re-export must leave the map's boss rows alone")
+        self.assertIn("DELETE FROM `ai_dungeon_step` WHERE `plan` = 'dragonmaw_retreat';", text)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["dragonmaw_retreat"])
 
     def test_black_morass_is_the_plan_with_the_census_fixes(self):
