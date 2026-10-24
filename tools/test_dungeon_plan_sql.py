@@ -473,28 +473,30 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwind_stockade"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
-    def test_sunken_temple_statues_are_proved_and_the_boss_is_a_units_hold(self):
-        # 20261024140000 (turtle-agent st-proof bc43253, 2026-10-24): 20261024060100 again, with leg 0
-        # (atal'alarion)'s six statue steps as open_proof rows (done by the respawned light 148883) and the
-        # Atal'alarion hold done by its units instead of instance data 4. Run 2 (r28 slot6) paused six times with
-        # "failed: The object showed no change after the bot used it." (one per statue: a plain open never sees the
-        # light) and twice on the data-4 hold (SetData(TYPE_ATALARION, IN_PROGRESS) ends by writing IN_PROGRESS (1)
-        # over the DONE (3) the sixth statue set, instance_sunken_temple.cpp:351, so data 4 never reads 3 with the
-        # boss dead). The six Atal'ai statues 148830-148835 (guids 27898, 27899, 28111-28114) are used in that exact
-        # entry order (a wrong statue triggers a trap and does not advance the counter); the right one sets
+    def test_sunken_temple_boss_order_puts_jammalan_before_the_drakes(self):
+        # 20261024151100 (turtle-agent st-weaver bad60f3, 2026-10-24): 20261024140000 again, with the legs
+        # reordered so Jammal'an's leg comes BEFORE the Weaver and Dreamscythe legs (script order). Run 3
+        # (r30 slotA) stopped at the old leg-1 Weaver boss row (step 1359): Weaver 5720 stood alive at 100 %,
+        # not pullable, 'took more than 300 s out of combat' twice. The instance script keeps Weaver 5720 and
+        # Dreamscythe 5721 VISIBILITY_OFF / NOT_SELECTABLE / IMMUNE_TO_NPC (patrol idle) while m_auiEncounter[2] !=
+        # DONE (TYPE_JAMMALAN), and reveals them only in SetData(TYPE_JAMMALAN, DONE)
+        # (instance_sunken_temple.cpp:384-408; Shade of Eranikus 5709 is gated the same way, sleeping). The six
+        # Atal'ai statues 148830-148835 (guids 27898, 27899, 28111-28114) are used in that exact entry order
+        # (a wrong statue triggers a trap and does not advance the counter); the right one sets
         # GO_FLAG_NO_INTERACT on itself and respawns the green light 148883 within INTERACTION_DISTANCE of it.
-        # Census unit lists, radii, pulls and boss rows are unchanged. 6 legs, 2397 steps
-        # (16 + 37 + 25 + 8 + 2 + 1 pulls), bosses in leg order; 6 open_proof rows and 1 hold row in leg 0.
+        # Census unit lists, radii, pulls and boss rows are unchanged. 6 legs, 2393 steps
+        # (16 + 8 + 37 + 25 + 2 + 1 pulls), boss order 5710, 5720, 5721, 5719, 5709; 6 open_proof rows and 1 hold
+        # row in leg 0.
         name, text = newest_plan_text("sunken_temple")
-        self.assertEqual(name, "20261024140000_world.sql")
-        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent bc43253 dungeons/sunken_temple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024151100_world.sql")
+        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent bad60f3 dungeons/sunken_temple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(re.findall(r"(?m)^\('sunken_temple', \d+, '(?:[^']|'')*', '(?:[^']|'')*'\)[,;]$", text)), 6)
         self.assertEqual([n.replace("''", "'") for n in re.findall(r"(?m)^\('sunken_temple', \d+, '((?:[^']|'')*)', '(?:[^']|'')*'\)[,;]$", text)],
-                         ["atal'alarion", "weaver", "dreamscythe", "jammal'an_the_prophet", "morphaz", "shade_of_eranikus"])
+                         ["atal'alarion", "jammal'an_the_prophet", "weaver", "dreamscythe", "morphaz", "shade_of_eranikus"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "sunken_temple"]
-        self.assertEqual(len(rows), 2397)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [16, 37, 25, 8, 2, 1])
-        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["5720", "5721", "5710", "5719", "5709"])
+        self.assertEqual(len(rows), 2393)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [16, 8, 37, 25, 2, 1])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["5710", "5720", "5721", "5719", "5709"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss", "open_proof", "hold"})
         self.assertEqual(leg_steps(rows, 0)[-1]["kind"], "hold")
         for leg in range(1, 6):
@@ -535,10 +537,13 @@ class DungeonPlanSql(unittest.TestCase):
         for r in leg0:
             if r["kind"] == "move" and -420 <= float(r["x"]) <= -345:
                 self.assertGreaterEqual(float(r["z"]), -173.5, (r["seq"], r["x"], r["z"]))
+        # The walkway via moved with the reorder: Jammal'an's leg (leg 1) now walks it (atal'alarion hold spot
+        # back up to -300 100.5 -172.13); the weaver leg starts at Jammal'an's boss with no via rows.
         via = [r for r in leg_steps(rows, 1) if r["comment"] == "via"]
         self.assertEqual([(float(r["x"]), float(r["y"]), float(r["z"])) for r in via],
                          [(-460.0, 96.8, -189.58), (-435.0, 97.4, -181.49), (-400.0, 98.2, -172.93),
                           (-349.6, 99.4, -172.86), (-300.0, 100.5333, -172.13)])
+        self.assertEqual([r for r in leg_steps(rows, 2) if r["comment"] == "via"], [])
         # Pull group 8's stand is unchanged: on the pack floor, 15-25 yd from the pack, same z band.
         pg8 = [r for r in leg0 if r["kind"] == "pull" and r["comment"] == "pull group 8"][0]
         stand8 = [r for r in leg0 if r["kind"] == "move" and r["comment"] == "pull group 8 approach"]
@@ -551,11 +556,11 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertLessEqual(abs(float(stand8[0]["z"]) - float(pg8["z"])), 4.0)
         # Jammal'an's Ogom 5711 and Morphaz's Hazzas 5722 are the boss rows' `first` (their creature groups aggro together); the other
         # three have no linked add (no boss row of 8580: leg 0 ends in the units hold).
-        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "5711", "5722", ""])
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["5711", "", "", "5722", ""])
         pulls = [r for r in rows if r["kind"] == "pull"]
         # The three radii that reached the next pack (same entries 14.4-26.8 yd out) and the seven 5291 pulls with its 15 yd wander.
         self.assertEqual(float([r for r in leg_steps(rows, 0) if r["kind"] == "pull"][5]["radius"]), 17.5)
-        self.assertEqual([float(r["radius"]) for r in leg_steps(rows, 3) if r["kind"] == "pull"][2:4], [14.3, 15.6])
+        self.assertEqual([float(r["radius"]) for r in leg_steps(rows, 1) if r["kind"] == "pull"][2:4], [14.3, 15.6])
         self.assertEqual([float(r["radius"]) for r in pulls if r["entries"] == "5291"], [17.0] * 7)
         # The 23 detour pulls have two approach moves each, plus the new single-stand pull group 8; the last stands on
         # the pack's own floor, 30 yd or less from the pull row (a cut path's move rows may lie between the two
