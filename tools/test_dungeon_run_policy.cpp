@@ -1888,6 +1888,52 @@ static void TestHopPullsNearUnitsFirst()
     CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
 }
 
+// r36 shadowfang_keep slotI: the walk back replayed step 1 and pulled Deathstalker Adamant 3849, the friendly
+// prisoner whose gossip opens the courtyard door; he died and step 130's gossip could not be done (respawn 4 h
+// 36 min). A hop pick never takes a unit whose entry a gossip, open, use_on, use_item or ritual step of the plan
+// names, on a move step or on a walk back replay; a pull step's own units are unaffected.
+static void TestHopNeverPullsAnEventUnit()
+{
+    DungeonPlan plan;
+    PlanStep gossip;
+    gossip.kind = PlanStepKind::Gossip;
+    gossip.entry = 3849;
+    ai::NormalizePlanStep(gossip);
+    plan.steps = {Step(PlanStepKind::Move, 40), gossip};
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.hopUnits = {Unit(9, 3849, 5)};
+        CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+        CHECK(r.note.find("3849") == std::string::npos);
+    }
+    {
+        // Beside the event unit, an ordinary hostile is still pulled.
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.hopUnits = {Unit(9, 3849, 5), Unit(10, 3851, 8)};
+        CHECK(Tick(r, f) == "pullback 10");
+    }
+    {
+        // The walk back's replay skips the event unit too and pulls the ordinary one.
+        Run r = Start(&plan);
+        r.walkBack = true;
+        r.walkBackIdx = 0;
+        r.step = 1;
+        Facts f = Party(0);
+        f.hopUnits = {Unit(9, 3849, 5), Unit(10, 3851, 8)};
+        const UnitFact* hopUnit = PickPull(r, f.hopUnits, 0, true);
+        CHECK(hopUnit && hopUnit->guid == 10);
+    }
+    {
+        // A pull step's own units are unaffected: entry-gated picks still take the event entry when asked.
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.units = {Unit(9, 3849, 5)};
+        CHECK(PickPull(r, f.units, 3849) && PickPull(r, f.units, 3849)->guid == 9);
+    }
+}
+
 // Uldaman rerun pull 58 (build 19z11): the fight ended with the priest and the
 // mage dead (fewer than kWipeDead) and the next pullback went out at once. Now
 // the dead are revived and the party gathers before the pull.
@@ -11177,6 +11223,7 @@ int main()
     TestAmbushWalksThrough();
     TestBossKillOrderAndTeamGate();
     TestHopPullsNearUnitsFirst();
+    TestHopNeverPullsAnEventUnit();
     TestWipeAndLeadDeathPause();
     TestFewDeadReviveBeforePull();
     TestFewDeadRuleSkipsEvents();

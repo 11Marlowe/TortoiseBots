@@ -608,6 +608,25 @@ namespace ai
         }
         return false;
     }
+    // Whether any gossip, open, use_on, use_item or ritual step of the plan names
+    // `entry` (r36 shadowfang_keep slotI: the walk back replayed step 1 and pulled
+    // Deathstalker Adamant 3849, the friendly prisoner whose gossip opens the
+    // courtyard door; he died and step 130's gossip could not be done, respawn
+    // 4 h 36 min). The run leader never pulls such a unit as a hop unit: it is
+    // a unit the plan talks to (or opens something with), not a pack unit.
+    inline bool PlanNamesEventUnit(const DungeonPlan& plan, std::uint32_t entry)
+    {
+        for (const PlanStep& step : plan.steps)
+        {
+            if (step.kind != PlanStepKind::Gossip && step.kind != PlanStepKind::Open &&
+                step.kind != PlanStepKind::UseOn && step.kind != PlanStepKind::UseItem &&
+                step.kind != PlanStepKind::Ritual)
+                continue;
+            if (step.entry == entry)
+                return true;
+        }
+        return false;
+    }
 
     // Moves that are more than maxYd from the move before them: a hop that long
     // can pass packs the plan does not name. The loader logs them (the exporter
