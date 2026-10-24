@@ -4,8 +4,9 @@
 --     --stamp 20261024154300 --out <dir> stormwrought_ruins
 -- r36 stormwrought_ruins slotJ (RUN-LESSONS) stopped at step 553 (the leg mycellakos, pull group 5 of the leg): the
 -- party stood on the z215 island at -6045.1 -3784.5 215.2-215.9; the pack 62650/62645 (at -5990.5 -3783.86 219.37)
--- stands on the east shelf, and the server's path query is NOPATH between them (nearest reachable -6045.1 -3784.5 215.9,
--- 54.7 yd short). The floors are there (215.43 at the launch, 215.88 mid-gap, 216.88 at the landing): a 1-3 yd mesh seam,
+-- stands on the east shelf, and the server's query has no route past the island edge (an incomplete path ends at the
+-- nearest reachable point -6045.1 -3784.5 215.9, 54.7 yd short of the pack; NOPATH to points further east). The floors
+-- are there (215.43 at the launch, 215.88 mid-gap, 216.88 at the landing): a 1-3 yd mesh seam,
 -- not a drop. Leg 7 is split: mycellakos_west keeps the route and pull groups 0-9; leg 8 mycellakos starts with the exact
 -- move to the island edge (-6043.7 -3790.6 215.4, flags 64) and the 6.3 yd move_hop_exact to -6038 -3788 216.9 (the
 -- seam, check_skip; the WC serpentis pattern), then the move to -6036 -3792 217.1 and pull groups 10-18 and the boss.
@@ -15,7 +16,7 @@
 -- plan-check (server) on the plan: 2 of 522 points fail (leg 6's to and leg 9's boss needs_walk; both pre-existing, and
 -- the live r36 run walked past the leg-6 one), 4 leg 1/2/4 detour warnings, the seam hop the one exempt point. The strict
 -- replay of legs 7-10 from the live leg-7 start (-6659.9 -4017.2 283.3) refuses no approach or firing stand after the
--- hop (before the fix every point from leg 7 seq 104 on was NOPATH from the island).
+-- hop (before the fix no point from leg 7 seq 104 on had a route from the island).
 -- Dungeon plans for the run leader (.bot run), exported by turtle-agent (plan-export). Plan format v1; the mapping is
 -- docs/guides/dungeon-run-leader.md ("From plan v1 to rows"). The plan file in turtle-agent is the single source: edit it
 -- there and export again, never these rows by hand. The plan row carries the unit lists cc_priority, cc_always and kill_first
