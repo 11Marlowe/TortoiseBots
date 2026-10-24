@@ -4686,6 +4686,23 @@ std::unordered_map<uint64, uint64>& RunHealOnlyBots()
     static std::unordered_map<uint64, uint64> bots;
     return bots;
 }
+// Bots the run leader gave the test speed (`.bot run start ... speed=`, DungeonRun::SpeedRateNow): bot -> its run's
+// commander, the rate, and the MOVE_RUN / MOVE_WALK rates read back right after the apply (an aura, a mount or an
+// unmount that recomputed the rate shows as a difference: ApplyRunSpeed applies again). Every listed bot goes back to
+// its own rate (UpdateSpeed ratio 1) once its run is not walking fast any more (SyncRunSpeed, every world update).
+struct RunSpeedEntry
+{
+    uint64 commanderRaw = 0;
+    float rate = 1.0f;
+    float appliedRun = 1.0f;
+    float appliedWalk = 1.0f;
+};
+
+std::unordered_map<uint64, RunSpeedEntry>& RunSpeedBots()
+{
+    static std::unordered_map<uint64, RunSpeedEntry> bots;
+    return bots;
+}
 
 void EndRunBackPassive(uint64 botRaw)
 {
@@ -4723,6 +4740,10 @@ void StartRunBackPassive(uint64 commanderRaw, Player* bot, Player* lead)
 // lists (arrived, let go, the run paused, stopped or gone) gets its own AI back.
 void SyncRunBackPassive();
 void SyncRunHealOnly();
+// The test speed (DungeonRun::SpeedRateNow): ApplyRunSpeed in a run's tick, before its order goes out; SyncRunSpeed
+// every world update and whenever the runs are cleared.
+void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate);
+void SyncRunSpeed();
 
 // Bots the run leader walked to the lead bot's spot (DungeonRun::WalkOrder, RunBotWalk: the straggler ladder, a
 // rogue back from a Sap that did not land): bot -> commander. Each holds on stay at that spot until the party's
@@ -12877,8 +12898,15 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     std::string const order = slot.playerLed.on
         ? TortoiseBots::PlayerLed::Tick(slot.run, slot.playerLed, facts, anchor, dt)
         : TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
+    // The test speed (`.bot run start ... speed=`): the party's rate for this tick, before the tick's order goes out,
+    // so a walk launches at it and a pull at 1.0 (DungeonRun::SpeedRateNow; a 1.0 run touches nothing).
+    float const speedBefore = slot.run.speedNow;
+    float const speedRate = TortoiseBots::DungeonRun::SpeedRateNow(slot.run, facts, dt);
+    if (speedRate != speedBefore)
+        TB_LOG_DETAIL("TortoiseBots: run leader of %s: test speed %s", commander->GetName(),
+            speedRate > 1.0f ? (TortoiseBots::DungeonRun::Num(speedRate) + " (walking)").c_str() : "1.0 (a fight, a pull, a rest or an event)");
+    ApplyRunSpeed(commanderRaw, lead, bots, speedRate);
     // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
-    DropUnattackableCombat(lead, bots, slot.run.combatDrops);
     // The walk after a rest sent again: a seated lead bot stands up before the order below.
     if (slot.run.leadWalkReset)
     {
@@ -13157,12 +13185,143 @@ void SyncRunHealOnly()
                 listed[entry.first] = entry.second;
             }
 }
+// The test speed on one bot (forced: no client ack, as the movespeed cheat does; MOVE_RUN and MOVE_WALK only, swimming
+// stays the bot's own: MovementAction::UpdateMovementState recomputes it on every move). The rates read back are kept
+// to see a later reset. Its pet: a following one took the bot's rate with it (Unit::SetSpeedRateReal); any other is
+// brought up here.
+void ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)
+{
+    bot->UpdateSpeed(MOVE_RUN, true, rate);
+    bot->UpdateSpeed(MOVE_WALK, true, rate);
+    entry.rate = rate;
+    entry.appliedRun = bot->GetSpeedRate(MOVE_RUN);
+    entry.appliedWalk = bot->GetSpeedRate(MOVE_WALK);
+}
+
+// A pet out of combat slower than its bot (not following, or reset by an aura of its own) gets the rate too.
+void CatchUpPet(Player* bot, float rate)
+{
+    Pet* const pet = bot->GetPet();
+    if (!pet || !pet->IsAlive() || !pet->IsInWorld() || pet->IsInCombat())
+        return;
+    if (pet->GetSpeedRate(MOVE_RUN) + 0.01f < bot->GetSpeedRate(MOVE_RUN))
+    {
+        pet->UpdateSpeed(MOVE_RUN, true, rate);
+        pet->UpdateSpeed(MOVE_WALK, true, rate);
+    }
+}
+
+// The bot and its pet back to their own rates (the auras' and the template's, ratio 1).
+void RestoreBotSpeed(Player* bot)
+{
+    bot->UpdateSpeed(MOVE_RUN, true, 1.0f);
+    bot->UpdateSpeed(MOVE_WALK, true, 1.0f);
+    if (Pet* const pet = bot->GetPet())
+    {
+        pet->UpdateSpeed(MOVE_RUN, true, 1.0f);
+        pet->UpdateSpeed(MOVE_WALK, true, 1.0f);
+    }
+}
+
+// In the run's tick, after DungeonRun::Tick and before its order goes out (a walk launches at the rate, a pull at 1.0):
+// rate above 1.0 for every commanded bot alive, in the world, on the lead bot's map and out of combat (applied on a
+// change of rate or a reset seen); every other listed bot of the run goes back. Nothing at all on a 1.0 run.
+void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)
+{
+    auto& listed = RunSpeedBots();
+    if (rate <= 1.0f && listed.empty())
+        return;
+    for (Player* bot : bots)
+    {
+        uint64 const botRaw = bot->GetObjectGuid().GetRawValue();
+        auto entry = listed.find(botRaw);
+        bool const eligible = rate > 1.0f && bot->IsAlive() && bot->IsInWorld() &&
+            bot->GetMapId() == lead->GetMapId() && !MemberInCombat(bot);
+        if (!eligible)
+        {
+            if (entry != listed.end())
+            {
+                RestoreBotSpeed(bot);
+                listed.erase(entry);
+            }
+            continue;
+        }
+        if (entry == listed.end())
+            entry = listed.emplace(botRaw, RunSpeedEntry()).first;
+        entry->second.commanderRaw = commanderRaw;
+        if (entry->second.rate != rate || bot->GetSpeedRate(MOVE_RUN) != entry->second.appliedRun ||
+            bot->GetSpeedRate(MOVE_WALK) != entry->second.appliedWalk)
+            ApplyBotSpeed(bot, rate, entry->second);
+        CatchUpPet(bot, rate);
+    }
+}
+
+// Every world update: a listed bot keeps the rate only while its run is running at a rate above 1.0, its binding's
+// lead bot is in the world, and it is alive, on that map and one of the lead bot's commanded bots; else it goes back.
+// A listed bot (or its pet) in a fight sends every listed bot of its run back at once (DungeonRun::SpeedFightSeen:
+// the settle starts again), not on the next tick.
+void SyncRunSpeed()
+{
+    auto& listed = RunSpeedBots();
+    if (listed.empty())
+        return;
+    static std::vector<Player*> members;
+    std::unordered_set<uint64> fought;
+    for (auto it = listed.begin(); it != listed.end();)
+    {
+        Player* bot = FindCharacter(it->first);
+        auto const run = DungeonRuns().find(it->second.commanderRaw);
+        RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(it->second.commanderRaw);
+        Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+        bool keep = bot && run != DungeonRuns().end() &&
+            run->second.run.state == TortoiseBots::DungeonRun::State::Running && run->second.run.speedNow > 1.0f &&
+            lead && lead->IsInWorld() && bot->IsInWorld() && bot->IsAlive() && bot->GetMapId() == lead->GetMapId();
+        if (keep)
+        {
+            FillCommandedBots(lead->GetGroup(), lead, members);
+            keep = std::find(members.begin(), members.end(), bot) != members.end();
+        }
+        bool const fight = keep && MemberInCombat(bot);
+        if (fight)
+            fought.insert(it->second.commanderRaw);
+        if (keep && !fight)
+        {
+            ++it;
+            continue;
+        }
+        if (bot)
+            RestoreBotSpeed(bot);
+        it = listed.erase(it);
+    }
+    if (fought.empty())
+        return;
+    for (uint64 commanderRaw : fought)
+    {
+        auto const run = DungeonRuns().find(commanderRaw);
+        if (run != DungeonRuns().end())
+            TortoiseBots::DungeonRun::SpeedFightSeen(run->second.run);
+    }
+    for (auto it = listed.begin(); it != listed.end();)
+    {
+        if (!fought.count(it->second.commanderRaw))
+        {
+            ++it;
+            continue;
+        }
+        if (Player* bot = FindCharacter(it->first))
+            RestoreBotSpeed(bot);
+        it = listed.erase(it);
+    }
+}
 
 } // namespace
 
 static void UpdateDungeonRuns(uint32 diff)
 {
     RebuildRunGroups();
+    // The test speed: listed bots whose run stopped walking fast, or that fight, go back (every world update).
+    if (!RunSpeedBots().empty())
+        SyncRunSpeed();
     if (DungeonRuns().empty() && !RunHealOnlyBots().empty())
         SyncRunHealOnly(); // the last run is gone: every listed healer is let go
     if (!RunBackPassive().empty())
@@ -13427,7 +13586,7 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
     if (verb != "start" && verb != "pause" && verb != "resume" && verb != "skip" && verb != "stop" &&
         verb != "status" && verb != "list" && verb != "mode")
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot run start [plan] [from <leg|step N>] [player [tank <Bot>]] / pause / resume / skip / stop [reason] / status / mode / list / reloadplans (GameMaster)");
+        SendActionError(handler, intent, "invalid", "Usage: .bot run start [plan] [from <leg|step N>] [speed=<1.0-3.0>] [player [tank <Bot>]] / pause / resume / skip / stop [reason] / status / mode / list / reloadplans (GameMaster)");
         return true;
     }
     Player* commander = Requester(handler);
@@ -13521,11 +13680,41 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
             SendActionError(handler, intent, "lead-unavailable", "The lead bot is between maps. Try again in a moment.");
             return true;
         }
+        // The test speed (`speed=<1.0-3.0>`, owner request 2026-10-25): GameMasters' bot-only test runs only; a clear,
+        // a player-led run and any run with a real player in the party walk at 1.0.
+        SpeedArgs const speedArgs = TakeSpeed(arg);
+        if (!speedArgs.ok)
+        {
+            SendActionError(handler, intent, "invalid", "Usage: .bot run start [plan] [from ...] [speed=<1.0-3.0>] (a test run's walking speed)");
+            return true;
+        }
+        if (speedArgs.rate > 1.0f)
+        {
+            if (!IsBotAdministrator(commander))
+            {
+                SendActionError(handler, intent, "forbidden", "Only a GameMaster may start a test-speed run (speed=).");
+                return true;
+            }
+            if (playerLedStart.playerLed)
+            {
+                SendActionError(handler, intent, "real-player", "speed= is for bot-only test runs: a player-led run walks at normal speed.");
+                return true;
+            }
+            if (Group* speedGroup = lead->GetGroup())
+                for (Group::MemberSlot const& member : speedGroup->GetMemberSlots())
+                    if (!BotManager::Instance().IsBot(member.guid))
+                    {
+                        SendActionError(handler, intent, "real-player", ("speed= is for bot-only test runs: " + member.name +
+                            " is a real player in the party; a run with a player in it walks at normal speed.").c_str());
+                        return true;
+                    }
+        }
+        arg = speedArgs.rest;
         StartArgs const startArgs = ParseStartArgs(arg);
         if (!startArgs.ok)
         {
             SendActionError(handler, intent, "invalid",
-                "Usage: .bot run start [plan] [from <leg name|leg number|step N>] (.bot run list)");
+                "Usage: .bot run start [plan] [from <leg name|leg number|step N>] [speed=<1.0-3.0>] (.bot run list)");
             return true;
         }
         std::string name = startArgs.plan;
@@ -13593,6 +13782,7 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         DungeonRunSlot slot;
         slot.run = Start(plan, startStep);
         slot.run.startStep = startStep; // a walk back never goes before it (DungeonRun::ReplayFloor)
+        slot.run.testSpeed = speedArgs.rate; // 1.0 unless speed= (DungeonRun::SpeedLabel marks every line)
         slot.playerLed.on = playerLedStart.playerLed;
         if (slot.playerLed.on)
             slot.playerLed.tank = lead->GetName();
@@ -13600,8 +13790,9 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         RebuildRunGroups();
         playerLedGuard.commanderRaw = 0; // started: the binding stays with the run
         s_dungeonRunMs = 0;
-        TB_LOG_DETAIL("TortoiseBots: run leader of %s started plan %s at step %u", commander->GetName(), plan->name.c_str(),
-            static_cast<uint32>(startStep + 1));
+        TB_LOG_DETAIL("TortoiseBots: run leader of %s started plan %s at step %u%s", commander->GetName(), plan->name.c_str(),
+            static_cast<uint32>(startStep + 1),
+            stored.run.testSpeed > 1.0f ? (" at " + TortoiseBots::DungeonRun::SpeedLabel(stored.run)).c_str() : "");
         if (startStep > 0)
         {
             std::string const& legName = plan->LegName(plan->steps[startStep].leg);
@@ -13610,6 +13801,9 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
                 legName.empty() ? std::to_string(plan->steps[startStep].leg).c_str() : legName.c_str(),
                 movedBack ? " The start was moved back to the step that starts the event it fell in." : "");
         }
+        if (stored.run.testSpeed > 1.0f)
+            handler->PSendSysMessage("Test speed %s: the party walks %s times as fast between fights (1.0 in a fight, a pull, a rest); this run is a test, never a clear.",
+                TortoiseBots::DungeonRun::Num(stored.run.testSpeed).c_str(), TortoiseBots::DungeonRun::Num(stored.run.testSpeed).c_str());
         if (stored.playerLed.on)
             handler->PSendSysMessage("Run mode: %s.", TortoiseBots::PlayerLed::ModeText(stored.playerLed, true).c_str());
         SendActionAck(handler, intent, "party", static_cast<uint32>(plan->steps.size()), plan->name);
@@ -13720,6 +13914,8 @@ void UpdateRemoteCommanders(uint32_t diff)
         s_commanderSweepMs = 0;
         if (!DungeonRuns().empty())
             DungeonRuns().clear();
+        if (!RunSpeedBots().empty())
+            SyncRunSpeed(); // no run left: every bot of a test-speed run walks at its own rate again
         CommanderOrderLog().Clear();
         if (!CommanderViews().empty())
             CommanderViews().clear();
@@ -14369,6 +14565,8 @@ void ClearRemoteCommanders()
     CommanderBindings().Clear();
     CommanderViews().clear();
     DungeonRuns().clear();
+    if (!RunSpeedBots().empty())
+        SyncRunSpeed();
     DropPendingRunCcIcons();
     s_dungeonRunMs = 0;
     SavedFollowTargets().clear();

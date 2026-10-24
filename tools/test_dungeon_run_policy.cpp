@@ -18500,6 +18500,188 @@ static void TestStragglerLadderKeepsItsRungWhenTheBotCycles()
     BeginRegroup(c);
     CHECK(c.straggle.empty());
 }
+// The test speed (`.bot run start ... speed=<x>`, owner request 2026-10-25).
+static void TestTakeSpeedWords()
+{
+    SpeedArgs a = TakeSpeed("");
+    CHECK(!a.given && a.ok && a.rate == 1.0f && a.rest.empty());
+    a = TakeSpeed("uldaman from step 57");
+    CHECK(!a.given && a.ok && a.rest == "uldaman from step 57");
+    a = TakeSpeed("uldaman speed=2 from step 57");
+    CHECK(a.given && a.ok && a.rate == 2.0f && a.rest == "uldaman from step 57");
+    StartArgs const s = ParseStartArgs(a.rest);
+    CHECK(s.ok && s.plan == "uldaman" && s.from == StartFrom::Step && s.value == "57");
+    a = TakeSpeed("speed=1.5");
+    CHECK(a.given && a.ok && a.rate == 1.5f && a.rest.empty());
+    a = TakeSpeed("  uldaman  from 4   speed=3.0 ");
+    CHECK(a.ok && a.rate == 3.0f && a.rest == "uldaman from 4");
+    a = TakeSpeed("speed=1");
+    CHECK(a.given && a.ok && a.rate == 1.0f);
+    a = TakeSpeed("SPEED=2");
+    CHECK(a.given && a.ok && a.rate == 2.0f);
+    for (const char* bad : {"speed=", "speed=3.1", "speed=0.9", "speed=0", "speed=2.25", "speed=2x", "speed=.5",
+             "speed=-2", "speed=2,0", "speed=10", "speed=2 speed=2"})
+        CHECK(!TakeSpeed(bad).ok);
+}
+
+static void TestSpeedRisesOnlyAfterTheWalkSettles()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 200), Step(PlanStepKind::Move, 400)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.testSpeed = 2.0f;
+    Facts f = Party(0);
+    CHECK(Tick(r, f) == "move 200.0 0.0 0.0" && r.phase == Phase::Walk);
+    CHECK(SpeedRateNow(r, f, kTickMs) == 1.0f && r.speedOnMs == kTickMs);    // the settle: one tick
+    f.leadX = 20;
+    Tick(r, f);
+    CHECK(SpeedRateNow(r, f, kTickMs) == 2.0f && r.speedNow == 2.0f);
+    f.anyInCombat = true;
+    f.leadInCombat = true;
+    CHECK(SpeedRateNow(r, f, kTickMs) == 1.0f && r.speedOnMs == 0 && r.speedNow == 1.0f);   // a fight: at once
+    f.anyInCombat = false;
+    f.leadInCombat = false;
+    CHECK(SpeedRateNow(r, f, kTickMs) == 1.0f);
+    CHECK(SpeedRateNow(r, f, kTickMs) == 2.0f);
+    Run plain = Start(&plan);
+    plain.restDue = false;
+    Facts g = Party(0);
+    CHECK(Tick(plain, g) == "move 200.0 0.0 0.0");
+    for (int i = 0; i < 5; ++i)
+        CHECK(SpeedRateNow(plain, g, kTickMs) == 1.0f);
+    CHECK(plain.speedOnMs == 0 && plain.speedNow == 1.0f);
+}
+
+static void TestSpeedWalkingRule()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 200), Step(PlanStepKind::Move, 400)};
+    DungeonPlan hold;
+    hold.steps = {Step(PlanStepKind::Hold, 50)};
+    DungeonPlan pull;
+    pull.steps = {PullStep(40, {1}), Step(PlanStepKind::Move, 400)};
+    Run base = Start(&plan);
+    base.restDue = false;
+    base.testSpeed = 2.0f;
+    base.phase = Phase::Walk;
+    Facts const f = Party(0);
+    auto settled = [](Run r, const Facts& g) { r.speedOnMs = kSpeedSettleMs; return SpeedRateNow(r, g, kTickMs); };
+    CHECK(settled(base, f) == 2.0f);
+    for (Phase p : {Phase::Begin, Phase::Gather})
+    {
+        Run r = base;
+        r.phase = p;
+        CHECK(settled(r, f) == 2.0f);
+    }
+    for (Phase p : {Phase::AwaitPull, Phase::AwaitTask, Phase::Rest, Phase::Wait, Phase::Hold})
+    {
+        Run r = base;
+        r.phase = p;
+        CHECK(settled(r, f) == 1.0f);
+    }
+    { Facts g = f; g.anyInCombat = true; CHECK(settled(base, g) == 1.0f); }
+    { Facts g = f; g.leadInCombat = true; CHECK(settled(base, g) == 1.0f); }
+    { Facts g = f; g.eating = 1; CHECK(settled(base, g) == 1.0f); }
+    { Run r = base; r.fighting = true; CHECK(settled(r, f) == 1.0f); }
+    { Run r = base; r.pullGuid = 9; CHECK(settled(r, f) == 1.0f); }
+    { Run r = base; r.ccWatch.push_back(Run::CcWatch()); CHECK(settled(r, f) == 1.0f); }
+    { Run r = base; r.shotStandPrep = true; CHECK(settled(r, f) == 1.0f); }
+    { Run r = base; Pause(r, "x"); CHECK(settled(r, f) == 1.0f); }
+    {
+        Run r = Start(&hold);
+        r.testSpeed = 2.0f;
+        r.phase = Phase::Walk;
+        Facts g = f;
+        g.seen = false;
+        CHECK(settled(r, g) == 1.0f);                  // InEvent
+    }
+    {
+        Run r = Start(&pull);
+        r.testSpeed = 2.0f;
+        r.phase = Phase::Walk;
+        Facts g = f;
+        g.seen = false;
+        CHECK(settled(r, g) == 2.0f);                  // the approach to a pack out of sight
+        g.seen = true;
+        CHECK(settled(r, g) == 1.0f);                  // the pack in sight
+    }
+}
+
+static void TestSpeedSettleNeedsAnUnbrokenWalk()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 200)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.testSpeed = 2.0f;
+    r.phase = Phase::Walk;
+    Facts const f = Party(0);
+    CHECK(SpeedRateNow(r, f, kTickMs) == 1.0f);
+    r.phase = Phase::Rest;
+    CHECK(SpeedRateNow(r, f, kTickMs) == 1.0f && r.speedOnMs == 0);
+    r.phase = Phase::Walk;
+    CHECK(SpeedRateNow(r, f, kTickMs) == 1.0f);
+    CHECK(SpeedRateNow(r, f, kTickMs) == 2.0f);
+    SpeedFightSeen(r);
+    CHECK(r.speedOnMs == 0 && r.speedNow == 1.0f);
+    CHECK(SpeedRateNow(r, f, kTickMs) == 1.0f);
+    r.testSpeed = 3.0f;
+    CHECK(SpeedRateNow(r, f, kTickMs) == 3.0f);
+}
+
+static void TestSpeedRealPlayerBlocksTheRestOfTheRun()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 200)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.testSpeed = 2.0f;
+    r.phase = Phase::Walk;
+    Facts const f = Party(0);
+    SpeedRateNow(r, f, kTickMs);
+    CHECK(SpeedRateNow(r, f, kTickMs) == 2.0f);
+    Facts g = f;
+    PlayerFact p;
+    p.name = "Hypeer";
+    g.players.push_back(p);
+    CHECK(SpeedRateNow(r, g, kTickMs) == 1.0f && r.speedPlayerBlocked);
+    for (int i = 0; i < 4; ++i)
+        CHECK(SpeedRateNow(r, f, kTickMs) == 1.0f);   // he left: still 1.0
+    CHECK(SpeedLabel(r) == "speed 2.0 (test; 1.0 since a real player joined)");
+}
+
+static void TestSpeedShowsInTheLines()
+{
+    DungeonPlan plan;
+    plan.name = "t";
+    plan.steps = {Step(PlanStepKind::Move, 50)};
+    Run r = Start(&plan);
+    CHECK(SpeedLabel(r).empty());
+    std::string const plain = StatusLine(r);
+    CHECK(plain.find("speed") == std::string::npos);
+    r.testSpeed = 2.0f;
+    CHECK(SpeedLabel(r) == "speed 2.0 (test)");
+    CHECK(StatusLine(r) == plain + "|speed 2.0 (test)");
+    r.deferredPulls.push_back(0);
+    CHECK(StatusLine(r) == plain + "|left 1|speed 2.0 (test)");
+    r.deferredPulls.clear();
+    CHECK(DoneNote(r) == "plan done (speed 2.0 (test))");
+    r.wipes = 1;
+    CHECK(DoneNote(r) == "plan done (speed 2.0 (test); 1 wipe)");
+    r.testSpeed = 1.0f;
+    CHECK(DoneNote(r) == "plan done (1 wipe)");
+    Run e = Start(&plan);
+    e.restDue = false;
+    e.testSpeed = 1.5f;
+    Facts f = Party(0);
+    CHECK(Tick(e, f) == "move 50.0 0.0 0.0");
+    f.leadX = 50;
+    for (int i = 0; i < 3 && e.state == State::Running; ++i)
+        Tick(e, f);
+    CHECK(e.state == State::Done && e.note == "plan done (speed 1.5 (test))");
+    CHECK(StatusLine(e) == "TBM:RUN|t|done|1/1|0|move|begin|plan done (speed 1.5 (test))|speed 1.5 (test)");
+}
 
 static PlanStep InLeg(PlanStep s, std::uint8_t leg)
 {
@@ -20005,6 +20187,12 @@ int main()
     TestWalkerVerdict();
     TestBotWalkLeavesTheStartOutOfThePackChecks();
     TestStragglerLadderKeepsItsRungWhenTheBotCycles();
+    TestTakeSpeedWords();
+    TestSpeedRisesOnlyAfterTheWalkSettles();
+    TestSpeedWalkingRule();
+    TestSpeedSettleNeedsAnUnbrokenWalk();
+    TestSpeedRealPlayerBlocksTheRestOfTheRun();
+    TestSpeedShowsInTheLines();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

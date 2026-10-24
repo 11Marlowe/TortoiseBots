@@ -78,6 +78,9 @@ using ai::PlanStep;
 using ai::PlanStepKind;
 
 constexpr std::uint32_t kTickMs = 1000;           // the glue ticks every run this often
+// The test speed (`.bot run start ... speed=<x>`, owner request 2026-10-25): bot-only test runs only; a clear is 1.0.
+constexpr float kTestSpeedMax = 3.0f;
+constexpr std::uint32_t kSpeedSettleMs = 2000; // the walking rule holds this long without a break before the rate goes up
 constexpr std::uint32_t kWipeDead = 3;            // this many dead bots stop the step for a regroup
 // Real players in the bound party (2026-10-23, `.bot commander bind ... inparty`; Facts::players):
 constexpr float kPlayerPullYd = 60.0f;              // no pull or boss while a player is farther than this from the lead bot
@@ -1420,6 +1423,13 @@ struct Run
     // goes to a point before it: the party never walked those steps in this run (Gnomeregan r27 slot 4, placed at
     // step 543: after the wipe at step 615 the walk back replayed the plan's points from step 53, 23 minutes).
     std::size_t startStep = 0;
+    // The test speed (`.bot run start ... speed=<1.0-3.0>`, owner request 2026-10-25; set by the glue next to Start,
+    // never changed by the run). Above 1.0 the glue gives the party's bots and pets this rate while the run walks
+    // (SpeedRateNow); 1.0, every clear, touches nothing. The status line and the done note say it (SpeedLabel).
+    float testSpeed = 1.0f;
+    bool speedPlayerBlocked = false; // a real player was in the party on a tick: 1.0 for the rest of the run
+    std::uint32_t speedOnMs = 0;     // the walking rule (SpeedWalking) has held this long without a break
+    float speedNow = 1.0f;           // the rate of the last tick (the glue's SyncRunSpeed reads it)
     // Times a straight walk back moved its target to an earlier point after its path passed an uncleared pack
     // (ClearPointBefore, kStraightBackoffs), this walk back.
     std::uint32_t straightBackoffs = 0;
@@ -2136,11 +2146,22 @@ inline std::string DeferredReport(const Run& r)
     return out;
 }
 
+// The test speed for the lines a reader counts clears by (StatusLine's last field, DoneNote): "" at 1.0.
+inline std::string SpeedLabel(const Run& r)
+{
+    if (r.testSpeed <= 1.0f)
+        return std::string();
+    return "speed " + Num(r.testSpeed) + (r.speedPlayerBlocked ? " (test; 1.0 since a real player joined)" : " (test)");
+}
+
 inline std::string DoneNote(const Run& r)
 {
     std::string const counts = WipeCounts(r);
     std::string const deferred = DeferredReport(r);
-    std::string const all = counts.empty() ? deferred : deferred.empty() ? counts : counts + "; " + deferred;
+    std::string all = counts.empty() ? deferred : deferred.empty() ? counts : counts + "; " + deferred;
+    std::string const speed = SpeedLabel(r);
+    if (!speed.empty())
+        all = all.empty() ? speed : speed + "; " + all;
     return all.empty() ? std::string("plan done") : "plan done (" + all + ")";
 }
 
@@ -3243,6 +3264,54 @@ inline Run Start(const DungeonPlan* plan, std::size_t fromStep = 0)
     }
     return r;
 }
+// The test speed's walking rule (owner request 2026-10-25): the party walks and nothing of a fight is near. Off in any
+// fight (a bot, a pet, the run's own), a meal, a pull out or being set up (cc, a firing stand), an event and the moves
+// leading into it, every phase but Begin, Gather and Walk, and once the pack of a pull or boss step is in sight.
+inline bool SpeedWalking(const Run& r, const Facts& f)
+{
+    const PlanStep* s = Current(r);
+    if (!s || r.state != State::Running || r.speedPlayerBlocked)
+        return false;
+    if (f.anyInCombat || f.leadInCombat || r.fighting || f.eating > 0)
+        return false;
+    if (r.pullGuid != 0 || !r.ccWatch.empty() || r.shotStandPrep || InEvent(r))
+        return false;
+    if (r.phase != Phase::Begin && r.phase != Phase::Gather && r.phase != Phase::Walk)
+        return false;
+    if ((s->kind == PlanStepKind::Pull || s->kind == PlanStepKind::Boss) && f.seen)
+        return false;
+    return true;
+}
+
+// The rate the glue gives the party this tick (after Tick, before its order goes out): testSpeed once SpeedWalking has
+// held kSpeedSettleMs without a break, else 1.0 at once. A real player in the party blocks it for the rest of the run.
+inline float SpeedRateNow(Run& r, const Facts& f, std::uint32_t dt)
+{
+    if (r.testSpeed <= 1.0f)
+    {
+        r.speedOnMs = 0;
+        r.speedNow = 1.0f;
+        return 1.0f;
+    }
+    if (!f.players.empty())
+        r.speedPlayerBlocked = true;
+    if (!SpeedWalking(r, f))
+    {
+        r.speedOnMs = 0;
+        r.speedNow = 1.0f;
+        return 1.0f;
+    }
+    r.speedOnMs = std::min<std::uint32_t>(r.speedOnMs + dt, kSpeedSettleMs);
+    r.speedNow = r.speedOnMs >= kSpeedSettleMs ? r.testSpeed : 1.0f;
+    return r.speedNow;
+}
+
+// The glue saw a listed bot (or its pet) of the run enter a fight between ticks and put the party back to 1.0.
+inline void SpeedFightSeen(Run& r)
+{
+    r.speedOnMs = 0;
+    r.speedNow = 1.0f;
+}
 
 inline std::string LowerCopy(std::string v)
 {
@@ -3424,6 +3493,61 @@ inline StartArgs ParseStartArgs(const std::string& arg)
     }
     out.from = kind;
     out.value = words[at];
+    return out;
+}
+// `.bot run start ... speed=<x>` (the test speed, owner request 2026-10-25): takes the one `speed=` word out of the
+// start's words (any place, any case). given: the word was there; ok false: its value is not 1.0 to kTestSpeedMax with
+// at most one decimal ("2", "2.0", "1.5"), or a second `speed=` came. rest: the other words, single-spaced, for
+// ParseStartArgs.
+struct SpeedArgs
+{
+    bool given = false;
+    bool ok = true;
+    float rate = 1.0f;
+    std::string rest;
+};
+
+inline SpeedArgs TakeSpeed(const std::string& arg)
+{
+    SpeedArgs out;
+    std::size_t i = 0;
+    while (i < arg.size())
+    {
+        while (i < arg.size() && (arg[i] == ' ' || arg[i] == '\t'))
+            ++i;
+        std::size_t const begin = i;
+        while (i < arg.size() && arg[i] != ' ' && arg[i] != '\t')
+            ++i;
+        if (i == begin)
+            break;
+        std::string const word = arg.substr(begin, i - begin);
+        if (LowerCopy(word).compare(0, 6, "speed=") != 0)
+        {
+            out.rest += (out.rest.empty() ? "" : " ") + word;
+            continue;
+        }
+        if (out.given)
+        {
+            out.ok = false;
+            continue;
+        }
+        out.given = true;
+        std::string const v = word.substr(6);
+        // One or two digits, then optionally '.' and one digit: tenths, exact in a float after the division.
+        std::size_t const dot = v.find('.');
+        std::string const whole = v.substr(0, dot);
+        std::string const frac = dot == std::string::npos ? std::string() : v.substr(dot + 1);
+        bool const digits = !whole.empty() && whole.size() <= 2 &&
+            std::all_of(whole.begin(), whole.end(), [](char c) { return c >= '0' && c <= '9'; }) &&
+            (dot == std::string::npos || (frac.size() == 1 && frac[0] >= '0' && frac[0] <= '9'));
+        int const tenths = digits ? std::atoi(whole.c_str()) * 10 + (frac.empty() ? 0 : frac[0] - '0') : 0;
+        if (!digits || tenths < 10 || tenths > static_cast<int>(kTestSpeedMax * 10.0f + 0.5f))
+        {
+            out.ok = false;
+            continue;
+        }
+        out.rate = static_cast<float>(tenths) / 10.0f;
+    }
     return out;
 }
 
@@ -13076,7 +13200,7 @@ inline std::string PhaseText(const Run& r)
 }
 
 // The status line for the commander:
-//   TBM:RUN|<plan>|<state>|<step>/<steps>|<leg>|<kind>|<phase>|<note>[|left <K>]
+//   TBM:RUN|<plan>|<state>|<step>/<steps>|<leg>|<kind>|<phase>|<note>[|left <K>][|speed <x> (test)]
 // <step> counts from 1 (0 before the first, steps+1 is never sent: a done run
 // shows the last). '|' and line breaks in the note become spaces.
 inline std::string StatusLine(const Run& r)
@@ -13095,10 +13219,12 @@ inline std::string StatusLine(const Run& r)
     // eighth field, only when there are any, after the note, so a reader of the seven fields
     // still reads the step (n/m) and the note (it ends with "|left K" there).
     std::size_t const left = r.deferGivenUp.size() + r.deferredPulls.size() + (DeferRetryOn(r) ? 1 : 0);
+    // The test speed (SpeedLabel), only above 1.0: last, so a reader of the seven fields still reads the note.
     return "TBM:RUN|" + (r.plan ? r.plan->name : std::string("-")) + "|" + StateName(r.state) + "|" +
         std::to_string(shown) + "/" + std::to_string(total) + "|" + (leg.empty() ? "-" : leg) + "|" +
         (s ? ai::PlanStepKindName(s->kind) : "-") + "|" + PhaseText(r) + "|" + (note.empty() ? "-" : note) +
-        (left ? "|left " + std::to_string(left) : std::string());
+        (left ? "|left " + std::to_string(left) : std::string()) +
+        (SpeedLabel(r).empty() ? std::string() : "|" + SpeedLabel(r));
 }
 
 // Which steps the run leader does today; the rest pause the run.
