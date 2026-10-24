@@ -11821,6 +11821,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             ++r.autoRegroups;
             r.fighting = false;
             ResetStep(r);
+            RearmRescueAfterDeath(r);
             BeginRegroup(r);
             r.walkBackDue = true;
             r.note = std::to_string(f.dead) + " dead and the fight went past " + std::to_string(cap / 1000) +
