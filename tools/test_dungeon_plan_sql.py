@@ -1065,7 +1065,7 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", text)
 
     def test_hateforge_quarry_is_the_plan_with_the_census_fixes(self):
-        # 20261024060300 (turtle-agent 35cc201, 2026-10-24): the hfq-fix1 re-export for the r28c slotE terrace block
+        # 20261024060300 (turtle-agent 665ba80, 2026-10-24): the hfq-fix1 re-export for the r28c slotE terrace block
         # (step 83 stopped 4 times at boss Bargul with no firing stand, the party 21-23 yd below his terrace).
         # Offline navmesh probes found no walkable route (the ramp seam has no link), so option (b): a move_direct
         # pair (launch + land) over the 1.5 yd seam, the plan form of WC's serpentis hop and Uldaman's descent.
@@ -1078,7 +1078,7 @@ class DungeonPlanSql(unittest.TestCase):
         name, text = newest_plan_text("hateforge_quarry")
         self.assertEqual(name, "20261024060300_world.sql")
         self.assertIn("('hateforge_quarry', 808, '60717,60720,60719,60725', '', '60718,60726,60723,60712,60738', "
-                      "'turtle-agent 35cc201ba3674f89c5940ef99539774e32c0c667 dungeons/h', 'plan v1, draft (not mapped, not live-checked)');", text)
+                      "'turtle-agent 665ba80cb3dd3f6eb7ce546593de28abcde905da dungeons/h', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "hateforge_quarry")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["high_foreman_bargul_blackhammer", "bargul_terrace", "corrosis", "har'gesh_doomcaller",
