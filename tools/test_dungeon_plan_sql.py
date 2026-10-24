@@ -1596,26 +1596,45 @@ class DungeonPlanSql(unittest.TestCase):
                       [(r["entries"], r["leg"], r["radius"], r["x"], r["y"]) for r in pulls])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (349) AND `entry` IN (13282, 12258, 12203, 13601, 13596, 12201);", text)
 
-    def test_blackrock_depths_is_the_plan_with_the_lava_and_pack_fixes(self):
-        # 20261023150000 (turtle-agent 6e12b2e, 2026-10-23): the Blackrock Depths draft with the fixes of PREP-BLACKROCK-DEPTHS-2026-10-23.md,
-        # no row hand-set, with the boss rows of map 230. 10 legs, 1127 steps (30 + 61 + 6 + 29 + 11 + 26 + 14 + 8 + 67 + 8 pulls), bosses in
-        # leg order. The lava points are out of the pulls, leg 7's start is on Flamelash's platform, the packs that stand at five bosses are
-        # those boss rows' entries, the four rares are pulls of their own, and no pull reaches beyond its own spread.
+    def test_blackrock_depths_is_the_plan_with_the_step395_split(self):
+        # 20261024152500 (turtle-agent brd-fix1 a178ce9, 2026-10-24, after r33 slot8 stopped at step 395 of 1127
+        # with two wipes in ~50 s each): the step-395 pull (leg 3 g8) is split so the 8911 destroyer comes first
+        # (or alone) and the 8898 after, each from its own stand, and the wipe pulls stand on their own layer.
+        # No row hand-set, with the boss rows of map 230. 10 legs, 1080 steps (30 + 61 + 6 + 30 + 11 + 26 + 14 + 8
+        # + 67 + 8 pulls), bosses in leg order. The lava points are out of the pulls, leg 7's start is on
+        # Flamelash's platform, the packs that stand at five bosses are those boss rows' entries, the four rares
+        # are pulls of their own, and no pull reaches beyond its own spread.
         name, text = newest_plan_text("blackrock_depths")
-        self.assertEqual(name, "20261023150000_world.sql")
-        self.assertIn("('blackrock_depths', 230, '8903,8892,8890,8891', '8903', '8894,8898,8896,8904,8900', 'turtle-agent 6e12b2e dungeons/blackrock_depths.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024152500_world.sql")
+        self.assertIn("('blackrock_depths', 230, '8903,8892,8890,8891', '8903', '8894,8898,8896,8904,8900', 'turtle-agent a178ce9 dungeons/blackrock_depths.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "blackrock_depths")), 10)
         rows = [r for r in self.step_rows(text) if r["plan"] == "blackrock_depths"]
-        self.assertEqual(len(rows), 1127)
+        self.assertEqual(len(rows), 1080)
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
-                         [30, 61, 6, 29, 11, 26, 14, 8, 67, 8])
+                         [30, 61, 6, 30, 11, 26, 14, 8, 67, 8])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
                          ["9018", "9319", "9016", "9033", "8983", "9017", "9056", "9156", "9938", "9019"])
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
                          ["8912,8890,8921", "8921", "", "8901", "8906,8907", "", "8897,8905", "", "", ""])
         for leg in range(10):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        # The step-395 split: leg 3 pull group 8 is the lone 8911 (radius 2) with its own stand, pull group 9 the
+        # two 8898 (radius 2) with theirs; leg 1 runs g21 before g20/g19 now.
+        leg3 = leg_steps(rows, 3)
+        g8a = [r for r in leg3 if r["comment"] == "pull group 8"]
+        g8b = [r for r in leg3 if r["comment"] == "pull group 9"]
+        self.assertEqual(len(g8a), 1)
+        self.assertEqual(len(g8b), 1)
+        self.assertEqual(g8a[0]["entries"], "8911")
+        self.assertEqual(g8a[0]["radius"], "2")
+        self.assertEqual(g8b[0]["entries"], "8898")
+        self.assertEqual(g8b[0]["radius"], "2")
+        stands8 = [r for r in leg3 if r["comment"] in ("pull group 8 approach", "pull group 9 approach")]
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in stands8],
+                         [("719", "40", "-45"), ("719", "35", "-45")])
+        leg1pulls = [r["entries"] for r in leg_steps(rows, 1) if r["kind"] == "pull"]
+        self.assertEqual(leg1pulls[19:22], ["8892", "8892,8891", "8892,8891"])
         # The 19 Fireguard Destroyer points on the lava and in the two lava pockets are gone (the navmesh flags them SLIME, and no run
         # leader route reaches them); the two Fireguard Destroyer pulls left in leg 6 stand on the main network at z -103.4 and -102.0.
         lava = [(849.381, -243.453), (851.683, -281.675), (886.74, -327.905), (932.497, -250.361),
