@@ -1065,20 +1065,23 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", text)
 
     def test_hateforge_quarry_is_the_plan_with_the_census_fixes(self):
-        # 20261024060300 (turtle-agent 665ba80, 2026-10-24): the hfq-fix1 re-export for the r28c slotE terrace block
-        # (step 83 stopped 4 times at boss Bargul with no firing stand, the party 21-23 yd below his terrace).
-        # Offline navmesh probes found no walkable route (the ramp seam has no link), so option (b): a move_direct
+        # 20261024150500 (turtle-agent c23705d, 2026-10-24): the hfq-fix2 re-export for the r29 slot5 terrace block
+        # (leg 0 clean, then steps 94-95's 1.5 yd hop to -8321.5 -3447.5 z181 'arrived' with no climb and step 96
+        # to the terrace refused unreachable). Offline navmesh probes: the terrace floor is on the mesh but on a
+        # separate island, the patrol ramp line is meshed end to end, so the hop now spans the lower/ramp seam
+        # (1.2 yd across, 0.7 up, same row kind move_hop_exact, loader limits 25/8 yd), not tried live.
         # 6 legs, 467 steps (302 moves, 2 move_hop_exact, 158 pulls: 54 + 0 + 29 + 5 + 63 + 7, the 5 bosses), bosses in
         # leg order; every leg with a boss ends on it (leg 0 is the trash clear, its boss moved to the terrace leg).
         # The plan row carries the census unit lists; Broody 60715 is Engineer
         # Figgles' boss.first (his lone pull is gone); the boss room is one 7-entry pull, the leg's last, and every pull
         # radius is 2.5 yd off the group's own spawns. The ramp-patrolling Overseer 60722 is pulled at group 22 of leg 0,
-        # before the walk up; the terrace leg walks to the exact launch, hops to the terrace mesh, then to the stand
-        # 18.8 yd from the boss (ray clear) and the boss approach; corrosis starts with the reverse hop down.
+        # before the walk up; the terrace leg walks to the exact launch, hops the lower/ramp seam onto the first ramp
+        # poly, then to the stand 18.8 yd from the boss (ray clear) and the boss approach; corrosis starts with the
+        # reverse hop down the same seam.
         name, text = newest_plan_text("hateforge_quarry")
-        self.assertEqual(name, "20261024060300_world.sql")
+        self.assertEqual(name, "20261024150500_world.sql")
         self.assertIn("('hateforge_quarry', 808, '60717,60720,60719,60725', '', '60718,60726,60723,60712,60738', "
-                      "'turtle-agent 665ba80cb3dd3f6eb7ce546593de28abcde905da dungeons/h', 'plan v1, draft (not mapped, not live-checked)');", text)
+                      "'turtle-agent c23705d dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "hateforge_quarry")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["high_foreman_bargul_blackhammer", "bargul_terrace", "corrosis", "har'gesh_doomcaller",
@@ -1091,17 +1094,17 @@ class DungeonPlanSql(unittest.TestCase):
         for leg in range(6):
             # Leg 0 is the trash clear (its boss moved to the terrace leg); every other leg ends on its boss.
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss" if leg else "pull", leg)
-        # The terrace leg: exact launch move (flags 64), the hop, the landing, the terrace stand, then the boss.
+        # The terrace leg: exact launch move (flags 64), the hop onto the first ramp poly, the landing, the stand, then the boss.
         terrace = leg_steps(rows, 1)
         self.assertEqual([(r["kind"], r["x"], r["y"]) for r in terrace if r["kind"] in ("move_hop_exact", "boss")],
-                         [("move_hop_exact", "-8321.5", "-3447.5"), ("boss", "-8304.88", "-3442.24")])
+                         [("move_hop_exact", "-8321.08", "-3448.15"), ("boss", "-8304.88", "-3442.24")])
         self.assertEqual([(r["kind"], r["flags"]) for r in terrace if r["kind"] == "move" and r["flags"] == "64"],
                          [("move", "64")])
         self.assertIn(("move", "-8309.45", "-3460.42"), [(r["kind"], r["x"], r["y"]) for r in terrace])
         # The corrosis leg starts with the reverse hop down the same seam.
         corrosis = leg_steps(rows, 2)
         self.assertEqual([(r["kind"], r["x"], r["y"]) for r in corrosis[:2]],
-                         [("move", "-8321.5", "-3447.5"), ("move_hop_exact", "-8320", "-3447.5")])
+                         [("move", "-8321.08", "-3448.15"), ("move_hop_exact", "-8320", "-3447.5")])
         # Figgles' row carries Broody as its first; no other boss does, and no pull lists a boss.first entry or a summoned unit.
         self.assertEqual([(r["entry"], r["entries"]) for r in rows if r["kind"] == "boss" and r["entries"]],
                          [("60736", "60715")])
