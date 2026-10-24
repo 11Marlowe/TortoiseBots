@@ -10283,7 +10283,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     NoteDeadSeen(r, f);
     NoteLeadDeath(r, f);
     NoteLeadPath(r, f);
-    UpdateObjectSighting(r, *s, f, dt);
+    if (FactStep(r) == s)
+        UpdateObjectSighting(r, *s, f, dt);
     if (r.lootFfaLive)
     {
         r.lootFfaMs += dt;

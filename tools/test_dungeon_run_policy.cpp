@@ -949,6 +949,38 @@ static void TestWaitObjectSightingsAreKeyedByTarget()
     CHECK(n.step == 2);
 }
 
+// A walk back replays an earlier point while the run waits at its step: the
+// glue reads the step facts for the replayed point (FactStep), so an object
+// read found there belongs to that earlier wait_object step, not to the
+// current one. The current flagged wait is not marked seen by it, and
+// readable misses at its own point afterwards do not finish it (never seen):
+// it waits out its timeout as before.
+static void TestWaitObjectSightingDuringWalkBackIsIgnored()
+{
+    DungeonPlan plan;
+    plan.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone, 100, 100, 10), GoneWaitStep(ai::kPlanFlagGoneIsDone, 160, 100, 10),
+        Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan, 1);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 0;
+    Tick(r, ReadFacts(0, true)); // the earlier door read found: not the current step's sighting
+    CHECK(r.step == 1 && r.state == State::Running);
+    CHECK(r.objectsSeen.empty());
+    CHECK(!WaitSightSeen(r, plan.steps[1]));
+    Facts miss = ReadFacts(-1, true);
+    for (int i = 0; i < 3; ++i)
+        Tick(r, miss); // kGoneConfirmMs of readable misses: not done, the object was never seen
+    CHECK(r.step == 1 && r.state == State::Running);
+    std::uint32_t ticks = 3;
+    while (r.state == State::Running && r.step == 1 && ticks < 200)
+    {
+        Tick(r, miss);
+        ++ticks;
+    }
+    CHECK(r.state == State::Paused && r.step == 1 && ticks >= 25 && ticks <= 27);
+    CHECK(r.note.find("not found near its point") != std::string::npos);
+}
+
 // A gone object finishes a flagged wait over a stale combat flag, too (the objectDone shortcut), once confirmed.
 static void TestWaitObjectGoneWinsOverAStaleFight()
 {
@@ -16932,6 +16964,7 @@ int main()
     TestWaitObjectUnreadableMissIsNotGone();
     TestWaitObjectOneMissThenFoundIsNotGone();
     TestWaitObjectSightingsAreKeyedByTarget();
+    TestWaitObjectSightingDuringWalkBackIsIgnored();
     TestWaitObjectGoneWinsOverAStaleFight();
     TestWaitObjectNeverSeenWaitsOutItsTimeout();
     TestWaitObjectGoneWithoutFlagPauses();
