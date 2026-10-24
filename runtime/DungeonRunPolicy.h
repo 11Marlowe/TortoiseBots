@@ -640,6 +640,10 @@ struct MemberFact
     // summoned or loading). A bot outside the instance that is not returnable gets a note, never a return or a pause.
     // Unread: true (returnable).
     bool offMapReturnable = true;
+    // Round 2 (2026-10-24): why it cannot be returned: the busy recheck (a pending summon or teleport move) keeps its
+    // own wording; the rest (battleground, instance map, transport) is the open-world check. Unread: OpenWorld.
+    enum class OffMapBlock : std::uint8_t { Busy, OpenWorld };
+    OffMapBlock offMapBlock = OffMapBlock::OpenWorld;
 };
 
 // An instance door: where an area trigger into the plan's map puts a player
@@ -1512,6 +1516,10 @@ struct Run
     std::unordered_map<std::string, std::uint64_t> offMapReturnAt;
     std::size_t offMapReturnStep = static_cast<std::size_t>(-1);
     std::unordered_map<std::string, std::uint32_t> offMapReturnTries;
+    // Round 2 (2026-10-24): bots outside the instance reported not returnable at this step (their note went out once
+    // per bot per step, and an earlier copy of the same note is replaced, not appended to).
+    std::size_t offMapNotedStep = static_cast<std::size_t>(-1);
+    std::unordered_set<std::string> offMapNoted;
     // The walk-back point last sent, from where, and how often (kWalkBackResends).
     std::size_t resendIdx = static_cast<std::size_t>(-1);
     float resendX = 0.0f, resendY = 0.0f, resendZ = 0.0f;
@@ -3615,6 +3623,7 @@ inline bool Resume(Run& r)
     r.fighting = false;
     r.autoRegroups = 0;
     r.offMapReturnTries.clear();
+    r.offMapNoted.clear();
     ResetStep(r);
     // A step that is never skipped starts its refusals over: the next one may
     // search a stand-in from the lead bot's new spot and hop it off an island.
@@ -11246,14 +11255,46 @@ inline bool OffMapReturnTick(Run& r, const Facts& f, std::string& order)
         r.offMapReturnStep = r.step;
         r.offMapReturnTries.clear();
     }
+    if (r.offMapNotedStep != r.step)
+    {
+        r.offMapNotedStep = r.step;
+        r.offMapNoted.clear();
+    }
+    for (auto it = r.offMapNoted.begin(); it != r.offMapNoted.end();)
+    {
+        bool outside = false;
+        for (const MemberFact& m : f.members)
+            if (m.name == *it && m.offPlanMap)
+            {
+                outside = true;
+                break;
+            }
+        if (outside)
+            ++it;
+        else
+            it = r.offMapNoted.erase(it);
+    }
     for (const MemberFact& m : f.members)
     {
         if (m.name.empty() || !m.offPlanMap || m.name == f.carrier || r.reviveSummons.count(m.name))
             continue;
         if (!m.offMapReturnable)
         {
-            r.note += (r.note.empty() ? "" : "; ") + m.name +
-                " is outside the instance but cannot be returned (not in the open world): left alone";
+            // Round 2 (2026-10-24): one note per bot per step: the first sight writes it, later ticks leave it
+            // alone; an earlier copy of the same note is replaced, never appended to (Codex medium: it grew on
+            // every tick). Skipped bots (the carrier, a revive summon) never join the set here: coming back still
+            // reports them.
+            if (!r.offMapNoted.insert(m.name).second)
+                continue;
+            std::string const piece = m.name +
+                (m.offMapBlock == MemberFact::OffMapBlock::Busy
+                    ? " is outside the instance and busy (summon or teleport pending): left alone"
+                    : " is outside the instance but cannot be returned (not in the open world): left alone");
+            std::string::size_type const at = r.note.find(piece);
+            if (at != std::string::npos)
+                r.note.replace(at, piece.size(), piece);
+            else
+                r.note += (r.note.empty() ? "" : "; ") + piece;
             continue;
         }
         auto const last = r.offMapReturnAt.find(m.name);

@@ -11656,9 +11656,13 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         // Round 1 (2026-10-24): a return teleport can reach the bot only in the open world: not in a battleground,
         // its map no instance/dungeon/battleground (Map::Instanceable on the core's map entry), not on a transport,
         // taxi-flying, teleporting, summoned or loading (DungeonRun::MemberFact::offMapReturnable).
+        // Round 2 (2026-10-24): the reason the return cannot reach it (DungeonRun::MemberFact::offMapBlock): a
+        // pending summon or teleport move is busy; the rest is the open-world check.
+        bool const offMapBusy = bot->IsTaxiFlying() || bot->IsBeingTeleported() ||
+            PlayerConvenience::Instance().IsBusy(bot->GetObjectGuid());
         member.offMapReturnable = !bot->InBattleGround() && bot->GetMap() && !bot->GetMap()->Instanceable() &&
-            !bot->GetTransport() && !bot->IsTaxiFlying() && !bot->IsBeingTeleported() &&
-            !PlayerConvenience::Instance().IsBusy(bot->GetObjectGuid()) && bot->IsInWorld();
+            !bot->GetTransport() && !offMapBusy && bot->IsInWorld();
+        member.offMapBlock = offMapBusy ? MemberFact::OffMapBlock::Busy : MemberFact::OffMapBlock::OpenWorld;
         member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;
         member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);
         member.cc = KnownRunCc(bot);

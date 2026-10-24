@@ -1023,6 +1023,10 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
         ret = body(policy, "inline bool OffMapReturnTick(Run& r, const Facts& f, std::string& order)\n{", "\n}\n")
         self.assertIn("!m.offMapReturnable", ret)
         self.assertIn("cannot be returned (not in the open world)", ret)
+        # round 2: once per (bot, step), replacing an earlier copy; the glue passes the busy reason
+        self.assertIn("offMapNoted", ret)
+        self.assertIn("is outside the instance and busy (summon or teleport pending)", ret)
+        self.assertIn("member.offMapBlock", facts)
         refused = body(policy, "inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)", "\n}\n")
         self.assertLess(refused.index('order.compare(0, 7, "return ") == 0'),
                         refused.index('Pause(r, "cmd " + order + " refused: " + answer + MissingHint(r));'))

@@ -17038,6 +17038,72 @@ static void TestOutsideBotNotInTheOpenWorldIsSkipped()
     order.clear();
     CHECK(!OffMapReturnTick(r, f, order) && order.empty() && r.state == State::Running);
 }
+// Round 2 (2026-10-24): (a) a non-returnable bot outside for 10 ticks: the note is identical after tick 1, no growth.
+static void TestOutsideBotNotReturnableNotedOncePerStep()
+{
+    DungeonPlan plan = GraveyardPlan();
+    Run r = Start(&plan);
+    Facts f = OutsideFight();
+    f.members[1].offMapReturnable = false;
+    std::string order;
+    CHECK(!OffMapReturnTick(r, f, order) && order.empty() && r.state == State::Running);
+    std::string const first = r.note;
+    CHECK(Has(first, "Pozzle is outside the instance but cannot be returned (not in the open world): left alone"));
+    for (int i = 0; i < 9; ++i)
+    {
+        order.clear();
+        r.runMs += kTickMs;
+        CHECK(!OffMapReturnTick(r, f, order) && order.empty() && r.state == State::Running);
+        CHECK(r.note == first);
+    }
+}
+// Round 2 (2026-10-24): (b) a new step reports the same bot once again; coming back drops its entry.
+static void TestOutsideBotNotReturnableNotedAgainOnNewStep()
+{
+    DungeonPlan plan = GraveyardPlan();
+    Facts f = OutsideFight();
+    f.members[1].offMapReturnable = false;
+    Run r = Start(&plan);
+    r.step = 3;
+    std::string order;
+    CHECK(!OffMapReturnTick(r, f, order) && r.offMapNotedStep == 3 && r.offMapNoted.count("Pozzle"));
+    std::string const first = r.note;
+    order.clear();
+    CHECK(!OffMapReturnTick(r, f, order) && r.note == first);
+    // The bot came back inside: its entry is dropped, so going out again reports it.
+    Facts back = OutsideFight();
+    back.members[1].offPlanMap = false;
+    order.clear();
+    CHECK(!OffMapReturnTick(r, back, order) && !r.offMapNoted.count("Pozzle") && r.note == first);
+    order.clear();
+    CHECK(!OffMapReturnTick(r, f, order) && r.offMapNoted.count("Pozzle") && Has(r.note, first));
+    // A new step starts the report over too (NextStep over the plan's last point finishes the run, so step on
+    // the facts instead: the noted set follows the step, like the per-bot tries).
+    r.step = 4;
+    order.clear();
+    CHECK(!OffMapReturnTick(r, f, order) && r.offMapNotedStep == 4 && r.offMapNoted.count("Pozzle"));
+}
+// Round 2 (2026-10-24): (c) the busy wording versus the open-world wording.
+static void TestOutsideBotNotReturnableBusyWording()
+{
+    DungeonPlan plan = GraveyardPlan();
+    Run r = Start(&plan);
+    Facts f = OutsideFight();
+    f.members[1].offMapReturnable = false;
+    f.members[1].offMapBlock = MemberFact::OffMapBlock::Busy;
+    std::string order;
+    CHECK(!OffMapReturnTick(r, f, order) && order.empty() && r.state == State::Running);
+    CHECK(Has(r.note, "Pozzle is outside the instance and busy (summon or teleport pending): left alone"));
+    CHECK(r.note.find("not in the open world") == std::string::npos);
+    Run o = Start(&plan);
+    Facts g = OutsideFight();
+    g.members[1].offMapReturnable = false;
+    g.members[1].offMapBlock = MemberFact::OffMapBlock::OpenWorld;
+    order.clear();
+    CHECK(!OffMapReturnTick(o, g, order) && order.empty() && o.state == State::Running);
+    CHECK(Has(o.note, "Pozzle is outside the instance but cannot be returned (not in the open world): left alone"));
+    CHECK(o.note.find("and busy") == std::string::npos);
+}
 // Round 1 finding 3: the lead bot's own fact off the plan's map is never returned (the m.name == f.carrier skip).
 static void TestOutsideLeadBotIsNeverReturned()
 {
@@ -19708,6 +19774,9 @@ int main()
     TestOutsideBotPauseNamesTheBotThatNeededFour();
     TestOutsideBotPerBotCountsReset();
     TestOutsideBotNotInTheOpenWorldIsSkipped();
+    TestOutsideBotNotReturnableNotedOncePerStep();
+    TestOutsideBotNotReturnableNotedAgainOnNewStep();
+    TestOutsideBotNotReturnableBusyWording();
     TestOutsideLeadBotIsNeverReturned();
     TestBossNotAtHisSpotIsSearchedForInTheInstance();
     TestPassedBossAtHisSpotPausesAtOnce();
