@@ -8,14 +8,14 @@
 -- in internal/navmesh/navdetour.cpp, navmesh.Floor.Flags / navmesh.Polygon.Flags: 0x01 ground, 0x02 magma, 0x04 slime,
 -- 0x08 water, 0x10 steep): the step-273 point sits EXACTLY on the shared edge of a ground polygon (flags 0x01) and a
 -- magma polygon (0x02). A floor query at the point lists only the ground polygon (z162.52; inside its poly the magma
--- surface dips to z160.5-161.6), but the point is 0.00 yd from the magma polygon's boundary: 0.5 yd west the floor is
--- magma at z161.75, 1 yd north magma at z161.92, and the ground rises east of the seam (-8070.5 -3443.5 z164.22 and
--- -8069 -3442 z164.04 are 0x01). The WAY to the point cannot be the magma polygon: the server's path filter includes
--- ground|water (PathFinder::createFilter), which a 0x02 polygon never is, so the refused move is the server's snap of
--- the goal polygon, which at the shared edge can land on the magma side (why=magma). The rest of the plan is clean: the
--- scan of all 478 plan points (every one of legs 4-5) finds this one the only point within 25.4 yd of a magma or slime
--- polygon; the next nearest is 25.4 yd (leg 5).
--- WHAT CHANGED (dungeons/hateforge_quarry.json, turtle-agent dbf3859; one point moved, no step added or removed):
+-- surface dips to z160.52-161.62), but the point is 0.00 yd from the magma polygon's boundary: 0.5 yd west the floor is
+-- magma z162.32, 0.5 yd north magma z162.34, 0.5 yd east ground z162.71, and the ground rises east of the seam
+-- (-8070.5 -3443.5 z164.22 and -8069 -3442 z164.04 are 0x01). The WAY to the point cannot be the magma polygon: the
+-- server's path filter includes ground|water (PathFinder::createFilter), which a 0x02 polygon never is, so the refused
+-- move is the server's snap of the goal polygon, which at the shared edge can land on the magma side (why=magma). The
+-- rest of the plan is clean: the scan of all 478 plan points (every one of legs 4-5) finds this one the only point
+-- within 25.4 yd of a magma or slime polygon; the next nearest is 25.42 yd (leg 5).
+-- WHAT CHANGED (dungeons/hateforge_quarry.json, turtle-agent 0ab2802; one point moved, no step added or removed):
 --   * leg 4 (engineer_figgles) pull group 7's approach stand: -8073.12 -3441.07 162.52 -> -8069.0 -3442.0 164.04, 4.5 yd
 --     up the ground slope. It is 3.83 yd from the magma polygon (the rule below keeps 2.5), 14.25 yd from the pack
 --     centroid (-8074.24 -3455.16 165.58; was 14.46) and 14.56 yd from the pack's first position (was 14.49), on a 0x01
@@ -24,7 +24,7 @@
 --     -8072.5 -3452 165.8; the pull's ring search (15-25 yd) from the new stand finds ground stands with a path.
 --   * the plan file is back in Marshal's canonical form (fixes 2-6 had left -8200.0 for -8200, the approach/patrol key
 --     order and a raw '>' in the notes); every value but this stand is unchanged, so the exported rows differ by that row.
--- PLAN-CHECK (turtle-agent dbf3859, map 808): 380 points, 1 fails (the pre-existing leg 4 pull group 7 shelf look: the
+-- PLAN-CHECK (turtle-agent 0ab2802, map 808): 380 points, 1 fails (the pre-existing leg 4 pull group 7 shelf look: the
 -- look point 22 yd 3-D against the 25-yd view, 0.0 yd short), 2 exempt (the terrace seam), 63 warnings, 116 run-leader
 -- hop notices. New rule for every plan: ReasonMagma, a point on or within MagmaClearYd (2.5 yd) of a magma/slime polygon
 -- whose heights are within magmaZOverlap (1.5 yd) of the point (a lava floor under a bridge is another storey); it runs
@@ -33,7 +33,7 @@
 -- TestHateforgeQuarryKeepsClearOfMagma.
 -- 6 legs, 478 steps (313 moves, 2 move_hop_exact, 158 pulls: 54 + 0 + 29 + 5 + 63 + 7; the 5 bosses), 485 rows.
 --   turtle-agent plan-export --mmaps <map 808 mmaps> --allow-draft --gm-cross-direct --approach-hops \
---     --rev dbf3859 --stamp 20261024154500 --out <dir> hateforge_quarry
+--     --rev 0ab2802 --stamp 20261024154500 --out <dir> hateforge_quarry
 -- Diff vs 20261024153700: this header, the plan source rev and one step row (leg 4 seq 43, the group-7 approach); every
 -- other row is the same.
 --
@@ -49,7 +49,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'hateforge_quarry';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'hateforge_quarry';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'hateforge_quarry';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('hateforge_quarry', 808, '60717,60720,60719,60725', '', '60718,60726,60723,60712,60738', 'turtle-agent dbf3859 dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');
+('hateforge_quarry', 808, '60717,60720,60719,60725', '', '60718,60726,60723,60712,60738', 'turtle-agent 0ab2802 dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('hateforge_quarry', 0, 'high_foreman_bargul_blackhammer', ''),
 ('hateforge_quarry', 1, 'bargul_terrace', ''),

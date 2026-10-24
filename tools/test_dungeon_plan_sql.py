@@ -1065,12 +1065,13 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", text)
 
     def test_hateforge_quarry_is_the_plan_with_the_census_fixes(self):
-        # 20261024154500 (turtle-agent dbf3859, 2026-10-24): the hfq-fix7 magma fix. r37 slot4 ran the 478-step plan
+        # 20261024154500 (turtle-agent 0ab2802, 2026-10-24): the hfq-fix7 magma fix. r37 slot4 ran the 478-step plan
         # (Bargul, the terrace, Corrosis, Har'gesh; 1 death) and stopped at step 273, leg 4 pull group 7's approach
         # stand -8073.12 -3441.07 z162.52: 4 pauses 'the lead bot is stuck 11.4 yd from -8073.1 -3441.1 162.5', the
         # lead at -8072.5 -3452 z165.8, the server's lead log 'why=magma path=0x0'. The point sits exactly on the shared
         # edge of a ground polygon (0x01) and a magma polygon (0x02): floors at it list only the ground polygon, but it
-        # is 0.00 yd from the magma polygon (0.5 yd west z161.75 and 1 yd north z161.92 are magma) and the server's snap
+        # is 0.00 yd from the magma polygon (0.5 yd west z162.32, 0.5 yd north z162.34 and 0.5 yd east z162.71: magma,
+        # magma, ground) and the server's snap
         # of the goal can land on the magma side. The stand moves to -8069 -3442 z164.04 (3.83 yd from the magma, 14.25
         # yd from the pack centroid; server path type 0x1 ok from step 272's stop and the r37 stall); no other plan point
         # of the 478 is within 25.4 yd of a magma or slime polygon. The plan file is back in Marshal's canonical form.
@@ -1110,7 +1111,7 @@ class DungeonPlanSql(unittest.TestCase):
         name, text = newest_plan_text("hateforge_quarry")
         self.assertEqual(name, "20261024154500_world.sql")
         self.assertIn("('hateforge_quarry', 808, '60717,60720,60719,60725', '', '60718,60726,60723,60712,60738', "
-                      "'turtle-agent dbf3859 dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+                      "'turtle-agent 0ab2802 dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "hateforge_quarry")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["high_foreman_bargul_blackhammer", "bargul_terrace", "corrosis", "har'gesh_doomcaller",
