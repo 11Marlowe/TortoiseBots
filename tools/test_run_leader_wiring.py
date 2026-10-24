@@ -898,18 +898,36 @@ class WaitObjectGoneWiringTest(unittest.TestCase):
         self.assertIn("f.objectState = 0;", facts)
         self.assertIn("GameObject* go = guid && objectGuid.IsGameObject()", facts)
 
-    def test_wait_step_records_the_sighting_before_it_judges(self):
+    def test_glue_reads_the_object_as_authoritative_only_when_it_could_find_it(self):
+        facts = body(strip_comments(COMMANDS), "case ai::PlanStepKind::WaitObject:", "case ai::PlanStepKind::Hold:")
+        read = body(facts, "f.objectReadable =", ";")
+        for needed in ("lead->IsAlive()", "!lead->IsBeingTeleported()", "lead->GetMapId() == slot.run.plan->map",
+                       "EntryPointReachable(lead, spec)", "lead->GetMap()->IsLoaded(step->x, step->y)"):
+            self.assertIn(needed, read)
+
+    def test_sighting_and_miss_count_are_updated_before_any_fight_handling(self):
+        tick = body(strip_comments(self.POLICY), "NoteLeadPath(r, f);", "bool const objectDone")
+        self.assertIn("UpdateObjectSighting(r, *s, f, dt);", tick)
+        update = body(strip_comments(self.POLICY), "inline void UpdateObjectSighting(", "\n}\n")
+        self.assertIn("r.objectsSeen.push_back({s.entry, s.x, s.y, s.z});", update)
+        self.assertIn("f.objectReadable && f.leadAlive", update)
+
+    def test_wait_step_judges_gone_before_the_timeout_pause(self):
         step = body(strip_comments(self.POLICY), "case PlanStepKind::WaitObject:", "case PlanStepKind::WaitClear:")
-        self.assertIn("r.objectsSeen.insert(s->entry);", step)
         self.assertIn("WaitObjectGoneIsDone(r, *s, f)", step)
-        self.assertLess(step.index("r.objectsSeen.insert(s->entry);"), step.index("WaitObjectGoneIsDone(r, *s, f)"))
         # The pause on the timeout stays after the gone check: a never-seen object still pauses.
         self.assertLess(step.index("WaitObjectGoneIsDone(r, *s, f)"), step.index("Pause(r,"))
 
-    def test_gone_check_needs_a_sighting(self):
+    def test_stale_combat_shortcut_accepts_a_confirmed_gone(self):
+        short = body(strip_comments(self.POLICY), "bool const objectDone =", ";")
+        self.assertIn("WaitObjectGoneIsDone(r, *s, f)", short)
+
+    def test_gone_check_needs_a_sighting_and_a_confirmed_readable_miss(self):
         check = body(strip_comments(self.POLICY), "inline bool WaitObjectGoneIsDone(", "\n}\n")
         self.assertIn("f.objectState < 0", check)
-        self.assertIn("r.objectsSeen.count(s.entry) > 0", check)
+        self.assertIn("f.objectReadable", check)
+        self.assertIn("r.goneMissMs >= kGoneConfirmMs", check)
+        self.assertIn("WaitSightSeen(r, s)", check)
         self.assertIn("ai::kPlanFlagGoneIsDone", check)
 
     def test_loader_accepts_the_flag_on_wait_object_only_beside_loot_and_open(self):

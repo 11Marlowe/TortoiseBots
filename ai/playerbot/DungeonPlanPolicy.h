@@ -129,7 +129,7 @@ namespace ai
     // way: an opened chest that stays gone, a grave opened before a wipe) counts as done, with the note "object gone:
     // counted as done", instead of pausing the run on a refused order. Read only on a row with no item (item 0).
     // wait_object too: the step is done when the object is in the wanted state, or when it is not found after the
-    // run saw it at least once (it despawned: Shadowfang Keep's Courtyard Door 18895 is set active by Deathstalker
+    // run saw it at least once and the not-found is authoritative for 3 s (the lead bot alive on the map within reach of the point, its grid loaded; it despawned: Shadowfang Keep's Courtyard Door 18895 is set active by Deathstalker
     // Adamant's escort and removed a few waypoints later). Never seen, the step still waits out its timeout and pauses.
     // Any other kind with this flag is refused (BadParam). 128 is reserved.
     constexpr std::uint32_t kPlanFlagGoneIsDone = 256;

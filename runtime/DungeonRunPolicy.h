@@ -775,6 +775,11 @@ struct Facts
     std::uint64_t bossSearchCorpseGuid = 0;
     float bossSearchCorpseX = 0.0f, bossSearchCorpseY = 0.0f, bossSearchCorpseZ = 0.0f;
     int objectState = -1;               // wait_object, hold done by object: 0 ready, 1 active, 2 active_alt; -1 not found
+    // wait_object: the -1 above is an authoritative "not there": the lead bot is alive and in the world on the plan's map,
+    // the step's point lies within AiPlayerbot.ReactDistance of it (the by-entry search covers only that) and the point's
+    // grid is loaded. A -1 read while this is false (a dead, released or teleporting lead bot, another map, too far, an
+    // unloaded grid) never counts as gone.
+    bool objectReadable = false;
     // hold (units: the living units of its `entries` within its radius, the
     // friendly, still dormant ones too):
     std::uint32_t eventDown = 0;        // dead units of its `entries` within its radius
@@ -871,6 +876,16 @@ struct CorpseMark
     std::uint64_t guid = 0;
     float x = 0.0f, y = 0.0f, z = 0.0f;
 };
+
+// A wait_object target a wait step has read found (Run::objectsSeen).
+struct WaitSight
+{
+    std::uint32_t entry = 0;
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+};
+
+constexpr float kWaitSightYd = 10.0f;               // two waits on one entry within this of each other are one target
+constexpr std::uint32_t kGoneConfirmMs = 3000;      // a gone object must read not found, readably, this long without a break
 
 struct Run
 {
@@ -1074,9 +1089,14 @@ struct Run
     std::uint32_t lootRestoreTries = 0; // restore orders sent by the running-tick restore (LootFfaRestoreTick)
     std::uint32_t lootFfaMs = 0;        // time since the ffa order went out (while lootFfaLive)
     std::unordered_set<std::uint32_t> missing;       // items the run did not get (a skipped loot or use)
-    // wait_object entries whose object a wait step read at least once (found, in any state): a wait_object row with
-    // ai::kPlanFlagGoneIsDone is done by that object being gone later (not found), never by one never seen.
-    std::unordered_set<std::uint32_t> objectsSeen;
+    // wait_object targets (entry and the step's point) a wait step read found at least once, in any state: a wait_object
+    // row with ai::kPlanFlagGoneIsDone is done by that object being gone later, never by one never seen. Two waits on
+    // one entry at points more than kWaitSightYd apart are two targets (WaitSightSeen).
+    std::vector<WaitSight> objectsSeen;
+    // The time the current wait_object step read its object not found with Facts::objectReadable (a miss that proves the
+    // object is gone), unbroken; goneMissStep is the step it counts for.
+    std::uint32_t goneMissMs = 0;
+    std::size_t goneMissStep = static_cast<std::size_t>(-1);
     std::unordered_map<std::uint32_t, CorpseMark> corpses; // boss entry -> the corpse seen when that boss step ended "boss down"
     std::uint32_t pendingMissing = 0;                 // the item a paused step failed to get (missing on skip)
     std::size_t skippedOpenStep = static_cast<std::size_t>(-1); // an `open` left out: the wait after it goes too
@@ -3919,10 +3939,44 @@ inline bool GoneIsDone(const PlanStep* s, const std::string& answer)
 // read it found earlier in the run (Run::objectsSeen). An object never seen is not gone, only not there yet: the step
 // waits out its timeout as before. Shadowfang Keep's Courtyard Door 18895 is active for a few waypoints of
 // Deathstalker Adamant's escort and then removed.
+inline bool WaitSightSeen(const Run& r, const PlanStep& s)
+{
+    for (const WaitSight& w : r.objectsSeen)
+        if (w.entry == s.entry && ai::PlanDistance(w.x, w.y, w.z, s.x, s.y, s.z) <= kWaitSightYd)
+            return true;
+    return false;
+}
+
+// Per tick, for the current step (before any fight handling): a wait_object step that reads its object found records
+// the sighting; one that reads it not found, readably, counts the time (an unreadable read or a found one starts it over).
+inline void UpdateObjectSighting(Run& r, const PlanStep& s, const Facts& f, std::uint32_t dt)
+{
+    if (s.kind != PlanStepKind::WaitObject)
+    {
+        r.goneMissMs = 0;
+        return;
+    }
+    if (r.goneMissStep != r.step)
+    {
+        r.goneMissStep = r.step;
+        r.goneMissMs = 0;
+    }
+    if (f.objectState >= 0)
+    {
+        if (!WaitSightSeen(r, s))
+            r.objectsSeen.push_back({s.entry, s.x, s.y, s.z});
+        r.goneMissMs = 0;
+    }
+    else if (f.objectReadable && f.leadAlive)
+        r.goneMissMs += dt;
+    else
+        r.goneMissMs = 0;
+}
+
 inline bool WaitObjectGoneIsDone(const Run& r, const PlanStep& s, const Facts& f)
 {
     return s.kind == PlanStepKind::WaitObject && (s.flags & ai::kPlanFlagGoneIsDone) && f.objectState < 0 &&
-        r.objectsSeen.count(s.entry) > 0;
+        f.objectReadable && r.goneMissStep == r.step && r.goneMissMs >= kGoneConfirmMs && WaitSightSeen(r, s);
 }
 
 inline void GoneStepDone(Run& r, const PlanStep& s)
@@ -10229,6 +10283,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     NoteDeadSeen(r, f);
     NoteLeadDeath(r, f);
     NoteLeadPath(r, f);
+    UpdateObjectSighting(r, *s, f, dt);
     if (r.lootFfaLive)
     {
         r.lootFfaMs += dt;
@@ -10559,8 +10614,9 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     // Archaedas down, the vault door 124369 active, "a fight lasted more than
     // 180 s" at the wait step.
     // Only on a stale flag: a real fight keeps its handling and its timer.
+    // A flagged wait (ai::kPlanFlagGoneIsDone) over the same stale flag is finished by its object being gone, too.
     bool const objectDone = s->kind == PlanStepKind::WaitObject && r.staleRunMs >= kStaleConfirmMs &&
-        f.objectState >= 0 && f.objectState == static_cast<int>(s->param);
+        ((f.objectState >= 0 && f.objectState == static_cast<int>(s->param)) || WaitObjectGoneIsDone(r, *s, f));
 
     // Fights are the bots' own; the run only bounds them.
     if (f.anyInCombat && !objectDone)
@@ -10961,8 +11017,6 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             }
             if (r.phase != Phase::Wait)
                 EnterPhase(r, Phase::Wait);
-            if (f.objectState >= 0)
-                r.objectsSeen.insert(s->entry);
             if (f.objectState == static_cast<int>(s->param))
                 NextStep(r, "object " + std::to_string(s->entry) + " is in the state the plan waits for");
             else if (WaitObjectGoneIsDone(r, *s, f))

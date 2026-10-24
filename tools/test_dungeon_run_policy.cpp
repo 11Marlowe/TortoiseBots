@@ -774,10 +774,12 @@ static void TestGoneIsDoneOnlyForAGoneObject()
 
 // ai::kPlanFlagGoneIsDone on a wait_object row (Shadowfang Keep's Courtyard Door 18895, spawn 20835: Deathstalker
 // Adamant's escort sets it active and removes it a few waypoints later): done when the object is in the wanted
-// state, or not found after a wait step read it found; never seen, it waits out its timeout and pauses as before.
-static PlanStep GoneWaitStep(std::uint32_t flags)
+// state, or when it reads not found AUTHORITATIVELY (Facts::objectReadable: the lead bot alive on the plan's map within
+// reach of the point, its grid loaded) for kGoneConfirmMs without a break, after a wait step read it found. Never
+// seen, it waits out its timeout and pauses as before.
+static PlanStep GoneWaitStep(std::uint32_t flags, float x = -242.58f, float y = 2159.05f, float z = 90.62f)
 {
-    PlanStep s = Step(PlanStepKind::WaitObject, -242.58f, 2159.05f, 90.62f);
+    PlanStep s = Step(PlanStepKind::WaitObject, x, y, z);
     s.entry = 18895;
     s.param = 1;
     s.timeoutS = 25;
@@ -786,31 +788,88 @@ static PlanStep GoneWaitStep(std::uint32_t flags)
     return s;
 }
 
+static Facts ReadFacts(int state, bool readable)
+{
+    Facts f = Party(0);
+    f.objectState = state;
+    f.objectReadable = readable;
+    return f;
+}
+
+static void TickN(Run& r, const Facts& f, int n)
+{
+    for (int i = 0; i < n && r.step == 0 && r.state == State::Running; ++i)
+        Tick(r, f);
+}
+
 static void TestWaitObjectGoneAfterSeenIsDone()
 {
     DungeonPlan plan;
     plan.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone), Step(PlanStepKind::Move, 9)};
-    // Seen ready (closed), then gone: done, with the note, long before the timeout.
+    // Seen ready (closed), then three readable misses: done, with the note, long before the timeout.
     Run r = Start(&plan);
-    Facts f = Party(0);
-    f.objectState = 0;
-    Tick(r, f);
-    CHECK(r.step == 0 && r.state == State::Running && r.objectsSeen.count(18895) == 1);
-    f.objectState = -1;
-    Tick(r, f);
+    Tick(r, ReadFacts(0, true));
+    CHECK(r.step == 0 && r.state == State::Running && r.objectsSeen.size() == 1);
+    Facts miss = ReadFacts(-1, true);
+    Tick(r, miss);
+    Tick(r, miss);
+    CHECK(r.step == 0 && r.state == State::Running); // two misses are not enough
+    Tick(r, miss);
     CHECK(r.state == State::Running && r.step == 1);
     CHECK(r.note.find("is gone after it was seen: counted as done") != std::string::npos);
-    // Seen active: the wanted state wins as before.
+    // Seen active: the wanted state wins as before, at once.
     Run a = Start(&plan);
-    f.objectState = 1;
-    Tick(a, f);
+    Tick(a, ReadFacts(1, true));
     CHECK(a.state == State::Running && a.step == 1 && a.note.find("in the state the plan waits for") != std::string::npos);
     // Seen in the wrong state (ready), still found: keeps waiting.
     Run w = Start(&plan);
-    f.objectState = 0;
-    for (int i = 0; i < 5; ++i)
-        Tick(w, f);
+    TickN(w, ReadFacts(0, true), 5);
     CHECK(w.state == State::Running && w.step == 0);
+}
+
+// A -1 that the search could not have answered never counts, however long it lasts.
+static void TestWaitObjectUnreadableMissIsNotGone()
+{
+    DungeonPlan plan;
+    plan.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone), Step(PlanStepKind::Move, 9)};
+    // Lead dead or released, on another map, out of range, grid unloaded: the glue reports objectReadable false.
+    Run r = Start(&plan);
+    Tick(r, ReadFacts(0, true));
+    TickN(r, ReadFacts(-1, false), 10);
+    CHECK(r.state == State::Running && r.step == 0 && r.goneMissMs == 0);
+    // A dead lead bot (a ghost off the map, released) whatever the glue says: no count.
+    Run d = Start(&plan);
+    Tick(d, ReadFacts(0, true));
+    Facts dead = ReadFacts(-1, true);
+    dead.leadAlive = false;
+    for (int i = 0; i < 10; ++i)
+        Tick(d, dead);
+    CHECK(d.step == 0 && d.goneMissMs == 0);
+    // ... and it starts the readable count over: two readable misses, an unreadable tick, two more: still waiting.
+    Facts miss = ReadFacts(-1, true);
+    Tick(r, miss);
+    Tick(r, miss);
+    Tick(r, ReadFacts(-1, false));
+    Tick(r, miss);
+    Tick(r, miss);
+    CHECK(r.state == State::Running && r.step == 0);
+    Tick(r, miss);
+    CHECK(r.step == 1);
+}
+
+static void TestWaitObjectOneMissThenFoundIsNotGone()
+{
+    DungeonPlan plan;
+    plan.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone), Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan);
+    Tick(r, ReadFacts(0, true));
+    Facts miss = ReadFacts(-1, true);
+    Tick(r, miss);
+    Tick(r, miss);
+    Tick(r, ReadFacts(0, true)); // a blip: found again, the count starts over
+    Tick(r, miss);
+    Tick(r, miss);
+    CHECK(r.state == State::Running && r.step == 0);
 }
 
 static void TestWaitObjectNeverSeenWaitsOutItsTimeout()
@@ -818,8 +877,7 @@ static void TestWaitObjectNeverSeenWaitsOutItsTimeout()
     DungeonPlan plan;
     plan.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone), Step(PlanStepKind::Move, 9)};
     Run r = Start(&plan);
-    Facts f = Party(0);
-    f.objectState = -1; // never found: not gone, only not there yet
+    Facts f = ReadFacts(-1, true); // readable and never found: not gone, only not there yet
     std::uint32_t ticks = 0;
     while (r.state == State::Running && r.step == 0 && ticks < 200)
     {
@@ -835,10 +893,8 @@ static void TestWaitObjectGoneWithoutFlagPauses()
     DungeonPlan plan;
     plan.steps = {GoneWaitStep(0), Step(PlanStepKind::Move, 9)};
     Run r = Start(&plan);
-    Facts f = Party(0);
-    f.objectState = 0;
-    Tick(r, f);
-    f.objectState = -1;
+    Tick(r, ReadFacts(0, true));
+    Facts f = ReadFacts(-1, true);
     std::uint32_t ticks = 0;
     while (r.state == State::Running && r.step == 0 && ticks < 200)
     {
@@ -854,15 +910,68 @@ static void TestWaitObjectSightSurvivesAPause()
     DungeonPlan plan;
     plan.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone), Step(PlanStepKind::Move, 9)};
     Run r = Start(&plan);
-    Facts f = Party(0);
-    f.objectState = 0;
-    Tick(r, f);
+    Tick(r, ReadFacts(0, true));
     Pause(r, "paused by hand");
     CHECK(Resume(r));
-    f.objectState = -1;
-    for (int i = 0; i < 5 && r.step == 0; ++i)
+    TickN(r, ReadFacts(-1, true), 5);
+    CHECK(r.state == State::Running && r.step == 1);
+}
+
+// A sighting belongs to its target (entry and the step's point within kWaitSightYd), not to the entry: the door seen at
+// one point says nothing of the same entry's door at another, and a plain wait next to it does not count the sighting.
+static void TestWaitObjectSightingsAreKeyedByTarget()
+{
+    DungeonPlan plan;
+    plan.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone, 100, 100, 10), GoneWaitStep(ai::kPlanFlagGoneIsDone, 160, 100, 10),
+        Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan);
+    Tick(r, ReadFacts(1, true)); // the first door seen active: step done
+    CHECK(r.step == 1 && r.objectsSeen.size() == 1);
+    // The second door (the same entry 18895, 60 yd away) was never read found: not gone, however many readable misses.
+    Facts miss = ReadFacts(-1, true);
+    for (int i = 0; i < 10 && r.step == 1 && r.state == State::Running; ++i)
+        Tick(r, miss);
+    CHECK(r.step == 1 && r.state == State::Running);
+    // Seen at its own point, then gone: done.
+    Tick(r, ReadFacts(0, true));
+    CHECK(r.objectsSeen.size() == 2);
+    for (int i = 0; i < 3; ++i)
+        Tick(r, miss);
+    CHECK(r.step == 2);
+    // A door within kWaitSightYd of a seen one is the same target.
+    DungeonPlan near;
+    near.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone, 100, 100, 10), GoneWaitStep(ai::kPlanFlagGoneIsDone, 105, 100, 10),
+        Step(PlanStepKind::Move, 9)};
+    Run n = Start(&near);
+    Tick(n, ReadFacts(1, true));
+    for (int i = 0; i < 3; ++i)
+        Tick(n, miss);
+    CHECK(n.step == 2);
+}
+
+// A gone object finishes a flagged wait over a stale combat flag, too (the objectDone shortcut), once confirmed.
+static void TestWaitObjectGoneWinsOverAStaleFight()
+{
+    DungeonPlan plan;
+    plan.steps = {GoneWaitStep(ai::kPlanFlagGoneIsDone), Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan);
+    Facts f = ReadFacts(0, true);
+    Tick(r, f);
+    f = ReadFacts(-1, true);
+    f.anyInCombat = true;
+    f.staleCombat = true;
+    for (std::uint32_t i = 0; i < kStaleConfirmMs / kTickMs + 1 && r.step == 0; ++i)
         Tick(r, f);
     CHECK(r.state == State::Running && r.step == 1);
+    // Unreadable under the same flag: never.
+    Run q = Start(&plan);
+    Tick(q, ReadFacts(0, true));
+    f = ReadFacts(-1, false);
+    f.anyInCombat = true;
+    f.staleCombat = true;
+    for (int i = 0; i < 10 && q.step == 0; ++i)
+        Tick(q, f);
+    CHECK(q.step == 0);
 }
 
 // After a wipe: resume revives the party and gathers it before the step.
@@ -16820,6 +16929,10 @@ int main()
     TestGoneChestWithoutFlagPauses();
     TestGoneIsDoneOnlyForAGoneObject();
     TestWaitObjectGoneAfterSeenIsDone();
+    TestWaitObjectUnreadableMissIsNotGone();
+    TestWaitObjectOneMissThenFoundIsNotGone();
+    TestWaitObjectSightingsAreKeyedByTarget();
+    TestWaitObjectGoneWinsOverAStaleFight();
     TestWaitObjectNeverSeenWaitsOutItsTimeout();
     TestWaitObjectGoneWithoutFlagPauses();
     TestWaitObjectSightSurvivesAPause();

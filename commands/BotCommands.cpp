@@ -11553,6 +11553,12 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             uint64 const guid = FindEntryTarget(lead, spec, false);
             ObjectGuid const objectGuid(guid);
             GameObject* go = guid && objectGuid.IsGameObject() ? lead->GetMap()->GetGameObject(objectGuid) : nullptr;
+            // A not-found proves the object gone only when the search could have found it (Facts::objectReadable): the
+            // lead bot alive and in the world on the plan's map, the step's point within ReactDistance of it (the by-entry
+            // search never returns what lies farther) and its grid loaded.
+            f.objectReadable = lead->IsAlive() && !lead->IsBeingTeleported() && slot.run.plan &&
+                lead->GetMapId() == slot.run.plan->map && lead->GetMap() && EntryPointReachable(lead, spec) &&
+                lead->GetMap()->IsLoaded(step->x, step->y);
             if (go)
             {
                 // The plan's words: 0 ready (closed), 1 active (open), 2 active_alt.
