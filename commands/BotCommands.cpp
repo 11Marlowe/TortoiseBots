@@ -9632,6 +9632,21 @@ void HostileCreaturesAround(Player* lead, float range, std::list<Unit*>& out)
         return !unit->IsCreature() || !unit->GetOwnerGuid().IsEmpty() || !lead->IsHostileTo(unit);
     });
 }
+// Living hostile creatures out of combat (no owner, hostile to the lead bot) within `range` of `unit`, itself left out:
+// a pack not pulled yet next to a caster that hits the party from there (DungeonRun::UnitFact::campIdle).
+uint32 IdleHostilesNear(Player* lead, Unit* unit, float range)
+{
+    std::list<Unit*> around;
+    MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck check(unit, lead, range);
+    MaNGOS::UnitListSearcher<MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck> searcher(around, check);
+    Cell::VisitAllObjects(unit, searcher, range);
+    uint32 n = 0;
+    for (Unit* other : around)
+        if (other != unit && other->IsAlive() && other->IsCreature() && other->GetOwnerGuid().IsEmpty() &&
+            lead->IsHostileTo(other) && !other->IsInCombat())
+            ++n;
+    return n;
+}
 
 // The island escape's facts (DungeonRun::LeadOnIsland, LeadPathGood) from a
 // navmesh path the lead bot's own search gave toward (x,y,z): partial and
@@ -10768,8 +10783,11 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
             fact.evading = attacker->IsCreature() && static_cast<Creature*>(attacker)->IsInEvadeMode();
             fact.polymorphed = RunCcHeld(attacker);
             fact.engaged = true;
-            fact.hitting = attacker->CanReachWithMeleeAutoAttack(victim) ||
-                (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
+            bool const melee = attacker->CanReachWithMeleeAutoAttack(victim);
+            fact.hitting = melee || (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
+            fact.castingAtRange = fact.hitting && !melee;
+            if (fact.castingAtRange && fact.distLead > TortoiseBots::DungeonRun::kGuardNoWalkYd)
+                fact.campIdle = IdleHostilesNear(lead, attacker, TortoiseBots::DungeonRun::kGuardCampYd);
             fact.victimHealer = healer;
             fact.victimPet = petVictim;
             fact.attackable = GroupCanAttack(lead, attacker); // never picked up when it cannot be attacked
@@ -12148,6 +12166,13 @@ void ClearRunCcIcons(uint64 leadRaw, uint32 groupId, DungeonRunSlot& slot)
             pending.guid = icon.second;
             PendingRunCcIcons().push_back(pending);
         }
+
+    // The run's focus skull (DungeonRun::DropFocus) at the run's end, one try.
+    for (uint64 const focus : {slot.run.focusIconGuid, slot.run.focusIconClear})
+        if (focus)
+            EndRunIcon(group, TortoiseBots::DungeonRun::kFocusIcon, focus);
+    slot.run.focusIconGuid = 0;
+    slot.run.focusIconClear = 0;
     slot.run.ccIcons.clear(); // settled or kept in PendingRunCcIcons
 }
 
@@ -12373,8 +12398,11 @@ void AddPlayerAttackers(Player* lead, std::vector<Player*> const& players, Torto
             fact.evading = attacker->IsCreature() && static_cast<Creature*>(attacker)->IsInEvadeMode();
             fact.polymorphed = RunCcHeld(attacker);
             fact.engaged = true;
-            fact.hitting = attacker->CanReachWithMeleeAutoAttack(player) ||
-                (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
+            bool const melee = attacker->CanReachWithMeleeAutoAttack(player);
+            fact.hitting = melee || (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
+            fact.castingAtRange = fact.hitting && !melee;
+            if (fact.castingAtRange && fact.distLead > TortoiseBots::DungeonRun::kGuardNoWalkYd)
+                fact.campIdle = IdleHostilesNear(lead, attacker, TortoiseBots::DungeonRun::kGuardCampYd);
             fact.attackable = GroupCanAttack(lead, attacker);
             if (hold)
                 fact.distSpot = DistanceTo(attacker, hold->x, hold->y, hold->z);
@@ -12835,6 +12863,14 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         it->second.run.stopReachDue = false;
         StopLeadReach(commander, lead);
     }
+
+    if (it->second.run.focusIconClear)
+    {
+        // The run's focus is over (DungeonRun::DropFocus): its skull comes off, only where it still is. One try.
+        EndRunIcon(lead->GetGroup(), TortoiseBots::DungeonRun::kFocusIcon, it->second.run.focusIconClear);
+        it->second.run.focusIconClear = 0;
+    }
+
     SyncRunHold(commander, lead, bots, it->second, !order.empty());
     SyncHoldStands(commander, lead, bots, it->second, order);
     SendRunLine(commander, it->second, false);

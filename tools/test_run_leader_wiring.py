@@ -153,6 +153,21 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("fact.polymorphed = RunCcHeld(nearestHit);", guard)
         self.assertIn("fact.polymorphed = RunCcHeld(attacker);", guard)
 
+    def test_focus_skull_and_camp_casters_are_wired(self):
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        tick = body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertIn("it->second.run.focusIconClear", tick)
+        self.assertIn("EndRunIcon(lead->GetGroup(), TortoiseBots::DungeonRun::kFocusIcon, it->second.run.focusIconClear);", tick)
+        self.assertLess(tick.index("StopLeadReach(commander, lead);"), tick.index("it->second.run.focusIconClear = 0;"))
+        clear = body(COMMANDS, "void ClearRunCcIcons(uint64 leadRaw, uint32 groupId, DungeonRunSlot& slot)\n{", "\n}\n")
+        self.assertIn("slot.run.focusIconGuid, slot.run.focusIconClear", clear)
+        self.assertEqual(COMMANDS.count("fact.castingAtRange = fact.hitting && !melee;"), 2)
+        self.assertEqual(COMMANDS.count("IdleHostilesNear(lead, attacker, TortoiseBots::DungeonRun::kGuardCampYd)"), 2)
+        reset = body(policy, "inline void ResetStep(Run& r)", "\n}\n")
+        self.assertIn("DropFocus(r);", reset)
+        self.assertNotIn("r.focusGuid = 0;", reset)
+        self.assertEqual(policy.count("r.focusGuid = 0;"), 1)   # DropFocus's own line only
+
     def test_cc_clear_order_and_run_end_icons(self):
         # `cmd cc clear <bot> [<mark> <guid>]`: the bot's rti cc goes to none, the icon only while on that unit.
         clear = strip_comments(COMMANDS.split('if (!parts.empty() && parts[0] == "clear")', 1)[1].split("// cc <mark> <guid> [bot]", 1)[0])

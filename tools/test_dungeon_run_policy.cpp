@@ -7107,7 +7107,8 @@ static void TestHailarRitualistsReplayR19_19z37()
 // on a boss step (unbounded) a kill_first unit without it stays unpicked even
 // 8 yd away; a channeller that is gone (dead, or its channel stopped, so the
 // glue no longer lists it) clears the focus with no order; a refused focus on
-// a channeller passes it over for kFocusRefusedIgnoreMs, then it is picked again.
+// a channeller passes it over for kFocusRefusedIgnoreMs, then it may be picked again once the
+// focus is free (a same-rank focus is kept, 2b).
 static void TestChannellerQualificationOnABossStep()
 {
     std::uint64_t const e93 = 0xf130008ea7279e93ull, e94 = e93 + 1, e96 = e93 + 3;
@@ -7139,7 +7140,7 @@ static void TestChannellerQualificationOnABossStep()
     CHECK(Tick(r, f).empty() && r.focusGuid == 0);
 
     // A refused focus on the nearer channeller (out of reach): the next one is
-    // focused at once, and the nearer one again only after kFocusRefusedIgnoreMs.
+    // focused at once, and the nearer one again only once the focus is free.
     Run q = Start(&plan);
     UnitFact far = Unit(e96, 36519, 39.9f);
     far.auraOnEngaged = true;
@@ -7149,11 +7150,12 @@ static void TestChannellerQualificationOnABossStep()
     CHECK(q.focusGuid == 0 && q.state == State::Running);
     std::uint64_t const refusedAt = q.runMs;
     CHECK(Tick(q, f) == "focus " + std::to_string(e96));
-    std::string order;
-    while (order.empty() && q.runMs < refusedAt + 3 * kFocusRefusedIgnoreMs)
-        order = Tick(q, f);
-    CHECK(order == "focus " + std::to_string(e94));
-    CHECK(q.runMs >= refusedAt + kFocusRefusedIgnoreMs);
+    // Past the ignore window e94 may be picked again, but e96 (the same rank, focused) keeps the focus while it lives (2b).
+    while (q.runMs < refusedAt + kFocusRefusedIgnoreMs + kTickMs)
+        CHECK(Tick(q, f).empty() && q.focusGuid == e96);
+    // e96 is gone (it died, or its channel stopped): the refused e94 is taken again, the refusal did not ban it.
+    f.killFirst = {ch};
+    CHECK(Tick(q, f) == "focus " + std::to_string(e94));
 }
 
 // A mob hitting the healer `dist` from the lead bot (Hitter is defined further down).
@@ -7318,6 +7320,204 @@ static void TestGuardStopsWatchingWhenTheFocusEnds()
     for (int i = 0; i < 30; ++i)
         CHECK(Tick(r, f).empty());
     CHECK(r.guardOrders == 0);
+}
+
+// Scholomance r30 slot C t 531.5-973 2a: the fight is over, the focused unit went home (alive and listed, not
+// engaged): the forget drops the skull too. Failing case fields-only: focusIconClear stays 0.
+static void TestFocusSkullComesOffWhenTheFightEnds()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.killFirst = {Engaged(Unit(30, 5650, 8))};
+    CHECK(Tick(r, f) == "focus 30");
+    CHECK(r.focusIconGuid == 30 && r.focusIconClear == 0);
+    f.anyInCombat = false;
+    f.killFirst = {Unit(30, 5650, 48)};
+    Tick(r, f);
+    CHECK(r.focusGuid == 0 && r.focusIconGuid == 0 && r.focusIconClear == 30);
+}
+
+// The wipe regroup's ResetStep drops the skull too.
+static void TestFocusSkullComesOffAtResetStep()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.killFirst = {Engaged(Unit(30, 5650, 8))};
+    CHECK(Tick(r, f) == "focus 30");
+    ResetStep(r);
+    CHECK(r.focusGuid == 0 && r.focusIconGuid == 0 && r.focusIconClear == 30);
+}
+
+// A refused focus takes its skull off; a stale refusal for another guid touches nothing.
+static void TestRefusedFocusTakesItsSkullOff()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.killFirst = {Engaged(Unit(30, 5650, 8))};
+    CHECK(Tick(r, f) == "focus 30");
+    OrderRefused(r, "focus 30", "failed: No bot of the group accepted the focus order.");
+    CHECK(r.focusGuid == 0 && r.focusIconClear == 30);
+    DungeonPlan plan2 = ZfPlan();
+    Run s = Start(&plan2);
+    Facts g = Party(0);
+    g.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(s, g) == "pullback 1");
+    g.anyInCombat = true;
+    g.killFirst = {Engaged(Unit(30, 5650, 8))};
+    CHECK(Tick(s, g) == "focus 30");
+    OrderRefused(s, "focus 31", "failed: No bot of the group accepted the focus order.");
+    CHECK(s.focusGuid == 30 && s.focusIconGuid == 30 && s.focusIconClear == 0);
+}
+
+// A new focus moves the skull with no clear: pin for M5.
+static void TestANewFocusMovesTheSkullWithNoClear()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.killFirst = {Engaged(Unit(30, 5650, 8))};
+    CHECK(Tick(r, f) == "focus 30");
+    f.killFirst = {Engaged(Unit(31, 5650, 6))};
+    CHECK(Tick(r, f) == "focus 31");
+    CHECK(r.focusIconGuid == 31 && r.focusIconClear == 0);
+}
+
+// FocusGone in a fight (cc landed on the focused unit) drops the skull too.
+static void TestACrowdControlledFocusTakesItsSkullOff()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.killFirst = {Engaged(Unit(30, 5650, 8))};
+    CHECK(Tick(r, f) == "focus 30");
+    r.ccSent.insert(30);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.focusGuid == 0 && r.focusIconClear == 30);
+}
+
+// Scholomance r30 slot C t 1521.6-1530.7 2b: the two swap places but the focus holds. Failing case on the old
+// code: focuses == 20, the CHECK after the loop.
+static void TestKillFirstKeepsItsUnitAgainstAnEqualRank()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.killFirst = {Engaged(Unit(30, 5650, 6)), Engaged(Unit(31, 5650, 12))};
+    CHECK(Tick(r, f) == "focus 30");
+    int focuses = 0;
+    for (int i = 0; i < 20; ++i)
+    {
+        f.killFirst[0].distLead = (i % 2) ? 6.0f : 13.0f;
+        f.killFirst[1].distLead = (i % 2) ? 12.0f : 4.0f;
+        if (Tick(r, f).compare(0, 6, "focus ") == 0)
+            ++focuses;
+    }
+    CHECK(focuses == 0 && r.focusGuid == 30);
+    f.killFirst = {Engaged(Unit(31, 5650, 4))};
+    CHECK(Tick(r, f) == "focus 31");
+}
+
+// r30 t 398.8 2c: the tank leaves a caster at its camp alone. Common start per the spec.
+static void TestGuardLeavesACasterAtItsCamp()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0), PullStep(40, {10471, 10470})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    Tick(r, f);
+    CHECK(r.step == 1);
+    f.units = {Unit(31, 10471, 40)};
+    CHECK(Tick(r, f) == "pullback 31");
+    f.anyInCombat = true;
+    UnitFact neophyte = Hitter(48840, 10470, 13.9f, true);
+    neophyte.castingAtRange = true;
+    neophyte.campIdle = 1;
+    f.partyAttackers = {neophyte};
+    CHECK(EngageTarget(r, f) == nullptr);
+    CHECK(GuardTarget(r, f) == nullptr);
+    for (int i = 0; i < 10; ++i)
+        CHECK(Tick(r, f).find("attack 48840") == std::string::npos);
+    f.partyAttackers.push_back(Hitter(49002, 10489, 12.0f, true));
+    CHECK(Tick(r, f) == "attack 49002 Tanky");
+}
+
+// Pin for M8: a camp-less caster is still taken.
+static void TestGuardTakesACasterWithNoCampByIt()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0), PullStep(40, {10471, 10470})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    Tick(r, f);
+    CHECK(r.step == 1);
+    f.units = {Unit(31, 10471, 40)};
+    CHECK(Tick(r, f) == "pullback 31");
+    f.anyInCombat = true;
+    UnitFact neophyte = Hitter(48840, 10470, 13.9f, true);
+    neophyte.castingAtRange = true;
+    neophyte.campIdle = 0;
+    f.partyAttackers = {neophyte};
+    CHECK(Tick(r, f) == "attack 48840 Tanky");
+}
+
+// Pin for M9: a camp caster within a step of the tank is still taken.
+static void TestGuardTakesACampCasterWithinAStep()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0), PullStep(40, {10471, 10470})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    Tick(r, f);
+    CHECK(r.step == 1);
+    f.units = {Unit(31, 10471, 40)};
+    CHECK(Tick(r, f) == "pullback 31");
+    f.anyInCombat = true;
+    UnitFact neophyte = Hitter(48840, 10470, 13.9f, true);
+    neophyte.castingAtRange = true;
+    neophyte.campIdle = 2;
+    neophyte.distLead = 6.0f;
+    f.partyAttackers = {neophyte};
+    CHECK(Tick(r, f) == "attack 48840 Tanky");
+}
+
+// Pin for M12: a hold takes a camp caster in the hold; outside a hold the rule applies.
+static void TestHoldGuardStillTakesACasterInTheHold()
+{
+    Facts h = Party(0);
+    UnitFact keeperCaster = Hitter(7, 4857, 12.0f, true);
+    keeperCaster.castingAtRange = true;
+    keeperCaster.campIdle = 3;
+    keeperCaster.distSpot = 5.0f;
+    h.partyAttackers = {keeperCaster};
+    CHECK(GuardPick(h, 20.0f) == &h.partyAttackers[0]);
+    CHECK(GuardPick(h, 0.0f) == nullptr);
 }
 
 // ZF r5-19z23 step 27, wipe 2 (15:14:23): "kill 5650 first" took every bot off
@@ -17516,6 +17716,16 @@ int main()
     TestChannellerQualificationOnABossStep();
     TestKillFirstFarIsNotFocusedWipe1Replay();
     TestKillFirstBoundDoesNotFlipFlop();
+    TestFocusSkullComesOffWhenTheFightEnds();
+    TestFocusSkullComesOffAtResetStep();
+    TestRefusedFocusTakesItsSkullOff();
+    TestANewFocusMovesTheSkullWithNoClear();
+    TestACrowdControlledFocusTakesItsSkullOff();
+    TestKillFirstKeepsItsUnitAgainstAnEqualRank();
+    TestGuardLeavesACasterAtItsCamp();
+    TestGuardTakesACasterWithNoCampByIt();
+    TestGuardTakesACampCasterWithinAStep();
+    TestHoldGuardStillTakesACasterInTheHold();
     TestHeldFocusEndsOnlyWhenItsUnitIsGone();
     TestKillFirstOnABossStepIsNotBounded();
     TestGuardStopsWatchingWhenTheFocusEnds();
