@@ -4314,6 +4314,16 @@ inline void StrandCountsForStep(Run& r)
     r.strandWaits = 0;
 }
 
+// A regroup the run started by itself after a death (the wipe regroup, LeadRevivedAway): the lead bot came back at a
+// new spot (a corpse run), so the rescue's once-a-step latch (Run::strandStep) is armed again and the walk back after
+// it may teleport again on the same step (Blackfathom Deeps r29 slot 6: a placed run's second wipe at step 574 found
+// the latch used by the first and walked from the entrance for 23 minutes). Bounded by kAutoRegroupsPerStep; a resume
+// (ResetStep) still keeps the latch, and this step's failed tries (strandTries, strandWaits) stay counted.
+inline void RearmRescueAfterDeath(Run& r)
+{
+    r.strandStep = static_cast<std::size_t>(-1);
+}
+
 // A failed teleport of the stranded lead bot (refused, or the lead bot not at the
 // point after it): due again on the next tick, kStrandTries times a step; then the
 // walk back goes on as before (the point is passed when refused again).
@@ -4897,6 +4907,7 @@ inline bool StallFallback(Run& r, const Facts& f, float x, float y, float z, boo
 }
 
 inline std::size_t SafePointAtOrBefore(const Run& r, std::uint32_t team, std::size_t last);
+inline bool ApproachWalkStuck(Run& r, const Facts& f, float dist, float x, float y, float z);
 
 // The rescue teleport's bounds (StrandedLead's): out of combat, at most once a step, kStrandTries failed tries a step,
 // AiPlayerbot.DungeonRunWalkBackRescue on. Then it is due to plan point `target` (the walk back goes on from there).
@@ -5071,6 +5082,8 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         if (r.walkTries >= kWalkTries)
         {
             if (WalkBackStuckRescue(r, f, dist, x, y, z))
+                return false;
+            if (ApproachWalkStuck(r, f, dist, x, y, z))
                 return false;
             Pause(r, "the lead bot is stuck " + Num(dist) + " yd from " + Num(x) + " " + Num(y) + " " + Num(z) +
                 StuckNote(r, f));
@@ -6246,6 +6259,56 @@ inline bool ApproachStandWanted(const Run& r, const PlanStep& s)
         !(r.approachStandStep == r.step && r.approachStand != 0);
 }
 
+// A pull or boss step's approach found no way on: a hop that goes nowhere (ApproachHop), or the walk to a hop or to
+// the stand stuck after kWalkTries (ApproachWalkStuck). As the hop cap: the stand search first (ApproachStand), once a
+// step; once it was tried, the deferral (DeferUnreachablePack: a pull PullMayBeDeferred lets go); otherwise the approach
+// pause. A deferred pull's retry is given up, never paused (StepAfter). Blackfathom Deeps r29 slot 6 step 580: a pack
+// in the pool 9 yd below the floor paused four times ('no walkable path toward the pack') and the stop rule ended the
+// run.
+inline void ApproachNoWay(Run& r, const Facts& f, const PlanStep& s, const std::string& why)
+{
+    if (DeferRetryOn(r) && DeferUnreachablePack(r, s, why))
+        return; // a retry is never a pause: given up (StepAfter)
+    if (ApproachStandWanted(r, s))
+    {
+        r.approachStandStep = r.step;
+        r.approachStand = 1;
+        r.approachStandWanted = true;
+        r.approachStandWhy = why;
+        r.note = why + ": looking for a stand within " + Num(kApproachStandYd) + " yd of it";
+        return;
+    }
+    if (r.approachStandStep == r.step)
+    {
+        r.approachStand = 3; // spent
+        if (DeferUnreachablePack(r, s, why))
+            return;
+        PauseApproach(r, f, why); // a resume searches the stand again from where it stands (ApproachStand)
+        return;
+    }
+    Pause(r, why);
+}
+
+// The walk of an approach hop, or of the walk to the approach stand, stuck after kWalkTries (WalkTo): not the plain
+// pause, the approach's own way out (ApproachNoWay). Only for the step's own approach walk: not in a walk back, the
+// current step a pull or boss, and the walk's point the hop's (Run::hopX/Y/Z: ApproachHop and ApproachStand set it).
+// True when it took the stall.
+inline bool ApproachWalkStuck(Run& r, const Facts& f, float dist, float x, float y, float z)
+{
+    if (r.walkBack || !r.hopWalk || x != r.hopX || y != r.hopY || z != r.hopZ)
+        return false;
+    const PlanStep* s = Current(r);
+    if (!s || (s->kind != PlanStepKind::Pull && s->kind != PlanStepKind::Boss))
+        return false;
+    std::string const what = s->kind == PlanStepKind::Boss ? "boss" : "pack";
+    std::string const why = "the lead bot is stuck " + Num(dist) + " yd from " + Num(x) + " " + Num(y) + " " + Num(z) +
+        StuckNote(r, f) + " on the way toward the " + what + " at " + Num(s->x) + " " + Num(s->y) + " " + Num(s->z);
+    r.hopWalk = false;
+    EnterPhase(r, Phase::Begin);
+    ApproachNoWay(r, f, *s, why);
+    return true;
+}
+
 // Gnomeregan r24 slot 4 step 412, Sunken Temple r25 slot 4 step 5, Razorfen Kraul
 // r24 slot 8 step 299: '8 approach hops did not bring the party within 60 yd of the
 // pack' (nearest 66.8 to 99.6 yd), and every resume walked back and hopped the same
@@ -6399,9 +6462,7 @@ inline void ApproachHop(Run& r, const Facts& f, const PlanStep& s, std::uint32_t
     {
         std::string const why = "no walkable path toward the " + what + " at " + Num(s.x) + " " + Num(s.y) + " " +
             Num(s.z);
-        if (DeferRetryOn(r) && DeferUnreachablePack(r, s, why))
-            return; // a retry is never a pause: given up (StepAfter)
-        Pause(r, why);
+        ApproachNoWay(r, f, s, why);
         return;
     }
     // The cap counts hops that did not bring the lead bot nearer: a long way
@@ -10427,6 +10488,7 @@ inline bool LeadRevivedAway(Run& r, const Facts& f)
     ++r.autoRegroups;
     r.fighting = false;
     ResetStep(r);
+    RearmRescueAfterDeath(r);
     BeginRegroup(r);
     r.walkBackDue = true;
     FillHold(r, f);
@@ -11651,6 +11713,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         std::size_t const rearmed = RearmEventOnWipe(r, f) ? r.step : static_cast<std::size_t>(-1);
         bool const deathSpotKnown = r.leadDied; // BeginRegroup clears it
         ResetStep(r);
+        RearmRescueAfterDeath(r);
         BeginRegroup(r);
         r.walkBackDue = true;
         // The lead bot among the dead: as WaitForFallen, the living party holds

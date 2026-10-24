@@ -104,6 +104,18 @@ class TimeSinksWiringTest(unittest.TestCase):
         self.assertLess(tick.index("if (RetreatTick(r, f, *s, dt, order))"), tick.index("if (CheckGuard(r, f, dt, order))"))
         self.assertIn("EndRetreat(r);", body(POLICY, "inline std::string Tick(Run& r, const Facts& in,", "\n}\n"))
 
+    def test_self_regroups_rearm_the_rescue(self):
+        revived = body(POLICY, "inline bool LeadRevivedAway(Run& r, const Facts& f)", "\n}\n")
+        self.assertLess(revived.index("ResetStep(r);"), revived.index("RearmRescueAfterDeath(r);"))
+        self.assertLess(revived.index("RearmRescueAfterDeath(r);"), revived.index("BeginRegroup(r);"))
+        wipe = body(POLICY, "if (autoRegroup && !f.anyInCombat)", "return order;")
+        self.assertLess(wipe.index("ResetStep(r);"), wipe.index("RearmRescueAfterDeath(r);"))
+        self.assertLess(wipe.index("RearmRescueAfterDeath(r);"), wipe.index("BeginRegroup(r);"))
+        reset = body(POLICY, "inline void ResetStep(Run& r)", "\n}\n")
+        self.assertNotIn("RearmRescueAfterDeath", reset)
+        resume = body(POLICY, "inline bool Resume(Run& r)", "\n}\n")
+        self.assertNotIn("RearmRescueAfterDeath", resume)
+
 
 if __name__ == "__main__":
     unittest.main()
