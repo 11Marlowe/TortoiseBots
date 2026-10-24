@@ -12007,9 +12007,26 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             }
             std::list<Unit*> hostiles;
             HostileCreaturesAround(lead, std::min(toPoint + step->radius, 2.0f * kSeeYd), hostiles);
+            // The wait counts every hostile listed here (DungeonRunPolicy.h WaitClearCount); the engaged flag and
+            // the z are for the timeout boundary only (WaitClearOffFloorOnly): past the wait, all-off-floor
+            // bystanders finish the step, anything engaged or on the spot's floor pauses it.
+            std::unordered_set<uint64> party;
+            for (Player* bot : bots)
+            {
+                party.insert(bot->GetObjectGuid().GetRawValue());
+                if (Pet* pet = bot->GetPet())
+                    party.insert(pet->GetObjectGuid().GetRawValue());
+            }
             for (Unit* unit : hostiles)
-                if (DistanceTo(unit, step->x, step->y, step->z) <= step->radius)
-                    ++f.hostilesNear;
+            {
+                float const dx = unit->GetPositionX() - step->x, dy = unit->GetPositionY() - step->y;
+                if (std::sqrt(dx * dx + dy * dy) <= step->radius)
+                {
+                    HostileSpot spot{unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ()};
+                    spot.engaged = EngagedWithParty(unit, party);
+                    f.clearUnits.push_back(spot);
+                }
+            }
             break;
         }
         case ai::PlanStepKind::WaitObject:

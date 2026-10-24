@@ -1084,6 +1084,40 @@ class WaitObjectGoneWiringTest(unittest.TestCase):
         for kind in ("Loot", "Open", "WaitObject"):
             self.assertIn("step.kind != PlanStepKind::" + kind, norm)
 
+class WaitClearFloorWiringTest(unittest.TestCase):
+    """Shadowfang Keep r38 slotA step 308: the wait_clear spot at z 129 counted hostiles on other floors (z ~100-157)
+    and paused four times on "waited 120 s; 3-4 hostiles still near the spot". The glue lists every living hostile
+    within the 2D radius of the step's point with its z (unit->GetPositionZ()) and whether it is engaged with the
+    party (EngagedWithParty, the same 'a party bot is its victim or attacks it' rule the engaged reads use); the
+    normal wait counts every one, and only the timeout boundary drops all-off-floor bystanders
+    (WaitClearOffFloorOnly: every remaining hostile non-engaged and |dz| > kWaitClearMaxDz)."""
+
+    POLICY = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+
+    def test_policy_counts_every_hostile_until_the_timeout(self):
+        self.assertIn("constexpr float kWaitClearMaxDz = 10.0f;", self.POLICY)
+        count = body(strip_comments(self.POLICY), "inline std::uint32_t WaitClearCount(", "\n}\n")
+        self.assertNotIn("kWaitClearMaxDz", count)
+        self.assertNotIn("engaged", count)
+        off = body(strip_comments(self.POLICY), "inline bool WaitClearOffFloorOnly(", "\n}\n")
+        self.assertIn("h.engaged ||", off)
+        self.assertIn("std::fabs(h.z - s.z) <= kWaitClearMaxDz", off)
+        step = body(strip_comments(self.POLICY), "case PlanStepKind::WaitClear:", "case PlanStepKind::Rest:")
+        self.assertIn("WaitClearCount(*s, f)", step)
+        self.assertIn("WaitClearOffFloorOnly(*s, f)", step)
+        self.assertIn("the spot is clear on its floor:", step)
+        self.assertNotIn("f.hostilesNear", self.POLICY)
+
+    def test_glue_lists_2d_near_hostiles_with_z(self):
+        facts = body(strip_comments(COMMANDS), "case ai::PlanStepKind::WaitClear:", "case ai::PlanStepKind::WaitObject:")
+        self.assertIn("float const dx = unit->GetPositionX() - step->x, dy = unit->GetPositionY() - step->y;", facts)
+        self.assertIn("if (std::sqrt(dx * dx + dy * dy) <= step->radius)", facts)
+        self.assertIn("unit->GetPositionZ()", facts)
+        self.assertIn("EngagedWithParty(unit, party)", facts)
+        self.assertIn("spot.engaged =", facts)
+        self.assertIn("f.clearUnits.push_back(", facts)
+
+
 
 class BossTacticsJoinWiringTest(unittest.TestCase):
     """The Codex review of d7aca6b5: the run leader's deferral gate (DungeonRun::PullMayBeDeferred) reads a later boss
