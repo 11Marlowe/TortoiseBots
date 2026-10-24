@@ -944,24 +944,27 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["razorfen_downs"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
 
-    def test_maraudon_purple_is_the_plan_with_the_census_fixes(self):
-        # 20261024010000 (turtle-agent prep/maraudon_purple 7f333d0, the census fixes of PREP-MARAUDON-PURPLE-2026-10-24.md):
-        # the draft with the critters out, the boss-linked adds out of the pulls, every radius the pack's wander + 2 and 80
-        # patrol blocks. 6 legs, 1652 steps (72 + 15 + 17 + 21 + 7 + 10 pulls), bosses in leg order, no boss.first. The plan
-        # row carries the humanoid casters and kill_first; Meshlok the Harvester 12237 (rank 2) is in the skip list, not a pull.
+    def test_maraudon_purple_is_the_split_and_stood_wipe_leg(self):
+        # 20261024060500 (turtle-agent mp-fix1 6f182afa1ed5ea3c4639f0f3cf397eeb821989db, the r28b wipe-leg fix on top of
+        # the 20261024010000 census fixes of PREP-MARAUDON-PURPLE-2026-10-24.md): leg 0 groups 35-39 (the 2-slimer patrol
+        # pair, the 2 Sisters, the 4-sludge pack, the lone lurker and the 5-unit satyr mix the run fought as one 6-8 unit
+        # pack on the approach walk around steps 70-74) are 4 pulls in route order, radius 5, one approach stand each on
+        # the pack's floor (the run leader's party stands there to pull). 6 legs, 1660 steps (71 + 15 + 17 + 21 + 7 + 10
+        # pulls), bosses in leg order, no boss.first. The plan row carries the humanoid casters and kill_first; Meshlok
+        # the Harvester 12237 (rank 2) is in the skip list, not a pull.
         name, text = newest_plan_text("maraudon_purple")
-        self.assertEqual(name, "20261024010000_world.sql")
-        self.assertIn("('maraudon_purple', 349, '11793,11794', '', '12224,13142,12220,12217', 'turtle-agent 7f333d0 dungeons/maraudon_purple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024060500_world.sql")
+        self.assertIn("('maraudon_purple', 349, '11793,11794', '', '12224,13142,12220,12217', 'turtle-agent 6f182afa1ed5ea3c4639f0f3cf397eeb821989db dungeons/m', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "maraudon_purple"),
                          {0: ("lord_vyletongue", ""), 1: ("celebras_the_cursed", ""), 2: ("landslide", ""),
                           3: ("tinkerer_gizlock", ""), 4: ("rotgrip", ""), 5: ("princess_theradras", "")})
         rows = [r for r in self.step_rows(text) if r["plan"] == "maraudon_purple"]
-        self.assertEqual(len(rows), 1652)
+        self.assertEqual(len(rows), 1660)
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
                          ["12236", "12225", "12203", "13601", "13596", "12201"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)],
-                         [72, 15, 17, 21, 7, 10])
+                         [71, 15, 17, 21, 7, 10])
         for leg in range(6):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
         pulls = [r for r in rows if r["kind"] == "pull"]
@@ -970,10 +973,22 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertFalse([r["entries"] for r in pulls if "12237" in r["entries"].split(",")])
         self.assertFalse([r["entries"] for r in pulls if "13743" in r["entries"].split(",")])
         self.assertLessEqual(max(float(r["radius"]) for r in pulls), 8.0)
-        # The two Cavern Lurkers 9.1 yd apart are one pull (leg 0 group 40), the rare Meshlok's spawn point among them.
+        # The two Cavern Lurkers 9.1 yd apart are one pull (leg 0 group 39), the rare Meshlok's spawn point among them.
         self.assertEqual([(float(r["x"]), float(r["y"]), float(r["radius"])) for r in pulls
                           if r["entries"] == "12223" and abs(float(r["x"]) - 735.68) < 0.1],
                          [(735.68, -79.53, 5.0)])
+        # The wipe leg: the slime pair, the Sisters, the sludge and the lurker folded into the satyr mix, each with
+        # its approach stand (the run leader's party stands there to pull).
+        by_comment = {r["comment"]: r for r in rows}
+        self.assertEqual([(by_comment["pull group %d approach" % g]["x"],
+                           by_comment["pull group %d approach" % g]["y"],
+                           by_comment["pull group %d approach" % g]["z"]) for g in (35, 36, 37, 38)],
+                         [("775", "-170", "-56.6"), ("812.5", "-152.5", "-74.9"),
+                          ("775", "-162.5", "-56.3"), ("765", "-135", "-56.3")])
+        self.assertEqual([by_comment["pull group %d" % g]["entries"] for g in (35, 36, 37, 38)],
+                         ["12221", "11794", "12222", "12216,11791,12217,12223"])
+        for g in (35, 36, 37, 38):
+            self.assertEqual(by_comment["pull group %d" % g]["radius"], "5", g)
         # Leg 3 group 6: two linked packs interleaved within 8 yd, one 10-unit pull; the exporter lists each entry once.
         ten = [r for r in pulls if r["entries"] == "11789,11783,11784"]
         self.assertEqual(len(ten), 1)
