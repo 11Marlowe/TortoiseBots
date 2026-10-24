@@ -140,7 +140,11 @@ class RunLeaderWiringTest(unittest.TestCase):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan,\n"
                       "                            TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,\n"
-                      "                            slot.run.notCleared);", facts)
+                      "                            TortoiseBots::DungeonRun::UnclearedForPath(slot.run));", facts)
+        # UnclearedForPath is notCleared plus the steps before a placed run's start (2026-10-23).
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        self.assertIn("std::unordered_set<std::size_t> out = r.notCleared;", body(policy,
+            "inline std::unordered_set<std::size_t> UnclearedForPath(const Run& r)", "\n}\n"))
 
     def test_guard_reads_every_run_cc_as_held(self):
         # The tank's guard leaves a shackled, banished or sapped mob alone like a sheep: both of its

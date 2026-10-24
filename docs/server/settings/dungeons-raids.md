@@ -23,10 +23,14 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.BotGossipNpcs`](#aiplayerbotbotgossipnpcs) | *(empty)* | Creature entries `.bot cmd gossip` may talk to (empty: every gossip order is refused). |
 | [`AiPlayerbot.DungeonRunAggroCeiling`](#aiplayerbotdungeonrunaggroceiling) | `6` | Joiners above which the run leader rests the party before a pull (needs the estimate on). |
 | [`AiPlayerbot.DungeonRunAggroEstimate`](#aiplayerbotdungeonrunaggroestimate) | `0` | The run leader estimates how many creatures a pull brings and rests first when it is many. |
+| [`AiPlayerbot.DungeonRunFightForward`](#aiplayerbotdungeonrunfightforward) | `1` | After a won fight the next pack within 30 yd is pulled from where the tank stands when the way there is direct and clear. |
+| [`AiPlayerbot.DungeonRunLightRest`](#aiplayerbotdungeonrunlightrest) | `1` | Before a small pull the party rests to light lines (60/35/25 to 75/60/45); before a boss, an event or a big pull the full ones. |
 | [`AiPlayerbot.DungeonRunLootFfa`](#aiplayerbotdungeonrunlootffa) | `0` | A run leader loot step whose item is another member's under the group loot rules sets free-for-all for the carrier's loot, then puts the method back. |
 | [`AiPlayerbot.DungeonRunMaxMinutes`](#aiplayerbotdungeonrunmaxminutes) | `180` | Time limit of a run leader run (`0` = none). |
 | [`AiPlayerbot.DungeonRunPullStand`](#aiplayerbotdungeonrunpullstand) | `0` | For a tank that pulls with a ranged weapon, the run leader orders `pullback` only when it can shoot from where it stands, else it walks the party to a firing stand first. |
 | [`AiPlayerbot.DungeonRunRezHold`](#aiplayerbotdungeonrunrezhold) | `0` | The run leader's regroup waits for a living resurrector to raise the fallen (and for its mana) before it revives the party at the spirit healer. |
+| [`AiPlayerbot.DungeonRunRetreatAt2Dead`](#aiplayerbotdungeonrunretreatat2dead) | `0` | `1`: with two dead in a fight the party is losing, the living pull back to the run's last stand once before a third death makes it a wipe. |
+| [`AiPlayerbot.DungeonRunWalkBackRescue`](#aiplayerbotdungeonrunwalkbackrescue) | `1` | A stuck walk back, and a placed run's lead bot revived behind its start step, are teleported to a safe point on the run's way. |
 | [`AiPlayerbot.DungeonRunWalkBackAfterWonFight`](#aiplayerbotdungeonrunwalkbackafterwonfight) | `0` | `1` walks the tank and party back to the stand after every guarded fight (the old way); `0` goes on from where the tank stands once the pack is cleared. |
 | [`AiPlayerbot.DungeonSelfClear`](#aiplayerbotdungeonselfclear) | `0` | Lets a bound remote commander start the opt-in run leader (`.bot run`). |
 | [`AiPlayerbot.DungeonTactics`](#aiplayerbotdungeontactics) | `0` | Applies the per-boss tactics table (`ai_boss_tactic`) to every bot, not only commanded parties. |
@@ -110,6 +114,28 @@ Lets the run leader (`.bot run`) estimate how many creatures a pull would bring 
 
 </details>
 
+### `AiPlayerbot.DungeonRunFightForward`
+Whether the run leader pulls the next pack close by from where the tank stands after a won fight.
+**Default:** `1` · **Values:** `0` the plan's rows as before, `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+<details>
+<summary>How it works in detail</summary>
+
+**Fight forward:** only read while `AiPlayerbot.DungeonSelfClear = 1`, and only with `AiPlayerbot.DungeonRunWalkBackAfterWonFight = 0`. Added 2026-10-23 (1,909 pulls of that day walked 28.2 yd each back to the plan's stand and forward again). After a `pull` or `boss` step whose pack the party fought and cleared, when at most 4 plain `move` rows of the same leg lead to a `pull` of the party's team within 30 yd of the tank (8 yd up or down), not an ambush and not left uncleared, with no deferred pull pending and no other live plan pack on the straight line, the run asks the server for the way first: the tank's navmesh path to the pack had to reach it (it may end at most 10 yd short of the point and 6 yd above or below it) and be at most 1.3 times the straight line, the tank had to see the pack's point, no living hostile creature other than the pack's own could stand within its aggro radius plus 5 yd of that path, and none within 15 yd of a move row left out. Then the rows were left out and the pull went out from where the tank stood. The pull's own rules stayed: its gather, the firing stand, crowd control and the aggro estimate. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
+
+</details>
+
+### `AiPlayerbot.DungeonRunLightRest`
+Whether the run leader rests the party only to light lines before a small pull.
+**Default:** `1` · **Values:** `0` the full lines everywhere (as before), `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+<details>
+<summary>How it works in detail</summary>
+
+**Light rest:** only read while `AiPlayerbot.DungeonSelfClear = 1`. Added 2026-10-23 (203 min of rest in 31 runs). Before a plain `pull` within the next 8 steps, or with no fight ahead, a rest starts only under 60 % health, 35 % healer mana or 25 % other mana and ends at 75 / 60 / 45; a bot still drinking above those lines holds the next order only while the lead bot itself is seated or eating. Before a `boss`, a `hold`, a `ritual`, a scripted event, a pull whose aggro estimate reads 8 joiners or more, or (with the estimate off) a pull whose pack in sight has 5 units or more, the full lines stand; such a big pack gets one rest to the full lines before its pull. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
+
+</details>
+
 ### `AiPlayerbot.DungeonRunLootFfa`
 Lets the run leader's loot step get an item the group's loot rules gave to another member, by switching the group to free-for-all for that one loot.
 **Default:** `0` · **Values:** `0` the loot step tries the other bots in turn, `1` free-for-all for the carrier's loot · **Restart:** not needed (`.reload config` applies it on the next world tick)
@@ -151,6 +177,28 @@ Makes the run leader's regroup wait for a living priest, paladin or shaman to re
 <summary>How it works in detail</summary>
 
 **Rez hold:** only read while `AiPlayerbot.DungeonSelfClear = 1`. With `0` the regroup behaves as before: when a priest, paladin or shaman is out of combat it waits 15 s for a resurrection, then sends `cmd revive party`. With `1` the run asks the rez hold (`runtime/RezHoldPolicy.h`) every second while someone is dead. It sends the resurrector no order (the bots' own AI decides who raises whom, and a resurrector short of mana drinks by itself); the one order it does send is a `move` of the lead bot onto the body, once per regroup, after 12 s of hold with a resurrector able, no cast under way and the body more than 8 yd from the lead bot. It **holds** up to 60 s from the moment a resurrector could act (plus 12 s for each body beyond the resurrectors, at most 120 s, and a resurrection being cast may finish: 12 s more, once), **waits for mana** while the only resurrectors are short of their spell's cost (90 s in all), and sends `cmd revive party` at once when no living bot can resurrect, when every body lies more than 80 yd from the party, or when the time is up. The 240 s the dead get to be up after `revive party` starts when the hold gives up. A druid's Rebirth counts only when no priest, paladin or shaman is alive on the map within sight, and only off cooldown with its seed in the bags. Everyone dead is a wipe: the old wipe recovery takes it. See [Dungeon Run Leader](../../play/dungeon-run-leader.md). Derived from jrad7/mod-dungeon-clear (AGPL-3.0-or-later).
+
+</details>
+
+### `AiPlayerbot.DungeonRunRetreatAt2Dead`
+Whether the run leader pulls the living back to the last stand when two party members are dead and the fight is being lost.
+**Default:** `0` · **Values:** `0` the party fights on (as before), `1` one retreat per fight · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+<details>
+<summary>How it works in detail</summary>
+
+**Retreat at two dead:** only read while `AiPlayerbot.DungeonSelfClear = 1`. Added 2026-10-23 for the wipes of that day (30 notes *3 dead: fighting on, a regroup follows*, each one a wipe and a corpse walk back of 4-28 min). With `1`, in a fight with two members dead (one fewer than the 3 that make the run regroup by itself), the lead bot alive, and the fight being lost (the fight ceiling's hp watch had read the engaged units for at least 15 s and none of them set a new low in that time), the run sends one `cmd move` to its last stand (the last point it walked the party to, at most 40 yd away; again once after 5 s), note *retreat: 2 dead and no engaged unit lost hp in 15 s: the living pull back to the last stand at x y z*. The retreat ends at the stand, after 20 s, at a third death or when the lead bot dies, and the fight is the bots' own again; once per fight. A refused move ends it without a pause. Never inside a scripted event, on the steps leading into one, on a `hold` step or on a boss step that is an event (an encounter, or done by instance data or an object). Whether the mobs follow the party back or let it go is the game's (the module adds no leash); this was not proven in a live run when it was added. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
+
+</details>
+
+### `AiPlayerbot.DungeonRunWalkBackRescue`
+Whether the run leader teleports a stuck walk back's lead bot (and a placed run's lead bot revived behind its start step) to a safe point on the run's way.
+**Default:** `1` · **Values:** `0` the old pause, `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+<details>
+<summary>How it works in detail</summary>
+
+**Walk back rescue:** only read while `AiPlayerbot.DungeonSelfClear = 1`. Added 2026-10-23 (Razorfen Kraul r27 slot 8: three walk backs climbed to a dead-end ledge and paused stuck; Gnomeregan r27 slot 4: a run placed at step 543 walked back from the entrance for 23 min). With `1`, a walk back whose lead bot stays stuck short of its point after the walk's tries is not paused: the lead bot is teleported (the stranded lead bot's rescue, the module's own teleport) to the last point it reached on the plan, or, when a live pack is near that point, to the latest point before it (back to the run's start step, never back over a direct step) out of every live pack's reach (its radius plus 10 yd), and with no such point the run pauses with that reason instead; and a placed run's lead bot that is up behind the run's start step (the plan point nearest it lies before the start step and none of the run's own points is within 60 yd) is teleported at once to the run's first such safe point. Out of combat only, once a step, three failed tries a step; the party left behind is summoned to it only out of combat. The walk back goes on from that point. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
 
 </details>
 

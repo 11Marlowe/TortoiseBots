@@ -3689,12 +3689,14 @@ static void TestMealWaitBeforePull()
     f.units = {Unit(31, 4852, 54.7f)};
     f.minHealthPct = 82;
     f.eating = 1;
+    f.leadResting = true; // the tank eats (the light rest lines hold only for a seated lead bot)
     CHECK(Tick(r, f).empty());
     CHECK(r.phase == Phase::Rest && r.note.find("1 eating") != std::string::npos);
     for (int i = 0; i < 10; ++i)
         CHECK(Tick(r, f).find("pullback") == std::string::npos);
     // The meal ends (the tank stood up full): the pull goes out.
     f.eating = 0;
+    f.leadResting = false;
     f.minHealthPct = 100;
     std::string order;
     for (int i = 0; i < 5 && order.empty(); ++i)
@@ -3703,6 +3705,7 @@ static void TestMealWaitBeforePull()
     // Eating on and on: kRestCapMs at most, then the pull; once per fight.
     Run c = Start(&plan);
     f.eating = 1;
+    f.leadResting = true; // the tank eats (the light rest lines hold only for a seated lead bot)
     f.minHealthPct = 82;
     order.clear();
     std::uint32_t ms = 0;
@@ -3716,6 +3719,7 @@ static void TestMealWaitBeforePull()
     two.steps = {PullStep(40, {4851}), PullStep(40, {4852})};
     Run late = Start(&two);
     f.eating = 0;
+    f.leadResting = false;
     f.minHealthPct = 100;
     f.units = {Unit(30, 4851, 20)};
     CHECK(Tick(late, f) == "pullback 30");
@@ -3730,12 +3734,14 @@ static void TestMealWaitBeforePull()
     CHECK(late.step == 1 && first.find("pullback") == std::string::npos);
     f.units = {Unit(31, 4852, 54.7f)};
     f.eating = 1;
+    f.leadResting = true; // the tank eats (the light rest lines hold only for a seated lead bot)
     CHECK(Tick(late, f).empty());
     CHECK(late.phase == Phase::Rest && late.restForEating);
     // The same step: the fight ends with the party scattered (a gather goes
     // out, nobody eats yet), and the tank sits down on the next tick.
     Run same = Start(&plan);
     f.eating = 0;
+    f.leadResting = false;
     f.minHealthPct = 100;
     f.units = {Unit(30, 4852, 20), Unit(31, 4852, 54.7f)};
     CHECK(Tick(same, f) == "pullback 30");
@@ -3748,6 +3754,7 @@ static void TestMealWaitBeforePull()
     CHECK(Tick(same, f) == "move 0.0 0.0 0.0");
     f.maxMemberYd = 5;
     f.eating = 1;
+    f.leadResting = true; // the tank eats (the light rest lines hold only for a seated lead bot)
     CHECK(Tick(same, f).empty());
     CHECK(same.phase == Phase::Rest && same.restForEating);
     // One budget per fight: after kRestCapMs of meal wait the pull goes out
@@ -3782,9 +3789,11 @@ static void TestWalkAfterRestIsSentAgain()
     {
         f.minHealthPct = 82;
         f.eating = 1;
+        f.leadResting = true; // the tank eats (the light rest lines hold only for a seated lead bot)
         CHECK(Tick(r, f).empty());
         CHECK(r.phase == Phase::Rest && r.restForEating && !r.restWalkDue);
         f.eating = 0;
+        f.leadResting = false;
         f.minHealthPct = 100;
         std::string order;
         for (int i = 0; i < 3 && order.empty(); ++i)
@@ -3870,9 +3879,11 @@ static void TestWalkAfterRestIsSentAgain()
     Facts af = Party(0);
     af.minHealthPct = 82;
     af.eating = 1;
+    af.leadResting = true; // the tank eats (the light rest lines hold only for a seated lead bot)
     Tick(a, af);
     CHECK(a.phase == Phase::Rest);
     af.eating = 0;
+    af.leadResting = false;
     af.minHealthPct = 100;
     for (int i = 0; i < 3 && a.step == 0; ++i)
         Tick(a, af);
@@ -12218,7 +12229,7 @@ static void TestAggroEstimateHoldsOnceForARest()
         for (int i = 0; i < 3 && x.phase == Phase::Rest; ++i)
             Tick(x, f);
         CHECK(x.phase != Phase::Rest);
-        f.minHealthPct = 60;
+        f.minHealthPct = 55; // under the light start line too (LightRestAhead: a small pull)
         x.restDue = true;
         x.phase = Phase::Begin;
         CHECK(Tick(x, f) == "rest" && x.phase == Phase::Rest && !x.restForJoiners);
@@ -12230,9 +12241,11 @@ static void TestAggroEstimateHoldsOnceForARest()
         CHECK(y.restForJoiners && y.phase == Phase::Rest);
         y.phase = Phase::Begin;
         f.eating = 1;
+        f.leadResting = true; // the tank eats (the light rest lines hold only for a seated lead bot)
         Tick(y, f);
         CHECK(y.phase == Phase::Rest && y.restForEating && !y.restForJoiners);
         f.eating = 0;
+        f.leadResting = false;
     }
 
     // A step's reset (also a resume) forgets the hold.
