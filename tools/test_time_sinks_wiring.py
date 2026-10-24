@@ -102,7 +102,7 @@ class TimeSinksWiringTest(unittest.TestCase):
         tick = body(POLICY, "inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines)\n{",
                     "\n}\n")
         self.assertLess(tick.index("if (RetreatTick(r, f, *s, dt, order))"), tick.index("if (CheckGuard(r, f, dt, order))"))
-        self.assertIn("EndRetreat(r);", body(POLICY, "inline std::string Tick(Run& r, const Facts& in,", "\n}\n"))
+        self.assertIn("EndRetreat(r);", body(POLICY, "inline std::string Tick(Run& r, const Facts& raw,", "\n}\n"))
 
     def test_self_regroups_rearm_the_rescue(self):
         revived = body(POLICY, "inline bool LeadRevivedAway(Run& r, const Facts& f)", "\n}\n")

@@ -75,7 +75,7 @@ class BotAreaTriggerWiringTest(unittest.TestCase):
         self.assertIn("void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, std::vector<uint32_t> const* runArmed)", MGR)
         # The run arms in its own tick, before and after the step body.
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
-        tick = body(policy, "inline std::string Tick(Run& r, const Facts& in,", "\n}\n")
+        tick = body(policy, "inline std::string Tick(Run& r, const Facts& raw,", "\n}\n")
         self.assertEqual(tick.count("ArmReachedTriggers(r);"), 2)
         self.assertLess(tick.index("ArmReachedTriggers(r);"), tick.index("order = TickBody("))
         self.assertGreater(tick.rindex("ArmReachedTriggers(r);"), tick.rindex("order = TickBody("))

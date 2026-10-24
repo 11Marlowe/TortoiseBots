@@ -978,6 +978,58 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
         # cleared after it must not count as live (DungeonRun::LiveFrom: the step the run goes on with).
         self.assertIn("PathCrossesUnclearedPack(*slot.run.plan,\n"
                       "                            TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,", COMMANDS)
+    def test_a_bot_outside_the_instance_is_no_part_of_the_fight(self):
+        facts = body(strip_comments(COMMANDS),
+                     "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,", "\n}\n")
+        line = "member.offPlanMap = bot->GetMapId() != slot.run.plan->map;"
+        self.assertIn(line, facts)
+        self.assertLess(facts.index("member.yd = yd;"), facts.index(line))
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        tick = body(policy, "inline std::string Tick(Run& r, const Facts& raw,", "\n}\n")
+        self.assertLess(tick.index("bool const offMap = PlanMapFightView(raw, view);"),
+                        tick.index("UnattackableGraceTick(r, in, dt)"))
+        self.assertLess(tick.index("bool const offMap = PlanMapFightView(raw, view);"),
+                        tick.index("CombatDropTick(r, in, dt)"))
+        fight_on = body(policy, "inline bool FightOn(Run& r, const Facts& f, std::uint32_t dt)", "\n}\n")
+        self.assertIn("OffMapUnitsOnly(f)", fight_on)
+    def test_a_bot_outside_the_instance_is_returned(self):
+        issue = body(COMMANDS, "bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer,", "\n}\n")
+        self.assertIn('if (text.compare(0, 7, "return ") == 0)\n        return RunOffMapReturn(commander, text, answer);', issue)
+        fn = body(strip_comments(COMMANDS),
+                  "bool RunOffMapReturn(Player* commander, std::string const& order, std::string& answer)\n{", "\n}\n")
+        # the player recheck and the map checks before anything is touched; CombatStop before the teleport
+        self.assertLess(fn.index('answer = "player: a real player is in the party";'), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("lead->GetMapId() != planMap"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("bot->GetMapId() == planMap"), fn.index("bot->CombatStop();"))
+        # round 1: the open-world recheck (battleground / instance map / transport / summon-busy) before CombatStop
+        self.assertLess(fn.index("bot->InBattleGround()"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("bot->GetMap()->Instanceable()"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("bot->GetTransport()"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("PlayerConvenience::Instance().IsBusy(bot->GetObjectGuid())"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("pet->CombatStop();"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("sServerFacade.GetHostileRefManager(bot).deleteReferences();"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("bot->CombatStop();"), fn.index("bot->TeleportTo(lead->GetMapId(),"))
+        # round 1: the glue reads the returnable fact beside the off-map flag
+        facts = body(strip_comments(COMMANDS),
+                     "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,", "\n}\n")
+        self.assertIn("member.offPlanMap = bot->GetMapId() != slot.run.plan->map;", facts)
+        self.assertIn("member.offMapReturnable = !bot->InBattleGround()", facts)
+        self.assertIn("!bot->GetMap()->Instanceable()", facts)
+        self.assertIn("!bot->GetTransport()", facts)
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        tick = body(policy, "inline std::string Tick(Run& r, const Facts& raw,", "\n}\n")
+        self.assertLess(tick.index("order = TickBody(r, f, dt, lines);"), tick.index("OffMapReturnTick(r, f, order);"))
+        # round 1: the policy skips a not-returnable bot (note, no tries, no pause)
+        ret = body(policy, "inline bool OffMapReturnTick(Run& r, const Facts& f, std::string& order)\n{", "\n}\n")
+        self.assertIn("!m.offMapReturnable", ret)
+        self.assertIn("cannot be returned (not in the open world)", ret)
+        # round 2: once per (bot, step), replacing an earlier copy; the glue passes the busy reason
+        self.assertIn("offMapNoted", ret)
+        self.assertIn("is outside the instance and busy (summon or teleport pending)", ret)
+        self.assertIn("member.offMapBlock", facts)
+        refused = body(policy, "inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)", "\n}\n")
+        self.assertLess(refused.index('order.compare(0, 7, "return ") == 0'),
+                        refused.index('Pause(r, "cmd " + order + " refused: " + answer + MissingHint(r));'))
 
 
 
