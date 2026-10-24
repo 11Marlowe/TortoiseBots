@@ -632,24 +632,28 @@ class DungeonPlanSql(unittest.TestCase):
         # The map 48 ai_dungeon_boss rows stay in 20261022210800 (the seed test holds them to one seeding).
 
     def test_windhorn_canyon_is_the_plan_with_the_pack_fixes(self):
-        # 20261024150400 (turtle-agent e63d1d9, 2026-10-24) re-exports the Windhorn Canyon draft that 20261023150100 (0afaeeb) first
+        # 20261024151600 (turtle-agent a39dc40, 2026-10-24) re-exports the Windhorn Canyon draft that 20261023150100 (0afaeeb) first
         # put in, with the pack fixes of PREP-WINDHORN-CANYON-2026-10-23.md, the terrace fix of run 1 (approach stands on the
         # z 241 terrace of leg 0, reached by the ring route; the leg-0 pull order changed so that no walk passes a live pack),
         # the leg-1 floor-stand fix of run 2 (leg 1 group 16 stands on the z 219 shelf, which the navmesh does not join to the z 198
         # floor: floor approach stands for group 16 and 17) and the leg-2 start fix of run 3 (leg 2 walks the z 197 floor first:
         # its to moves onto the party's floor and its groups reorder z 197, z 220, z 220, z 241 x3, z 239 x2, z 283 x9, with
         # approach stands on walked floors), no row hand-set. 20261023230000 was the second export, 20261023230200 the
-        # third, 20261024060200 the fourth. The map-820 boss rows stay in 20261023150100. 7 legs, 2169 steps (188 pulls
-        # (46 + 32 + 17 + 14 + 36 + 9 + 34), the 7 boss rows and approach moves), bosses in leg order, no door or event step. The plan row has
+        # third, 20261024060200 the fourth, 20261024150400 the fifth. The sixth adds the server-path chains of
+        # SERVER-PATHCHECK-AUDIT-2026-10-24.md: leg 0's climb to the z 241 terrace is cut into three stands, leg 2 groups 3, 6, 7
+        # and 8 get one chain stand each, and leg 5's to gets four via stands, so that every leg passes the server's 2048-node
+        # path query (16 server refusals before, 0 after). The map-820 boss rows stay in 20261023150100. 7 legs, 2214 steps
+        # (188 pulls (46 + 32 + 17 + 14 + 36 + 9 + 34), the 7 boss rows, approach moves and the cut path rows), bosses in leg
+        # order, no door or event step. The plan row has
         # empty unit lists (the world data has no AI/spell rows for these entries); the packs that stand with a
         # boss are that boss row's entries; co-located packs are merged; radii are cut to the groups' members.
         name, text = newest_plan_text("windhorn_canyon")
-        self.assertEqual(name, "20261024150400_world.sql")
+        self.assertEqual(name, "20261024151600_world.sql")
         rows = [r for r in self.step_rows(text) if r["plan"] == "windhorn_canyon"]
         # leg_rows() matches [A-Za-z0-9_] leg names only; ahgk'tos_the_pure is not a word, so the legs are
         # counted from the step rows (each leg's boss step proves its rows are there).
         self.assertEqual({r["leg"] for r in rows}, {"0", "1", "2", "3", "4", "5", "6"})
-        self.assertEqual(len(rows), 1937)
+        self.assertEqual(len(rows), 2214)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [46, 32, 17, 14, 36, 9, 34])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["62784", "62783", "62780", "62781", "62779", "62782", "62778"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -670,6 +674,12 @@ class DungeonPlanSql(unittest.TestCase):
                           "62767,62766,62765", "62760", "62763"])
         self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg0 if r["comment"].endswith(" approach") and r["z"].startswith("24")],
                          [("pull group 25 approach", "-7786.4", "-3493.8", "240.8"), ("pull group 26 approach", "-7787.9", "-3459.4", "241.4"), ("pull group 27 approach", "-7723.1", "-3423.4", "241.7"), ("pull group 28 approach", "-7668.5", "-3405.1", "241.9"), ("pull group 29 approach", "-7660.3", "-3404.4", "241.9"), ("pull group 34 approach", "-7794.8", "-3450.1", "241"), ("pull group 35 approach", "-7816", "-3446.9", "240.9"), ("pull group 41 approach", "-7870.2", "-3445.1", "241.6"), ("pull group 45 approach", "-7761.1", "-3449.3", "241.5")])
+        # The sixth export's server-path chain up to the terrace: group 25's stand is the last of three (the other two on the z 198 and
+        # z 222 landings), so the climb from the z 149 floor is made of legs the server's 2048-node query answers complete.
+        self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg0 if r["comment"] == "pull group 25 approach"],
+                         [("pull group 25 approach", "-7676", "-3684.27", "197.59"),
+                          ("pull group 25 approach", "-7601.33", "-3418.13", "221.59"),
+                          ("pull group 25 approach", "-7786.4", "-3493.8", "240.8")])
         # The leg-1 floor-stand fix (fourth export): leg 1 group 16 (the z 219 shelf pack) is pulled from its floor approach stand,
         # and group 17 from its own on the way north; the two shelf walk rows (server steps 504/505 of the third export) are gone.
         leg1 = leg_steps(rows, 1)
@@ -685,9 +695,20 @@ class DungeonPlanSql(unittest.TestCase):
                          ["62763,62767", "62772", "62772,62865", "62777", "62774", "62985,62773", "62777,62773,62774",
                           "62773,62774", "62760", "62985,62760", "62760", "62764", "62760", "62774", "62768", "62760", "62764"])
         self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg2 if r["comment"].endswith(" approach")],
-                         [("pull group 3 approach", "-7628", "-3570", "241"), ("pull group 4 approach", "-7628", "-3570", "241"),
-                          ("pull group 5 approach", "-7628", "-3570", "241"), ("pull group 6 approach", "-7650", "-3630", "197.6"),
-                          ("pull group 7 approach", "-7600", "-3625", "220"), ("pull group 8 approach", "-7620", "-3585", "282.3")])
+                         [("pull group 3 approach", "-7488", "-3663.73", "215.49"), ("pull group 3 approach", "-7628", "-3570", "241"),
+                          ("pull group 4 approach", "-7628", "-3570", "241"),
+                          ("pull group 5 approach", "-7628", "-3570", "241"), ("pull group 6 approach", "-7622.4", "-3408", "221.39"),
+                          ("pull group 6 approach", "-7650", "-3630", "197.6"),
+                          ("pull group 7 approach", "-7490.4", "-3675.2", "219.39"), ("pull group 7 approach", "-7600", "-3625", "220"),
+                          ("pull group 8 approach", "-7274.67", "-3562.67", "281.37"), ("pull group 8 approach", "-7620", "-3585", "282.3")])
+        # The sixth export's server-path chains: each refused leg-2 hop gets one chain stand before its old stand, so no single server
+        # query is asked for the whole climb.
+        leg5 = leg_steps(rows, 5)
+        self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg5 if r["comment"] == "via"],
+                         [("via", "-7834.67", "-3615.2", "172.99"), ("via", "-7677.6", "-3588.53", "198.29"),
+                          ("via", "-7509.33", "-3690.67", "220.19"), ("via", "-7274.67", "-3598.13", "254.17")])
+        to5 = [r for r in leg5 if r["comment"] == "to"][0]
+        self.assertEqual((to5["x"], to5["y"], to5["z"]), ("-7544.51", "-3761.01", "282.885"))
         # The map-820 boss DELETE is scoped to this plan's own entries (it shares no map with another plan); it stays in the first file.
         first = dict(migrations())["20261023150100_world.sql"]
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", first)
