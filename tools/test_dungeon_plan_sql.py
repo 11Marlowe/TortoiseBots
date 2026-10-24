@@ -1700,24 +1700,26 @@ class DungeonPlanSql(unittest.TestCase):
 
 
     def test_scholomance_is_the_census_fixed_draft(self):
-        # 20261024020000 (turtle-agent 1110d6c, 2026-10-24): the Scholomance draft with the census fixes of
-        # PREP-SCHOLOMANCE-2026-10-24.md, no row hand-set, and the boss rows of map 289 scoped to this plan's ten entries. 10 legs,
-        # 476 steps (112 pulls, 10 bosses, 354 moves), bosses in leg order. The plan row carries cc_priority, the undead no_cc is
-        # not a column and kill_first; the 55 Rats 4075 and the Black Rat 2110 are out of every pull, as are the disabled Kormok
-        # 16118 and his trigger 16047. Every pull is at most six members and its radius (5-13.1 yd) covers its own positions;
-        # Alexei's linked Risen Guards 10489 and Rattlegore's linked Risen Construct 10488 are the boss rows' first.
+        # 20261024060000 (turtle-agent 29fcc48, 2026-10-24): the Scholomance draft with the census fixes of
+        # PREP-SCHOLOMANCE-2026-10-24.md and leg 0's route clear after the r28c slotC first run (RUN-LESSONS.md): the landing-to-Malicia
+        # walk is 554 yd and passes 40 census packs within 30 yd, so leg 0 is those 40 pulls with their approach rows instead of one
+        # move row. No row hand-set, and the boss rows of map 289 scoped to this plan's ten entries. 10 legs, 561 steps (152 pulls,
+        # 10 bosses, 399 moves), bosses in leg order. The plan row carries cc_priority, the undead no_cc is not a column and kill_first;
+        # the 55 Rats 4075 and the Black Rat 2110 are out of every pull, as are the disabled Kormok 16118 and his trigger 16047. Every
+        # pull is at most six members and its radius (5-13.1 yd) covers its own positions; Alexei's linked Risen Guards 10489 and
+        # Rattlegore's linked Risen Construct 10488 are the boss rows' first.
         name, text = newest_plan_text("scholomance")
-        self.assertEqual(name, "20261024020000_world.sql")
-        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469', '', '10471,11582,10477', 'turtle-agent 7d26ef6 dungeons/scholomance.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024060000_world.sql")
+        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469', '', '10471,11582,10477', 'turtle-agent 29fcc48 dungeons/scholomance.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "scholomance")
         self.assertEqual([legs[i][0] for i in range(10)],
                          ["instructor_malicia", "the_ravenian", "lorekeeper_polkelt", "lady_illucia_barov",
                           "jandice_barov", "rattlegore", "vectus", "ras_frostwhisper",
                           "doctor_theolen_krastinov", "lord_alexei_barov"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "scholomance"]
-        self.assertEqual(len(rows), 476)
+        self.assertEqual(len(rows), 561)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
-                         [0, 7, 4, 14, 36, 25, 18, 3, 2, 3])
+                         [40, 7, 4, 14, 36, 25, 18, 3, 2, 3])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
                          ["10505", "10507", "10901", "10502", "10503", "11622", "10432", "10508", "11261", "10504"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -1727,7 +1729,23 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
                          ["", "", "", "", "", "10488", "10433", "", "", "10489"])
         pulls = [r for r in rows if r["kind"] == "pull"]
-        self.assertEqual(len(pulls), 112)
+        self.assertEqual(len(pulls), 152)
+        # Leg 0 is the whole route: every pull is preceded by its approach move row, and the 40 packs are the stair guards, the
+        # 115.8 hall, the 109.7 ring, the 104.8 hall and Malicia's room, in that order.
+        leg0 = leg_steps(rows, 0)
+        self.assertEqual(len(leg0), 87)
+        self.assertEqual([r["kind"] for r in leg0].count("move"), 46)
+        self.assertEqual(len([r for r in leg0 if r["kind"] == "move" and r["comment"].endswith(" approach")]), 45)
+        pulls0 = [r for r in leg0 if r["kind"] == "pull"]
+        self.assertEqual(len(pulls0), 40)
+        for i, r in enumerate(leg0):
+            if r["kind"] == "pull":
+                self.assertEqual(leg0[i - 1]["kind"], "move")
+                self.assertTrue(leg0[i - 1]["comment"].endswith(" approach"), leg0[i - 1])
+        self.assertEqual(leg0[0]["comment"], "to")
+        self.assertEqual((leg0[0]["x"], leg0[0]["y"], leg0[0]["z"]), ("190.819", "126.329", "137.227"))
+        self.assertEqual(leg0[-1]["kind"], "boss")
+        self.assertEqual(pulls0[0]["entries"], "10489")
         self.assertFalse([r["entries"] for r in pulls
                           if {"2110", "4075", "16047", "16118"} & set(r["entries"].split(","))])
         self.assertLessEqual(max(len(r["entries"].split(",")) for r in pulls), 6)
