@@ -1455,6 +1455,12 @@ struct Run
     std::size_t strandCountStep = static_cast<std::size_t>(-1);
     std::uint32_t strandTries = 0;
     std::uint32_t strandWaits = 0;
+    // The teleport due now (or just failed) is a ReplayRescue's (set by ReplayRescue beside RescueDue): when
+    // StrandFailed gives up on it, the walk back replays the plan's points (ReplayWalkBack, spec 2B) instead of
+    // hopping straight toward the target the run had just refused. Cleared when the lead bot arrives (its step's
+    // teleport is used), by any other rescue, when the replay starts, and by ResetStep; a send keeps it (the
+    // outcome is not known yet).
+    bool strandReplay = false;
     // The walk-back point last sent, from where, and how often (kWalkBackResends).
     std::size_t resendIdx = static_cast<std::size_t>(-1);
     float resendX = 0.0f, resendY = 0.0f, resendZ = 0.0f;
@@ -1963,6 +1969,7 @@ inline void ResetStep(Run& r)
     r.islandRefusals = 0;
     r.strandDue = false;
     r.strandOn = false;
+    r.strandReplay = false;
     r.strandMs = 0;
     r.strandSummon = false;
     r.strandSummoned.clear();
@@ -4279,6 +4286,7 @@ inline bool RefusedFromIsland(Run& r, const std::string& order, const std::strin
 }
 
 inline std::size_t LastReachedBefore(const Run& r, std::size_t idx);
+inline bool ReplayWalkBack(Run& r, const Facts& f); // defined below (StrandFailed's fallback); body pins ReplayStartPoint
 
 // The last resort for a stranded lead bot (owner decision 2026-10-23; Sunken
 // Temple r26 slot 6b step 233: the lead bot went 13 yd down a ledge onto an
@@ -4326,7 +4334,9 @@ inline void RearmRescueAfterDeath(Run& r)
 
 // A failed teleport of the stranded lead bot (refused, or the lead bot not at the
 // point after it): due again on the next tick, kStrandTries times a step; then the
-// walk back goes on as before (the point is passed when refused again).
+// walk back goes on as before (the point is passed when refused again) — or as the replay when the failed teleport
+// was a ReplayRescue's (Run::strandReplay): the straight way the run had just refused is skipped, the replay of the
+// plan's points (spec 2B) starts. The note keeps the teleport's "failed 3 times" text; the replay's own note says so.
 inline void StrandFailed(Run& r, const std::string& why)
 {
     StrandCountsForStep(r);
@@ -4336,6 +4346,26 @@ inline void StrandFailed(Run& r, const std::string& why)
         r.strandDue = true;
         r.note = "the teleport of the stranded lead bot failed (" + why + "): trying again (" +
             std::to_string(r.strandTries + 1) + " of " + std::to_string(kStrandTries) + ")";
+        return;
+    }
+    bool const replay = r.strandReplay;
+    r.strandReplay = false;
+    if (replay && r.walkBack && r.plan)
+    {
+        // The lead bot's spot is unknown here (StrandFailed has no Facts), so replay from the rescue's spot
+        // (RescueDue kept the send's facts as strandX/Y/Z). The next walk-back tick walks that replay's point.
+        Facts re;
+        re.leadX = r.strandX;
+        re.leadY = r.strandY;
+        re.leadZ = r.strandZ;
+        if (ReplayWalkBack(r, re))
+        {
+            r.note = "the teleport of the stranded lead bot failed " + std::to_string(kStrandTries) + " times (" + why +
+                "): replaying the plan's points";
+            return;
+        }
+        r.note = "the teleport of the stranded lead bot failed " + std::to_string(kStrandTries) + " times (" + why +
+            "): the walk back goes on as before";
         return;
     }
     r.note = "the teleport of the stranded lead bot failed " + std::to_string(kStrandTries) + " times (" + why +
@@ -4928,6 +4958,7 @@ inline void RescueDue(Run& r, const Facts& f, std::size_t target)
     r.walkBack = true;
     r.walkBackIdx = r.walkBackStart = target; // the walk back goes on from the point it is teleported to
     r.walkBackDirect = false;
+    r.strandReplay = false;
     r.approachHops = 0;
     EnterPhase(r, Phase::Begin);
 }
@@ -6876,6 +6907,12 @@ inline std::size_t FirstReplayPoint(const Run& r)
     return static_cast<std::size_t>(-1);
 }
 
+// The walk back first goes straight to its start point (in navmesh hops,
+// StartWalkBack); when that fails it replays every point from the one nearest
+// the lead bot (ReplayWalkBack), but only among the points the route allows:
+// not before the checkpoint when it is known, and not past the first direct
+// step not crossed yet (that direct step is then always replayed, even from a
+// lead bot nearer the step than any point). True when there is one.
 // The point a replay of the plan's points begins at (ReplayWalkBack's choice), npos for none.
 inline std::size_t ReplayStartPoint(const Run& r, const Facts& f)
 {
@@ -6908,6 +6945,8 @@ inline std::size_t ReplayStartPoint(const Run& r, const Facts& f)
 
 inline bool ReplayWalkBack(Run& r, const Facts& f)
 {
+    r.strandReplay = false;
+    r.strandDue = false; // a refused teleport's replay answers the same failure, not a second send
     r.walkBackDirect = false;
     r.shortcutWanted = r.shortcutFrom = static_cast<std::size_t>(-1);
     r.walkBack = false;
@@ -6998,6 +7037,9 @@ inline std::size_t LastClearedFight(const Run& r, std::uint32_t team, std::size_
 //     kStraightBackoffYd before it, at most kStraightBackoffs times, before the replay of the plan's points.
 //   - Steps before the run's start step count as uncleared for the path check (UnclearedForPath): a placed run
 //     never fought there.
+//   - The replay leaves out a stretch of the route that comes back within kRouteLinkYd (and kRouteLinkDzYd up or
+//     down) of the point just reached (RouteShortcut): an out-and-back side room's points are not walked twice.
+//     Only plain move points; never past a direct step, an exact point or its launch, or a pack left uncleared.
 //   - A failed straight walk back whose replay would walk kReplayRescueYd or more before the safe point on the way it
 //     came is rescued instead (ReplayRescue: a bot-only party, the rescue's bounds; Stratholme r29 slot 4, Maraudon
 //     r28b slot B).
@@ -7249,6 +7291,7 @@ inline bool ReplayRescue(Run& r, const Facts& f, const std::string& why)
     if (yd < kReplayRescueYd)
         return false;
     RescueDue(r, f, target);
+    r.strandReplay = true; // refused kStrandTries times: the walk back replays the plan's points (StrandFailed)
     r.note = "walk back: " + why + ": the replay of the plan's points would walk " + Num(yd) + " yd: the lead bot " +
         "is teleported to a safe point on the way it came (step " + std::to_string(target + 1) + ") out of combat";
     return true;
@@ -7508,6 +7551,7 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
             return true;
         }
         r.strandStep = r.step;
+        r.strandReplay = false; // used: no replay after it
         r.strandSummon = true;
         r.strandSummoned.clear();
         r.strandSummonMs = 0;
@@ -7565,7 +7609,8 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
             " with no way back: the teleport to " + target + " waits for the fight to end";
         return true;
     }
-    // The spot as the facts read it now (the lead bot may have moved on the island).
+    // The spot as the facts read it now (the lead bot may have moved on the island); a send keeps strandReplay
+    // (it says what the teleport was, cleared when StrandFailed gives it up).
     r.strandX = f.leadX;
     r.strandY = f.leadY;
     r.strandZ = f.leadZ;

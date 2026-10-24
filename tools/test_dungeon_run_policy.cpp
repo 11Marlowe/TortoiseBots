@@ -11780,6 +11780,27 @@ static void TestIslandWalkBackIsRescued()
     CHECK(!u.strandDue && u.walkBackIdx == 2 && u.note.find("on to the next") != std::string::npos);
 }
 
+// Round 1 (2): IslandWalkBackRescue fires only while the lead bot still stands within kArriveYd of the spot where
+// the island hop found no spot. Moved off it, the no-way point is passed as before.
+static void TestIslandRescueNeedsTheNoSpotSpot()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 1;
+    r.walkBackRestarted = true;
+    Facts g = OnIsland();
+    std::string const hop = Tick(r, g);
+    CHECK(hop.compare(0, 7, "escape ") == 0);
+    OrderRefused(r, hop, "no-spot: no spot within 10 yd");
+    CHECK(r.noSpotKnown);
+    Facts off = g;
+    off.leadX += kArriveYd + 1.0f; // more than kArriveYd from the no-spot spot: the no-spot half is gone
+    CHECK(!IslandWalkBackRescue(r, off, "no walkable path toward the point of step 2")); // ... even with noWay true
+    CHECK(Tick(r, off).compare(0, 7, "escape ") == 0); // a hop again, not the rescue
+    CHECK(r.state == State::Running && !r.strandDue && r.walkBackIdx == 1 && !r.noSpotKnown);
+}
+
 // A good read between the hops gives fresh tries, but one step sends at most kStepEscapes.
 static void TestStepEscapeCap()
 {
@@ -17974,6 +17995,7 @@ int main()
     TestSecondReadingConfirmsTheIsland();
     TestWalkBackNoSpotPassesThePoint();
     TestIslandWalkBackIsRescued();
+    TestIslandRescueNeedsTheNoSpotSpot();
     TestStepEscapeCap();
     TestNoSpotWalkBackNeverSpins();
     TestSignBFromTheMainMeshIsBounded();

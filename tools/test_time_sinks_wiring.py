@@ -126,7 +126,7 @@ class TimeSinksWiringTest(unittest.TestCase):
         isle = body(POLICY, "inline bool IslandWalkBackRescue(Run& r, const Facts& f, const std::string& why)", "\n}\n")
         for part in ("r.noSpotKnown", "RescueAllowed(r, f)", "SafePointAtOrBefore(r, f.team, last)", "RescueDue(r, f, target);"):
             self.assertIn(part, isle)
-        self.assertIn("ReplayStartPoint(r, f)", body(POLICY, "inline bool ReplayWalkBack(Run& r, const Facts& f)", "\n}\n"))
+        self.assertIn("ReplayStartPoint(r, f)", body(POLICY, "inline bool ReplayWalkBack(Run& r, const Facts& f)\n{", "\n}\n"))
 
     def test_walk_back_rescues_before_a_long_replay(self):
         walk = body(POLICY, "inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& order)", "\n}\n")

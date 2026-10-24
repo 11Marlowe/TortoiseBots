@@ -539,6 +539,73 @@ static void TestShortReplayAndPlayersKeepTheReplay()
     CHECK(!e.strandDue && e.walkBack && e.walkBackIdx == 0);
 }
 
+// Round 1 (1): a Part B ReplayRescue refused kStrandTries times replays the plan's points (spec 2B) instead of hopping
+// straight toward the refused target.
+static void TestRefusedReplayRescueReplaysThePlansPoints()
+{
+    DungeonPlan plan;
+    for (int i = 0; i <= 5; ++i)
+        plan.steps.push_back(Move(20.0f * i, 0.0f)); // 0 .. 100
+    plan.steps.push_back(Pull(120.0f, 100.0f, 9));
+    std::size_t const step = plan.steps.size() - 1;
+    Run r = Start(&plan, step);
+    Facts f = Party(-210.0f);
+    f.seen = false;
+    StartWalkBack(r, f);
+    f.approachKnown = true;
+    f.approachRead = true;
+    f.approachX = -170.0f;
+    f.directPathCrossesPack = true;
+    for (int i = 0; i < 3; ++i)
+        Tick(r, f); // two backoffs, then the rescue (310 yd)
+    CHECK(r.strandDue && r.strandReplay && r.strandIdx == 5 && r.walkBackIdx == 5);
+    CHECK(r.note == "walk back: the straight way to the point of step 2 passes an uncleared pack: the replay of the "
+        "plan's points would walk 310.0 yd: the lead bot is teleported to a safe point on the way it came (step 6) out of "
+        "combat");
+    std::string const rescue = Tick(r, f); // the send
+    CHECK(rescue == "rescue from -210.0 0.0 0.0 to 100.0 0.0 0.0");
+    for (std::uint32_t t = 1; t <= kStrandTries; ++t)
+    {
+        OrderRefused(r, rescue, "failed: the near teleport was refused");
+        CHECK(r.state == State::Running && r.walkBack && r.strandTries == t);
+        if (t < kStrandTries)
+            CHECK(r.strandDue && r.strandReplay); // refused again: due once more
+    }
+    // Given up: the replay's first point (spec 2B), not a straight move toward the refused target.
+    CHECK(r.walkBack && !r.walkBackDirect && r.walkBackIdx == 0 && r.walkBackStart == 0 && !r.strandReplay);
+    CHECK(r.note == "the teleport of the stranded lead bot failed 3 times (refused: failed: the near teleport was "
+        "refused): replaying the plan's points");
+    CHECK(!r.strandOn && !r.strandDue && !r.strandReplay); // the replay answered the failure: no second send
+}
+
+// Round 1 (3): ReplayRescue never teleports the lead bot onto its own spot: already within kArriveYd of the target,
+// no rescue is due and the latch stays unused (a later real need still gets it). A MoveDirect hole before the target
+// forces the replay to start at the first point (ReplayStartPoint with a hole), so the replay is 800 yd even with
+// the lead bot on the target: without the guard it would rescue onto its own spot.
+static void TestReplayRescueNeedsDistanceToTheTarget()
+{
+    DungeonPlan plan;
+    plan.steps.push_back(Move(0.0f, 0.0f));     // 0
+    plan.steps.push_back(Move(100.0f, 0.0f));   // 1
+    PlanStep hole = Move(200.0f, 0.0f);
+    hole.kind = PlanStepKind::MoveDirect;
+    plan.steps.push_back(hole);                 // 2: the hole
+    plan.steps.push_back(Move(300.0f, 0.0f));   // 3
+    plan.steps.push_back(Move(400.0f, 0.0f));   // 4: the safe point (target)
+    plan.steps.push_back(Pull(420.0f, 100.0f, 9));
+    std::size_t const step = plan.steps.size() - 1;
+    Run r = Start(&plan, step);
+    r.walkBack = true; // the straight walk just failed with walkBackIdx < step: ask the rescue directly
+    r.walkBackIdx = r.walkBackStart = 3;
+    r.walkBackDirect = true;
+    Facts on = Party(400.0f); // the lead bot exactly on the rescue's target (step 5): 0 yd away, 800 yd replay
+    CHECK(!ReplayRescue(r, on, "the straight way to the point of step 1 passes an uncleared pack")); // guard: no teleport onto itself
+    CHECK(!r.strandDue && !r.strandOn && !r.strandReplay && r.strandStep == static_cast<std::size_t>(-1));
+    Facts far = Party(0.0f); // control: the same failure 400 yd off DOES rescue (replay is long)
+    CHECK(ReplayRescue(r, far, "the straight way to the point of step 1 passes an uncleared pack"));
+    CHECK(r.strandDue && r.strandReplay && r.strandIdx == 4);
+}
+
 // The other two straight-walk failures take the rescue too: no complete path (Dire Maul North r31 slot 6 'no complete
 // path to the point of step 112') and no walkable path (Maraudon r28b slot B 'no walkable path toward the point of step
 // 564').
@@ -1442,6 +1509,8 @@ int main()
     TestStuckWalkBackIsRescuedNotPaused();
     TestLongReplayIsRescuedInAFullRun();
     TestShortReplayAndPlayersKeepTheReplay();
+    TestRefusedReplayRescueReplaysThePlansPoints();
+    TestReplayRescueNeedsDistanceToTheTarget();
     TestReplayRescueAfterEveryStraightFailure();
     TestRetreatAtTwoDead();
     TestRestLinesFollowTheNextFight();
