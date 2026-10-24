@@ -751,19 +751,19 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
 
     def test_stormwrought_ruins_is_the_census_fixed_draft(self):
-        # 20261024150100 (turtle-agent 60006a0, 2026-10-24): SW-FIX1 over the 20261024021000 census draft (see
-        # ~/TortoiseBots-audit/SW-FIX1-2026-10-24.md and RUN-LESSONS.md r28d): no row hand-set, boss rows of map 818
-        # scoped to its own eleven entries. 11 legs, 678 steps (251 pulls), bosses in leg order, no boss.first,
-        # no door or event step. Leg 5's south-shore packs g9-g13 (old order) now come right after g1, so the walk
-        # from the north-shore circuit to g9/g10 passes no living pack (the old walk ran 3.6 yd through unpulled
-        # g13 and 10-24 yd past unpulled g11/g12, whose join plus the patrolling 62542 evaded into the lake and
-        # paused step 251 4x); g9 radius 9.1 -> 8.0, g10 9.4 -> 8.0. Leg 4 keeps its 19 pulls: group 3 (upper
-        # shelf z233.2) radius 5 -> 4 so it no longer reaches the step-168 pull on the lower shelf (dz ~11.6,
-        # members 13.5-15.9 yd off). The nine packs inside a boss's 18 yd detection are still their leg's last
-        # pull, and Remains of the Innocent 62670 (boss-grade trash) is still in leg 10's group 6 and in kill_first.
+        # 20261024150700 (turtle-agent 7c6bf7c, 2026-10-24): SW-FIX2 over 20261024150100 (see
+        # ~/TortoiseBots-audit/SW-FIX2-2026-10-24.md and RUN-LESSONS.md r30): no row hand-set, boss rows of map 818
+        # scoped to its own eleven entries. 11 legs, 768 steps (224 pulls), bosses in leg order, no boss.first,
+        # no door or event step. Leg 5 keeps the SW-FIX1 south-shore order; the lake ledge (steps 252-262) gets
+        # explicit approach rows along the verified ramp corridor (group 10: 3 down the ramp ending 17 yd from the
+        # pack; group 11: 4 back up, ending 18.4 yd out), and the 12 water-only z207.06 Razormaw singles (old groups
+        # 29-40) are gone. Leg 6 loses its water-only 62660 single, leg 7 its eight water-only/off-mesh 62655
+        # singles, leg 8 its six water-only 62648 groups. The nine packs inside a boss's 18 yd detection are still
+        # their leg's last pull, and Remains of the Innocent 62670 (boss-grade trash) is still in leg 10 and in
+        # kill_first.
         name, text = newest_plan_text("stormwrought_ruins")
-        self.assertEqual(name, "20261024150100_world.sql")
-        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 60006a0 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024150700_world.sql")
+        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 7c6bf7c dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "stormwrought_ruins"),
                          {0: ("dagar_the_glutton", ""), 1: ("oronok_torn-heart", ""),
                           2: ("librarian_theodorus", ""), 3: ("duke_balor_the_iv", ""),
@@ -772,9 +772,9 @@ class DungeonPlanSql(unittest.TestCase):
                           8: ("eldermaw_the_primordial", ""), 9: ("lady_drazare", ""),
                           10: ("ighal'for", "")})
         rows = [r for r in self.step_rows(text) if r["plan"] == "stormwrought_ruins"]
-        self.assertEqual(len(rows), 678)
+        self.assertEqual(len(rows), 768)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(11)],
-                         [11, 28, 18, 19, 19, 43, 28, 27, 16, 30, 12])
+                         [11, 28, 18, 19, 19, 31, 27, 19, 10, 30, 12])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
                          ["62547", "62548", "62552", "62549", "62551", "62550", "62652", "62664", "62661", "62665", "62671"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -784,10 +784,16 @@ class DungeonPlanSql(unittest.TestCase):
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertLessEqual(max(float(r["radius"]) for r in pulls), 17.7)
         self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 4.0)
-        # The nine packs inside a boss's 18 yd detection are the last pull of their leg (the boss joins by design).
-        self.assertEqual([leg_steps(rows, leg)[-2]["entries"] for leg in (1, 3, 5, 7, 8, 9)],
-                         ["62540", "62541,62543", "62542", "62646", "62648", "62667,62647,62663"])
-        # SW-FIX1: leg 5's south-shore packs come right after g1 (old g9-g13 first); leg 4 group 3 radius 4.
+        # SW-FIX2: no water-only pull survives (every pull stands on the ground mesh: no z207.06 Razormaw single,
+        # no z192-204 62655 single, no z195-200 62648 group).
+        self.assertFalse([r for r in pulls if float(r["z"]) < 205])
+        self.assertFalse([r for r in pulls if "62655" in r["entries"].split(",")])
+        self.assertFalse([r for r in pulls if "62648" in r["entries"].split(",")])
+        # The packs inside a boss's 18 yd detection are the last pull of their leg (the boss joins by design;
+        # leg 8's water-only 62648 pack is gone, so only five such legs remain).
+        self.assertEqual([leg_steps(rows, leg)[-2]["entries"] for leg in (1, 3, 5, 7, 9)],
+                         ["62540", "62541,62543", "62542", "62646", "62667,62647,62663"])
+        # SW-FIX1 kept: leg 5's south-shore packs come right after g1 (old g9-g13 first); leg 4 group 3 radius 4.
         self.assertEqual([(r["entries"], r["radius"]) for r in leg_steps(rows, 5) if r["kind"] == "pull"][:7],
                          [("62544,62540,62545", "13.4"), ("62545,62544,62540", "10.1"),
                           ("62546,62545,62544", "8"), ("62542,62545,62544", "8"),
@@ -795,6 +801,31 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["entries"], r["radius"]) for r in leg_steps(rows, 4) if r["kind"] == "pull"][3:5],
                          [("62537,62539", "4"), ("62539,62537,62536", "5")])
         self.assertIn("62670", [r["entries"] for r in leg_steps(rows, 10) if r["kind"] == "pull"])
+        # SW-FIX2: leg 5 groups 10-11 carry the ledge approach rows (the export writes them as move rows right
+        # before their pull); the stands are pinned so a re-export that moves one is caught.
+        steps5 = leg_steps(rows, 5)
+        pos = {id(r): i for i, r in enumerate(steps5)}
+        approach = {}
+        for r in steps5:
+            if r["kind"] == "move" and r["comment"].endswith(" approach"):
+                approach.setdefault(r["comment"], []).append(r)
+        self.assertEqual(sorted(approach), ["pull group 10 approach", "pull group 11 approach"])
+        order = sorted(approach, key=lambda c: int(c.split()[2]))
+        self.assertEqual([len(approach[c]) for c in order], [3, 4])
+        stands = {c: (float(approach[c][-1]["x"]), float(approach[c][-1]["y"]), float(approach[c][-1]["z"])) for c in order}
+        self.assertEqual(stands, {
+            "pull group 10 approach": (-6325.5, -3920.0, 222.5),
+            "pull group 11 approach": (-6340.0, -3950.0, 218.6),
+        })
+        pulls5 = [r for r in steps5 if r["kind"] == "pull"]
+        for c in order:
+            n = int(c.split()[2])
+            pull = pulls5[n]
+            self.assertEqual(steps5[pos[id(pull)] - 1], approach[c][-1], c)
+            self.assertLessEqual(math.dist(stands[c], (float(pull["x"]), float(pull["y"]), float(pull["z"]))), 30.0, c)
+            lo = pos[id(pulls5[n - 1])] if n else -1
+            hi = pos[id(pull)]
+            self.assertTrue(all(lo < i < hi for i in (pos[id(r)] for r in approach[c])), c)
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (818) AND `entry` IN (62547, 62548, 62552, 62549, 62551, 62550, 62652, 62664, 62661, 62665, 62671);", text)
         self.assertIn("(818, 62671, 'Ighal''for');", text)
 
