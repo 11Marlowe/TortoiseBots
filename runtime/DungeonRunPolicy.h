@@ -11247,9 +11247,9 @@ inline bool OffMapUnitsOnly(const Facts& f)
 // True when it set the order or paused (the caller sends the order). Only with `order` empty.
 inline bool OffMapReturnTick(Run& r, const Facts& f, std::string& order)
 {
-    if (!order.empty() || r.state != State::Running || !r.plan || !f.walkBackRescue || !f.players.empty() ||
-        !f.leadAlive || r.strandDue || r.strandOn)
-        return false;
+    // Round 3 (2026-10-25): the clearing runs before every early return: a reported bot that comes back on a
+    // guarded tick (an order already set, a player joined, the lead dead, a strand rescue active) still drops
+    // its entry, so leaving again at the same step reports it again; the guards only gate new notes and orders.
     if (r.offMapReturnStep != r.step)
     {
         r.offMapReturnStep = r.step;
@@ -11274,6 +11274,9 @@ inline bool OffMapReturnTick(Run& r, const Facts& f, std::string& order)
         else
             it = r.offMapNoted.erase(it);
     }
+    if (!order.empty() || r.state != State::Running || !r.plan || !f.walkBackRescue || !f.players.empty() ||
+        !f.leadAlive || r.strandDue || r.strandOn)
+        return false;
     for (const MemberFact& m : f.members)
     {
         if (m.name.empty() || !m.offPlanMap || m.name == f.carrier || r.reviveSummons.count(m.name))

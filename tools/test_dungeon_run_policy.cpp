@@ -17083,6 +17083,62 @@ static void TestOutsideBotNotReturnableNotedAgainOnNewStep()
     order.clear();
     CHECK(!OffMapReturnTick(r, f, order) && r.offMapNotedStep == 4 && r.offMapNoted.count("Pozzle"));
 }
+// Round 3 (2026-10-25): (a) a reported bot comes back while the tick already has an order, then leaves again
+// at the same step: the guarded return tick still drops its entry, so leaving reports it again.
+static void TestOutsideBotComebackUnderOrderReportsAgain()
+{
+    DungeonPlan plan = GraveyardPlan();
+    Facts f = OutsideFight();
+    f.members[1].offMapReturnable = false;
+    Run r = Start(&plan);
+    r.step = 3;
+    std::string order;
+    CHECK(!OffMapReturnTick(r, f, order) && r.offMapNoted.count("Pozzle"));
+    std::string const first = r.note;
+    // The bot came back inside on a tick whose order TickBody already set: no report, but the entry is dropped.
+    Facts back = OutsideFight();
+    back.members[1].offPlanMap = false;
+    order = "revive party";
+    CHECK(!OffMapReturnTick(r, back, order) && order == "revive party");
+    CHECK(!r.offMapNoted.count("Pozzle"));
+    // Out again at the same step: reported again (the note piece is replaced in place, so the note reads the same).
+    order.clear();
+    CHECK(!OffMapReturnTick(r, f, order) && r.offMapNoted.count("Pozzle") && r.note == first);
+    CHECK(Has(r.note, first));
+}
+// Round 3 (2026-10-25): (b) the same when the return tick is guarded by a strand rescue, or by the dead lead.
+static void TestOutsideBotComebackUnderStrandOrDeadLeadReportsAgain()
+{
+    DungeonPlan plan = GraveyardPlan();
+    Facts f = OutsideFight();
+    f.members[1].offMapReturnable = false;
+    Facts back = OutsideFight();
+    back.members[1].offPlanMap = false;
+    // A strand rescue active on the return tick.
+    Run r = Start(&plan);
+    r.step = 3;
+    std::string order;
+    CHECK(!OffMapReturnTick(r, f, order) && r.offMapNoted.count("Pozzle"));
+    std::string const first = r.note;
+    r.strandDue = true;
+    CHECK(!OffMapReturnTick(r, back, order));
+    CHECK(!r.offMapNoted.count("Pozzle"));
+    r.strandDue = false;
+    order.clear();
+    CHECK(!OffMapReturnTick(r, f, order) && r.offMapNoted.count("Pozzle") && r.note == first);
+    // The lead dead on the return tick.
+    Run d = Start(&plan);
+    d.step = 3;
+    order.clear();
+    CHECK(!OffMapReturnTick(d, f, order) && d.offMapNoted.count("Pozzle"));
+    std::string const dfirst = d.note;
+    Facts deadBack = back;
+    deadBack.leadAlive = false;
+    CHECK(!OffMapReturnTick(d, deadBack, order));
+    CHECK(!d.offMapNoted.count("Pozzle"));
+    order.clear();
+    CHECK(!OffMapReturnTick(d, f, order) && d.offMapNoted.count("Pozzle") && d.note == dfirst);
+}
 // Round 2 (2026-10-24): (c) the busy wording versus the open-world wording.
 static void TestOutsideBotNotReturnableBusyWording()
 {
@@ -19774,6 +19830,8 @@ int main()
     TestOutsideBotPauseNamesTheBotThatNeededFour();
     TestOutsideBotPerBotCountsReset();
     TestOutsideBotNotInTheOpenWorldIsSkipped();
+    TestOutsideBotComebackUnderOrderReportsAgain();
+    TestOutsideBotComebackUnderStrandOrDeadLeadReportsAgain();
     TestOutsideBotNotReturnableNotedOncePerStep();
     TestOutsideBotNotReturnableNotedAgainOnNewStep();
     TestOutsideBotNotReturnableBusyWording();
