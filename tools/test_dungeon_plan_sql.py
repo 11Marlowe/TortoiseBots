@@ -1036,15 +1036,17 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("(429, 11492, 'Alzzin the Wildshaper');", text)
 
     def test_dire_maul_north_is_the_plan_with_the_census_fixes(self):
-        # 20261024020400 (turtle-agent 45267e3, 2026-10-24): the first plan of Dire Maul North, rebuilt from the map-429 spawn census of
+        # 20261024060600 (turtle-agent 1d3b021a, 2026-10-24): the first plan of Dire Maul North, rebuilt from the map-429 spawn census of
         # PREP-DIRE-MAUL-NORTH-2026-10-24.md. 5 legs in door order (Mol'dar, the great hall + Fengus, Slip'kik, the Kromcrush tier, the King),
         # 153 steps (19 + 28 + 9 + 10 + 4 pulls, 78 moves, the 5 bosses), no row hand-set. The skeleton's 13 Gordok Spirit pulls (11446,
         # non-attackable) are gone, and the Gordok ogres the generator dropped for their gossip flag (114 rows, 99 spawned) are pull members. The plan row
         # carries cc_priority for the three casters; no fleer and no trash healer in the wing, so kill_first is empty. Cho'Rush 14324 is
-        # the King's first, not a pull and not a boss of the table.
+        # the King's first, not a pull and not a boss of the table. Leg 0 pull group 2 carries the four approach stands down the g1-g2
+        # corridor on the mesh floor (r28c stopped at step 6: the exporter's cut joined the straight corners at z -3.8 while the floor
+        # drops to z -25, so 361.7/411.7 floated 21 yd above the mesh); every hop plans complete at 47-49 yd, the last 48 yd from the pack.
         name, text = newest_plan_text("dire_maul_north")
-        self.assertEqual(name, "20261024020400_world.sql")
-        self.assertIn("('dire_maul_north', 429, '11448,11444,11445', '', '', 'turtle-agent dc64f6b dungeons/dire_maul_north.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024060600_world.sql")
+        self.assertIn("('dire_maul_north', 429, '11448,11444,11445', '', '', 'turtle-agent 1d3b021a dungeons/dire_maul_north.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "dire_maul_north")
         self.assertEqual([legs[i][0] for i in range(5)],
                          ["guard_mol_dar", "guard_fengus", "guard_slip_kik", "captain_kromcrush", "king_gordok"])
@@ -1061,8 +1063,13 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertFalse([r for r in pulls if {"11446", "14338", "14322"} & set(r["entries"].split(","))])
         # The courtyard's First Pack (pool-of-pools 4294, one variant live): the four variant entries at one centre, radius 13.6.
         self.assertEqual((pulls[0]["entries"], float(pulls[0]["radius"])), ("11441,11444,13036", 13.6))
-        self.assertEqual(sorted({e for r in pulls for e in r["entries"].split(",")}),
-                         ["11441", "11444", "11445", "11448", "11450", "13036", "13160"])
+        # Leg 0 pull group 2 (the east courtyard pack) is walked to down the g1-g2 corridor on the mesh floor: the four approach
+        # stands replace the exporter's floating cut (311.73/361.73/411.73/456.27 at z -3.8; the middle two 21 yd above the mesh).
+        moves = [r for r in leg_steps(rows, 0) if r["kind"] == "move"]
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in moves[1:5]],
+                         [("319.73", "10.93", "-8.64"), ("363.73", "10.93", "-25.28"),
+                          ("411.73", "10.93", "-24.85"), ("456.27", "10.93", "-3.82")])
+        self.assertTrue(all(r["comment"] == "pull group 2 approach" for r in moves[1:5]))
         # Every radius covers its own pack and no more than the wide aggro-together flocks need (the 10 Swarmers span up to 21.9 yd).
         self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 5.0)
         self.assertLessEqual(max(float(r["radius"]) for r in pulls), 22.0)
