@@ -12907,6 +12907,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             speedRate > 1.0f ? (TortoiseBots::DungeonRun::Num(speedRate) + " (walking)").c_str() : "1.0 (a fight, a pull, a rest or an event)");
     ApplyRunSpeed(commanderRaw, lead, bots, speedRate);
     // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
+    DropUnattackableCombat(lead, bots, slot.run.combatDrops);
     // The walk after a rest sent again: a seated lead bot stands up before the order below.
     if (slot.run.leadWalkReset)
     {

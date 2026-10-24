@@ -94,8 +94,9 @@ class UnattackableFightWiringTest(unittest.TestCase):
         self.assertNotIn(", true);", party)
 
     def test_combat_drop_runs_after_tick_on_rechecked_bots_only(self):
-        self.assertIn(": TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);\n\n"
-                      "    DropUnattackableCombat(lead, bots, slot.run.combatDrops);", CODE)
+        # The test-speed apply (2026-10-25) sits between the tick and the drop: order, not adjacency.
+        self.assertLess(CODE.index(": TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"),
+                        CODE.index("DropUnattackableCombat(lead, bots, slot.run.combatDrops);"))
         drop = body(CODE, "void DropUnattackableCombat(Player* lead, std::vector<Player*> const& bots,")
         self.assertIn("if (!bot->IsAlive() || !bot->IsInWorld() ||", drop)
         self.assertIn("ReadMemberEngaged(lead, judge, bot, now);", drop)
