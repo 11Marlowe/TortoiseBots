@@ -16777,6 +16777,77 @@ static void TestSkipUnreachableBossPassedBySpotEndsNotCleared()
     CHECK(a.note.find("and 3 pulls drew no fight with him") != std::string::npos);
 }
 
+// The final line must not hide a skipped boss: the flagged boss's step ends
+// "not cleared", the run finishes the rest of the plan, and the done note
+// names him. (Stormwrought Ruins leg 9: Eldermaw swims out of reach; the run
+// goes on to legs 10-11 while he stays alive.)
+static void TestSkippedBossNamedInDoneNoteAliveElsewhere()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 30);
+    boss.entry = 3976;
+    ai::NormalizePlanStep(boss);
+    boss.flags |= ai::kPlanFlagSkipUnreachable;
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadZ = 10.0f;
+    for (std::uint32_t i = 0; i < kBossSearchMs / kTickMs + 2 && !r.bossSearchWanted && r.state == State::Running; ++i)
+        Tick(r, f);
+    Facts alive = f;
+    alive.bossSearchRead = true;
+    alive.bossSearchAlive = true;
+    alive.bossAliveX = 30.0f;
+    alive.bossAliveZ = 43.0f;
+    Tick(r, alive);
+    CHECK(r.state == State::Running && r.step == 1 && r.notCleared.count(0));
+    Facts g = Party(60);
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Done);
+    CHECK(r.note == "plan done (boss not cleared: boss 3976 (step 1))");
+    Run w = r;
+    w.wipes = 1;
+    CHECK(DoneNote(w) == "plan done (1 wipe; boss not cleared: boss 3976 (step 1))");
+}
+
+static void TestSkippedBossNamedInDoneNotePassedBySpot()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 0, 0, 0);
+    boss.entry = 3976;
+    ai::NormalizePlanStep(boss);
+    boss.flags |= ai::kPlanFlagSkipUnreachable;
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    UnitFact seen = Unit(7, 3976, 33.1f);
+    seen.hostile = true;
+    f.seen = true;
+    f.units = {seen};
+    r.passed.insert(7);
+    r.pullTries[7] = 3;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && r.notCleared.count(0));
+    Facts g = Party(60);
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Done);
+    CHECK(r.note == "plan done (boss not cleared: boss 3976 (step 1))");
+}
+
+static void TestDoneNoteUnchangedWithNoSkippedBoss()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 50, 0, 0), Step(PlanStepKind::Move, 60)};
+    Run r = Start(&plan);
+    Facts f = Party(50);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && r.step == 1);
+    Facts g = Party(60);
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Done && r.note == "plan done");
+    CHECK(!r.notCleared.count(0) && !r.notCleared.count(1));
+}
+
 // Scarlet Cathedral r23 slot 5, step 97 (fix 6): the party killed Mograine at the door, 290 yd from his spot, and the
 // boss step paused "not found" three times until the corpse decay moved him home 600 s later. After kBossSearchMs at
 // his spot the step asks the glue for one instance-wide search (next tick): dead anywhere is boss down with a note
@@ -19337,6 +19408,9 @@ int main()
     TestAliveSearchPauseSaysWhereTheLeadBotIs();
     TestSkipUnreachableBossAliveElsewhereEndsNotCleared();
     TestSkipUnreachableBossPassedBySpotEndsNotCleared();
+    TestSkippedBossNamedInDoneNoteAliveElsewhere();
+    TestSkippedBossNamedInDoneNotePassedBySpot();
+    TestDoneNoteUnchangedWithNoSkippedBoss();
     TestSpawnEventsOffReadsEveryAssociation();
     TestUnitThatCannotDieNowPauses();
     TestSlowSteadyBossFightNeverPausesBeforeTheHardCap();

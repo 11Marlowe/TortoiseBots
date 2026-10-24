@@ -180,6 +180,8 @@ static void TestNormalize()
     PlanStep keepMove = Step(0, 25, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
     keepMove.flags = kPlanFlagNoDefer;
     CHECK(NormalizePlanStep(keepMove) == PlanStepRefusal::BadParam);
+    talk.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
     // skip_unreachable (4096, kPlanFlagSkipUnreachable): a boss row keeps it (Stormwrought Ruins' Eldermaw 62661 swims a
     // pool whose bed navmesh is cut off from the shore); on any other kind it is refused.
     CHECK(kPlanFlagSkipUnreachable == 4096);

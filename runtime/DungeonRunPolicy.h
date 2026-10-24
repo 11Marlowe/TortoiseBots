@@ -2101,14 +2101,40 @@ inline std::string DeferredReport(const Run& r)
     return out;
 }
 
+// The boss steps the run ended without clearing: still in notCleared (their
+// pull or boss end or a `.bot run skip` put them there), never deferred (a
+// deferral is a pull, listed by DeferredReport instead). A hidden live boss
+// is never fine, so the plan's end line names every one of them — even one
+// the party killed later elsewhere, while his own step stayed not cleared.
+// "" when there are none. A boss the run comes back to on his own step and
+// clears is out of notCleared again, so he is not named.
+inline std::string UnclearedBosses(const Run& r)
+{
+    if (!r.plan)
+        return std::string();
+    std::string out;
+    for (std::size_t i = 0; i < r.plan->steps.size(); ++i)
+    {
+        if (!r.notCleared.count(i))
+            continue;
+        const PlanStep& s = r.plan->steps[i];
+        if (s.kind != PlanStepKind::Boss)
+            continue; // pulls: a deferral names them in DeferredReport, a skip says so in its own note
+        out += std::string(out.empty() ? "" : ", ") + "boss " + std::to_string(s.entry) + " (step " + std::to_string(i + 1) + ")";
+    }
+    return out;
+}
+
 inline std::string DoneNote(const Run& r)
 {
     std::string const counts = WipeCounts(r);
     std::string const deferred = DeferredReport(r);
     std::string const all = counts.empty() ? deferred : deferred.empty() ? counts : counts + "; " + deferred;
-    return all.empty() ? std::string("plan done") : "plan done (" + all + ")";
+    std::string const bosses = UnclearedBosses(r);
+    std::string const named = bosses.empty() ? std::string() : "boss not cleared: " + bosses;
+    std::string done = all.empty() ? named : named.empty() ? all : all + "; " + named;
+    return done.empty() ? std::string("plan done") : "plan done (" + done + ")";
 }
-
 // Each bot's distance to the lead bot now: the sample a gather's ceiling
 // compares with (taken when the gather goes out and at each ceiling).
 inline void SampleMembers(Run& r, const Facts& f)
