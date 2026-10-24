@@ -17564,6 +17564,89 @@ static void TestOtherPullbackRefusalsStillPause()
     OrderRefused(c, "pullback 9", kFiringRefusal);
     CHECK(c.state == State::Paused && c.note == std::string("cmd pullback 9 refused: ") + kFiringRefusal);
 }
+// Round 1 (a): a walk-back hop pull on a PULL step, refused for the firing position, still
+// pauses (not the T6(c) move-step shape, whose kind check already rejects it: the current
+// step here is a pull step, so only the walkBack term of the guard (~6337) rejects it).
+static void TestRefusedWalkBackHopPullOnPullStepPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), PullStep(130, {1})};
+    Run r = Start(&plan, 1);
+    r.walkBack = true;
+    r.walkBackDirect = false;
+    r.walkBackIdx = r.walkBackStart = 0;
+    r.restDue = false;
+    Facts f = Party(130);
+    f.hopUnits = {Unit(9, 4, 30)};
+    CHECK(FirstOrder(r, f) == "pullback 9" && r.walkBack);
+    std::uint32_t const pullsBefore = r.pulls;
+    std::uint32_t const walkPullsBefore = r.walkBackPulls;
+    OrderRefused(r, "pullback 9", kFiringRefusal);
+    CHECK(r.state == State::Paused && !r.approachStandWanted);
+    CHECK(r.note == std::string("cmd pullback 9 refused: ") + kFiringRefusal);
+    CHECK(r.pulls == pullsBefore && r.walkBackPulls == walkPullsBefore);
+    CHECK(r.walkBack && r.pullGuid == 9);
+}
+
+// Round 1 (b): the step's own pull out while a walk back is on (walkBack=true, hop=false),
+// refused the same way, still pauses (only the walkBack term of the guard rejects it).
+static void TestRefusedWalkBackReplayPullPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), PullStep(130, {1})};
+    Run r = Start(&plan, 1);
+    r.restDue = false;
+    Facts f = Party(130);
+    f.units = {Unit(7, 1, 40)};
+    CHECK(FirstOrder(r, f) == "pullback 7");
+    CHECK(!r.pullHop && r.pullGuid == 7);
+    r.walkBack = true; // the walk back's replay underway (walkBack=true, hop=false)
+    r.walkBackDirect = false;
+    r.walkBackIdx = r.walkBackStart = 0;
+    OrderRefused(r, "pullback 7", kFiringRefusal);
+    CHECK(r.state == State::Paused && !r.approachStandWanted);
+    CHECK(r.note == std::string("cmd pullback 7 refused: ") + kFiringRefusal);
+    CHECK(r.pullGuid == 7 && r.pulls == 1);
+}
+
+// Round 1 (c): a pull step while the event is on (InEvent via eventOn, ~1620; EventHoldAhead
+// covers the start steps leading into a hold). Its firing-position refusal still pauses
+// (only the InEvent term rejects it).
+static void TestRefusedFiringPositionBeforeEventHoldPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {1}), Step(PlanStepKind::Move, 80), Step(PlanStepKind::Hold, 120)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.eventOn = true; // the event leading into the hold is on
+    Facts f = Party(0);
+    f.units = {Unit(7, 1, 40)};
+    CHECK(InEvent(r));
+    CHECK(FirstOrder(r, f) == "pullback 7");
+    OrderRefused(r, "pullback 7", kFiringRefusal);
+    CHECK(r.state == State::Paused && !r.approachStandWanted);
+    CHECK(r.note == std::string("cmd pullback 7 refused: ") + kFiringRefusal);
+}
+
+// Round 1 (d): the FightStep hook's own guard (~8091). A stand found out of sight
+// (approach state 2) whose pack is in sight on the next tick, with NO refusal on this
+// step: the pack is pulled from here, never walked to the stand.
+static void TestStandFoundThenSeenPullsWithoutWalking()
+{
+    DungeonPlan plan = FiringPlan(ai::kPlanFlagNoDefer); // never deferred: the pull goes out
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.approachStandStep = r.step; // the glue found a stand out of sight...
+    r.approachStand = 2;
+    r.approachStandX = 20;
+    r.approachStandY = 0;
+    r.approachStandZ = 0;
+    CHECK(r.refusedPullStandStep != r.step); // ...but no pullback was refused on this step
+    Facts f = Party(0); // the pack in sight on the next tick
+    f.units = {Unit(7, 1, 40)};
+    CHECK(FirstOrder(r, f) == "pullback 7");
+    CHECK(r.approachStand == 2 && !r.approachStandWanted);
+}
 
 // A `no_defer` pull: two refusals (before and after the stand), then the approach pause; a resume,
 // at most two more, then the pause again.
@@ -17709,6 +17792,10 @@ int main()
     TestRefusedFiringPositionAfterNoFiringStand();
     TestRefusedFiringPositionOfABossPausesAfterTheStandSearch();
     TestRefusedFiringPositionOnARetryIsGivenUp();
+    TestRefusedWalkBackHopPullOnPullStepPauses();
+    TestRefusedWalkBackReplayPullPauses();
+    TestRefusedFiringPositionBeforeEventHoldPauses();
+    TestStandFoundThenSeenPullsWithoutWalking();
     TestOtherPullbackRefusalsStillPause();
     TestRefusedFiringPositionNeverLoops();
     TestMoveRefusedTooFarGoesInLegsAlongThePath();
