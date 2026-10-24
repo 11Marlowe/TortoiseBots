@@ -650,7 +650,7 @@ class DungeonPlanSql(unittest.TestCase):
         # The seventh export (20261024151800, turtle-agent 7bf2dec) adds the chains a skipped pull leaves behind:
         # live r33s2 stood at the z 197 floor and step 730's approach to -7616 -3648 z 219.686 was refused
         # because pull group 1's pack was already gone, so its `pack cleared` moved nobody. 7 legs, 2985 steps.
-        # The eighth export (20261024152400, turtle-agent 67cd44f) splits leg-2 pull group 6 (3 elites at once wiped
+        # The eighth export (20261024152400, turtle-agent 9e28646) splits leg-2 pull group 6 (3 elites at once wiped
         # a level-31 party 3 times live, r34 step 1025) into the Bonespeaker 62774 alone (new group 6, radius 2) and
         # the Avenger + Shaman (new group 7, radius 2), with stands 15-25 yd from their units and outside every other
         # unpulled unit's aggro + 5 yd, mesh-checked and server path-checked from the previous MOVE point; the joiner
@@ -664,7 +664,7 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual({r["leg"] for r in rows}, {"0", "1", "2", "3", "4", "5", "6"})
         self.assertEqual(len(rows), 2906)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [46, 32, 18, 14, 36, 9, 34])
-        self.assertIn("('windhorn_canyon', 820, '62773,62774', '62773', '', 'turtle-agent 67cd44f dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('windhorn_canyon', 820, '62773,62774', '62773', '', 'turtle-agent 9e28646 dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["62784", "62783", "62780", "62781", "62779", "62782", "62778"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         # The last step of every leg is its boss; the boss rows' entries are the packs that stand with them
@@ -715,7 +715,7 @@ class DungeonPlanSql(unittest.TestCase):
                           ("pull group 3 approach", "-7488", "-3663.73", "215.49"), ("pull group 3 approach", "-7628", "-3570", "241"),
                           ("pull group 4 approach", "-7628", "-3570", "241"),
                           ("pull group 5 approach", "-7628", "-3570", "241"),
-                          ("pull group 6 approach", "-7490.4", "-3675.2", "219.39"), ("pull group 6 approach", "-7633.6", "-3602", "239.8"),
+                          ("pull group 6 approach", "-7490.4", "-3675.2", "219.39"), ("pull group 6 approach", "-7633.6", "-3601.9", "239.8"),
                           ("pull group 7 approach", "-7633.6", "-3644", "239.3"),
                           ("pull group 8 approach", "-7490.4", "-3675.2", "219.39"), ("pull group 8 approach", "-7600", "-3625", "220"),
                           ("pull group 9 approach", "-7274.67", "-3562.67", "281.37"), ("pull group 9 approach", "-7620", "-3585", "282.3")])
