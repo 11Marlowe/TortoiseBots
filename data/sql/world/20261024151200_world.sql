@@ -1,38 +1,24 @@
--- Stormwrought Ruins (map 818): SW-FIX2 over 20261024150100 (turtle-agent 839e703
+-- Stormwrought Ruins (map 818): SW-FIX2b re-export of 20261024150700 (turtle-agent 839e703
 -- dungeons/stormwrought_ruins.json), exported with the options of the 021000 header:
 --   turtle-agent plan-export --mmaps <map 818 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 839e703 \
---     --stamp 20261024150700 --out <dir> stormwrought_ruins
--- Stacks on 20261024150100. WORKER DATA FIX for TortoiseBots-audit/RUN-LESSONS.md r30 (see
--- ~/TortoiseBots-audit/SW-FIX2-2026-10-24.md). NO ROW IS HAND-SET: the plan file is the source.
---   * BLOCKER 1, the lake ledge (leg 5 steps 252-262): the z219-223 ledge DOES connect to the z215.8 shore floor
---     (map 818 mmaps: raycast shore->ledge clear end to end, Plan() complete with length ~= straight). The live
---     'no walkable path' came from a 1-3 yd polygon hole at the ramp rim (-6333.1 -3947.2, no floor at any height
---     100-300; neighbours 0.5-2 yd off have floor 219.2-219.4): the exporter's 25-yd-short approach point for
---     group 11 and the cut point for group 14 both landed exactly in it (old seq 37/42), and the lead's live
---     position under the ledge (z215.8, no floor below) could reach nothing. Fix: explicit approach rows along the
---     verified ramp corridor x -6332..-6328 (every point: ground floor within 0.5 yd, walk complete): group 10 gets
---     3 (down the ramp toward the pack, ending 17.0 yd from it, inside the 60 yd see), group 11 gets 4 back up the
---     ramp (ending 18.4 yd from it). No move_hop_exact: the mesh joins the floors, no direct step is needed.
---   * BLOCKER 2, the lake pulls (leg 5 steps 303-312+): the twelve z207.06 Razormaw singles (old groups 29-40) and
---     leg 6 group 20 (62660 at -6512.4 -3661.7 z207.06) stand in the lake with no ground floor (nearest ground is the
---     z249 shelf 42 yd above / the z266-275 shelf 60 yd above; the walker-filtered mesh has no poly for them, like
---     the BFD pool fix 20261024150300). All 13 are removed; the shelf route stays (live r30 walked 262->303 with no
---     pause, so the removed packs never aggroed it: 42+ yd of vertical separation).
---   * legs 6-10 sweep for the same two shapes: leg 7 loses its eight water-only/off-mesh 62655 singles (old groups
---     5,6,7,8,14,17,18,24: z192-204, floors water-only or empty); leg 8 loses its six water-only 62648 groups (old
---     groups 1-5,15: z195-200, floors water-only). The walks between the remaining groups re-cut along complete
---     navmesh paths (all cut points verified on ground mesh). Kept: leg 5 group 41 (62658/62660 on ground 218-219),
---     leg 8 groups with 62658/62660 on ground mesh (2591052/2591059/2591060), leg 9/10 all on ground mesh. Not
---     touched (pre-existing, need a live mapping walk): the leg 7-8 back-half seam (legs 8/10 'to' unreachable),
---     legs 9-10 'too far' looks, the four leg 1/2/4 detour warnings, the two off-mesh census members inside kept
---     groups (leg 7 group 1's 2590866 at -6150.5 -3896.3, leg 9 group 0's second at -5785.9 -3902.9: Nearest snaps
---     them within 1 yd, the check walks past them).
--- 11 legs, 768 steps, 780 rows (pulls 11 + 28 + 18 + 19 + 19 + 31 + 27 + 19 + 10 + 30 + 12 = 224; bosses 62547, 62548,
--- 62552, 62549, 62551, 62550, 62652, 62664, 62661, 62665, 62671, in leg order; no
--- boss.first). Plan check (turtle-agent plan-check, map 818 mmaps): 152 of 520 points fail (was 180 of 518): legs 0-5
--- clean except the four known leg 1/2/4 detour warnings; leg 5 keeps no water-pull failure; legs 6-10 keep their known
--- failures (unreachable `to`, needs_walk mapping-walk points, back-half seam, run-leader hops).
+--     --stamp 20261024151200 --out <dir> stormwrought_ruins
+-- Replaces 20261024150700, which is deleted in the same commit (never applied: not on server 2, never
+-- merged to dev/main): the 150700 file lost the exporter's DELETE FROM `ai_dungeon_step` and
+-- DELETE FROM `ai_dungeon_leg` lines in a hand edit after export (the exporter emits all three DELETEs
+-- unconditionally: internal/planexport/sql.go WriteSQL; no flag touches them; the rows were not truncated,
+-- all 768 step rows are present in 150700). Same rows: the INSERT block is byte-identical to 150700.
+-- The boss block below is the hand-maintained map-818 seed from 150700 (the exporter does not emit
+-- ai_dungeon_boss rows), unchanged.
+-- Dungeon plans for the run leader (.bot run), exported by turtle-agent (plan-export). Plan format v1; the mapping is
+-- docs/guides/dungeon-run-leader.md ("From plan v1 to rows"). The plan file in turtle-agent is the single source: edit it
+-- there and export again, never these rows by hand. The plan row carries the unit lists cc_priority, cc_always and kill_first
+-- (columns from 20261015200000_world.sql). Never edit this file once applied; export a new one.
+--
+-- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
+
 -- stormwrought_ruins: map 818, 11 legs, 768 steps
+DELETE FROM `ai_dungeon_step` WHERE `plan` = 'stormwrought_ruins';
+DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'stormwrought_ruins';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'stormwrought_ruins';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
 ('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 839e703 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');

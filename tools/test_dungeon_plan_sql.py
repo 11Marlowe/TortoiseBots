@@ -212,6 +212,29 @@ class DungeonPlanSql(unittest.TestCase):
             missing = cols - created.get(table, set())
             self.assertFalse(missing, "%s: the loader reads columns no migration creates: %s" % (table, missing))
 
+    def test_plan_reexports_delete_their_rows_before_inserting(self):
+        # 20261024150700 lost its DELETE FROM `ai_dungeon_step` / `ai_dungeon_leg` lines in a hand edit after
+        # export (the exporter emits all three DELETEs unconditionally: internal/planexport/sql.go WriteSQL),
+        # so applying it over the live 150100 rows would have failed partway on the leg/step keys. Every
+        # migration that inserts a plan's step rows must delete that plan's step and leg rows first, in the
+        # same file, before the INSERT. Targeted leg patches (DELETE ... AND `leg` = N, e.g. 20261017230000)
+        # are exempt.
+        for name, text in migrations():
+            for match in re.finditer(r"INSERT INTO `ai_dungeon_(?:step|leg)` .*?\('(\w+)',", text, re.S):
+                plan = match.group(1)
+                window = text[:match.start()][-600:]
+                if re.search(r"DELETE FROM `ai_dungeon_step` WHERE `plan` = '%s' AND `leg` = \d+;" % plan, window):
+                    continue
+                self.assertIn("DELETE FROM `ai_dungeon_step` WHERE `plan` = '%s';" % plan, text,
+                              "%s: inserts %s rows for %s without its step DELETE" % (name, match.group(0)[:40], plan))
+                self.assertIn("DELETE FROM `ai_dungeon_leg` WHERE `plan` = '%s';" % plan, text,
+                              "%s: inserts %s rows for %s without its leg DELETE" % (name, match.group(0)[:40], plan))
+                self.assertLess(text.index("DELETE FROM `ai_dungeon_step` WHERE `plan` = '%s'" % plan), match.start(),
+                                "%s: the step DELETE for %s comes after the INSERT" % (name, plan))
+                self.assertLess(text.index("DELETE FROM `ai_dungeon_leg` WHERE `plan` = '%s'" % plan), match.start(),
+                                "%s: the leg DELETE for %s comes after the INSERT" % (name, plan))
+
+
     def test_zulfarrak_keeps_its_crowd_control(self):
         # The Zul'Farrak plan row after all migrations (its newest INSERT, then the UPDATEs after it)
         # carries hand-set cc_always and kill_first (pending pjerra/turtle-agent#190); a re-export from
@@ -751,18 +774,20 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
 
     def test_stormwrought_ruins_is_the_census_fixed_draft(self):
-        # 20261024150700 (turtle-agent 839e703, 2026-10-24): SW-FIX2 over 20261024150100 (see
-        # ~/TortoiseBots-audit/SW-FIX2-2026-10-24.md and RUN-LESSONS.md r30): no row hand-set, boss rows of map 818
-        # scoped to its own eleven entries. 11 legs, 768 steps (224 pulls), bosses in leg order, no boss.first,
-        # no door or event step. Leg 5 keeps the SW-FIX1 south-shore order; the lake ledge (steps 252-262) gets
-        # explicit approach rows along the verified ramp corridor (group 10: 3 down the ramp ending 17 yd from the
-        # pack; group 11: 4 back up, ending 18.4 yd out), and the 12 water-only z207.06 Razormaw singles (old groups
-        # 29-40) are gone. Leg 6 loses its water-only 62660 single, leg 7 its eight water-only/off-mesh 62655
-        # singles, leg 8 its six water-only 62648 groups. The nine packs inside a boss's 18 yd detection are still
-        # their leg's last pull, and Remains of the Innocent 62670 (boss-grade trash) is still in leg 10 and in
-        # kill_first.
+        # 20261024151200 (turtle-agent 839e703, 2026-10-24): SW-FIX2b re-export of the 20261024150700 SW-FIX2
+        # rows (see ~/TortoiseBots-audit/SW-FIX2-2026-10-24.md and RUN-LESSONS.md r30): same content, with the
+        # exporter's DELETE shape restored (20261024150700 lost its step/leg DELETEs in a hand edit after
+        # export and is deleted in the same commit; never applied anywhere). No row hand-set, boss rows of
+        # map 818 scoped to its own eleven entries. 11 legs, 768 steps (224 pulls), bosses in leg order, no
+        # boss.first, no door or event step. Leg 5 keeps the SW-FIX1 south-shore order; the lake ledge
+        # (steps 252-262) gets explicit approach rows along the verified ramp corridor (group 10: 3 down the
+        # ramp ending 17 yd from the pack; group 11: 4 back up, ending 18.4 yd out), and the 12 water-only
+        # z207.06 Razormaw singles (old groups 29-40) are gone. Leg 6 loses its water-only 62660 single, leg 7
+        # its eight water-only/off-mesh 62655 singles, leg 8 its six water-only 62648 groups. The nine packs
+        # inside a boss's 18 yd detection are still their leg's last pull, and Remains of the Innocent 62670
+        # (boss-grade trash) is still in leg 10 and in kill_first.
         name, text = newest_plan_text("stormwrought_ruins")
-        self.assertEqual(name, "20261024150700_world.sql")
+        self.assertEqual(name, "20261024151200_world.sql")
         self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 839e703 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "stormwrought_ruins"),
                          {0: ("dagar_the_glutton", ""), 1: ("oronok_torn-heart", ""),
@@ -826,6 +851,9 @@ class DungeonPlanSql(unittest.TestCase):
             lo = pos[id(pulls5[n - 1])] if n else -1
             hi = pos[id(pull)]
             self.assertTrue(all(lo < i < hi for i in (pos[id(r)] for r in approach[c])), c)
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwrought_ruins"])
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_leg` WHERE `plan` = '(\w+)';", text), ["stormwrought_ruins"])
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_plan` WHERE `plan` = '(\w+)';", text), ["stormwrought_ruins"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (818) AND `entry` IN (62547, 62548, 62552, 62549, 62551, 62550, 62652, 62664, 62661, 62665, 62671);", text)
         self.assertIn("(818, 62671, 'Ighal''for');", text)
 
