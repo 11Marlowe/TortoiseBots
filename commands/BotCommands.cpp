@@ -10324,6 +10324,20 @@ bool RunOffMapReturn(Player* commander, std::string const& order, std::string& a
         answer = "invalid: that bot is on the plan's map";
         return false;
     }
+    // Round 1 (2026-10-24): a return teleport reaches only a bot in the open world (the policy's offMapReturnable,
+    // rechecked here right before CombatStop touches it): not in a battleground, its map no instance/dungeon /
+    // battleground (Map::Instanceable on the core's map entry), not on a transport, taxi-flying, teleporting,
+    // summoned or loading.
+    if (bot->InBattleGround() || !bot->GetMap() || bot->GetMap()->Instanceable() || bot->GetTransport())
+    {
+        answer = "unavailable: that bot is not in the open world (battleground, instance, or transport)";
+        return false;
+    }
+    if (PlayerConvenience::Instance().IsBusy(bot->GetObjectGuid()))
+    {
+        answer = "unavailable: that bot is being summoned or moved already";
+        return false;
+    }
     // Out of combat first: its pet, then itself (as DropUnattackableCombat), so nothing holds it outside.
     Pet* const pet = bot->GetPet();
     if (pet && pet->IsAlive() && pet->IsInWorld())
@@ -11639,6 +11653,12 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.name = bot->GetName();
         member.yd = yd;
         member.offPlanMap = bot->GetMapId() != slot.run.plan->map; // outside the instance (DungeonRun::PlanMapFightView)
+        // Round 1 (2026-10-24): a return teleport can reach the bot only in the open world: not in a battleground,
+        // its map no instance/dungeon/battleground (Map::Instanceable on the core's map entry), not on a transport,
+        // taxi-flying, teleporting, summoned or loading (DungeonRun::MemberFact::offMapReturnable).
+        member.offMapReturnable = !bot->InBattleGround() && bot->GetMap() && !bot->GetMap()->Instanceable() &&
+            !bot->GetTransport() && !bot->IsTaxiFlying() && !bot->IsBeingTeleported() &&
+            !PlayerConvenience::Instance().IsBusy(bot->GetObjectGuid()) && bot->IsInWorld();
         member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;
         member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);
         member.cc = KnownRunCc(bot);

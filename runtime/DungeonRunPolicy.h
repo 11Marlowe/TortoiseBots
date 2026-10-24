@@ -635,6 +635,11 @@ struct MemberFact
     // Dire Maul West r38 slot B (2026-10-24): the bot is not on the plan's map (the glue: its map id is not the
     // plan's; outside the instance). It is no part of the party's fight (PlanMapFightView). Unread: false.
     bool offPlanMap = false;
+    // Round 1 (2026-10-24): the bot is in the open world, so a return teleport can reach it (the glue: not in a
+    // battleground, its map not an instance/dungeon/battleground, not on a transport, taxi-flying, teleporting,
+    // summoned or loading). A bot outside the instance that is not returnable gets a note, never a return or a pause.
+    // Unread: true (returnable).
+    bool offMapReturnable = true;
 };
 
 // An instance door: where an area trigger into the plan's map puts a player
@@ -1502,11 +1507,11 @@ struct Run
     // every send).
     bool strandBotOnly = false;
     // The return of a bot outside the instance (OffMapReturnTick, Dire Maul West r38 slot B): the run clock (runMs)
-    // of each bot's last return, and the returns sent at the step offMapReturnStep (kOffMapReturnTries a step; Resume
-    // starts them over).
+    // of each bot's last return, and each bot's returns at the step offMapReturnStep (kOffMapReturnTries a step and
+    // bot; the pause names the bot that needed a fourth return; Resume starts every bot's count over).
     std::unordered_map<std::string, std::uint64_t> offMapReturnAt;
     std::size_t offMapReturnStep = static_cast<std::size_t>(-1);
-    std::uint32_t offMapReturnTries = 0;
+    std::unordered_map<std::string, std::uint32_t> offMapReturnTries;
     // The walk-back point last sent, from where, and how often (kWalkBackResends).
     std::size_t resendIdx = static_cast<std::size_t>(-1);
     float resendX = 0.0f, resendY = 0.0f, resendZ = 0.0f;
@@ -3609,7 +3614,7 @@ inline bool Resume(Run& r)
     r.otherPartPaused = false;
     r.fighting = false;
     r.autoRegroups = 0;
-    r.offMapReturnTries = 0;
+    r.offMapReturnTries.clear();
     ResetStep(r);
     // A step that is never skipped starts its refusals over: the next one may
     // search a stand-in from the lead bot's new spot and hop it off an island.
@@ -4454,7 +4459,7 @@ inline void StrandFailed(Run& r, const std::string& why)
 inline bool PullbackRefusedUnreachable(Run& r, const std::string& order, const std::string& answer);
 
 constexpr std::uint64_t kOffMapReturnRepeatMs = 30000; // one bot's returns at least this far apart
-constexpr std::uint32_t kOffMapReturnTries = 3;        // returns a step (all bots), then the pause
+constexpr std::uint32_t kOffMapReturnTries = 3;        // returns a step per bot, then the pause naming it
 
 inline bool OffMapReturnTick(Run& r, const Facts& f, std::string& order);
 
@@ -11239,26 +11244,36 @@ inline bool OffMapReturnTick(Run& r, const Facts& f, std::string& order)
     if (r.offMapReturnStep != r.step)
     {
         r.offMapReturnStep = r.step;
-        r.offMapReturnTries = 0;
+        r.offMapReturnTries.clear();
     }
     for (const MemberFact& m : f.members)
     {
         if (m.name.empty() || !m.offPlanMap || m.name == f.carrier || r.reviveSummons.count(m.name))
             continue;
+        if (!m.offMapReturnable)
+        {
+            r.note += (r.note.empty() ? "" : "; ") + m.name +
+                " is outside the instance but cannot be returned (not in the open world): left alone";
+            continue;
+        }
         auto const last = r.offMapReturnAt.find(m.name);
         if (last != r.offMapReturnAt.end() && r.runMs < last->second + kOffMapReturnRepeatMs)
             continue;
-        if (r.offMapReturnTries >= kOffMapReturnTries)
+        std::uint32_t tries = 0;
+        auto const counted = r.offMapReturnTries.find(m.name);
+        if (counted != r.offMapReturnTries.end())
+            tries = counted->second;
+        if (tries >= kOffMapReturnTries)
         {
             Pause(r, m.name + " is outside the instance (not on map " + std::to_string(r.plan->map) + ") after " +
                 std::to_string(kOffMapReturnTries) + " returns at this step: bring it to the lead bot, then .bot run resume");
             return true;
         }
-        ++r.offMapReturnTries;
+        r.offMapReturnTries[m.name] = tries + 1;
         r.offMapReturnAt[m.name] = r.runMs;
         order = "return " + m.name + " " + std::to_string(r.plan->map);
         r.note += (r.note.empty() ? "" : "; ") + m.name + " is outside the instance: teleported back to the lead bot " +
-            "(try " + std::to_string(r.offMapReturnTries) + " of " + std::to_string(kOffMapReturnTries) + " at this step)";
+            "(try " + std::to_string(tries + 1) + " of " + std::to_string(kOffMapReturnTries) + " at this step)";
         return true;
     }
     return false;
