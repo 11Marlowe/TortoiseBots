@@ -474,6 +474,23 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
     def test_sunken_temple_boss_order_puts_jammalan_before_the_drakes(self):
+        # 20261025000300 (turtle-agent ad23bbb, 2026-10-25): 20261024151900 again, with the r38 slotD polish
+        # (RUN-LESSONS.md r38 sunken_temple slotD, PLAN DONE 2472/2472). (1) The island approach: the pause at
+        # step 236 ('three moves in a row had no walkable path', lead -448.0 103.2 -191.0) came from the cut
+        # row -448.0 103.2 -187.83, which is 3.2 yd above the pool floor the bot stands on (server path query
+        # from the lead's real z: NOPATH), so leg 0 group 9 now carries four approach moves up the east ramp
+        # (-448 96 -188.9, -440 96 -184.6, -432 96.5 -179.6, -424 99 -174.8), every hop server path-checked
+        # from -455.0 95.8 -191.0 (type 0x1 ok). (2) The deferred 5714 pack (r38 step 2194, -467.2 26.3 -67.0,
+        # 'never within reach: skipped, not cleared'): its platform is reached only by the ramp from the
+        # -53.9 hall (-512 26.4 -53.83, -490.67 21.33 -61.83, -484.53 18.13 -64.93, the stand 19.3 yd from the
+        # pack), so the group moves after the hall group (-481 1.4 -53.9) and gains those three approach moves.
+        # (3) The wasted-time round trip (r38 steps 1981-2103: the spiral down to the z -148.7 statue ring for
+        # old pull groups 9-13 and back up, 1774 yd of rows for 191 yd of ring): those five packs (8311/8384 at
+        # -546.35 151.0, -555.54 131.46, -564.03 105.16, -533.0 115.37, -522.8 92.9) move into the atal'alarion
+        # leg after its last statue-ring group (-508.5 183.0), 49.6 yd from it and 7.6 yd from the first statue
+        # stand; dreamscythe walks group 8 -> group 9 (-555.5 270.6 -90.8 -> -542.9 94.3 -90.9) on the ring in
+        # 190.6 yd. Pull rows keep their units and radii (they move nobody); every reordered hop is server
+        # path-checked. 20261024151900's own story keeps its pins below.
         # 20261024151900 (turtle-agent a76e004, 2026-10-24): 20261024151400 again, with the Jammal'an-leg
         # corridor split (RUN-LESSONS.md r33s2 slotS steps 901-903, z -90.8): old pull groups 1 (-446.6 -53.7,
         # 5263+5271) and 2 (-462.9 -76.9, 5271+5273+5263) chained (3 wipes; joiners 5263, 5273 and 8317, the
@@ -500,14 +517,14 @@ class DungeonPlanSql(unittest.TestCase):
         # boss rows are unchanged. 6 legs, 2472 steps (11 + 37 + 25 + 2 + 1 pulls), boss order 5710, 5720, 5721,
         # 5719, 5709; 6 open_proof rows and 1 hold row in leg 0.
         name, text = newest_plan_text("sunken_temple")
-        self.assertEqual(name, "20261024151900_world.sql")
-        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent a76e004 dungeons/sunken_temple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025000300_world.sql")
+        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent ad23bbb dungeons/sunken_temple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(re.findall(r"(?m)^\('sunken_temple', \d+, '(?:[^']|'')*', '(?:[^']|'')*'\)[,;]$", text)), 6)
         self.assertEqual([n.replace("''", "'") for n in re.findall(r"(?m)^\('sunken_temple', \d+, '((?:[^']|'')*)', '(?:[^']|'')*'\)[,;]$", text)],
                          ["atal'alarion", "jammal'an_the_prophet", "weaver", "dreamscythe", "morphaz", "shade_of_eranikus"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "sunken_temple"]
-        self.assertEqual(len(rows), 2472)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [16, 11, 37, 25, 2, 1])
+        self.assertEqual(len(rows), 2349)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [21, 11, 37, 20, 2, 1])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["5710", "5720", "5721", "5719", "5709"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss", "open_proof", "hold"})
         self.assertEqual(leg_steps(rows, 0)[-1]["kind"], "hold")
@@ -579,14 +596,72 @@ class DungeonPlanSql(unittest.TestCase):
         # approach points and the pull, and the statue walks put open_proof rows between, so find the last approach
         # move scanning back over those kinds).
         approaches = [r for r in rows if r["kind"] == "move" and r["comment"].startswith("pull group ") and r["comment"].endswith(" approach")]
-        self.assertEqual(len(approaches), 59)
-        self.assertEqual(len({(r["leg"], r["comment"].split()[2]) for r in approaches}), 32)
+        self.assertEqual(len(approaches), 66)
+        self.assertEqual(len({(r["leg"], r["comment"].split()[2]) for r in approaches}), 34)
         # The server-path waypoints: one inserted approach move on each of the two long dreamscythe hops.
         leg3 = leg_steps(rows, 3)
         self.assertIn(("move", "-354.13", "160.27", "-109.03", "pull group 2 approach"),
                       [(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg3])
         self.assertIn(("move", "-361.33", "28.27", "-106.43", "pull group 3 approach"),
                       [(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg3])
+        # 20261025000300's three fixes. (1) The island approach: group 9's four approach rows climb the east
+        # ramp from the pool (-448 96 -188.9, -432 96.5 -179.6, -424 99 -174.8) and end at a ring stand 20 yd
+        # from its pull row; the old cut row (-448 103.2 -187.83, 3.2 yd above the pool floor) is gone.
+        g9approach = [(r["x"], r["y"], r["z"]) for r in leg0
+                      if r["kind"] == "move" and r["comment"] == "pull group 9 approach"]
+        self.assertEqual(g9approach,
+                         [("-448", "96", "-188.9"), ("-432", "96.5", "-179.6"),
+                          ("-424", "99", "-174.8"), ("-499", "136", "-172.8")])
+        pg9 = [r for r in leg0 if r["kind"] == "pull" and r["comment"] == "pull group 9"][0]
+        stand9 = math.dist((float(g9approach[-1][0]), float(g9approach[-1][1]), float(g9approach[-1][2])),
+                           (float(pg9["x"]), float(pg9["y"]), float(pg9["z"])))
+        self.assertGreaterEqual(stand9, 15.0)
+        self.assertLessEqual(stand9, 25.0)
+        self.assertNotIn(("move", "-448.0", "103.2", "-187.83", "approach path"),
+                         [(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg0])
+        # The four ramp/ring rows come before the pull, and the ramp rows rise toward the ring (z from -188.9 to -174.8).
+        idx = [i for i, r in enumerate(leg0) if r["kind"] == "move" and r["comment"] == "pull group 9 approach"]
+        self.assertLess(idx[-1], leg0.index(pg9))
+        zs = [float(leg0[i]["z"]) for i in idx[:3]]
+        self.assertEqual(zs, sorted(zs))
+        # (3) The statue-ring packs now sit in leg 0 after its last statue-ring group (group 15, -508.5 183):
+        # four 8311/8384 pulls at the west arc, in the census order, with their radii.
+        leg0pulls = [r for r in leg0 if r["kind"] == "pull"]
+        self.assertEqual([(r["entries"], r["radius"]) for r in leg0pulls[16:]],
+                         [("8311", "10"), ("8311", "10"), ("8384,8311", "16.1"),
+                          ("8311", "10"), ("8311,8384", "17.6")])
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg0pulls[16:]],
+                         [("-546.35", "151", "-147.53"), ("-555.54", "131.46", "-148.8"),
+                          ("-564.03", "105.16", "-148.54"), ("-533.01", "115.37", "-148.8"),
+                          ("-522.8", "92.88", "-148.74")])
+        # The five moved pulls come after the statue-ring group and before the six statue rows.
+        self.assertLess(leg0.index(leg0pulls[16]), leg0.index(proofs[0]))
+        # Dreamscythe keeps no pull on the statue ring until its group 18 (the old group 23): the round trip to
+        # the bottom floor for groups 9-13 is gone, so group 8 (z -90.8) -> group 9 (z -90.9) walks the ring in
+        # at most 8 rows, and no leg-3 pull before group 18 stands below z -145.
+        leg3pulls = [r for r in leg3 if r["kind"] == "pull"]
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg3pulls[8:10]],
+                         [("-555.54", "270.64", "-90.83"), ("-542.93", "94.31", "-90.87")])
+        between = leg3[leg3.index(leg3pulls[8]) + 1:leg3.index(leg3pulls[9])]
+        self.assertLessEqual(len(between), 8)
+        for r in leg3pulls[:18]:
+            self.assertGreater(float(r["z"]), -145.0, r["comment"])
+        # (2) The 5714 platform pull moves after the hall group (-481 1.4 -53.9) and gains the ramp approach:
+        # three rows, the last 19.3 yd from the pack.
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg3
+                          if r["kind"] == "move" and r["comment"] == "pull group 17 approach"],
+                         [("-512", "26.4", "-53.83"), ("-490.67", "21.33", "-61.83"),
+                          ("-484.53", "18.13", "-64.93")])
+        p5714 = [r for r in leg3 if r["kind"] == "pull" and r["entries"] == "5714"][0]
+        self.assertEqual(p5714["comment"], "pull group 17")
+        self.assertEqual(leg3pulls[16]["entries"], "5259,5270,8318")
+        self.assertEqual(leg3pulls[17]["entries"], "5714")
+        ramp = [(float(r["x"]), float(r["y"]), float(r["z"])) for r in leg3
+                if r["kind"] == "move" and r["comment"] == "pull group 17 approach"]
+        d5714 = math.dist(ramp[-1], (float(p5714["x"]), float(p5714["y"]), float(p5714["z"])))
+        self.assertGreaterEqual(d5714, 15.0)
+        self.assertLessEqual(d5714, 25.0)
+        self.assertLessEqual(abs(ramp[-1][2] - float(p5714["z"])), 2.5)
         # The corridor split: leg 1 holds 11 pulls (group 6 first, fought on arrival with no approach row, then
         # the 5271 pair, the 5263 single, the three group-2 splits, groups 3/4/5 with new stands, group 7).
         # 8317 is the spirit a dying 5271 summons (no census pack, so no pull carries it: every pull's entries
