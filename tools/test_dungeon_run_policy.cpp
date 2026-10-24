@@ -16772,7 +16772,8 @@ static void TestSkipUnreachableBossPassedBySpotEndsNotCleared()
     CHECK(a.state == State::Running);
     CHECK(a.step == 1);
     CHECK(a.notCleared.count(0));
-    CHECK(a.note.find(": skipped, not cleared (the plan marks him out of reach)") != std::string::npos);
+    CHECK(a.note.size() >= 56 && a.note.compare(a.note.size() - 56, 56,
+        ": skipped, not cleared (the plan marks him out of reach)") == 0);
     CHECK(a.note.find("and 3 pulls drew no fight with him") != std::string::npos);
 }
 
