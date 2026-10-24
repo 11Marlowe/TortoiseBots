@@ -36,9 +36,10 @@
 --     went down 68 yd and back up for no pack (it routed the old z239 group), adding ~600 yd to the leg.
 --
 -- THE LEG-3 STAND: pull group 0's approach row -7617.3 -3650.0 z282.9 is the live firing stand the r36 tank could
--- not reach (the refusal point above). It is 21.4 yd from the `to` -7626.34 -3669.44 z239.786 (server type 0x1,
--- 0x1) and 21.5 yd from 62772's -7631.99 -3669.62 z282.556, so the run leader walks there with one `cmd move` and
--- pulls from the stand; the old plan had no row and the run leader's own approach took the 1177 yd route around.
+-- not reach (the refusal point above). It is 48.1 yd from the `to` -7626.34 -3669.44 z239.786 (server type 0x1,
+-- end 0.0 yd short) and 24.5 yd from 62772's -7631.99 -3669.62 z282.556 (the live stand was 24.5 yd from the unit),
+-- so the run leader walks there with one `cmd move` (48.1 yd, under the 150 yd ReactDistance) and pulls from the
+-- stand; the old plan had no row and the run leader's own approach took the 1177 yd route around.
 --
 -- EXPORTER: plan-export now puts every cut via point on the nearest walkable floor within 6.5 yd (turtle-agent
 -- a90d3c6). The long z242 corridor corner -7635.5576 -3477.8813 z242.086 lies 5.1 yd off the server mesh (the
