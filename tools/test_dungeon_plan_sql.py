@@ -1276,24 +1276,29 @@ class DungeonPlanSql(unittest.TestCase):
         # entries 11483): the hold fights a remnant the pull left and ends only when the crystal reads active, so a missed
         # guardian pauses at the crystal and not at Immol'thar (r36 step 465 sat 300 s on the boss, unattackable). The 18
         # Residual Monstrosities 11484 are not pulled (they guard nothing; all 18 share one 705 yd ring path, so no stand is
-        # off it; r36 steps 421/425 wiped 5 times). 6 legs, 571 steps (36 + 2 + 18 + 13 + 5 + 4 pulls, plus 5 holds), bosses in
+        # off it; r36 steps 421/425 wiped 5 times). 20261024154700 (turtle-agent 56de96ff, r38 slotB step 29): the z 28.6
+        # upper-west room (old groups 13-16, 13 units, packs 3.5-5.6 yd apart and no walkable link from the lower hall) is
+        # left out; the two 11473 patrols of the old groups 17/18 and leg 2's groups 6/5/4/0 packs of the lower hall are
+        # four leg-0 pulls (groups 13-16 = W1-W4, 5+4+4+5 units) with stands 25.9-30.3 yd off the pack centres, so the
+        # fight r38 wiped on is split and every pull has its own rest gate; steps 27/28 move onto the lower floor (the old
+        # points were 32 yd above it). 6 legs, 563 steps (34 + 2 + 18 + 13 + 5 + 4 pulls, plus 5 holds), bosses in
         # leg order. The plan row's kill_first is the two healers/regrowthers (14303, 11473), the Polymorphing Sorcerer
         # (11470) and the summoner (11484); cc_priority and cc_always stay empty. The 29 Shen'dralar Wisps (14361), the 16
         # neutral Highborne Summoners (11466) and the 18 Monstrosities are out of every pull, and so are the courtyard's Gordok
         # mobs; Revanchion 14690 has a leg of his own; Ferra 14308 is Illyanna's boss.first; Tsu'zee 11467 (rare) is a member of
         # the Kalendris hall's pull; every pull is at most 6 units and every radius <= 19 yd.
         name, text = newest_plan_text("dire_maul_west")
-        self.assertEqual(name, "20261024153600_world.sql")
-        self.assertIn("('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 940fc091 dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024154700_world.sql")
+        self.assertIn("('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 56de96ff dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');", text)
         legs = leg_rows(text, "dire_maul_west")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["tendris_warpwood", "revanchion", "illyanna_ravenoak", "magister_kalendris", "immol'thar",
                           "prince_tortheldrin"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "dire_maul_west"]
-        self.assertEqual(len(rows), 571)
-        self.assertEqual([len(leg_steps(rows, leg)) for leg in range(6)], [141, 22, 162, 93, 71, 82])
+        self.assertEqual(len(rows), 563)
+        self.assertEqual([len(leg_steps(rows, leg)) for leg in range(6)], [133, 22, 162, 93, 71, 82])
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)],
-                         [36, 2, 18, 13, 5, 4])
+                         [34, 2, 18, 13, 5, 4])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["11489", "14690", "11488", "11487", "11496", "11486"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss", "hold"})
         for leg in range(6):
@@ -1304,12 +1309,34 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["leg"], r["seq"], r["entry"], float(r["x"]), float(r["y"]), float(r["z"]), r["param"], r["flags"],
                            r["timeout_s"], float(r["radius"]), r["entries"]) for r in holds],
                          [("0", "13", "177259", 32.0, 300.0, -7.5, "1", "16", "120", 40.0, "11483"),
-                          ("0", "99", "177257", 130.6, 454.9, 29.2, "1", "16", "120", 40.0, "11483"),
+                          ("0", "91", "177257", 130.6, 454.9, 29.2, "1", "16", "120", 40.0, "11483"),
                           ("2", "70", "177258", -102.7, 426.9, 29.2, "1", "16", "120", 40.0, "11483"),
                           ("4", "35", "179505", -111.3, 731.7, -24.0, "1", "16", "120", 40.0, "11483"),
                           ("4", "45", "179504", 51.6, 855.5, -23.4, "1", "16", "120", 40.0, "11483")])
         for r in holds:
             self.assertIn("is active", r["comment"])
+        # The r38 step-29 fight split into four pulls (leg 0 groups 13-16) with their stands, and 11442 out of every list.
+        l0 = leg_steps(rows, 0)
+        self.assertEqual([(r["entries"], float(r["radius"]), r["comment"]) for r in l0 if r["kind"] == "pull" and r["comment"] in
+                          ("pull group 13", "pull group 14", "pull group 15", "pull group 16")],
+                         [("11475,11472,11471,11473", 23.0, "pull group 13"),
+                          ("11471,11472,11475,11473", 19.0, "pull group 14"),
+                          ("11472,11471,11475", 18.0, "pull group 15"),
+                          ("11469,11470,11476,14398", 6.0, "pull group 16")])
+        self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in l0 if r["comment"] in
+                          ("pull group 13 approach", "pull group 14 approach", "pull group 15 approach", "pull group 16 approach")],
+                         [("-50", "455", "-3", "pull group 13 approach"),
+                          ("-50", "470", "-3", "pull group 13 approach"),
+                          ("-65", "480", "-3.8", "pull group 13 approach"),
+                          ("-114", "520", "-3.8", "pull group 14 approach"),
+                          ("-56", "524", "-3.3", "pull group 15 approach"),
+                          ("-48", "490", "-3", "pull group 16 approach")])
+        # Steps 27/28 (leg 0 seq 26/27) are the lower-floor walk points the old z 28.68 cut points became.
+        self.assertEqual((l0[26]["kind"], float(l0[26]["x"]), float(l0[26]["y"]), float(l0[26]["z"])),
+                         ("move", -74.66678, 370.3999, -3.4181242))
+        self.assertEqual((l0[27]["kind"], float(l0[27]["x"]), float(l0[27]["y"]), float(l0[27]["z"])),
+                         ("move", -55.733448, 370.3999, -3.4181242))
+        self.assertFalse([r for r in rows if r["kind"] == "pull" and "11442" in r["entries"].split(",")])
         # The five crystal pulls: four 11483 at radius 18 (the 20 remnants in five groups), each before its own hold.
         crystal_pulls = [r for r in rows if r["kind"] == "pull" and r["entries"] == "11483"]
         self.assertEqual([(r["leg"], float(r["x"]), float(r["y"]), float(r["radius"])) for r in crystal_pulls],
@@ -1321,10 +1348,11 @@ class DungeonPlanSql(unittest.TestCase):
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertFalse([r["entries"] for r in pulls
                           if {"14361", "11466", "14308", "13036", "14690", "11484"} & set(r["entries"].split(","))])
-        # The row lists each entry once (3 Skeletal + 3 Rotting Highborne is "11477,11476"), so the densest planned pack is pinned by its row.
-        self.assertEqual([(r["entries"], float(r["radius"])) for r in pulls if r["entries"] == "11477,11476"],
-                         [("11477,11476", 8.5)])
-        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 19.0)
+        # The row lists each entry once, so the densest planned pack is pinned by its row: W1 carries the two 11473 spawns
+        # and leg 2's group-6 pack (5 units, radius 23: the farthest unit is 22.78 yd from the row centre).
+        self.assertEqual([(r["entries"], float(r["radius"])) for r in pulls if r["entries"] == "11475,11472,11471,11473"],
+                         [("11475,11472,11471,11473", 23.0)])
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 23.0)
         # Tsu'zee 11467 is the rare of the Kalendris hall: a member of the pull nearest him (leg 3, pull group 6, radius 8.6).
         self.assertEqual([(r["entries"], float(r["radius"])) for r in pulls if "11467" in r["entries"].split(",")],
                          [("11467,11471", 8.6)])
