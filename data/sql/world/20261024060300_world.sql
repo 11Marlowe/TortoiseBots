@@ -8,7 +8,7 @@
 -- ramp seam has no navmesh link: ramp_foot -> ramp1 partial (nearest -8319.2 -3441.3 z174.7, 9.6 yd off),
 -- ramp_foot -> boss partial (nearest -8302.1 -3443.7 z173.1, 21.8 yd off). So option (b): a move_direct pair
 -- (launch + land, the plan form of WC's serpentis hop and Uldaman's sentinel descent) over the 1.5 yd seam.
---   turtle-agent plan-export --mmaps <map 808 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 35cc201ba3674f89c5940ef99539774e32c0c667 \
+--   turtle-agent plan-export --mmaps <map 808 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 665ba80cb3dd3f6eb7ce546593de28abcde905da \
 --     --stamp 20261024060300 --out <dir> hateforge_quarry
 -- 6 legs, 467 steps (158 pulls: 54 + 0 + 29 + 5 + 63 + 7; 304 moves incl. 2 move_hop_exact, the 5 bosses), 474 rows.
 -- Plan check (turtle-agent plan-check, the agent's mmaps): 1 of 353 points fails and 2 hops are exempted
@@ -34,7 +34,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'hateforge_quarry';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'hateforge_quarry';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'hateforge_quarry';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('hateforge_quarry', 808, '60717,60720,60719,60725', '', '60718,60726,60723,60712,60738', 'turtle-agent 35cc201ba3674f89c5940ef99539774e32c0c667 dungeons/h', 'plan v1, draft (not mapped, not live-checked)');
+('hateforge_quarry', 808, '60717,60720,60719,60725', '', '60718,60726,60723,60712,60738', 'turtle-agent 665ba80cb3dd3f6eb7ce546593de28abcde905da dungeons/h', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('hateforge_quarry', 0, 'high_foreman_bargul_blackhammer', ''),
 ('hateforge_quarry', 1, 'bargul_terrace', ''),
