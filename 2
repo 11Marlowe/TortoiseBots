@@ -1,0 +1,1321 @@
+=== 1. Verifying Open Knowledge Format (OKF) Docs ===
+OKF verification PASSED (56 nodes validated, graph edges consistent).
+manual value types OK
+✓ OKF docs verified.
+
+=== 2. Verifying Tortoise Core Module Surface ===
+Tortoise 1.18.1 Core module surface: OK
+✓ Module surface verified.
+Eluna guard check passed
+
+=== 3. Verifying Action & Trigger Wiring ===
+queued=1801 creators=2738 live-missing=0 dead-tree=72 known=2 skipped=2 node-broken=0
+known action "stay line": unreachable continuer
+known trigger "possible ads": strategy never added
+skip action "greater" (1 refs)
+skip trigger "greater" (1 refs)
+✓ Action and trigger wiring verified (0 missing live creators).
+
+=== 4. Running Engine Unit Tests (AoE Density, Walk Gating & Disabled World Updates) ===
+PASS: three candidate paths and pre-attack dispatch; fresh/foreign rejected, group/pet defense and orders allowed; world/solo unchanged
+SKIPPED: core-side repop door checks (set TORTOISE_CORE=<core checkout>; the VM build gate runs them)
+{
+  "run": "r1",
+  "verdict": "fail",
+  "complete": true,
+  "oracles": [
+    {
+      "id": "action_loop",
+      "name": "action failure loop",
+      "verdict": "fail",
+      "count": 1,
+      "first_ms": 4000,
+      "detail": "1 loop(s); live detector flagged 0",
+      "examples": [
+        "Mage stay FAILED x9+ at 4.0s"
+      ]
+    },
+    {
+      "id": "threat_off_tank",
+      "name": "threat off the tank",
+      "verdict": "pass",
+      "count": 0,
+      "first_ms": null,
+      "detail": "no hostile stayed on a non-tank for 3 s"
+    },
+    {
+      "id": "idle_caster",
+      "name": "idle caster in combat",
+      "verdict": "pass",
+      "count": 0,
+      "first_ms": null,
+      "detail": "no caster stood idle for 4 s in combat"
+    },
+    {
+      "id": "deaths",
+      "name": "party deaths",
+      "verdict": "na",
+      "count": 0,
+      "first_ms": null,
+      "detail": "no frames"
+    },
+    {
+      "id": "oom_healer",
+      "name": "healer out of mana",
+      "verdict": "pass",
+      "count": 0,
+      "first_ms": null,
+      "detail": "no healer below 5% mana in combat"
+    },
+    {
+      "id": "rest_failure",
+      "name": "rest / drink failures",
+      "verdict": "pass",
+      "count": 0,
+      "first_ms": null,
+      "detail": "eating, drinking and resting worked"
+    },
+    {
+      "id": "facing",
+      "name": "facing the target",
+      "verdict": "pass",
+      "count": 0,
+      "first_ms": null,
+      "detail": "no bot fought or cast for 2 s facing more than 90 deg off its target"
+    },
+    {
+      "id": "self_interrupt",
+      "name": "cast interrupted by own movement",
+      "verdict": "pass",
+      "count": 0,
+      "first_ms": null,
+      "detail": "0 cast(s) interrupted, none repeatedly while moving"
+    },
+    {
+      "id": "stuck",
+      "name": "stuck or oscillating",
+      "verdict": "pass",
+      "count": 0,
+      "first_ms": null,
+      "detail": "no bot was stuck or oscillating"
+    },
+    {
+      "id": "in_fire",
+      "name": "standing in a ground effect",
+      "verdict": "pass",
+      "count": 0,
+      "first_ms": null,
+      "detail": "no bot stood in a harmful ground effect for 1.5 s"
+    }
+  ]
+}
+r1  (complete, 0 frames, 9 actions, 0 events)
+  action_loop      FAIL  1 loop(s); live detector flagged 0
+      - Mage stay FAILED x9+ at 4.0s
+  threat_off_tank  PASS  no hostile stayed on a non-tank for 3 s
+  idle_caster      PASS  no caster stood idle for 4 s in combat
+  deaths           NA    no frames
+  oom_healer       PASS  no healer below 5% mana in combat
+  rest_failure     PASS  eating, drinking and resting worked
+  facing           PASS  no bot fought or cast for 2 s facing more than 90 deg off its target
+  self_interrupt   PASS  0 cast(s) interrupted, none repeatedly while moving
+  stuck            PASS  no bot was stuck or oscillating
+  in_fire          PASS  no bot stood in a harmful ground effect for 1.5 s
+  verdict: FAIL
+r1  (complete, 0 frames, 9 actions, 0 events)
+  action_loop      PASS  no action failed more than 20 times in 10 s
+  threat_off_tank  PASS  no hostile stayed on a non-tank for 3 s
+  idle_caster      PASS  no caster stood idle for 4 s in combat
+  deaths           NA    no frames
+  oom_healer       PASS  no healer below 5% mana in combat
+  rest_failure     PASS  eating, drinking and resting worked
+  facing           PASS  no bot fought or cast for 2 s facing more than 90 deg off its target
+  self_interrupt   PASS  0 cast(s) interrupted, none repeatedly while moving
+  stuck            PASS  no bot was stuck or oscillating
+  in_fire          PASS  no bot stood in a harmful ground effect for 1.5 s
+  verdict: PASS
+r1  (complete, 0 frames, 9 actions, 0 events)
+  action_loop      FAIL  1 loop(s); live detector flagged 0
+      - Mage stay FAILED x9+ at 4.0s
+  threat_off_tank  PASS  no hostile stayed on a non-tank for 3 s
+  idle_caster      PASS  no caster stood idle for 4 s in combat
+  deaths           NA    no frames
+  oom_healer       PASS  no healer below 5% mana in combat
+  rest_failure     PASS  eating, drinking and resting worked
+  facing           PASS  no bot fought or cast for 2 s facing more than 90 deg off its target
+  self_interrupt   PASS  0 cast(s) interrupted, none repeatedly while moving
+  stuck            PASS  no bot was stuck or oscillating
+  in_fire          PASS  no bot stood in a harmful ground effect for 1.5 s
+  verdict: FAIL
+✓ Engine unit tests passed.
+
+=== 5. Running Standalone Policy Tests ===
+test_action_log_policy: all checks passed
+adaptive budget: all 352 checks passed
+ah-buyer policy: OK
+test_alt_bot_policy: OK
+ah-seller-teleport policy: OK
+ammo cache policy: 35 checks passed
+Starting TortoiseBots ammo cheat vendor policy tests...
+  [PASS] ammo restock suppressed only with the item cheat, EQUIP preserved
+All ammo cheat vendor policy checks PASSED!
+ammo stack policy: 29 checks passed
+Starting TortoiseBots Anub'Rekhan-swarm policy tests...
+  [PASS] swarm detection is the boss self-buff
+All Anub'Rekhan-swarm policy tests passed.
+Starting TortoiseBots AoE fear policy tests...
+All AoE fear policy checks PASSED!
+Starting TortoiseBots aoe-off policy tests...
+  [PASS] area spells are vetoed
+  [PASS] single-target and heals are not vetoed
+All aoe-off policy tests passed.
+arcane rupture policy: 17 checks passed
+test_attack_order_policy: 7 checks passed
+test_totem_spell_policy: ok
+Starting TortoiseBots auto-tools kit policy tests...
+  [PASS] lockpick curve pinned
+  [PASS] rogue skill/tool gates
+  [PASS] hourglass sand ensure
+  [PASS] quintessence ensure
+All auto-tools kit policy tests passed (33 checks).
+Starting TortoiseBots autonomous BG policy tests...
+  [PASS] one WSG instance of 10v10 is the cap
+  [PASS] seeds when idle
+  [PASS] stays off unless enabled
+  [PASS] yields to human demand
+  [PASS] one full match blocks another
+  [PASS] top-up continues while a team needs bots
+  [PASS] max-instances knob clamps to 2
+  [PASS] lopsided brackets never seed
+  [PASS] team fill stops at 10
+All autonomous BG policy tests passed.
+Starting TortoiseBots avoid-aoe policy tests...
+  [PASS] radius cap gates all three sensor cases
+  [PASS] melee strafe-first order
+  [PASS] ranged strafe-first order
+  [PASS] stay-in-range band tests
+  [PASS] whirlwind-type trigger marks a spin hazard
+  [PASS] escape step caps at flee distance
+All avoid-aoe policy tests passed.
+Starting TortoiseBots battle-shout policy tests...
+  [PASS] AP tables cover every rank
+  [PASS] talent multiplier credited
+  [PASS] no might means shout
+  [PASS] equal-or-stronger might suppresses
+  [PASS] stronger shout still fires
+  [PASS] unknown aura never suppresses
+All battle-shout policy tests passed.
+test_blessing_coverage_policy: 21 checks passed
+Starting TortoiseBots bg force-reset gate tests...
+  [PASS] cooldown and anchor key are fixed
+  [PASS] inert outside battlegrounds
+  [PASS] never mid-fight
+  [PASS] first reset fires
+  [PASS] cooldown holds repeat resets
+  [PASS] cooldown release re-arms
+All TortoiseBots bg force-reset gate tests passed.
+Starting TortoiseBots bomb runout policy tests...
+  [PASS] centre is the raid centroid, nearest member found
+  [PASS] runs away from the raid centre
+  [PASS] one move gets the carrier clear, then it stops
+  [PASS] off-axis members are cleared too
+  [PASS] a clear carrier does not move
+All bomb runout policy tests passed.
+Starting TortoiseBots boss tactics policy tests...
+All boss tactics policy tests passed.
+test_bot_area_trigger_policy: 142 checks passed
+test_bot_guid_key_policy ok
+test_bot_appearance_policy ok
+test_bot_kind_policy ok
+test_bot_names_policy: OK
+  overload: combat mean 208 ms max 350, dead max 1600, normal mean 1765 ms max 1850
+test_bot_turn_scheduler: 331 checks passed
+Starting TortoiseBots bwl-bundle1 policy tests...
+  [PASS] ids and 18y range pinned
+  [PASS] broodlord moves ranged non-victims only
+  [PASS] off-tank flank rule
+  [PASS] nefarian wild magic ice block rule
+All bwl-bundle1 policy tests passed.
+Starting caster mana-loop policy tests...
+  [PASS] gem ranks recognised, rune/potion rejected
+  [PASS] ready gem preferred, spent gem falls to rune
+  [PASS] potion arms below 65%
+  [PASS] evocation arms below 40%
+All caster mana-loop policy checks PASSED!
+Starting cast-keeps-running policy tests...
+  [PASS] follow stands down while casting
+  [PASS] loot chain stands down while casting
+  [PASS] both resume when the cast ends
+All cast-keeps-running policy checks PASSED (6 assertions)!
+Starting cast-while-moving policy tests...
+  [PASS] #1062 follow/loot guards unchanged
+  [PASS] cast-time cast waits for standstill
+  [PASS] non-escape moves stand down mid-cast
+All cast-while-moving policy checks PASSED (13 assertions)!
+claimed bot policy: all checks passed
+class consumable policy: 46 checks passed
+Starting TortoiseBots combat-spread policy tests...
+  [PASS] heading distance wraps at a full turn
+  [PASS] successful kiting repeatedly uses the same heading
+  [PASS] only observed failures veto, then expire at 5 s
+  [PASS] repeated dispatches do not hide failure; success redeems it
+  [PASS] both failed-heading slots work across angle wrap
+  [PASS] threat/map/reset and stale observations cannot poison memory
+  [PASS] observation and expiry clocks tolerate 32-bit wrap
+  [PASS] replaced splines never manufacture failed headings
+  [PASS] combat-only pool-bot spread gate
+  [PASS] offline-master owned bots stay exempt
+  [PASS] owned bots spread on raid maps, hold elsewhere
+  [PASS] spread re-step throttle
+TortoiseBots combat-spread policy tests passed.
+Starting TortoiseBots combat-stuck policy tests...
+  [PASS] blacklist window is five minutes
+  [PASS] give-up needs a live non-self target
+  [PASS] entry blacklist is creatures only
+  [PASS] give-up logs under ReachGiveUp
+combat-stuck policy: OK
+Starting TortoiseBots corpse entrance policy tests...
+All corpse entrance policy tests passed.
+one full binding with 24 mobs: 8012 bytes
+worst case (8 bindings, 64 mobs): 42498 bytes
+worst case with unit info (8 bindings, 64 mobs): 53594 bytes
+one full binding with steps and objects: 13769 bytes
+worst case with paths (8 bindings): 59414 bytes
+one full binding with bosses: 15002 bytes
+worst case with bosses (8 bindings, 0 lists kept): 58878 bytes
+8 dungeon bindings with bosses: 56307 bytes
+test_commander_telemetry: all checks passed
+Starting TortoiseBots creature aura keep-out tests...
+  [PASS] table lookup by map and entry
+  [PASS] Living Poison (Naxxramas): aura-less row, 5 yd Explode, 10 yd keep-out
+  [PASS] lethal keep-out retries every tick and steps straight away on repeated landing failure
+  [PASS] keep-out wider than the pulse, inside the 15 yd cap
+  [PASS] applies only with toggle, live aura and no explicit order
+  [PASS] step out inside 8 yd, hazard keeps paths 9 yd away
+  [PASS] attack order exempts only the ordered creature
+  [PASS] follow rings nest with 0.5 yd margins
+  [PASS] 8-10.5 yd: back off below 9, hold from 9 (incl. 9.49), step-out at 8
+  [PASS] approach stops on the 9.5 yd ring; arrival +-0.4 yd holds
+  [PASS] creeping sludge: hold, back off on the line, hold; no step-out
+  [PASS] goal hysteresis: follow resumes only once the goal clears 10 yd
+  [PASS] segment entry point
+  [PASS] chase: melee on a sludge stops outside the ring and kites it
+  [PASS] step-out landing clears other keep-outs (pulse when relaxed)
+  [PASS] chase onto a sludge from 40 yd stops on the ring
+  [PASS] tank exemption
+  [PASS] bounded hold then retarget
+  [PASS] still-ringed test matches the hold's release ring
+  [PASS] chase-hold timer resets after a pause
+  [PASS] tank holds a ringed mob: the set-aside is not re-picked through assist or mark
+  [PASS] gap closers and end points stay out of the ring (tank and order exempt)
+  [PASS] gap-closer veto looks only when the cast could fire
+  [PASS] shared hazard snapshot: per cell and instance, budget, live skip, height, cover, drift
+All creature aura keep-out tests passed.
+Starting TortoiseBots death-cluster escalation tests...
+All death-cluster escalation tests passed.
+Starting TortoiseBots debuff-spread policy tests...
+  [PASS] trigger fires only inside the blast radius
+  [PASS] single-carrier clearance and safety boundary
+  [PASS] nearest carrier decides among several
+  [PASS] empty anchor set is never safe
+  [PASS] search step and overshoot match the donor loop
+All debuff-spread policy tests passed.
+test_devour_magic_policy: 5 checks passed
+Starting TortoiseBots dispel-target policy tests...
+  [PASS] reach cap is 1.5 x spell distance
+  [PASS] no line of sight / too far is rejected
+  [PASS] in range, then unclaimed, decide the tier
+  [PASS] a claimed member is still a fallback
+  [PASS] claim key is per dispel type
+All dispel-target policy tests passed.
+Starting TortoiseBots dps-target bucket tests...
+  [PASS] caster prefers 5-30 s in range
+  [PASS] in-range beats out-of-range
+All dps-target bucket checks PASSED!
+Starting TortoiseBots dual-wield cascade tests...
+  [PASS] empty off hand demotes
+  [PASS] only a lighter off hand demotes
+  [PASS] two-hander never demotes
+  [PASS] spec-illegal off hand never demotes
+All TortoiseBots dual-wield cascade tests passed.
+test_dungeon_event_policy: ok
+Starting TortoiseBots dungeon follow hold policy tests...
+  [PASS] gate: dungeon, out of combat, leader far ahead, option on
+  [PASS] gate hysteresis: on at 30 yd, off at 25 yd
+  [PASS] Uldaman west-room route holds outside the aggro radius
+  [PASS] pack off the route is ignored
+  [PASS] hold on a later leg, at radius + margin
+  [PASS] nearest pack along the route wins
+  [PASS] other floor ignored, flyers counted
+  [PASS] ramp through the pack's level holds; band includes radii
+  [PASS] already at the hold point: hold inward, free outward
+  [PASS] degenerate routes and packs never hold
+All dungeon follow hold policy tests passed.
+test_dungeon_hold_policy: ok
+test_dungeon_plan_policy: ok
+dungeon plan reload policy: all tests passed
+test_dungeon_run_policy: ok
+Starting TortoiseBots dungeon follow stall policy tests...
+  [PASS] gate: dungeon, out of combat
+  [PASS] stall: 2 s still while 35 yd behind
+  [PASS] walking behind is not a stall
+  [PASS] within range: no stall, and a rescue ends
+  [PASS] held in place is not a stall
+  [PASS] a feed gap restarts the clock
+  [PASS] rescue latches until the bot is back in range
+  [PASS] walk throttle and back-off
+  [PASS] latched, then held: yields while held
+  [PASS] five failed walks: give up for 60 s, then watch afresh
+  [PASS] a started walk resets the failure count
+  [PASS] caught up: give-up cleared
+  [PASS] timer wrap
+  [PASS] far follow: arms at once, paced, gives up after five failed walks
+All dungeon follow stall policy tests passed.
+Standalone empty-slot fill policy tests passed (18 checks).
+Starting TortoiseBots equip-upgrade threshold tests...
+  [PASS] epsilon gains do not swap
+  [PASS] exact ties do not swap
+  [PASS] clear gains swap
+  [PASS] first stats over zero swap
+  [PASS] worse never swaps; 1.0 restores any-gain
+All TortoiseBots equip-upgrade threshold tests passed.
+Starting TortoiseBots fishing-spot policy tests...
+  [PASS] direct water search binds pool bots only
+  [PASS] search radius matches donor windows
+  [PASS] cast accepts the 10-20 yd window only
+  [PASS] shallow water is rejected
+  [PASS] zone skill gate matches the travel errand
+  [PASS] stand must be dry valid ground
+  [PASS] hourly session budget (5 casts / 5 min)
+  [PASS] per-bot throttle and cell cache windows
+  [PASS] cell keys separate map cells
+All fishing-spot policy tests passed.
+flamestrike window policy: 15 checks passed
+Starting TortoiseBots flight transport policy tests...
+  [PASS] same-level destination usable
+  [PASS] over-level destinations past +5 are refused
+  [PASS] outgrown destinations refused except capitals
+  [PASS] capital-to-capital shuffle refused
+  [PASS] unknown area levels fail closed
+  [PASS] short or pointless legs refused
+  [PASS] fare gated on trainer reserve
+  [PASS] levelling hop shape holds end to end
+TortoiseBots flight transport policy tests passed.
+Starting TortoiseBots formation station policy tests...
+  [PASS] idle bot off its slot walks there
+  [PASS] bot on its slot stays put
+  [PASS] degenerate distances stay put
+  [PASS] distance helper measures the 2D gap
+All formation station policy tests passed.
+Starting TortoiseBots force-rebuff policy tests...
+  [PASS] pending window
+  [PASS] margin growth
+  [PASS] top-off verdict
+  [PASS] heal veto
+All force-rebuff policy tests passed (17 checks).
+Starting TortoiseBots Four Horsemen rotation policy tests...
+  [PASS] entry table matches mark table order
+  [PASS] rotation starts at 3 stacks, worst mark first
+  [PASS] next corner is clockwise
+  [PASS] fewest stacks first, dead skipped, last one holds
+  [PASS] stays at the new corner until its mark stacks up
+  [PASS] stored corner holds mid-walk, lapses on reset
+  [PASS] stand-off spot points into the room
+  [PASS] shared rotation target follows the stored choice
+  [PASS] arrival stops the move
+All Four Horsemen rotation policy tests passed.
+Starting TortoiseBots gather spot tests...
+All gather spot tests passed.
+Starting gather tool policy tests...
+  [PASS] alternate tools admitted
+  [PASS] legacy tools still admitted
+  [PASS] missing tool rejected
+  [PASS] WotLK-only ids excluded
+All gather tool policy checks PASSED (24 assertions)!
+Starting TortoiseBots geddon-inferno policy tests...
+  [PASS] ids and 20y runout distance pinned
+  [PASS] trigger needs boss present with inferno aura
+  [PASS] only the two survival moves pass
+  [PASS] multiplier blocks non-survival movement while active
+  [PASS] non-movement actions never blocked
+All geddon-inferno policy tests passed.
+Starting TortoiseBots ghost-stall policy tests...
+  [PASS] in-flight POINT spline keeps riding
+  [PASS] launch tick (IDLE->POINT) does not keep riding
+  [PASS] re-aimed run re-dispatches
+  [PASS] owned/hired and living bots keep today's handling
+  [PASS] armed 60-s stall teleports
+  [PASS] fresh anchor does not teleport
+  [PASS] unarmed anchor never fires
+  [PASS] reclaim-range ghost yields to reclaim
+  [PASS] owned/hired bots exempt from stall teleport
+ghost-stall policy: OK
+Starting TortoiseBots Gluth-kite policy tests...
+  [PASS] wound swap needs tank + Gluth + wounded other tank
+  [PASS] chow execute threshold is 10%
+All Gluth-kite policy tests passed.
+Starting TortoiseBots golemagg policy tests...
+  [PASS] ids and constants pinned
+  [PASS] splash back-off rule
+  [PASS] back-off lockout rule
+  [PASS] aoe suppression names
+  [PASS] rager exclusion and single-tank rules
+All golemagg policy tests passed.
+test_gossip_order_policy: 107 checks passed
+Starting TortoiseBots graveyard teleport policy tests...
+  [PASS] nearby same-map graveyard is usable
+  [PASS] cross-map graveyard refused however near it claims
+  [PASS] absurdly far same-map graveyard refused
+  [PASS] 5000-yd boundary is inclusive
+  [PASS] missing graveyard refused
+graveyard teleport policy: OK
+Starting TortoiseBots grind-hostility regression tests...
+  [PASS] neutral XP-paying wildlife is grind prey
+  [PASS] hostile entries are always prey
+  [PASS] friendly entries are never prey
+  [PASS] neutral reputation-faction entries are never prey
+  [PASS] neutral unattackable entries are never prey
+  [PASS] neutral elites/rares/bosses are never prey
+  [PASS] neutral NPCs are never prey
+  [PASS] neutral no-XP creatures are never prey
+All grind-hostility tests passed.
+Starting TortoiseBots grind-spot level-band regression tests...
+  [PASS] owned level-5 window is still the old [3,3]
+  [PASS] level-5 ladder window admits the next field [3,6]
+  [PASS] level 6 / 8 / 10 / 60 windows step with the bot
+  [PASS] levels 1-60 all keep a paying, fightable band
+  [PASS] owned-bot windows are unchanged
+  [PASS] ladder band holds at every gear condition
+  [PASS] coinless wildlife in, critters out
+  [PASS] per-spot capacity follows the spawn count
+  [PASS] level 1-4 masterless bots skip the valley ceiling
+  [PASS] idle fallback gate is tight
+  [PASS] starter-valley leash keeps exempted picks home
+  [PASS] idle-wander gate drifts beside the prey rule
+All grind-spot level-band tests passed.
+Starting TortoiseBots Grobbulus-cloud policy tests...
+  [PASS] behind spot is opposite boss facing at 18yd
+All Grobbulus-cloud policy tests passed.
+Starting TortoiseBots group-heal policy tests...
+  [PASS] threshold table (10 checks)
+  [PASS] should-group-heal gate
+All group-heal policy tests passed (21 checks).
+Starting TortoiseBots group-hygiene gate tests...
+  [PASS] cross-map group leaves
+  [PASS] far same-map group leaves
+  [PASS] nearby group stays
+  [PASS] hired or commanded bots never leave far away
+All TortoiseBots group-hygiene gate tests passed.
+Starting TortoiseBots heal reach policy tests...
+  [PASS] out of combat: no reach to a member at or above almost-full health
+  [PASS] out of combat: reach to a hurt member
+  [PASS] in combat: unchanged
+  [PASS] in combat: no reach when another healer covers the ally
+  [PASS] out of combat: cover flag ignored
+  [PASS] cover: living healer on the map, in range and sight
+  [PASS] cover: cheap tests first, role and sight lazy
+  [PASS] cover: control, silence and mana
+  [PASS] reach limit: battleground range
+  [PASS] pick: covered ally dropped, never at critical health
+All heal reach policy tests passed.
+heal downrank policy: 18 checks passed
+healer mana policy: OK (244 checks)
+healing cast policy: OK
+test_health_funnel_policy: 9 checks passed
+Starting TortoiseBots Heigan-dance policy tests...
+  [PASS] safe-area walk matches core section cycle
+  [PASS] window index stands in the current section
+  [PASS] spot choice follows the dance
+  [PASS] dance clock reads max-minus-remaining
+All Heigan-dance policy tests passed.
+hire deletion policy: 11 checks passed
+hire departure policy: 103 checks passed
+test_hire_fee_policy: 32 checks passed
+hire gear policy OK (104 checks)
+hire intro policy: 15 checks passed
+test_hire_level_policy: 85 checks passed
+Starting TortoiseBots hire-master tests (issue #1014)...
+  [PASS] non-hire adoption unchanged
+  [PASS] hirer between maps keeps the binding
+  [PASS] hire never adopts a bot
+  [PASS] hirer back in world is restored
+All TortoiseBots hire-master tests passed.
+hire raid policy: 118 checks passed
+hire respec policy OK (20 checks)
+Starting TortoiseBots hire quest-autonomy tests...
+  [PASS] recruiter entry range
+  [PASS] autonomy kit stripped for hires only
+  [PASS] quest talk needs an explicit order on hires
+  [PASS] quest travel refused for hires
+All hire quest-autonomy tests passed.
+hire spec policy: 318 checks passed
+hire_tier_request_policy: 83 checks passed
+hire_unlock_group_credit: 9 checks passed
+test_hire_unlock_policy: 527 checks passed
+hire-unlock-sync: 23 checks passed
+hot streak policy: 17 checks passed
+Starting TortoiseBots human BG demand policy tests...
+All human BG demand policy tests passed.
+test_hunter_feign_death_policy: ok
+hunter pet policy: 9 checks passed
+Starting TortoiseBots hunter-switch tests...
+  [PASS] melee trades only when the victim is glued on the bot
+  [PASS] ranged returns once the mob is off the bot, or rooted
+  [PASS] kit switches wait for the 4 s dwell (out of ammo excepted)
+  [PASS] dead zone: step out to 15 yd, retry farther, never melee a mob off the hunter
+  [PASS] traps: only for a mob already in melee reach
+  [PASS] melee row: exempt from the threat back-off only for a mob on the hunter
+  [PASS] swarmed hunter: no melee trade, ranged kit back, wing clip first
+  [PASS] multi-shot: only on two or more usable targets
+  [PASS] hunter's mark: with a tank only on the tank's mob
+  [PASS] swarm rules only for a hunter grouped with a living tank
+  [PASS] hunter's mark: any living tank's mob counts
+All hunter-switch checks PASSED!
+Starting TortoiseBots hunter-viper tests...
+  [PASS] enter below 20 %
+  [PASS] hold the Viper until 60 %
+  [PASS] no flip between the two thresholds
+  [PASS] toggle off changes nothing
+  [PASS] explicit orders and Cheetah/Pack are respected
+All hunter-viper tests passed.
+instance guard policy: OK
+Starting TortoiseBots interrupt-casting policy tests...
+  [PASS] idle boss is not interruptible
+  [PASS] cast-bar heal is interruptible
+  [PASS] delayed instant is not interruptible
+  [PASS] zero-cast-time preparing spell is not interruptible
+  [PASS] finished spell is not interruptible
+  [PASS] channeled cast is interruptible
+  [PASS] non-silence cast is not interruptible
+  [PASS] immune target is not interruptible
+All interrupt-casting policy tests passed.
+judgement upkeep policy: all checks passed
+Starting TortoiseBots jump policy tests...
+  [PASS] no automatic jumps in dungeons/raids
+  [PASS] explicit jump order allowed in dungeons
+  [PASS] jumps allowed elsewhere
+All TortoiseBots jump policy tests passed.
+Starting TortoiseBots Kel'Thuzad-adds policy tests...
+  [PASS] role-split add priorities match donor order
+All Kel'Thuzad-adds policy tests passed.
+Starting TortoiseBots ledge step-down policy tests...
+  [PASS] gate: dungeon + partial path at the feet + not being hit
+  [PASS] height band 2-8 yd lower, horizontal radius about 8 yd
+  [PASS] candidates: towards the target, +-30/60/90 degrees, 8 then 5 yd
+  [PASS] dais: steps down straight towards the target
+  [PASS] needs a complete path from the point to the target
+  [PASS] NORMAL path but the point is off the mesh: next candidate
+  [PASS] unsafe landing (liquid, hazard) skips only that point
+  [PASS] both legs need a clear line (railings, walls)
+  [PASS] edge point: flat, past the lip, not through walls or holes
+  [PASS] no ground / a fall / a climbable step / edge out of reach: no point
+  [PASS] narrow ledge: the 5 yd ring
+  [PASS] pacing: stand still, interval, failed-look and step caps, reset
+Ledge step-down policy tests: OK
+Starting TortoiseBots LFT composition tests...
+  [PASS] pick order matches the core matcher
+  [PASS] solo tank/healer/dps queue the complement
+  [PASS] multi-role human counted as the core assigns them
+  [PASS] join-time ties are deterministic
+  [PASS] fitting party leaves only the missing roles
+  [PASS] party block evaluated atomically in slot order
+  [PASS] duplicate solo roles do not block the fill
+  [PASS] complete set queues nothing
+  [PASS] empty simulation reports the full set
+TortoiseBots LFT composition tests passed.
+Starting TortoiseBots Loatheb-spores policy tests...
+  [PASS] spore kill only within 1yd
+All Loatheb-spores policy tests passed.
+Starting TortoiseBots local grind/camp pick tests...
+  [PASS] grind window matches donor (500/2500, /3 below 5)
+  [PASS] camp window matches donor (500 <=5, 2500 above)
+  [PASS] owned/hired bots keep the full search radius
+  [PASS] pool grind capped locally, leave-outgrown uncapped
+  [PASS] pool camp errands capped by level
+  [PASS] class trainer far trip only when 3+ spells behind at 10+
+All local grind/camp pick tests passed.
+Starting TortoiseBots long-stuck rescue policy tests...
+  [PASS] far graveyard wins over a far homebind
+  [PASS] near graveyard falls through to homebind
+  [PASS] near graveyard and near homebind refuses
+  [PASS] missing graveyard degrades to homebind or refusal
+  [PASS] disallowed rescue refuses outright
+  [PASS] 100-yd boundary is strict
+long-stuck rescue policy: OK
+move fail note policy: all tests passed
+Starting TortoiseBots loot-roll gate tests...
+  [PASS] FFA/master pass, group/NBG vote
+  [PASS] recipe NEED/PASS/GREED split
+  [PASS] duplicate-unique ownership
+  [PASS] token class-mask gate
+  [PASS] real-player competition
+  [PASS] never NEED against a player
+  [PASS] roll wait elapses on votes or margin
+  [PASS] wire vote mapping, echoes ignored
+All loot-roll gate checks PASSED!
+Starting TortoiseBots loot-window policy tests...
+  [PASS] a paying window forgets the open count
+  [PASS] an empty window abandons the object
+  [PASS] a refused window abandons the object
+  [PASS] a player order is unqueued, never abandoned
+  [PASS] only the chat loot command counts as a player order
+  [PASS] an open-loot cast sleeps through its cast time
+All loot-window policy tests passed.
+Starting TortoiseBots lowbie-graveyard policy tests...
+  [PASS] sub-10 pool bot skips the death-count spirit heal
+  [PASS] owned/hired lowbie keeps the death-count gate
+  [PASS] level 10+ keeps today's behaviour
+  [PASS] stranded level 1-2 town bot goes home
+  [PASS] level 3+ town bot walks home itself
+  [PASS] owned/hired bot never auto-sent home
+  [PASS] unknown area level fails closed
+  [PASS] unfit homebind refuses
+  [PASS] margin boundary is strict
+  [PASS] valley pairs follow the same rule
+lowbie-graveyard policy: OK
+Starting TortoiseBots magma hazard policy tests...
+  [PASS] magma under, in or on the surface is a hazard, above it is not
+  [PASS] slime, water, ocean and no liquid are no hazard
+  [PASS] the guard applies on instance maps only
+  [PASS] at most 2 yd between samples
+  [PASS] a dry route is unchanged
+  [PASS] a route ends before its first magma point
+  [PASS] magma right ahead leaves the bot where it stands
+  [PASS] a leg crossing magma between two dry points ends before it
+  [PASS] magma at the last point cuts the last point
+  [PASS] a bot in magma walks out, and stops before magma again
+  [PASS] a route that never leaves magma is unchanged
+  [PASS] a route away from magma is unchanged
+  [PASS] at most 48 samples between path points per route
+  [PASS] past the cap only path points are checked
+  [PASS] a refused destination is refused from memory for 10 s
+  [PASS] a route refusal holds only from the same origin cell
+  [PASS] the task walk nudge waits after a magma refusal
+All magma hazard policy tests passed.
+Starting TortoiseBots main-tank rule tests...
+  [PASS] threat past half the tank fires, players never
+  [PASS] only the explicit MT sticks, only with 2+ tanks
+All main-tank rule checks PASSED!
+Starting TortoiseBots mc-garr-shazzrah policy tests...
+  [PASS] ids and 26y range pinned
+  [PASS] garr aoe name set (real aoe only)
+  [PASS] garr suppresses dps-bot aoe only
+  [PASS] shazzrah moves ranged inside 26y only
+  [PASS] action name guard
+All mc-garr-shazzrah policy tests passed.
+mimic_consumable_policy: 158 checks passed
+Starting mount-dismount policy tests...
+  [PASS] unengaged pick keeps mount
+  [PASS] real fight dismounts
+  [PASS] mounted travel defers casts
+  [PASS] stable per-bot mount choice
+All mount-dismount policy checks PASSED (40 assertions)!
+PASS test_mount_shop_policy: 2656 checks
+Starting TortoiseBots movement-mode policy tests...
+  [PASS] movement modes recognised
+  [PASS] stored rows with and without a movement mode
+  [PASS] snapshot rows decide engine by engine
+  [PASS] rebuild restores a missing movement mode
+All TortoiseBots movement-mode policy tests passed.
+Starting TortoiseBots named-location index tests...
+  [PASS] key form: case and trailing spaces
+  [PASS] nothing served before the seal
+  [PASS] found by any spelling, values unchanged
+  [PASS] misses are not found and do not write
+  [PASS] first row wins
+  [PASS] refuses rows after the seal
+  [PASS] 52,783 rows loaded and found
+All named-location index tests passed.
+Starting TortoiseBots idle near-service policy tests...
+  [PASS] bag pressure valve behaves at the boundary
+  [PASS] quest work outranks the town errands
+  [PASS] turn-in outranks a nearer accept
+  [PASS] accept outranks a nearer vendor
+  [PASS] vendor outranks a nearer trainer
+  [PASS] nearest wins inside one rank
+  [PASS] no service target when nothing qualifies
+  [PASS] empty candidate list has no target
+  [PASS] ranking ignores non-service NPCs
+  [PASS] nearby radius is 50 yd
+  [PASS] only a journey in flight blocks the rule
+  [PASS] three consecutive fails earn a park
+  [PASS] fail park holds 90 s then expires
+  [PASS] tracker parks one verb, spares the others
+  [PASS] tracker never grows past its slots
+  [PASS] unchanged verb state after a run counts as a fail
+  [PASS] vendor success always counts as progress
+  [PASS] no-progress fails trip the 90 s park
+  [PASS] walk-leg fails park the approach
+All idle near-service policy checks PASSED!
+Starting TortoiseBots onyxia-breath policy tests...
+  [PASS] entry and radius pinned
+  [PASS] all 8 breath ids recognized
+  [PASS] axis pairing correct
+  [PASS] facing-to-axis mapping
+  [PASS] move/hold rule
+All onyxia-breath policy tests passed.
+onyxia whelp/egg policy: OK
+ooc rebirth policy: OK (6 checks)
+test_open_follow_step_policy: all checks passed
+owned bot qol policy: 53 checks passed
+test_party_help_policy: ok
+test_pet_attack_gate_policy: 25 checks passed
+test_pet_revive_policy: 5 checks passed
+test_pet_spawn_policy: 21 checks passed
+Starting pet spell rank policy tests...
+  [PASS] rank levels
+  [PASS] ladders ascend
+  [PASS] custom families
+  [PASS] warlock ladders
+  [PASS] autocast defaults
+  [PASS] shared check/teach helpers
+All pet spell rank policy checks PASSED (139 assertions)!
+test_pet_taunt_policy: 24 checks passed
+Starting pet upkeep policy tests...
+  [PASS] donor denylist kept
+  [PASS] all Cower ranks disabled
+  [PASS] donor-only ranks excluded
+  [PASS] all Sacrifice ranks disabled
+  [PASS] working spells stay enabled
+  [PASS] toggle decision matrix
+All pet upkeep policy checks PASSED (37 assertions)!
+PASSED: player-bot classification (13 checks)
+test_player_lag_window: 12 checks passed
+test_player_in_party_policy: all checks passed
+test_player_led_policy: all checks passed
+Starting TortoiseBots point-danger gate tests...
+  [PASS] gate binds masterless pool bots at every level
+  [PASS] level-4 point bars 6+, keeps 5 and below
+  [PASS] ceiling travels with the bot (+1 below 10)
+All point-danger gate checks PASSED!
+Starting TortoiseBots pool-bot trade policy tests...
+  [PASS] mode parsing fails closed
+  [PASS] owned/hired bots bypass the gates
+  [PASS] safe modes keep strangers out, masters in
+  [PASS] open modes admit strangers to the window
+  [PASS] settle gate follows the mode
+  [PASS] trade-channel chatter needs a mention
+  [PASS] excluded prefixes match at the start only
+pool-bot trade policy: OK
+Starting TortoiseBots pool flee policy tests...
+  [PASS] fan order: away, then +-22.5 .. +-90 degrees
+  [PASS] no-spot backoff window
+  [PASS] unpulled-mob landing veto
+  [PASS] mob pre-filter by one step
+All pool flee policy tests passed.
+OK: 55 checks passed
+profession grant policy: 40 checks passed
+Starting TortoiseBots protection potion policy tests...
+Protection potion policy tests passed.
+Starting TortoiseBots pull aggro estimate tests...
+pull aggro estimate policy: ok
+Starting TortoiseBots pull firing-position policy tests...
+  [PASS] straight line: the point is 6 yd from the target
+  [PASS] off-axis: the point stays on the puller's ray
+  [PASS] the firing position lies between the puller and the target
+  [PASS] degenerate inputs have no firing position
+  [PASS] firing distance is clamped to the puller's distance
+All pull firing-position policy checks PASSED!
+Starting TortoiseBots pull executor policy tests...
+  [PASS] free tank can pull
+  [PASS] stale combat flag does not exclude the tank
+  [PASS] flag with a victim or attackers is busy
+  [PASS] victim or attackers alone set no busy fight
+  [PASS] world, map, AI, role and strategy gates refuse
+  [PASS] reason words are short and protocol-safe
+All pull executor policy checks PASSED!
+Starting TortoiseBots pull opening policy tests...
+  [PASS] reachable and near: body pull
+  [PASS] unreachable, in sight, in range: ranged
+  [PASS] unreachable needs sight and range (35 yd is in, 36 is out)
+  [PASS] farther than the walk-in limit: ranged (exactly at it: body pull)
+  [PASS] far but out of sight: body pull
+  [PASS] the walk-in limit is read from the config
+  [PASS] explicit ranged order: always ranged
+  [PASS] explicit order is honoured with RangedPull = 0
+  [PASS] RangedPull = 0: no automatic ranged opening
+  [PASS] pullback: ranged, unchanged by the key
+  [PASS] reasons and blockers have stable names
+  [PASS] pull order words: seconds and ranged, either order, each once
+All pull opening policy tests passed.
+pull start policy: ok
+Starting TortoiseBots pull reach policy tests...
+  [PASS] fresh pull keeps its target
+  [PASS] progressing approach survives the base window
+  [PASS] stalled approach ends the pull
+  [PASS] total cap bounds a shuffling pull
+  [PASS] closing distance is headway
+  [PASS] detour counts, standing still does not
+  [PASS] first sample anchors the clock
+pull reach policy: ok
+pull refusal policy: 9 checks passed
+Starting TortoiseBots pull-regen gate tests...
+  [PASS] health below medium defers the pull
+  [PASS] mana users below medium mana defer, others do not
+  [PASS] grind level cap is +1 below 10, +4 above
+  [PASS] pre-emptive strike needs no adds and the cap
+All pull-regen gate checks PASSED!
+Starting TortoiseBots quest-giver back-off tests...
+  [PASS] back-off after 2 stalls, 30-min park
+  [PASS] verdict fires on the second stall
+  [PASS] keys are per (giver, quest) pair
+  [PASS] quest-state change resets the count
+All quest-giver back-off checks PASSED!
+Starting TortoiseBots quest-log triage tests...
+  [PASS] FAILED quests drop
+  [PASS] +3 over-level gate, scaling exempt
+  [PASS] elite/dungeon/raid dropped, solo kept
+  [PASS] group-suggested dropped, solo kept
+  [PASS] zone mismatch dropped, sorts/unknown kept
+  [PASS] doable quest kept
+  [PASS] war-effort item turn-ins refused, breadcrumbs kept
+  [PASS] CLUCK!/inactive banned, live quests kept
+  [PASS] combined refuse predicate matches accept and drop
+  [PASS] Bone Chew Toy ids pinned
+  [PASS] accept-time solo gate matches donor numbers
+  [PASS] triage rank orders unfinishable > no-progress > progress
+All quest-log triage checks PASSED!
+Starting TortoiseBots quest-objective level gate tests...
+  [PASS] sub-10 pool quest spawns keep the +1 cap
+  [PASS] ceiling travels with the bot below 10
+  [PASS] +4 ceiling from level 10
+  [PASS] vendors and owned bots are exempt
+All quest-objective level gate checks PASSED!
+Starting TortoiseBots quest-reward tiebreak tests...
+  [PASS] empty set yields 0
+  [PASS] single candidate wins
+  [PASS] highest weight wins
+  [PASS] exact tie keeps vendor order
+  [PASS] all-zero picks first
+All TortoiseBots quest-reward tiebreak tests passed.
+Starting TortoiseBots quest-stall tests...
+  [PASS] donor constants (5-min verdict, 30-min park)
+  [PASS] first WORK tick never stalls
+  [PASS] horizon boundary 299/300 s
+  [PASS] kill progress defeats stall
+  [PASS] item progress defeats stall
+  [PASS] zero-progress past horizon stalls
+  [PASS] per-quest anchor across alternating objectives
+  [PASS] exploration/event/spell objectives exempt
+  [PASS] anchor format/parse round-trip
+All quest-stall checks PASSED!
+Starting TortoiseBots quest-taker level gate tests...
+  [PASS] other-area hand-ins wait for the quest level
+  [PASS] valley quests up to +3 keep working
+  [PASS] scaling quests, owned bots and 10+ exempt
+  [PASS] level 1-4 masterless bots skip the quest valley ceiling
+All quest-taker level gate checks PASSED!
+Starting TortoiseBots raid-framework policy tests...
+  [PASS] name matching is case-insensitive full equality
+  [PASS] classic raid map ids recognized
+All raid-framework policy tests passed.
+raid quest chain policy: all tests passed
+Starting TortoiseBots raid tank role tests...
+  [PASS] no flags keeps slot order and skips dead tanks
+  [PASS] flagged main tank first, others keep slot order
+  [PASS] flagged non-tank main tank still holds the job
+  [PASS] dead flagged main tank hands over to slot order
+  [PASS] tank main assist is the first assist tank
+  [PASS] tank main assist leads when no main tank is set
+  [PASS] non-tank main assist is ignored
+  [PASS] member with both flags is listed once
+  [PASS] promoted tanks lead the assists, slot 1 stays main
+  [PASS] full order MT, MA, promoted, slot order
+All raid tank role checks PASSED!
+Starting TortoiseBots ranged approach policy tests...
+  [PASS] gate: dungeon + beyond melee only
+  [PASS] straight corridor: stops on the path at 27 yd
+  [PASS] corner: point on the last leg at range
+  [PASS] line of sight: stops at the last point that sees the target
+  [PASS] edge point out of sight: keeps the vertex in sight
+  [PASS] height counts towards the range
+  [PASS] partial path: walks only towards the target
+  [PASS] degenerate inputs give no point
+  [PASS] partial path, end in range but hidden: last stretch in sight
+  [PASS] partial path, only the hidden end in range: closest point in sight
+  [PASS] partial path, end out of range and hidden: closer point in sight or none
+  [PASS] near-tangent crossing: clamps, keeps the touch point
+Ranged approach policy tests: OK
+Starting TortoiseBots razorgore policy tests...
+  [PASS] ids and geometry pinned
+  [PASS] uncontrolled phase rule
+  [PASS] cone escape rule
+  [PASS] ranged back-off rule
+  [PASS] off-tank hold rule
+  [PASS] holder is assist tank 0, lone tank holds alone
+All razorgore policy tests passed.
+test_reaction_work_policy: 5 checks passed
+Starting TortoiseBots ready-rebuff defer tests...
+  [PASS] grace, cap and anchor key are fixed
+  [PASS] unanchored check never replies early
+  [PASS] grace window holds the confirm
+  [PASS] settled bot replies after grace
+  [PASS] mid-cast hold past grace
+  [PASS] cap always replies
+  [PASS] stale anchors expire, never reply
+All TortoiseBots ready-rebuff defer tests passed.
+Starting TortoiseBots rear-flank policy tests...
+  [PASS] front arc fires, flank and rear hold
+  [PASS] 90-degree boundary is exclusive
+  [PASS] tail input ignored (front-arc-only)
+  [PASS] flank offsets mirror at the flank radius
+  [PASS] nearer-side comparison
+  [PASS] heading distance wraps
+All rear-flank policy tests passed.
+remote commander enter: 85 checks passed
+remote commander policy: 505 checks passed
+remote commander tasks: 534 checks passed
+Starting TortoiseBots runner-finish tests...
+  [PASS] runner facts
+  [PASS] ranged leash
+  [PASS] melee leash
+  [PASS] hold respected
+  [PASS] healer and tank stay out
+  [PASS] current runner kept
+  [PASS] chases stop at ledges (run bots, cliffs)
+  [PASS] runner book purged and capped
+All runner-finish tests passed.
+worst-case party record: 204 bytes
+remote commander view: 876 checks passed
+Starting TortoiseBots resist-aura policy tests...
+  [PASS] fire boss list
+  [PASS] shadow boss list
+  [PASS] swap-when-missing rule
+  [PASS] action routing
+  [PASS] election skips humans, other maps, dead, idle, untrained, ordered
+  [PASS] fight-end restore
+All resist-aura policy tests passed.
+rez hold policy: ok
+Starting TortoiseBots retaliation policy tests...
+  [PASS] two melee attackers on the warrior unlock retaliation
+  [PASS] ranged, off-target and dead attackers are not counted
+All retaliation policy tests passed.
+Starting TortoiseBots rogue-threat tests...
+  [PASS] feint on medium threat
+  [PASS] vanish only on high threat
+  [PASS] feint needs a living tank or pet
+  [PASS] toggle off changes nothing
+  [PASS] only in 5-man dungeons
+  [PASS] solo fights are left alone
+  [PASS] needs a living tank in the fight
+  [PASS] vanish only when the mob is on the tank or the rogue
+  [PASS] a mob the tank never touched is left alone
+All rogue-threat tests passed.
+Starting TortoiseBots rogue weapon policy tests...
+  [PASS] assas/subtle want daggers
+  [PASS] combat and non-rogue specs are not dagger-only
+All rogue weapon policy checks PASSED!
+Starting TortoiseBots RPG mixer policy tests...
+  [PASS] weight table matches donor quest-heavy shape
+  [PASS] full table rolls quest-heavy
+  [PASS] unavailable slots never win
+  [PASS] verdict admits only the winning purpose
+  [PASS] pool-only scope, 10-min verdict window
+  [PASS] slot availability mapping
+  [PASS] parked quest never wins the roll
+  [PASS] stale verdicts fail closed, re-roll picks live slots
+  [PASS] grind fallback never mixer-blocks levelling
+  [PASS] quest gated by non-quest verdicts
+All RPG mixer policy tests passed.
+  [PASS] relevance 1 to 2 keeps the weights 0 to 1000
+  [PASS] relevance below 1 is weight 0
+  [PASS] out-of-range and NaN relevance stay in the uint32 range
+  [PASS] relevance below 1 never wins the weighted pick
+All RPG relevance weight policy tests passed.
+ok
+test_run_group_index: 67 checks passed
+test_run_leader_live_policy: all checks passed
+ok
+test_run_loot_corpse_policy: all checks passed
+run release hold policy: ok
+test_run_trace_records: 302 checks passed
+test_run_trace_summary: 161 checks passed
+gnomeregan-shaped wipe walk back: old replay 1205.44 yd (2.8701 min at 7 yd/s), new 608 yd (1.44762 min)
+gnomeregan-shaped replay with the side leg: old 1205.44 yd, new 608 yd
+test_run_time_sinks_policy: ok
+Starting TortoiseBots Sapphiron-ice policy tests...
+  [PASS] hide spot is behind the iceblock, away from boss
+  [PASS] blizzard exit steps away from the NPC
+All Sapphiron-ice policy tests passed.
+test_seduction_policy: 10 checks passed
+Starting TortoiseBots service trip policy tests...
+  [PASS] service predicate covers service errands only
+  [PASS] arrival radii: counter vs hall
+  [PASS] stable approach offset per (bot, destination)
+  [PASS] rescue gate holds every conservative clause
+service trip policy: OK
+Starting TortoiseBots set-behind policy tests...
+  [PASS] useful only in melee reach, not behind, streak alive
+  [PASS] give-up after the window, stays given up
+  [PASS] new target restarts the streak
+  [PASS] idle gap restarts the streak
+  [PASS] paused polls (aggro on the bot) start a fresh streak
+  [PASS] clock wrap safe
+All set-behind policy tests passed.
+Starting shaman earth-shock execute policy tests...
+  [PASS] wounded low-hp targets take the execute
+  [PASS] healthy targets never take the shock
+  [PASS] high-hp targets vetoed even below 25 percent
+  [PASS] boundaries, zero-max-health, and dead targets safe
+All shaman earth-shock execute policy checks PASSED!
+Starting shaman fire-gate policy tests...
+  [PASS] drop range is 10 yards
+  [PASS] out-of-range targets veto the drop
+All shaman fire-gate policy checks PASSED!
+Starting shaman healer-dps policy tests...
+  [PASS] flame shock outranks filler, pack AoE tops the ladder
+  [PASS] all dps actions stay far below heal priorities
+  [PASS] ladder holds exactly the three wired actions
+All shaman healer-dps policy checks PASSED!
+Starting shaman imbue policy tests...
+  [PASS] no known imbue keeps upkeep quiet
+  [PASS] rockbiter is the low-level upkeep
+  [PASS] flametongue outranks rockbiter once trained
+  [PASS] flametongue outranks frostbrand
+  [PASS] frostbrand is the fallback before windfury
+  [PASS] windfury wins for enhancement once trained
+  [PASS] non-enhancement keeps flametongue at 30+
+  [PASS] windfury is the last resort rather than no imbue
+  [PASS] upkeep stands down when nothing needs casting
+All shaman imbue policy checks PASSED!
+Starting shaman mana-loop policy tests...
+  [PASS] water shield wins once trained, lightning before
+  [PASS] chain-lightning filler is pack-only
+All shaman mana-loop policy checks PASSED!
+Starting shaman totemic-recall policy tests...
+  [PASS] idle bots recall standing totems
+  [PASS] untrained bots and empty fields stay quiet
+  [PASS] mana tide is never recalled
+  [PASS] combat anywhere vetoes the recall
+All shaman totemic-recall policy checks PASSED!
+Starting shaman situational totem policy tests...
+  [PASS] tremor reacts to fear/charm, respects slot and manual orders
+  [PASS] grounding reacts to party-aimed casts, respects slot and manual orders
+  [PASS] cleansing twins react per debuff type, respect slot and manual orders
+  [PASS] earthbind reacts to runners, respects slot and manual orders
+  [PASS] manual orders veto automation
+All shaman situational totem policy checks PASSED!
+  [PASS] census counts subgroup mates, skips self
+  [PASS] air picks windfury for melee, tranquil/grace for casters
+  [PASS] water picks mana spring for mana groups, stream otherwise
+  [PASS] tide fires for subgroup healer/caster low mana, not just self
+  [PASS] earth picks strength for melee, empty for casters
+All shaman totem group policy checks PASSED!
+Starting shaman stoneclaw panic policy tests...
+  [PASS] healthy bots never drop the panic totem
+  [PASS] solo low-health bots drop stoneclaw
+  [PASS] grouped bots keep the spec earth totem
+  [PASS] manual stoneclaw orders keep precedence
+  [PASS] other manual earth orders veto the panic drop
+All shaman stoneclaw panic policy checks PASSED!
+Starting TortoiseBots skinning-loot policy tests...
+  [PASS] skin window (server type 6) counts as skinning
+  [PASS] real pickpocket window stays non-gather
+  [PASS] corpse loot stays non-gather
+  [PASS] node loot keeps the lock skill, also under the skinning type
+skinning-loot policy: OK
+Starting TortoiseBots spec weapon policy tests...
+  [PASS] protection/holy off hand admits shields only
+  [PASS] ping-pong reverse guard: bag 1H never targets the shield slot
+  [PASS] arms/retribution stay 2H-only
+  [PASS] fury dual-wields from Dual Wield, 2H stand-in before
+  [PASS] shield-spec detection
+  [PASS] shieldless shield-bot ranks shields first
+All spec weapon policy checks PASSED!
+Starting TortoiseBots spell-rank policy tests...
+All spell rank policy checks PASSED!
+Starting TortoiseBots spread-toggle policy tests...
+  [PASS] opt-in gate is combat plus no-hold-orders
+  [PASS] manual knob overrides role defaults
+  [PASS] role defaults match the donor disperse distances
+All spread-toggle policy tests passed.
+start zone balance: 63 checks passed
+starter kit policy: 24 checks passed
+test_stay_arrival_policy: 113 checks passed
+summon restore policy tests passed
+survive policy: OK
+swim path policy: all tests passed
+Starting TortoiseBots taker-reachability cache tests...
+TortoiseBots taker-reachability cache tests passed.
+taunt attacker policy: 50 checks passed
+Starting TortoiseBots tank add-pickup tests...
+  [PASS] off-tank on the MT skull counts as holding, MT needs its own mob
+  [PASS] peel while holding, finish a low held mob first
+  [PASS] explicit MT sticks, off-tanks peel, lone tank unchanged
+All tank add-pickup checks PASSED!
+Starting TortoiseBots taxi path policy tests...
+  [PASS] broken paths blocked by default
+  [PASS] other paths unaffected
+  [PASS] flag allows repaired paths
+taxi path policy: OK
+Starting TortoiseBots Thaddius-polarity policy tests...
+  [PASS] phase detection honors the fake-death guard
+  [PASS] even-HP DPS gate matches donor rule
+  [PASS] polarity sides match donor mapping
+All Thaddius-polarity policy tests passed.
+Starting TortoiseBots trade-lockbox gate tests...
+  [PASS] rogue with locked box runs
+  [PASS] non-rogue stays silent
+  [PASS] nothing pickable stays quiet
+All TortoiseBots trade-lockbox gate tests passed.
+trade trainer policy: OK
+Starting TortoiseBots trading-lease policy tests...
+  [PASS] floor and cap hold
+  [PASS] default 120 s tick leases 300 s
+  [PASS] short ticks keep the floor
+  [PASS] mid-range ticks scale with the interval
+trading-lease policy: OK
+travel instance policy: OK
+travel pick slice: all 16 checks passed
+Starting TortoiseBots travel repick policy tests...
+  [PASS] stuck keep rule keeps only active real targets
+  [PASS] stuck keep retirement needs 3 keeps without progress
+  [PASS] invalid-result park key and duration
+  [PASS] null-target recognition
+  [PASS] reset-to-null skip keeps normal picks logging
+  [PASS] purpose-park key matches the request gate
+  [PASS] move-fail path tag buckets the pathfinder result
+  [PASS] no-route fallback gate keeps unreachable drops
+  [PASS] nopath trap streak counts targets from one spot
+  [PASS] move-fail kind give-up needs a mesh nopath to grind
+  [PASS] cooldown parks the purpose only for never-arrived pool trips
+  [PASS] giver re-pick parks quest on the 3rd same-quest pick
+  [PASS] starved gate needs 3 parked purposes, named errands out
+  [PASS] hand-in progress resets on a 5 yd new best only
+travel repick policy: OK
+Starting TortoiseBots travel route cache policy tests...
+  [PASS] empty cache misses
+  [PASS] same destination reuses a partial route inside the window
+  [PASS] other destination or map misses
+  [PASS] expiry after the window, wrap-safe
+  [PASS] moving far invalidates
+  [PASS] consumed or replaced route misses
+  [PASS] restamp starts a fresh window
+  [PASS] 60 one-second turns rebuild 8 times instead of 60
+All travel route cache policy tests passed.
+Starting TortoiseBots TravelRoutePolicy regression tests...
+  [PASS] Test 1: Taxi route cost weighting passed
+  [PASS] Test 2: Walk/swim travel time and long swim penalty passed
+  [PASS] Test 3: Stable travel selection seed determinism passed
+  [PASS] Test 4: Stable party route variation multiplier passed
+  [PASS] Test 5: Route choice simulation (avoid long swims) passed
+  [PASS] Test 6: Flight path preference over cross-zone walk passed
+  [PASS] Test 7: Creature-level route modifier matches the original formula
+
+All 7 TortoiseBots Travel Route Policy tests PASSED!
+Starting TortoiseBots trinket-use policy tests...
+  [PASS] spell/effect gates
+  [PASS] mana gates
+  [PASS] health gate
+  [PASS] cooldown memory
+All trinket-use policy tests passed (23 checks).
+  [PASS] slot names resolve, unknown rejected
+  [PASS] order keys stable
+  [PASS] drop modes parse, names round-trip
+  [PASS] orders validate per slot, cross-slot and unknown rejected
+  [PASS] explicit orders win, auto falls back
+  [PASS] auto rows fire per mode
+  [PASS] drop queues free slots only
+All totem command policy checks PASSED!
+test_undercity_lift_policy: all checks passed
+Starting TortoiseBots use-command object name match tests...
+  [PASS] object whose name contains the typed text is a match
+  [PASS] unrelated or nameless object is not a match
+All use-command object name match checks PASSED!
+Starting TortoiseBots vael policy tests...
+  [PASS] geometry pinned
+  [PASS] victim hold rule
+  [PASS] BA clustering rule
+  [PASS] tail-sweep recovery rule
+  [PASS] ranged bias rule
+All vael policy tests passed.
+value refresh policy: OK
+Starting TortoiseBots vendor buy policy tests...
+  [PASS] gear budget covers EQUIP/BAD/BROKEN only
+  [PASS] score orders stock, item level breaks unweighted ties
+All vendor buy policy checks PASSED!
+vendor trip policy: OK
+Starting TortoiseBots vendor weapon upgrade policy tests...
+  [PASS] candidate gate admits gear weapons and shields, rejects tools/ammo
+  [PASS] trainer reserve is kept before any weapon buy
+  [PASS] weapon-pass gates evaluate before the usage loop
+All vendor weapon upgrade policy checks PASSED!
+test_voidwalker_policy: 15 checks passed
+wand policy: 83 checks passed
+Starting warlock pet policy tests...
+  [PASS] petless summons voidwalker
+  [PASS] imp upgrades
+  [PASS] voidwalker left alone
+  [PASS] below tier keeps imp
+  [PASS] shardless stays quiet
+  [PASS] exotic pet left alone
+  [PASS] owned bot left alone
+  [PASS] constants
+  [PASS] spec preference mapping
+  [PASS] spec petless solo
+  [PASS] spec tank rule keeps voidwalker
+  [PASS] spec shard gate
+  [PASS] spec live pet swap
+  [PASS] spec constants
+  [PASS] spec wanted stands when the pet matches
+  [PASS] spec wanted is shard free
+All warlock pet policy checks PASSED (1466 assertions)!
+test_warlock_stone_policy: 8 checks passed
+test_warlock_soulstone_policy: 43 checks passed
+Starting warlock tap policy tests...
+  [PASS] urgent at medium mana
+  [PASS] top-up below 85
+  [PASS] full mana left alone
+  [PASS] low health never taps
+  [PASS] untrained left alone
+  [PASS] mid-meal left alone out of combat
+  [PASS] constants
+All warlock tap policy checks PASSED (19 assertions)!
+Starting TortoiseBots warrior rage policy tests...
+  [PASS] constants
+  [PASS] disarm needs rage, weapon and cooldown
+  [PASS] bloodrage needs starvation, health and cooldown
+  [PASS] battle shout needs 10 rage
+All warrior rage policy tests passed.
+  [PASS] first pick follows weight / total
+  [PASS] all 24 orders match the legacy distribution
+  [PASS] weights move with their items
+  [PASS] zero and invalid weights go last
+  [PASS] all-zero weights keep the input order
+  [PASS] empty, single and mismatched ranges
+  [PASS] list of strings with float weights
+All weighted shuffle policy tests passed.
+Starting TortoiseBots work-idle release tests...
+  [PASS] horizon and anchor key are fixed
+  [PASS] unanchored stay never releases
+  [PASS] fresh arrival holds through the horizon
+  [PASS] stale empty stay releases
+  [PASS] prey or attackers hold the stay
+  [PASS] anchor starts, persists, and clears on work
+All work-idle release tests passed.
+world buff policy: 493 checks passed
+Starting TortoiseBots zone migration policy tests...
+  [PASS] outgrown zone excluded from its own leave search
+  [PASS] capital-idle leave excludes nothing
+  [PASS] unknown zone fails open
+  [PASS] outgrown zone floor refuses pool 11+ only
+  [PASS] unknown zone level fails open
+  [PASS] gather next-tier skill threshold
+  [PASS] targetless stretch survives resets under a minute apart
+  [PASS] targetless leave after two minutes
+  [PASS] targetless leave trip starts only on its own Grind pick
+TortoiseBots zone migration policy tests passed.
+test_run_trace_writer: 268 checks passed
+✓ Standalone policy tests verified.
+
+=== 6. Running Decision Trail Self-Test ===
+self-test: all assertions passed (grammar + 4 signatures + malformed detection + R1 spaced sources)
+✓ Decision trail self-test verified.
+
+ℹ Skipping talent presets check (no DBC_PATH or ../tortoise-docker-penqle/data/dbc not found).
+
+ℹ Skipping host contract check (no --core path provided or ../tortoise-wow not found).
+
+==========================================
+🎉 ALL TORTOISEBOTS CHECKS PASSED CLEANLY!
+==========================================

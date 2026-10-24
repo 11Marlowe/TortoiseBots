@@ -483,8 +483,20 @@ static void TestTacticTargetChangeMarksThePlanChanged()
     CHECK(plans.Current().Find("bfd")->steps[2].tacticEntries == std::vector<std::uint32_t>{222});
 }
 
+// An open_proof row and a plain open are not the same step (DungeonPlanReloadPolicy.h SamePlanStep).
+static void TestReloadSeesOpenProof()
+{
+    PlanStep a = Boss(1, 3, 4887);
+    PlanStep b = a;
+    a.openProof = true;
+    CHECK(!SamePlanStep(a, b));
+    b.openProof = true;
+    CHECK(SamePlanStep(a, b));
+}
+
 int main()
 {
+    TestReloadSeesOpenProof();
     TestTacticTargetChangeMarksThePlanChanged();
     TestGoodReloadSwaps();
     TestUnchangedReloadListsNothing();
