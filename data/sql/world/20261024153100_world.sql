@@ -20,8 +20,8 @@
 --   * the 10374 patroller (step 217: 10375 spiderling summons + Mother Smolderweb 10596 wiped the party on the z 11
 --     corridor) is pulled from the east spur -104.8 -520.4 10.8: 22.5 yd from its -127.3 -520.33 spawn, 60 yd from the
 --     boss, reached by the south ramp (four approach points from the z -18 floor at -141.87 -510.13).
--- Server replay (path-check, the server's exact query) over the whole plan: 0 of 371 moves and 0 of 113 pull/boss hops
--- refused from the lead's stand after each pull; the same hops checked from the spot before each pull (a skipped pull
+-- Server replay (path-check, the server's exact query) over the whole plan: 0 of 371 moves and 0 of the 112 pull/boss
+-- hops the party reaches refused from the lead's stand after each pull; the same hops checked from the spot before each pull (a skipped pull
 -- moves nobody): 0 refused outside leg 0's z 58 scorpion-pit shelf, where 8 packs (pull groups 7-13 and 14 at
 -- -75.5 -324.1 58.9 ... -23.1 -393.2 48.6) are unreachable from the pit floor by the server (NOPATH) and stay skipped
 -- by the run leader as before (the live run pulled what came down and walked on). Before this export leg 1 refused 3
