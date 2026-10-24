@@ -768,11 +768,11 @@ static void TestApproachNotReadIsNotNoPath()
     f.approachY = 132.8f;
     f.approachZ = -46.7f;
     CHECK(Tick(r, f) == "move -249.9 132.8 -46.7");
-    // Read and no path at all: the pause stays.
+    // Read and no path at all: the stand search comes first.
     Run n = Start(&plan, 1);
     f.approachKnown = false;
     Tick(n, f);
-    CHECK(n.state == State::Paused && Has(n.note, "no walkable path toward the pack"));
+    CHECK(n.state == State::Running && n.approachStandWanted && Has(n.note, "no walkable path toward the pack"));
 }
 
 // Zul'Farrak's Bly hold (r14-19z32 slot 2, leg bly, steps 223-225): a hold

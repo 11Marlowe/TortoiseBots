@@ -906,6 +906,19 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
         self.assertLess(tick.index("TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);"),
                         tick.index(log))
 
+    def test_an_approach_with_no_way_goes_through_the_stand_search(self):
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        hop = body(policy, "inline void ApproachHop(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& order,", "\n}\n")
+        self.assertIn("ApproachNoWay(r, f, s, why);", hop)
+        self.assertNotIn("if (DeferRetryOn(r) && DeferUnreachablePack(r, s, why))", hop)
+        walk = body(policy, "inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direct, std::uint32_t dt,", "\n}\n")
+        self.assertLess(walk.index("WalkBackStuckRescue(r, f, dist, x, y, z)"), walk.index("ApproachWalkStuck(r, f, dist, x, y, z)"))
+        self.assertLess(walk.index("ApproachWalkStuck(r, f, dist, x, y, z)"), walk.index('Pause(r, "the lead bot is stuck "'))
+        noway = body(policy, "inline void ApproachNoWay(", "\n}\n")
+        self.assertLess(noway.index("DeferRetryOn(r)"), noway.index("ApproachStandWanted(r, s)"))
+        self.assertLess(noway.index("ApproachStandWanted(r, s)"), noway.index("DeferUnreachablePack(r, s, why))\n            return;"))
+        # the glue still answers the stand search after the tick (unchanged): the existing pin covers it
+
     def test_runs_ended_early_list_their_deferred_packs(self):
         # The Opus/Codex review of 6566f84d: a run stopped early (.bot run stop, the time limit, the key switched
         # off) lists the deferred packs it left alive (DungeonRun::EndRunEarly), never a bare state = Done.

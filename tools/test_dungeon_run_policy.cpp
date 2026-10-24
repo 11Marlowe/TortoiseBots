@@ -1814,12 +1814,12 @@ static void TestUnseenPackIsApproachedNotCleared()
     f.seen = true;
     Tick(r, f);
     CHECK(r.state == State::Done);
-    // No path toward it at all: pause, never a straight-line guess.
+    // No path toward it at all: the stand search first, never a straight-line guess.
     Run r2 = Start(&plan);
     Facts g = Party(0);
     g.seen = false;
     Tick(r2, g);
-    CHECK(r2.state == State::Paused && r2.note.find("no walkable path") == 0);
+    CHECK(r2.state == State::Running && r2.approachStandWanted && r2.note.find("no walkable path") == 0);
     // A hop within kArriveYd of the lead bot goes nowhere: no path at once
     // (it used to "arrive" 8 times first; r3-19z20 B-FIX-2). The hop cap's
     // own test is TestApproachHopCapCountsHopsWithoutProgress.
@@ -1827,7 +1827,7 @@ static void TestUnseenPackIsApproachedNotCleared()
     g.approachKnown = true;
     g.approachX = 1;
     Tick(r3, g);
-    CHECK(r3.state == State::Paused && r3.note.find("no walkable path") == 0);
+    CHECK(r3.state == State::Running && r3.approachStandWanted && r3.note.find("no walkable path") == 0);
 }
 
 // Ragefire 19z13, trogg cave pull 13: the pack is 70 yd down a ramp. The hop
@@ -6593,6 +6593,31 @@ static void TestFightCeilingWithFourDeadRegroups()
     CHECK(p.state == State::Paused);
 }
 
+// Review round 1 (lead decision): the regroup after deaths past the fight ceiling is also a self-regroup after
+// deaths: it re-arms the rescue latch like the wipe block, so a second such regroup on the same step gets the
+// rescue again; a hand resume still does not re-arm. Deleting the new call fails this test.
+static void TestPastCeilingRegroupRearmsTheRescue()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.anyInCombat = true;
+    f.dead = 4;
+    f.alive = 1;
+    r.strandStep = 0; // the first regroup's rescue already used the latch on this step
+    for (std::uint32_t i = 0; i <= kFightCapMs / kTickMs + 1 && !r.regroup; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.regroup && r.autoRegroups == 1 && r.note.find("went past") != std::string::npos);
+    CHECK(r.strandStep == static_cast<std::size_t>(-1)); // re-armed by the regroup
+    // A hand resume after it still does not re-arm.
+    r.strandStep = 0;
+    r.regroup = true;
+    r.state = State::Paused;
+    CHECK(Resume(r));
+    CHECK(r.strandStep == 0);
+}
+
 // 19z5 step 83: Draezur 29 yd away but on another floor (z 21 against 43);
 // the gather paused twice. A bot more than 8 yd up or down that comes no
 // closer is a straggler too.
@@ -11298,7 +11323,8 @@ static void TestApproachHopIslandAndZeroHop()
     Facts h = OnIsland();
     h.leadIsland = false;
     CHECK(Tick(z, h).empty());
-    CHECK(z.state == State::Paused && z.note.find("no walkable path toward the pack") == 0);
+    CHECK(z.state == State::Running && z.approachStandWanted && z.note.find("no walkable path toward the pack") == 0);
+    CHECK(z.note.find("escape") == std::string::npos);
 }
 
 
@@ -11535,13 +11561,14 @@ static void TestSingleIslandReadingChangesNothing()
     h.approachX = 5;
     h.leadIsland = LeadOnIsland(false, true, 5.0f, 300.0f);
     CHECK(Tick(a, h) == "move 5.0 0.0 0.0");
-    // ... and a zero-length hop with one reading only: no path, the pause (B-FIX-2), not an escape.
+    // ... and a zero-length hop with one reading only: no path, the stand search (B-FIX-2), not an escape.
     Run z = Start(&plan, 2);
     z.restDue = false;
     h.approachX = 1;
     h.leadIsland = LeadOnIsland(false, true, 1.0f, 300.0f);
-    CHECK(Tick(z, h).empty());
-    CHECK(z.state == State::Paused && z.note.find("no walkable path toward the pack") == 0);
+    std::string const islandOrder = Tick(z, h);
+    CHECK(islandOrder.empty()); // never a straight-line guess on the first no-path reading
+    CHECK(z.state == State::Running && z.approachStandWanted && z.note.find("no walkable path toward the pack") == 0);
 }
 
 // The second sign (b) with the trace's numbers: from 1589.6 1046.9 the path to
@@ -16947,7 +16974,7 @@ static void TestEveryRetryExitThatLeavesThePackAliveGivesItUp()
         CHECK(r.state == State::Running && r.step == 1 && r.note.find("skipped, not cleared: 10 units") != std::string::npos);
         CHECK(r.deferGivenUp == std::vector<std::size_t>{0} && r.notCleared.count(0));
     }
-    // (c) No walkable path toward it on the retry: given up, never the pause it is outside a retry.
+    // (c) No walkable path toward it on the retry: given up, outside a retry the stand search comes first.
     {
         Facts f = FarPack(0);
         f.approachKnown = false;
@@ -16960,7 +16987,7 @@ static void TestEveryRetryExitThatLeavesThePackAliveGivesItUp()
         Run p = Start(&plan);
         p.restDue = false;
         Tick(p, f);
-        CHECK(p.state == State::Paused && p.note.find("no walkable path toward the pack") == 0);
+        CHECK(p.state == State::Running && p.approachStandWanted && p.note.find("no walkable path toward the pack") == 0);
     }
     // (d) Still not reachable on the retry (the hops and the stand search again): given up, no second deferral.
     {
@@ -17321,6 +17348,188 @@ static void TestResumeOfTheApproachPauseSearchesInPlaceThenDefers()
     CHECK(backed);
 }
 
+// BFD r29 slot 6 step 580 (pauses 2-4): a hop that finds no way (none, or ending at the lead bot) gets the stand
+// search first, then the deferral; a stand found walks there, no deferral.
+static void TestNoPathTowardThePackSearchesAStandThenDefers()
+{
+    DungeonPlan plan;
+    plan.steps = {InLeg(PullStep(300, {1}), 0), InLeg(Step(PlanStepKind::Move, 400), 0), InLeg(Step(PlanStepKind::Move, 500), 1)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts f = FarPack(0);
+    f.approachRead = true;
+    f.approachKnown = false;       // the hop read finds no way
+    CHECK(PullMayBeDeferred(r));
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.approachStandWanted);
+    CHECK(r.note == "no walkable path toward the pack at 300.0 0.0 0.0: looking for a stand within 25.0 yd of it");
+    ApproachStandFound(r, f, false, 0, 0, 0);
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(r.deferredPulls == std::vector<std::size_t>{0} && r.notCleared.count(0));
+    CHECK(r.note.find("pack at 300.0 0.0 0.0 deferred: not reachable from this floor") == 0);
+    CHECK(r.note.find("no walkable path toward the pack at 300.0 0.0 0.0; no safe stand") != std::string::npos);
+    // A stand found: the party walks there, no deferral.
+    Run s = Start(&plan);
+    s.restDue = false;
+    Tick(s, f);
+    CHECK(s.approachStandWanted);
+    ApproachStandFound(s, f, true, 280, 0, 0);
+    CHECK(s.state == State::Running && s.step == 0 && s.approachStand == 2 && s.deferredPulls.empty());
+}
+
+// A boss with no way on: the stand search, then the approach pause (a boss is never deferred).
+static void TestNoPathTowardABossPausesAfterTheStandSearch()
+{
+    DungeonPlan plan;
+    PlanStep b = Step(PlanStepKind::Boss, 300);
+    b.entry = 4832;
+    ai::NormalizePlanStep(b);
+    b.entry = 4832;
+    ai::NormalizePlanStep(b);
+    plan.steps = {InLeg(b, 0), InLeg(Step(PlanStepKind::Move, 400), 0), InLeg(Step(PlanStepKind::Move, 500), 1)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts f = FarPack(0);
+    f.approachRead = true;
+    f.approachKnown = false;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.approachStandWanted);
+    ApproachStandFound(r, f, false, 0, 0, 0);
+    CHECK(r.state == State::Paused && r.note.find("no walkable path toward the boss at 300.0 0.0 0.0; the boss at 300.0 0.0 0.0 is not reachable from this floor: no safe stand") == 0 && r.approachPauseKnown);
+}
+
+// Pause 1: the lead bot in water, the hop walk stuck after kWalkTries, gets the stand search then the deferral.
+static void TestStuckApproachHopWalkSearchesAStandThenDefers()
+{
+    DungeonPlan plan;
+    plan.steps = {InLeg(PullStep(300, {1}), 0), InLeg(Step(PlanStepKind::Move, 400), 0), InLeg(Step(PlanStepKind::Move, 500), 1)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts f = FarPack(0);
+    f.approachRead = true;
+    f.approachKnown = true;
+    f.approachX = 40;
+    f.leadInWater = true;
+    CHECK(FirstOrder(r, f) == "move 40.0 0.0 0.0");   // the hop
+    // The lead bot never moves (stays at 0 0 0).
+    for (int i = 0; i < 400 && r.state == State::Running && !r.approachStandWanted; ++i)
+    {
+        Tick(r, f);
+        if (r.stallStandInWanted)
+            StallStandIn(r, false, 0, 0, 0);
+    }
+    CHECK(r.state == State::Running && r.approachStandWanted);
+    CHECK(r.note.find("the lead bot is stuck 40.0 yd from 40.0 0.0 0.0 (lead in water: yes") == 0);
+    CHECK(r.note.find("on the way toward the pack at 300.0 0.0 0.0: looking for a stand within 25.0 yd of it") != std::string::npos);
+    ApproachStandFound(r, f, false, 0, 0, 0);
+    CHECK(r.state == State::Running && r.step == 1 && r.deferredPulls == std::vector<std::size_t>{0});
+}
+
+// Review round 1 (spec rule 2b(ii) unpinned): the stand searched and found (~280 yd, as the probe), the lead bot
+// never moves, loop Tick + the stall feed until kWalkTries is spent: the pull is deferred (not paused), the step
+// advanced. Replacing the spent branch's DeferUnreachablePack with false (M9) leaves every suite green otherwise.
+static void TestStuckStandWalkAfterTheStandWasTriedDefers()
+{
+    DungeonPlan plan;
+    plan.steps = {InLeg(PullStep(300, {1}), 0), InLeg(Step(PlanStepKind::Move, 400), 0), InLeg(Step(PlanStepKind::Move, 500), 1)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts f = FarPack(0);
+    f.approachRead = true;
+    f.approachKnown = false; // the hop read finds no way: stand search first
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.approachStandWanted);
+    ApproachStandFound(r, f, true, 280, 0, 0); // the stand ~280 yd as in the reviewer's probe
+    CHECK(r.state == State::Running && r.step == 0 && r.approachStand == 2 && r.deferredPulls.empty());
+    // The lead bot never moves (stays at 0 0 0): the walk to the stand stalls kWalkTries times, then defers.
+    for (int i = 0; i < 400 && r.state == State::Running && r.step == 0 && r.deferredPulls.empty(); ++i)
+    {
+        Tick(r, f);
+        if (r.stallStandInWanted)
+            StallStandIn(r, false, 0, 0, 0);
+    }
+    CHECK(r.state == State::Running && r.step == 1 && r.deferredPulls == std::vector<std::size_t>{0});
+    CHECK(r.note.find("the lead bot is stuck 280.0 yd from 280.0 0.0 0.0") != std::string::npos);
+    CHECK(r.note.find("deferred: not reachable from this floor") != std::string::npos);
+}
+
+// The boss twin: the same walk on a boss step ends in the approach pause (a boss is never deferred).
+static void TestStuckStandWalkOnABossStepPausesAfterTheStandWasTried()
+{
+    DungeonPlan plan;
+    PlanStep b = Step(PlanStepKind::Boss, 300);
+    b.entry = 4832;
+    b.radius = 10; // a tight boss: the 20 yd ring stand below is legal (min ring 15)
+    ai::NormalizePlanStep(b);
+    b.entry = 4832;
+    ai::NormalizePlanStep(b);
+    plan.steps = {InLeg(b, 0), InLeg(Step(PlanStepKind::Move, 400), 0), InLeg(Step(PlanStepKind::Move, 500), 1)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts f = FarPack(0);
+    f.approachRead = true;
+    f.approachKnown = false;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.approachStandWanted);
+    ApproachStandFound(r, f, true, 280, 0, 0); // the stand 20 yd from the boss
+    CHECK(r.state == State::Running && r.step == 0 && r.approachStand == 2 && r.deferredPulls.empty());
+    for (int i = 0; i < 400 && r.state == State::Running && r.step == 0; ++i)
+    {
+        Tick(r, f);
+        if (r.stallStandInWanted)
+            StallStandIn(r, false, 0, 0, 0);
+    }
+    CHECK(r.state == State::Paused && r.step == 0 && r.deferredPulls.empty() && r.approachPauseKnown);
+    CHECK(r.note.find("the lead bot is stuck") == 0);
+}
+
+// Review round 1 (walk-back guard pin): a walk back active with a stalled hop walk: ApproachWalkStuck does not
+// fire (no deferral, no approach pause during the walk back); the walk's own stuck pause rules. Dropping
+// `r.walkBack ||` from ApproachWalkStuck survives otherwise.
+static void TestStuckWalkDuringAWalkBackStaysAPlainPause()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), InLeg(PullStep(300, {1}), 0), InLeg(Step(PlanStepKind::Move, 400), 0)};
+    Run r = Start(&plan, 1);
+    r.restDue = false;
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 0;
+    r.hopWalk = true;
+    r.hopX = 40; r.hopY = 0; r.hopZ = 0;
+    Facts f = Party(0);
+    std::string order;
+    for (int i = 0; i < 400 && r.state == State::Running; ++i)
+    {
+        order.clear();
+        WalkTo(r, f, 40, 0, 0, false, kTickMs, order);
+        if (r.stallStandInWanted)
+            StallStandIn(r, false, 0, 0, 0);
+    }
+    CHECK(r.state == State::Paused && r.note.find("the lead bot is stuck 40.0 yd from 40.0 0.0 0.0") == 0);
+    CHECK(!r.approachStandWanted && r.deferredPulls.empty() && !r.approachPauseKnown);
+}
+
+// The guard on the hop's point: a stuck walk that is not the step's approach walk still pauses.
+static void TestStuckWalkThatIsNotTheHopStillPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {InLeg(PullStep(300, {1}), 0), InLeg(Step(PlanStepKind::Move, 400), 0), InLeg(Step(PlanStepKind::Move, 500), 1)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.hopWalk = true;              // stale from an earlier hop
+    r.hopX = 40; r.hopY = 0; r.hopZ = 0;
+    Facts f = Party(0);
+    std::string order;
+    for (int i = 0; i < 400 && r.state == State::Running; ++i)
+    {
+        order.clear();
+        WalkTo(r, f, 80, 0, 0, false, kTickMs, order);
+        if (r.stallStandInWanted)
+            StallStandIn(r, false, 0, 0, 0);
+    }
+    CHECK(r.state == State::Paused && r.note.find("the lead bot is stuck 80.0 yd from 80.0 0.0 0.0") == 0 && !r.approachStandWanted);
+}
+
 int main()
 {
     TestRunGossipStepOfReadsTheCurrentStep();
@@ -17417,6 +17626,13 @@ int main()
     TestGatingPullsAndBossesAreNeverDeferred();
     TestStandSearchDuringARetryCountsOnlyLivePacks();
     TestResumeOfTheApproachPauseSearchesInPlaceThenDefers();
+    TestNoPathTowardThePackSearchesAStandThenDefers();
+    TestNoPathTowardABossPausesAfterTheStandSearch();
+    TestStuckApproachHopWalkSearchesAStandThenDefers();
+    TestStuckStandWalkAfterTheStandWasTriedDefers();
+    TestStuckStandWalkOnABossStepPausesAfterTheStandWasTried();
+    TestStuckWalkDuringAWalkBackStaysAPlainPause();
+    TestStuckWalkThatIsNotTheHopStillPauses();
     TestMoveRefusedTooFarGoesInLegsAlongThePath();
     TestResumeWalksBackNoFartherThanTheLastClearedFight();
     TestItemCarrierIsPickedFromTheStepsOwnInputs();
@@ -17500,6 +17716,7 @@ int main()
     TestNearWipeLatchHoldsThroughTheWipe();
     TestLeadDiesFirstThenTheWipeRegroups();
     TestFightCeilingWithFourDeadRegroups();
+    TestPastCeilingRegroupRearmsTheRescue();
     TestStragglerOnAnotherFloorIsSummoned();
     TestResumeFromTheEntranceWalksBack();
     TestGatherGoesBackToTheAnchorAfterARidgeChase();

@@ -1239,6 +1239,71 @@ static void TestPlacedRescueTargetIsSafe()
     StartWalkBack(r, f);
     CHECK(r.strandDue && r.strandIdx == 4); // 540 0: 500 0 lies 5 yd from the pre-start pack at 505 0
 }
+// BFD r29 slot 6: the first wipe's rescue succeeded on this step, then a second wipe came on the same step. The
+// regroup the run starts by itself re-arms the rescue's once-a-step latch (strandStep), so the walk back after it
+// may teleport again; the failed tries of this step stay spent.
+static void TestSecondWipeOnTheStepIsRescuedToo()
+{
+    std::size_t wipe = 0, side = 0;
+    DungeonPlan plan = GnomereganShape(wipe, side);
+    std::size_t const start = side + 1;
+    Run r = Start(&plan, wipe);
+    r.startStep = start;
+    r.strandStep = wipe;            // the first wipe's rescue succeeded on this step
+    Facts f = Party(0.0f, 0.0f);    // up at the entrance
+    f.dead = 3; f.alive = 2;        // the second wipe, fight over (anyInCombat false by default)
+    Tick(r, f);
+    CHECK(r.regroup && r.autoRegroups == 1 && r.note.find("regrouping by itself") != std::string::npos);
+    CHECK(r.strandStep == static_cast<std::size_t>(-1));     // re-armed by the regroup
+    Facts up = Party(0.0f, 0.0f);
+    StartWalkBack(r, up);
+    CHECK(r.strandDue && r.walkBackIdx == start && r.note.find("is up behind the run's start step") != std::string::npos);
+    // The failed tries stay counted.
+    Run t = Start(&plan, wipe);
+    t.startStep = start;
+    t.strandStep = wipe;
+    t.strandCountStep = wipe;
+    t.strandTries = kStrandTries;
+    Facts g = Party(0.0f, 0.0f); g.dead = 3; g.alive = 2;
+    Tick(t, g);
+    CHECK(t.strandStep == static_cast<std::size_t>(-1) && t.strandTries == kStrandTries && t.strandCountStep == wipe);
+    StartWalkBack(t, Party(0.0f, 0.0f));
+    CHECK(!t.strandDue);   // the step's tries are spent: the walk, as before
+}
+
+// The lead bot died and came back to life away from the party (LeadRevivedAway): the same re-arm, so its walk back
+// may teleport again on the same step.
+static void TestLeadRevivedAwayRearmsTheRescue()
+{
+    std::size_t wipe = 0, side = 0;
+    DungeonPlan plan = GnomereganShape(wipe, side);
+    std::size_t const start = side + 1;
+    Run r = Start(&plan, wipe);
+    r.startStep = start;
+    r.strandStep = wipe;
+    r.leadDied = true;
+    r.leadDeathX = plan.steps[wipe].x; r.leadDeathY = plan.steps[wipe].y; r.leadDeathZ = 0.0f;
+    Facts f = Party(0.0f, 0.0f);   // alive, at the entrance, far from where it fell
+    Tick(r, f);
+    CHECK(r.regroup && r.note.find("came back to life away from the party") != std::string::npos);
+    CHECK(r.strandStep == static_cast<std::size_t>(-1));
+}
+
+// The kept design: a resume (ResetStep) does NOT re-arm the latch.
+static void TestResumeKeepsTheRescueLatch()
+{
+    std::size_t wipe = 0, side = 0;
+    DungeonPlan plan = GnomereganShape(wipe, side);
+    std::size_t const start = side + 1;
+    Run r = Start(&plan, wipe);
+    r.startStep = start;
+    r.strandStep = wipe;
+    Pause(r, "test");
+    CHECK(Resume(r));
+    CHECK(r.strandStep == wipe);
+    StartWalkBack(r, Party(0.0f, 0.0f));
+    CHECK(!r.strandDue);
+}
 
 int main()
 {
@@ -1259,6 +1324,9 @@ int main()
     TestFightForwardNeedsTheGluesRead();
     TestRoundOneRestAndShortcutNotes();
     TestPlacedRescueTargetIsSafe();
+    TestSecondWipeOnTheStepIsRescuedToo();
+    TestLeadRevivedAwayRearmsTheRescue();
+    TestResumeKeepsTheRescueLatch();
     std::cout << "test_run_time_sinks_policy: ok\n";
     return 0;
 }
