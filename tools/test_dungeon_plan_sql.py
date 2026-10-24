@@ -2924,9 +2924,12 @@ class DungeonPlanSql(unittest.TestCase):
 
 
     def test_scholomance_is_the_census_fixed_draft(self):
-        # 20261024150800 (turtle-agent ef200c7, 2026-10-24): the Scholomance draft with the census fixes of
+        # 20261024152700 (turtle-agent f956df8, 2026-10-24): the Scholomance draft with the census fixes of
         # PREP-SCHOLOMANCE-2026-10-24.md, leg 0's route clear after the r28c slotC first run, the step-11 reorder after the
-        # r29 slot8 run (RUN-LESSONS.md) and the hall-stand fix after the r30 slotC run (spec scholo-leg0-kill-order.md section 7):
+        # r29 slot8 run (RUN-LESSONS.md), the hall-stand fix after the r30 slotC run (spec scholo-leg0-kill-order.md section 7)
+        # and the Vectus fix after the r34 slotA run: the boss row gains its approach stand (128 105 102.4, 16.7 yd from
+        # Vectus and 25.1 yd from Marduk) and the ras leg leaves the room north (via 124 116, 120 115, 110 110, all 25.9+ yd
+        # from Vectus) instead of walking through his room at 9.2 yd:
         # the landing-to-Malicia walk is 554 yd and passes 40 census packs within 30 yd, so leg 0 is those 40 pulls with their
         # approach rows instead of one move row. The r30 run wiped on the step-16 stands (215 22, 218 30, 220 24: 11-20 yd from
         # the unpulled 48845 pack and the 91341/91350 pair), so the 48849 pack is pulled from the stairs (224.2 48.1), the lone
@@ -2937,8 +2940,8 @@ class DungeonPlanSql(unittest.TestCase):
         # members and its radius (5-13.1 yd) covers its own positions; Alexei's linked Risen Guards 10489 and Rattlegore's linked
         # Risen Construct 10488 are the boss rows' first.
         name, text = newest_plan_text("scholomance")
-        self.assertEqual(name, "20261024150800_world.sql")
-        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469', '', '10471,11582,10477', 'turtle-agent ef200c7", text)
+        self.assertEqual(name, "20261024152700_world.sql")
+        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469', '', '10471,11582,10477', 'turtle-agent f956df8", text)
         legs = leg_rows(text, "scholomance")
         self.assertEqual([legs[i][0] for i in range(10)],
                          ["instructor_malicia", "the_ravenian", "lorekeeper_polkelt", "lady_illucia_barov",
@@ -2978,6 +2981,25 @@ class DungeonPlanSql(unittest.TestCase):
         entries0 = [r["entries"] for r in pulls0[:8]]
         self.assertEqual(entries0[4:8],
                          ["10471,10470,10499", "10471", "10470,10471", "10471,10470"])
+        # The r34 Vectus fix: the boss row walks to its stand (128 105 102.4, 16.7 yd from Vectus, 25.1 yd from Marduk)
+        # before the boss, and the ras leg leaves the room north (via 124 116, 120 115, 110 110, all 25.9+ yd from Vectus
+        # and 40 yd from the nearest hostile-233 pack) instead of the through-room path at 9.2 yd from him. Legs 0-5, 8
+        # and 9 are byte-identical to the 150800 rows.
+        leg6 = leg_steps(rows, 6)
+        self.assertEqual(len(leg6), 21)
+        self.assertEqual(leg6[-2]["kind"], "move")
+        self.assertEqual(leg6[-2]["comment"], "boss approach")
+        self.assertEqual((leg6[-2]["x"], leg6[-2]["y"], leg6[-2]["z"]), ("128", "105", "102.4"))
+        self.assertEqual(leg6[-1]["kind"], "boss")
+        self.assertEqual(leg6[-1]["entry"], "10432")
+        self.assertEqual(leg6[-1]["entries"], "10433")
+        leg7 = leg_steps(rows, 7)
+        self.assertEqual(len(leg7), 15)
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg7[:3]],
+                         [("124", "116", "101.9"), ("120", "115", "101.1"), ("110", "110", "99.5")])
+        self.assertTrue(all(r["comment"] == "via" for r in leg7[:3]))
+        self.assertEqual(leg7[10]["kind"], "move")
+        self.assertEqual(leg7[10]["comment"], "to")
         self.assertFalse([r["entries"] for r in pulls
                           if {"2110", "4075", "16047", "16118"} & set(r["entries"].split(","))])
         self.assertLessEqual(max(len(r["entries"].split(",")) for r in pulls), 6)
