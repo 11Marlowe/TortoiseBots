@@ -16629,6 +16629,217 @@ static void TestUnattackableGraceNeverLetsAPlanBossOrHoldUnitGo()
     CHECK(!PlanBossOrHoldEntry(none, 3976));
 }
 
+// Dire Maul West r38 slot B: the Gordok Mauler 11442 (spawn 51062, map 1, Feralas outside the instance) on the hunter
+// Pozzle, who stood outside the instance: read from the lead bot inside as "cannot be attacked" at kOtherMapYd.
+static const std::uint64_t kMaulerGuid = 0xF130002CB200C776ull;
+static UnitFact Mauler()
+{
+    UnitFact u = Engaged(Unit(kMaulerGuid, 11442, kOtherMapYd));
+    u.attackable = false;
+    u.health = 7359;
+    u.maxHealth = 7359;
+    u.partyHits = true;
+    return u;
+}
+static MemberFact OutsidePozzle(bool fighting = true)
+{
+    MemberFact m = Mem("Pozzle", kOtherMapYd);
+    m.offPlanMap = true;
+    m.inCombat = fighting;
+    m.attackers = fighting ? 1 : 0;
+    m.engagedRead = fighting;
+    if (fighting)
+        m.engaged = {Mauler()};
+    return m;
+}
+// The lead bot "Tanky" out of combat in the instance, Pozzle outside in the Mauler's fight (as the glue reads it).
+static Facts OutsideFight()
+{
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), OutsidePozzle()};
+    f.maxMemberYd = kOtherMapYd;
+    f.anyInCombat = true;
+    f.engagedRead = true;
+    f.engagedUnits = {Mauler()};
+    return f;
+}
+// The tick after the glue's DropUnattackableCombat: Pozzle out of combat for one tick (then the Mauler again).
+static Facts OutsideDropped()
+{
+    Facts f = OutsideFight();
+    f.members[1] = OutsidePozzle(false);
+    f.anyInCombat = false;
+    f.engagedUnits.clear();
+    return f;
+}
+static DungeonPlan GraveyardPlan()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {11473}), Step(PlanStepKind::Move, 400)};
+    return plan;
+}
+static void TestOutsideBotFightIsNoPartyFight()
+{
+    DungeonPlan plan = GraveyardPlan();
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.fighting = true;                 // the step's fight was on
+    r.fightMs = kFightCapMs + 5000;
+    Facts f = OutsideFight();
+    Facts view;
+    CHECK(PlanMapFightView(f, view) && !view.anyInCombat && !view.staleCombat);
+    Tick(r, f);
+    CHECK(r.state == State::Running && !r.fighting);
+    for (int i = 0; i < 30 && r.state == State::Running; ++i)
+    {
+        Tick(r, f);
+        CHECK(!r.fighting && r.note.find("lasted more than") == std::string::npos);
+    }
+}
+static void TestOutsideBotDoesNotHoldTheRegroup()
+{
+    DungeonPlan plan = GraveyardPlan();
+    Run r = Start(&plan);
+    BeginRegroup(r);
+    Facts fight = OutsideFight();
+    fight.alive = 4;
+    fight.dead = 1;
+    fight.deadNames = {"Hilde"};
+    Facts dropped = OutsideDropped();
+    dropped.alive = 4;
+    dropped.dead = 1;
+    dropped.deadNames = {"Hilde"};
+    fight.walkBackRescue = false;   // no return teleport (part 7): this test pins the fight view alone
+    dropped.walkBackRescue = false;
+    CHECK(Tick(r, fight) == "revive party");
+    CHECK(r.regroupMs == kTickMs && !r.fighting);
+    CHECK(Has(r.note, "regroup: waiting for Hilde (dead), Pozzle (outside the instance), reviving"));
+    bool dropNoted = false;
+    bool afterDrop = false;
+    for (std::uint32_t ms = kTickMs; ms <= kRegroupReviveMs + 2 * kTickMs && r.state == State::Running; ms += kTickMs)
+    {
+        Tick(r, afterDrop ? dropped : fight);
+        afterDrop = !r.combatDrops.empty(); // the glue dropped Pozzle's combat: out one tick, then the Mauler again
+        dropNoted = dropNoted || Has(r.note, "Pozzle dropped combat with entry 11442 (outside the instance)");
+        CHECK(!r.fighting);
+    }
+    CHECK(dropNoted);
+    CHECK(r.state == State::Paused && Has(r.note, "regroup: 1 still dead after 240 s"));
+    CHECK(r.note.find("lasted more than") == std::string::npos);
+}
+static void TestOutsideBotFightLetsTheWipeRegroup()
+{
+    DungeonPlan plan = GraveyardPlan();
+    Run r = Start(&plan);
+    r.fighting = true;
+    r.fightMs = 60000;
+    Facts f = OutsideFight();
+    f.leadAlive = false;
+    f.total = 5;
+    f.alive = 1;
+    f.dead = 4;
+    f.deadNames = {"Tanky", "Tobian", "Hilde", "Gougemeister"};
+    f.members = {OutsidePozzle()};
+    Tick(r, f);
+    CHECK(r.regroup && Has(r.note, "regrouping by itself (1 of 2 at this step)"));
+    CHECK(r.note.find("fighting on") == std::string::npos);
+}
+static void TestFightOnThePlanMapStillCounts()
+{
+    DungeonPlan plan = GraveyardPlan();
+    UnitFact mob = Engaged(Unit(0xF13000183E00763Dull, 11473, 12)); // attackable, in the instance
+    // (a) a bot in the instance fights too (the lead bot does not): the fight stays, the Mauler leaves the engaged units
+    Facts a = OutsideFight();
+    MemberFact healer = Mem("Tobian", 10);
+    healer.inCombat = true;
+    healer.attackers = 1;
+    healer.engagedRead = true;
+    healer.engaged = {mob};
+    a.members.push_back(healer);
+    a.engagedUnits = {Mauler(), mob};
+    Facts va;
+    CHECK(PlanMapFightView(a, va) && va.anyInCombat && !va.staleCombat);
+    CHECK(va.engagedUnits.size() == 1 && va.engagedUnits[0].entry == 11473);
+    Run ra = Start(&plan);
+    Tick(ra, a);
+    CHECK(ra.fighting);
+    // (b) a living real player in combat keeps the fight
+    Facts b = OutsideFight();
+    PlayerFact p;
+    p.name = "Hypeer";
+    p.inCombat = true;
+    b.players = {p};
+    Facts vb;
+    CHECK(PlanMapFightView(b, vb) && vb.anyInCombat && vb.engagedUnits.empty() && vb.staleCombat);
+    // (c) 1000 yd without the flag is a bot in the instance: no change
+    Facts c = OutsideFight();
+    c.members[1].offPlanMap = false;
+    Facts vc;
+    CHECK(!PlanMapFightView(c, vc));
+    // (d) the paused self-resume: units all off the map are quiet; one in the instance, or none read, is a fight
+    Run rd = Start(&plan);
+    Facts d;
+    d.anyInCombat = true;
+    d.engagedRead = true;
+    d.engagedUnits = {Mauler()};
+    CHECK(!FightOn(rd, d, kTickMs));
+    d.engagedUnits.push_back(mob);
+    CHECK(FightOn(rd, d, kTickMs));
+    d.engagedUnits.clear();
+    CHECK(FightOn(rd, d, kTickMs));
+    // (e) the lead bot dead (its ghost may be on another map): a bot in the instance fighting a unit read at 1000 yd
+    // keeps it
+    Facts e = OutsideFight();
+    e.leadAlive = false;
+    MemberFact rogue = Mem("Gougemeister", kOtherMapYd);
+    rogue.inCombat = true;
+    rogue.attackers = 1;
+    UnitFact far = mob;
+    far.distLead = kOtherMapYd;
+    e.members = {OutsidePozzle(), rogue};
+    e.engagedUnits = {Mauler(), far};
+    Facts ve;
+    CHECK(!PlanMapFightView(e, ve));
+    // (f) a bot in the instance with a combat flag and nothing on it, Pozzle outside: the stale flag's grace (no clock)
+    Facts s = OutsideFight();
+    MemberFact flagged = Mem("Tobian", 10);
+    flagged.inCombat = true;
+    s.members.push_back(flagged);
+    Facts vs;
+    CHECK(PlanMapFightView(s, vs) && vs.anyInCombat && vs.engagedUnits.empty() && vs.staleCombat);
+    Run rs = Start(&plan);
+    for (int i = 0; i < 5; ++i)
+        Tick(rs, s);
+    CHECK(rs.fighting && rs.fightMs == 0);
+}
+static void TestRegroupQuietTickEndsTheFightClock()
+{
+    DungeonPlan plan = GraveyardPlan();
+    Run r = Start(&plan);
+    BeginRegroup(r);
+    Facts quiet = Party(0);
+    quiet.alive = 4;
+    quiet.dead = 1;
+    quiet.deadNames = {"Hilde"};
+    quiet.members = {Mem("Tanky", 0)};
+    Facts fight = quiet;
+    fight.anyInCombat = true;
+    fight.leadInCombat = true;
+    fight.members[0].inCombat = true;
+    fight.engagedRead = true;
+    fight.engagedUnits = {Engaged(Unit(0xF13000183E00763Dull, 11473, 5))};
+    for (int i = 0; i < 100; ++i)
+        Tick(r, fight);
+    CHECK(r.state == State::Running && r.fighting && r.fightMs == 100 * kTickMs);
+    Tick(r, quiet);
+    CHECK(r.regroup && r.fightMs == 0);
+    Tick(r, fight);
+    CHECK(r.fightMs == kTickMs);
+    for (int i = 0; i < 100; ++i)
+        Tick(r, fight);
+    CHECK(r.state == State::Running);
+}
+
 // Scarlet Graveyard r23 slot 7 (Scorn, event 81) and Codex review round 1: the skip reads every event association of
 // every spawn row; a row also listed under a running event, a row with no event and a removal row all keep the pause.
 static void TestSpawnEventsOffReadsEveryAssociation()
@@ -19272,6 +19483,11 @@ int main()
     TestGatherWaitsForABotHeldByUnattackable();
     TestPetHeldByUnattackableKeepsTheBotInTheFight();
     TestUnattackableGraceNeverLetsAPlanBossOrHoldUnitGo();
+    TestOutsideBotFightIsNoPartyFight();
+    TestOutsideBotDoesNotHoldTheRegroup();
+    TestOutsideBotFightLetsTheWipeRegroup();
+    TestFightOnThePlanMapStillCounts();
+    TestRegroupQuietTickEndsTheFightClock();
     TestBossNotAtHisSpotIsSearchedForInTheInstance();
     TestPassedBossAtHisSpotPausesAtOnce();
     TestAliveSearchPauseSaysWhereTheLeadBotIs();

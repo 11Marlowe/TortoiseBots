@@ -632,6 +632,9 @@ struct MemberFact
     // paused the run four times (CombatDropTick).
     std::vector<UnitFact> engaged{};
     bool engagedRead = false;
+    // Dire Maul West r38 slot B (2026-10-24): the bot is not on the plan's map (the glue: its map id is not the
+    // plan's; outside the instance). It is no part of the party's fight (PlanMapFightView). Unread: false.
+    bool offPlanMap = false;
 };
 
 // An instance door: where an area trigger into the plan's map puts a player
@@ -2756,7 +2759,7 @@ inline std::string WaitNote(const Run& r, const Facts& f)
     for (const MemberFact& m : f.members)
         if (!m.name.empty() && (m.yd > kGatherYd || m.dz > kStragglerDzYd) &&
             (r.waitFor.count(m.name) || r.regroup))
-            add(m.name, "running back");
+            add(m.name, m.offPlanMap ? "outside the instance" : "running back");
     if (out.empty() && f.dead)
         out = std::to_string(f.dead) + " dead";
     return out.empty() ? std::string("waiting for the party") : "waiting for " + out;
@@ -11141,10 +11144,81 @@ inline bool UnattackableGraceTick(Run& r, const Facts& f, std::uint32_t dt)
     return r.unattackableMs >= kUnattackableGraceMs;
 }
 
+// The distance the glue gives a bot (MemberFact::yd) or a unit (UnitFact::distLead) off the lead bot's map.
+constexpr float kOtherMapYd = 1000.0f;
+
+// Dire Maul West r38 slot B step 29 (image 19z54e, 2026-10-24): the hunter Pozzle stood outside the instance after a
+// rescue (Feralas, map 1) in a fight with a Gordok Mauler 11442 there. The lead bot in the instance judged it "cannot
+// be attacked" (WorldObject::IsValidAttackTarget refuses a unit on another map) at 1000 yd; the unattackable grace and
+// the combat drop let it go every 10 s and it took him again a tick later, so his fight kept the party "in combat":
+// the regroup's revive clock ran on one tick of 11, the regroup's fights ran on one clock past the 180 s ceiling and
+// paused the run ("kept on by entry 11442 ... cannot be attacked"), and with the party dead the wipe's regroup waited
+// 130 s on "fighting on". A party bot off the plan's map (MemberFact::offPlanMap) is no part of the party's fight: when
+// only such bots fight (not the lead bot, no other bot, no living real player), the view has no combat; when the party
+// fights in the instance too, the units off the lead bot's map (kOtherMapYd) leave the engaged units (only with the
+// lead bot alive: a dead lead bot's ghost may be on another map). True with `out` set when the view differs from `f`.
+inline bool PlanMapFightView(const Facts& f, Facts& out)
+{
+    if (!f.anyInCombat)
+        return false;
+    bool offMapFight = false;
+    bool onMapFight = f.leadInCombat;
+    for (const MemberFact& m : f.members)
+        if (m.inCombat)
+        {
+            if (m.offPlanMap)
+                offMapFight = true;
+            else
+                onMapFight = true;
+        }
+    for (const PlayerFact& p : f.players)
+        if (p.alive && p.inCombat)
+            onMapFight = true;
+    if (!offMapFight)
+        return false;
+    if (!onMapFight)
+    {
+        out = f;
+        out.anyInCombat = false;
+        out.staleCombat = false;
+        return true;
+    }
+    if (!f.leadAlive || !f.engagedRead)
+        return false;
+    out = f;
+    out.engagedUnits.clear();
+    for (const UnitFact& u : f.engagedUnits)
+        if (u.distLead < kOtherMapYd)
+            out.engagedUnits.push_back(u);
+    if (out.engagedUnits.size() == f.engagedUnits.size())
+        return false;
+    out.staleCombat = out.engagedUnits.empty();
+    return true;
+}
+
+// The paused ceiling's self-resume reads only the engaged units (the glue's FightOn facts carry no members): with the
+// lead bot on the plan's map (the glue reads it only then), units all off its map are the fight of a bot outside the
+// instance (PlanMapFightView), not the party's.
+inline bool OffMapUnitsOnly(const Facts& f)
+{
+    if (!f.engagedRead || f.engagedUnits.empty())
+        return false;
+    for (const UnitFact& u : f.engagedUnits)
+        if (u.distLead < kOtherMapYd)
+            return false;
+    return true;
+}
+
 // The party is in a fight the run counts as one: in combat, and not one the grace above has let go (it ticks
-// the grace). The glue's self-resume of a ceiling pause asks this (CeilingFightOverWhilePaused).
+// the grace). The glue's self-resume of a ceiling pause asks this (CeilingFightOverWhilePaused). Units all off the lead bot's map are quiet (OffMapUnitsOnly).
 inline bool FightOn(Run& r, const Facts& f, std::uint32_t dt)
 {
+    if (f.anyInCombat && OffMapUnitsOnly(f))
+    {
+        r.unattackableSet.clear();
+        r.unattackableMs = 0;
+        return false;
+    }
     return f.anyInCombat && !UnattackableGraceTick(r, f, dt);
 }
 
@@ -11198,7 +11272,7 @@ constexpr std::uint32_t kCombatDropRepeatMs = 10000;
 // per kCombatDropRepeatMs per bot. An attackable unit, a changed set or another step kind starts it over, and so
 // does a change of kind: one unit first UNATTACKABLE then attackable but far away (a phase ending while the unit
 // stands far off) stands the full kFarHoldGraceMs before the drop, not the far grace minus the unattackable time.
-// Returns the note for the drops of this tick ("Varcus dropped combat with entry 7897 (cannot be attacked)").
+// Returns the note for the drops of this tick ("Varcus dropped combat with entry 7897 (cannot be attacked)"; a bot outside the instance: "(outside the instance)").
 // The same for a bot held by far units only (HeldByFarUnitsOnly) while the lead bot is far from the plan
 // (LeadFarFromPlan), on any step, after kFarHoldGraceMs ("Unjin dropped combat with entry 11484 (305.2 yd away)").
 // Neither kind drops while a held-on unit is a boss or an event unit of the plan (the planUnit guard below, the
@@ -11253,7 +11327,8 @@ inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
             std::string units;
             for (const UnitFact& u : m.engaged)
                 units += (units.empty() ? "entry " : ", entry ") + std::to_string(u.entry) +
-                    (far ? " (" + Num(u.distLead) + " yd away)" : std::string(" (cannot be attacked)"));
+                    (far ? " (" + Num(u.distLead) + " yd away)"
+                         : std::string(m.offPlanMap ? " (outside the instance)" : " (cannot be attacked)"));
             note += (note.empty() ? "" : "; ") + m.name + " dropped combat with " + units;
         }
         next[m.name] = std::move(st);
@@ -11608,8 +11683,12 @@ inline bool RegroupPlayerWait(Run& r, const Facts& f, std::uint32_t dt)
 inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines);
 inline void EndRetreat(Run& r);
 
-inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, const RestLines& lines = RestLines())
+inline std::string Tick(Run& r, const Facts& raw, std::uint32_t dt = kTickMs, const RestLines& lines = RestLines())
 {
+    // A bot outside the instance is no part of the party's fight (PlanMapFightView: Dire Maul West r38 slot B).
+    Facts view;
+    bool const offMap = PlanMapFightView(raw, view);
+    const Facts& in = offMap ? view : raw;
     // Combat with units the group cannot attack only is no fight (UnattackableOnlyFight) once the same units
     // have stood so for the grace (UnattackableGraceTick): the step runs on a view with the combat flags cleared.
     bool const unattackable = UnattackableGraceTick(r, in, dt);
@@ -12005,6 +12084,9 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     if (r.regroup && !runBackWait && !f.anyInCombat)
     {
         r.regroupMs += dt;
+        // A fight met in the regroup is over on this quiet tick (the block returns before the end of a fight below):
+        // the next one gets its own ceiling (Dire Maul West r38 slot B: 10-s fights of a regroup added up past 180 s).
+        r.fightMs = 0;
         UpdateReviveSummons(r, f, dt);
         // The lead bot up in another part of the instance (another wing's
         // door, far from every point of the plan): no gather, summon or walk

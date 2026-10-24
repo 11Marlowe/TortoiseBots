@@ -11557,6 +11557,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         MemberFact member;
         member.name = bot->GetName();
         member.yd = yd;
+        member.offPlanMap = bot->GetMapId() != slot.run.plan->map; // outside the instance (DungeonRun::PlanMapFightView)
         member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;
         member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);
         member.cc = KnownRunCc(bot);

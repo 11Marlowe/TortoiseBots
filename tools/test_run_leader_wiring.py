@@ -978,6 +978,20 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
         # cleared after it must not count as live (DungeonRun::LiveFrom: the step the run goes on with).
         self.assertIn("PathCrossesUnclearedPack(*slot.run.plan,\n"
                       "                            TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,", COMMANDS)
+    def test_a_bot_outside_the_instance_is_no_part_of_the_fight(self):
+        facts = body(strip_comments(COMMANDS),
+                     "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,", "\n}\n")
+        line = "member.offPlanMap = bot->GetMapId() != slot.run.plan->map;"
+        self.assertIn(line, facts)
+        self.assertLess(facts.index("member.yd = yd;"), facts.index(line))
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        tick = body(policy, "inline std::string Tick(Run& r, const Facts& raw,", "\n}\n")
+        self.assertLess(tick.index("bool const offMap = PlanMapFightView(raw, view);"),
+                        tick.index("UnattackableGraceTick(r, in, dt)"))
+        self.assertLess(tick.index("bool const offMap = PlanMapFightView(raw, view);"),
+                        tick.index("CombatDropTick(r, in, dt)"))
+        fight_on = body(policy, "inline bool FightOn(Run& r, const Facts& f, std::uint32_t dt)", "\n}\n")
+        self.assertIn("OffMapUnitsOnly(f)", fight_on)
 
 
 
