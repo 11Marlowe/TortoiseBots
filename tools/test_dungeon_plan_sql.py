@@ -163,6 +163,14 @@ SEEDED_BOSSES.update({(808, 60735): "High Foreman Bargul Blackhammer", (808, 608
                       (808, 60737): "Har'gesh Doomcaller", (808, 60736): "Engineer Figgles",
                       (808, 60734): "Hatereaver Annihilator"})
 
+# The Black Morass (20261024020900): its map and its four boss steps, names from the core's creature_template. Medivh 50105 is
+# faction 35 (friendly to the party) and is a destination marker, not a kill; the plan still carries him as the leg 1 boss.
+BOSS_PLANS["black_morass"] = 269
+SEEDED_BOSSES.update({(269, 65125): "Antnormi", (269, 50105): "Medivh",
+                      (269, 65116): "Time-Lord Epochronos", (269, 65113): "Chronar"})
+NOT_BOSSES |= {65122, 65124, 61575}  # Rotmaw, Mossheart and Epidamu: scripted mobs inside pull groups, not leg ends
+
+
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
         with open(path, encoding="utf-8") as handle:
@@ -1170,6 +1178,43 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertFalse([r for r in pulls if abs(float(r["x"]) + 5985.32) < 0.5 and abs(float(r["y"]) + 3626.44) < 0.5])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (816) AND `entry` IN (62056,62057,62072,62069,62037);", text)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["dragonmaw_retreat"])
+
+    def test_black_morass_is_the_plan_with_the_census_fixes(self):
+        # 20261024020900 (turtle-agent c4eda29, 2026-10-24): The Black Morass draft with the census fixes of
+        # PREP-BLACK-MORASS-2026-10-24.md, no row hand-set, with the boss rows of map 269. 4 legs, 522 steps (131 + 23 + 66 + 32
+        # pulls), bosses in leg order, no boss.first and no door/event step. The 28 Snakes (2914, a level 1 critter) are out of
+        # every pull; the two split packs are merged; Epochronos' guard is the last pull of leg 2; every radius (< 16 yd) reaches
+        # its own group from the row point and no further. Medivh 50105 is faction 35 (friendly) and stays as a destination row.
+        name, text = newest_plan_text("black_morass")
+        self.assertEqual(name, "20261024020900_world.sql")
+        self.assertIn("('black_morass', 269, '', '', '65124,65102,65105,61575', 'turtle-agent c4eda29 dungeons/black_morass.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "black_morass")
+        self.assertEqual([legs[i][0] for i in range(4)],
+                         ["antnormi", "medivh", "time-lord_epochronos", "chronar"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "black_morass"]
+        self.assertEqual(len(rows), 522)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(4)],
+                         [131, 23, 66, 32])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["65125", "50105", "65116", "65113"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(4):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "", ""])
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertFalse([r for r in pulls if "2914" in r["entries"].split(",")], "a snake is still a pull member")
+        # The Riftguard + four Dragonspawn pack at y 6720 is one 5-unit row now (the exporter lists the distinct entries);
+        # its radius covers the farthest member from the row's centre point.
+        self.assertEqual([(r["x"], r["y"], r["z"], float(r["radius"])) for r in pulls
+                          if r["entries"] == "65101,65100" and abs(float(r["x"]) + 1633.65) < 0.5],
+                         [("-1633.65", "6726.27", "-222.43", 12.1)])
+        # The Time Anomaly 50106 at 18.9 yd from Epochronos (detection 20) is leg 2's last pull, right before the boss row.
+        steps2 = leg_steps(rows, 2)
+        self.assertEqual((steps2[-2]["kind"], steps2[-2]["x"], steps2[-2]["y"], steps2[-2]["z"], steps2[-2]["entries"]),
+                         ("pull", "-1450.1", "6967.23", "-14.31", "50106"))
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 16.0)
+        self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 2.0)
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (269) AND `entry` IN (65125, 50105, 65116, 65113);", text)
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["black_morass"])
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
         # 20261024040000 (turtle-agent rfk-fix8 41172e39, 2026-10-24, after live run r27 slot8 run 7 stopped at step 657 in the
