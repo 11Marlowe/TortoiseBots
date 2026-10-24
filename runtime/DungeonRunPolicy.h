@@ -10285,6 +10285,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     NoteLeadPath(r, f);
     if (FactStep(r) == s)
         UpdateObjectSighting(r, *s, f, dt);
+    else
+        r.goneMissMs = 0; // facts for another step (a walk back): the unbroken miss run starts over
     if (r.lootFfaLive)
     {
         r.lootFfaMs += dt;
