@@ -97,6 +97,11 @@ ZUMRAH_GRAVES = (
     (1887.46, 967.14), (1882.70, 971.83), (1879.89, 974.65), (1876.44, 972.21),
     (1892.57, 1006.37), (1891.60, 1023.06), (1887.94, 1029.08),
 )
+# Stormwind Vault (20261024010200): its map and its six boss steps, names from the core's creature_template (all rank 1). Added apart
+# from the dicts above so that this change merges with the other plans' edits of them.
+BOSS_PLANS["stormwind_vault"] = 35
+SEEDED_BOSSES.update({(35, 80851): "Volkan Cruelblade", (35, 80854): "Damian", (35, 80853): "Aszosh Grimflame",
+                      (35, 80850): "Black Bride", (35, 80852): "Tham'Grarr", (35, 93107): "Arc'tiras"})
 # Frostmane Hollow (20261022210030): its map and its four boss steps, names from the core's creature_template (all rank 1). Added apart
 # from the dicts above so that this change merges with the other plans' edits of them.
 BOSS_PLANS["frostmane_hollow"] = 822
@@ -621,6 +626,40 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((last["entries"], float(last["radius"])), ("1708", 7.0))
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwind_stockade"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
+
+    def test_stormwind_vault_is_the_plan_with_the_census_fixes(self):
+        # 20261024010200 (turtle-agent 7c80a94, 2026-10-24): the Stormwind Vault draft rebuilt from the map-35 spawn census
+        # (PREP-STORMWIND-VAULT-2026-10-24.md): every pull from the 8-yd spawn clusters with the radius at farthest+0.5, the two
+        # giant draft groups split into 39 pulls of 1-6, the duplicate draft groups merged, the Aszosh and Black Bride guards as
+        # those bosses' first, and the west-wing trash moved to the Tham'Grarr leg with Arc'tiras last. 6 legs, 100 steps
+        # (7 + 2 + 10 + 10 + 24 + 0 pulls), bosses in leg order, no door, event or patrol step. The plan row carries kill_first
+        # for the four AoE/root casters (cc_priority and cc_always stay empty: no humanoid worth a Polymorph). No pull row reaches
+        # a neighbouring spawn (every radius <= 8.5 yd), and no pull is the boss guard the boss row now carries.
+        name, text = newest_plan_text("stormwind_vault")
+        self.assertEqual(name, "20261024010200_world.sql")
+        self.assertIn("('stormwind_vault', 35, '', '', '60602,60596,60601,60603', 'turtle-agent 7c80a94 dungeons/stormwind_vault.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(leg_rows(text, "stormwind_vault"),
+                         {0: ("volkan_cruelblade", ""), 1: ("damian", ""), 2: ("aszosh_grimflame", ""),
+                          3: ("black_bride", ""), 4: ("tham'grarr", ""), 5: ("arc'tiras", "")})
+        rows = [r for r in self.step_rows(text) if r["plan"] == "stormwind_vault"]
+        self.assertEqual(len(rows), 100)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(6)}, {0: 9, 1: 4, 2: 13, 3: 23, 4: 44, 5: 7})
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [7, 2, 10, 10, 24, 0])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["80851", "80854", "80853", "80850", "80852", "93107"])
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "60597", "60604", "", ""])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(6):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 8.5)
+        self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 4.9)
+        # The two guard positions are gone as pulls (the boss rows carry their entries); no pull centre sits on them.
+        for x, y in ((-5.7097, 181.434), (3.5689, 192.759), (65.0286, 116.118)):
+            self.assertFalse([r for r in pulls if math.hypot(float(r["x"]) - x, float(r["y"]) - y) < 1.0], (x, y))
+        # Arc'tiras is the last leg with no pull of its own (the west hall is cleared on the way to Tham'Grarr).
+        self.assertEqual(leg_steps(rows, 5)[0]["kind"], "move")
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwind_vault"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (35) AND `entry` IN (80851, 80854, 80853, 80850, 80852, 93107);", text)
 
     def test_sunken_temple_is_the_plan_with_the_statue_steps(self):
         # 20261024060100 (turtle-agent st-statues 20c8f17, 2026-10-24): 20261024030000 again, with leg 0
