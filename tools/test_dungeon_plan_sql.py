@@ -1867,33 +1867,33 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(later, [])
 
     def test_hateforge_quarry_is_the_plan_with_the_census_fixes(self):
-        # 20261024150600 (turtle-agent 530a01e, 2026-10-24): the hfq-fix3 re-export (the hfq-fix2 1.2 yd hop
-        # to -8321.08 -3448.15 z180.8 ends inside the 3 yd arrival, so the walk is skipped the same way the
-        # old 1.5 yd hop was). Probe: -8323.71 -3452.3 z182.5 has a poly at the point (floor z182.9, dh +0.4)
-        # and ramp-top -> terrace walks complete both ways (21.1 yd), so the top is on the terrace island;
-        # the hop now lands at the ramp top (6.1 yd ground, 2.4 up, same row kind move_hop_exact,
-        # loader limits 25/8 yd), not tried live.
-        # 6 legs, 467 steps (302 moves, 2 move_hop_exact, 158 pulls: 54 + 0 + 29 + 5 + 63 + 7, the 5 bosses), bosses in
+        # 20261024151300 (turtle-agent 6d034a6, 2026-10-24): the server-path waypoint re-export. The live
+        # server's path search (2048 nodes) refuses two long hops, so the run leader answers 'unreachable'
+        # live: leg 2 (corrosis) `to` from the seam landing -8320.0 -3447.5 z180.1 (server 0x4 ends -8296.8
+        # -3502.4 178.8, 70.9 yd short) and leg 5 (hatereaver_annihilator) `to` from the Figgles boss
+        # -8119.55 -3462.48 z170.622 (server 0x4 ends -8127.5 -3565.1 235.9, 133.7 yd short). One `via` at
+        # -8192.00 -3349.33 z136.12 splits each hop into halves that both pass the server query (leg 2:
+        # 280.2 + 299.7 yd, both type 0x1 ok; leg 5 needs a second waypoint on the offline route at -8220.80
+        # -3445.07 z135.52: 420.5 + 172.9 + 276.3 yd, all type 0x1 ok). The terrace seam hops are unchanged.
+        # 6 legs, 465 steps (300 moves, 2 move_hop_exact, 158 pulls: 54 + 0 + 29 + 5 + 63 + 7, the 5 bosses), bosses in
         # leg order; every leg with a boss ends on it (leg 0 is the trash clear, its boss moved to the terrace leg).
         # The plan row carries the census unit lists; Broody 60715 is Engineer
         # Figgles' boss.first (his lone pull is gone); the boss room is one 7-entry pull, the leg's last, and every pull
         # radius is 2.5 yd off the group's own spawns. The ramp-patrolling Overseer 60722 is pulled at group 22 of leg 0,
         # before the walk up; the terrace leg walks to the exact launch, hops to the ramp top (on the terrace
         # island), then to the stand 18.8 yd from the boss (ray clear) and the boss approach; corrosis starts with the
-        # reverse hop down the same seam (exact launch at the ramp top).
+        # reverse hop down the same seam (exact launch at the ramp top), then the server-path waypoint.
         name, text = newest_plan_text("hateforge_quarry")
-        self.assertEqual(name, "20261024150600_world.sql")
+        self.assertEqual(name, "20261024151300_world.sql")
         self.assertIn("('hateforge_quarry', 808, '60717,60720,60719,60725', '', '60718,60726,60723,60712,60738', "
-                      "'turtle-agent 530a01e dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+                      "'turtle-agent 6d034a6 dungeons/h', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "hateforge_quarry")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["high_foreman_bargul_blackhammer", "bargul_terrace", "corrosis", "har'gesh_doomcaller",
                           "engineer_figgles", "hatereaver_annihilator"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "hateforge_quarry"]
-        self.assertEqual(len(rows), 467)
+        self.assertEqual(len(rows), 465)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [54, 0, 29, 5, 63, 7])
-        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["60735", "60829", "60737", "60736", "60734"])
-        self.assertEqual({r["kind"] for r in rows}, {"move", "move_hop_exact", "pull", "boss"})
         for leg in range(6):
             # Leg 0 is the trash clear (its boss moved to the terrace leg); every other leg ends on its boss.
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss" if leg else "pull", leg)
@@ -1904,10 +1904,16 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["kind"], r["flags"]) for r in terrace if r["kind"] == "move" and r["flags"] == "64"],
                          [("move", "64")])
         self.assertIn(("move", "-8309.45", "-3460.42"), [(r["kind"], r["x"], r["y"]) for r in terrace])
-        # The corrosis leg starts with the reverse hop down the same seam.
+        # The corrosis leg starts with the reverse hop down the same seam, then the server-path waypoint.
         corrosis = leg_steps(rows, 2)
         self.assertEqual([(r["kind"], r["x"], r["y"]) for r in corrosis[:2]],
                          [("move", "-8323.71", "-3452.3"), ("move_hop_exact", "-8320", "-3447.5")])
+        self.assertIn(("move", "-8192", "-3349.33"), [(r["kind"], r["x"], r["y"]) for r in corrosis])
+        # The hatereaver leg carries the two server-path waypoints (the audit halfway point, then the
+        # route midpoint), and still ends on its boss.
+        hatereaver = leg_steps(rows, 5)
+        self.assertEqual([(r["x"], r["y"]) for r in hatereaver if r["kind"] == "move" and (r["x"], r["y"]) in [("-8192", "-3349.33"), ("-8220.8", "-3445.07")]],
+                         [("-8192", "-3349.33"), ("-8220.8", "-3445.07")])
         # Figgles' row carries Broody as its first; no other boss does, and no pull lists a boss.first entry or a summoned unit.
         self.assertEqual([(r["entry"], r["entries"]) for r in rows if r["kind"] == "boss" and r["entries"]],
                          [("60736", "60715")])
