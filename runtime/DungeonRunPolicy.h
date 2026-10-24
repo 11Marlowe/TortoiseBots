@@ -11135,6 +11135,8 @@ constexpr std::uint32_t kCombatDropRepeatMs = 10000;
 // Returns the note for the drops of this tick ("Varcus dropped combat with entry 7897 (cannot be attacked)").
 // The same for a bot held by far units only (HeldByFarUnitsOnly) while the lead bot is far from the plan
 // (LeadFarFromPlan), on any step, after kFarHoldGraceMs ("Unjin dropped combat with entry 11484 (305.2 yd away)").
+// Neither kind drops while a held-on unit is a boss or an event unit of the plan (the planUnit guard below, the
+// same guard as UnattackableFightLetGo): a boss or scripted hold unit >100 yd away is fought where it stands.
 inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
 {
     r.combatDrops.clear();
@@ -11158,7 +11160,7 @@ inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
             if (PlanBossOrHoldEntry(r, u.entry))
                 planUnit = true;
         bool const unattackable = letGo && !planUnit && HeldByUnattackable(m);
-        bool const far = !unattackable && farOff && HeldByFarUnitsOnly(m);
+        bool const far = !unattackable && !planUnit && farOff && HeldByFarUnitsOnly(m);
         if (!unattackable && !far)
             continue;
         std::vector<std::uint64_t> set;

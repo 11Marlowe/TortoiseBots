@@ -16120,6 +16120,49 @@ static void TestFarHoldIsDroppedAwayFromThePlan()
     CHECK(kFarHoldYd == 100.0f && kFarHoldGraceMs == 15000);
 }
 
+// A boss or a scripted hold unit far away is no far hold: with the lead bot far from the plan, a bot held only
+// by units farther than kFarHoldYd keeps its combat while one of them is the current step's boss entry or hold
+// entry (the plan boss / event / hold-unit guard covers the far-held kind too), however long the set stands. No
+// timer starts and no combat drops. The control is the same facts with entries the plan does not fight: the drop
+// comes on the grace's last tick. The `!planUnit` mutation in the far classification drops the boss as well.
+static void TestFarHoldNeverDropsAPlanBossOrHoldUnit()
+{
+    std::uint32_t const graceTicks = kFarHoldGraceMs / kTickMs;
+    Facts const f = FarHeldParty(305.0f); // entry 11484, attackable, 305 yd off, lead far from the plan
+    DungeonPlan bossPlan;
+    bossPlan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), Step(PlanStepKind::Boss, 220)};
+    bossPlan.steps.back().entry = 11484; // the current step's boss: the engaged unit
+    DungeonPlan holdPlan;
+    holdPlan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), Step(PlanStepKind::Hold, 220)};
+    holdPlan.steps.back().radius = 30;
+    holdPlan.steps.back().entries = {11484}; // the current step's hold entry
+    for (const DungeonPlan* plan : {&bossPlan, &holdPlan})
+    {
+        Run r = Start(plan, 2);
+        CHECK(PlanBossOrHoldEntry(r, 11484) && LeadFarFromPlan(r, f) && HeldByFarUnitsOnly(f.members[0]));
+        for (std::uint32_t i = 0; i < 2 * graceTicks; ++i)
+            CHECK(CombatDropTick(r, f, kTickMs).empty());
+        CHECK(r.combatDrops.empty() && r.combatDrop.empty());
+    }
+    // Control: the same facts with entries the plan does not fight: the drop on the grace's last tick.
+    bossPlan.steps.back().entry = 3976;
+    holdPlan.steps.back().entries = {3977};
+    for (const DungeonPlan* plan : {&bossPlan, &holdPlan})
+    {
+        Run r = Start(plan, 2);
+        CHECK(!PlanBossOrHoldEntry(r, 11484) && LeadFarFromPlan(r, f));
+        for (std::uint32_t i = 0; i + 1 < graceTicks; ++i)
+        {
+            CHECK(CombatDropTick(r, f, kTickMs).empty());
+            CHECK(r.combatDrops.empty());
+        }
+        std::string const note = CombatDropTick(r, f, kTickMs);
+        CHECK((r.combatDrops == std::vector<std::string>{"Tanky", "Healy"}));
+        CHECK(note.find("Tanky dropped combat with entry 11484 (305.0 yd away)") != std::string::npos);
+        CHECK(note.find("Healy dropped combat with entry 11484 (305.0 yd away)") != std::string::npos);
+    }
+}
+
 // The r36 slot D wipe 4 end to end: up at the other wing's door in combat with units 305 yd away. Their combat is
 // dropped after kFarHoldGraceMs (no fight-ceiling pause), and out of combat the regroup's rescue teleport follows.
 static void TestDireMaulWestR36FarCombatThenRescue()
@@ -18833,6 +18876,7 @@ int main()
     TestFarHoldNeverDropsWhilePaused();
     TestCombatDropEmptyEngagedSetDropsNothing();
     TestFarHoldIsDroppedAwayFromThePlan();
+    TestFarHoldNeverDropsAPlanBossOrHoldUnit();
     TestDireMaulWestR36FarCombatThenRescue();
     TestRegroupRescueClearsTheHold();
     TestGatherWaitsForABotHeldByUnattackable();
