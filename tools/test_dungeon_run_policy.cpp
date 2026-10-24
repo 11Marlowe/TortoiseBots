@@ -11800,6 +11800,38 @@ static void TestIslandRescueNeedsTheNoSpotSpot()
     CHECK(Tick(r, off).compare(0, 7, "escape ") == 0); // a hop again, not the rescue
     CHECK(r.state == State::Running && !r.strandDue && r.walkBackIdx == 1 && !r.noSpotKnown);
 }
+// With a real player in the party the run keeps walking back with him: the same eligible island/no-spot state
+// passes the point as before (no strandDue); the bot-only control still rescues.
+static void TestIslandWalkBackWithPlayerPassesThePoint()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 1;
+    r.walkBackRestarted = true;
+    Facts g = OnIsland();
+    PlayerFact p;
+    p.name = "Hypeer";
+    p.commander = true;
+    g.players.push_back(p);
+    std::string const hop = Tick(r, g);
+    CHECK(hop.compare(0, 7, "escape ") == 0);
+    OrderRefused(r, hop, "no-spot: no spot within 10 yd");
+    CHECK(r.noSpotKnown);
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Running && !r.strandDue && r.walkBackIdx == 2 &&
+        r.note.find("on to the next") != std::string::npos);
+    Run b = Start(&plan, 5);
+    b.walkBack = true;
+    b.walkBackIdx = b.walkBackStart = 1;
+    b.walkBackRestarted = true;
+    Facts f = OnIsland();
+    std::string const bhop = Tick(b, f);
+    OrderRefused(b, bhop, "no-spot: no spot within 10 yd");
+    CHECK(Tick(b, f).empty());
+    CHECK(b.state == State::Running && b.strandDue && b.walkBackIdx == 4);
+}
+
 
 // A good read between the hops gives fresh tries, but one step sends at most kStepEscapes.
 static void TestStepEscapeCap()
@@ -17996,6 +18028,7 @@ int main()
     TestWalkBackNoSpotPassesThePoint();
     TestIslandWalkBackIsRescued();
     TestIslandRescueNeedsTheNoSpotSpot();
+    TestIslandWalkBackWithPlayerPassesThePoint();
     TestStepEscapeCap();
     TestNoSpotWalkBackNeverSpins();
     TestSignBFromTheMainMeshIsBounded();

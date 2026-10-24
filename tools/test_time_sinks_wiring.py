@@ -124,7 +124,8 @@ class TimeSinksWiringTest(unittest.TestCase):
         self.assertLess(island, walk.index("if (DirectStillToCross(r, r.walkBackIdx))"))
         self.assertLess(island, walk.index('PassWalkBackPoint(r, f.leadX, f.leadY, f.leadZ, "walk back: " + why);'))
         isle = body(POLICY, "inline bool IslandWalkBackRescue(Run& r, const Facts& f, const std::string& why)", "\n}\n")
-        for part in ("r.noSpotKnown", "RescueAllowed(r, f)", "SafePointAtOrBefore(r, f.team, last)", "RescueDue(r, f, target);"):
+        for part in ("r.noSpotKnown", "!f.players.empty()", "RescueAllowed(r, f)", "SafePointAtOrBefore(r, f.team, last)",
+                     "RescueDue(r, f, target);"):
             self.assertIn(part, isle)
         self.assertIn("ReplayStartPoint(r, f)", body(POLICY, "inline bool ReplayWalkBack(Run& r, const Facts& f)\n{", "\n}\n"))
 

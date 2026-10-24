@@ -7302,13 +7302,13 @@ inline bool ReplayRescue(Run& r, const Facts& f, const std::string& why)
 // bot is teleported to a safe point on the way it came (as WalkBackStuckRescue), not passed point after point. Dire
 // Maul North r31 slot 6: revived on the entrance island at 115.7 -181.6 -3.1, every point 4-114 passed ('no walkable
 // path toward the point of step N: on to the next'), then 'walked back to step 115' and four pauses with the party
-// never moved. Out of combat, once a step (RescueAllowed); with no safe point, the points are passed as before. True
-// when the rescue is due.
+// never moved. Out of combat, once a step (RescueAllowed); never with a real player in the party (Facts::players):
+// he walks back with the party, the point passed as before (as with no safe point). True when the rescue is due.
 inline bool IslandWalkBackRescue(Run& r, const Facts& f, const std::string& why)
 {
     if (!r.noSpotKnown || ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.noSpotX, r.noSpotY, r.noSpotZ) > kArriveYd)
         return false;
-    if (!r.walkBack || !RescueAllowed(r, f) || r.walkBackIdx >= r.step)
+    if (!f.players.empty() || !r.walkBack || !RescueAllowed(r, f) || r.walkBackIdx >= r.step)
         return false;
     std::size_t const last = LastReachedBefore(r, r.step);
     if (last == static_cast<std::size_t>(-1) || last >= r.plan->steps.size())
