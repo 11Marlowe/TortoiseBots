@@ -650,7 +650,7 @@ class DungeonPlanSql(unittest.TestCase):
         # The seventh export (20261024151800, turtle-agent 7bf2dec) adds the chains a skipped pull leaves behind:
         # live r33s2 stood at the z 197 floor and step 730's approach to -7616 -3648 z 219.686 was refused
         # because pull group 1's pack was already gone, so its `pack cleared` moved nobody. 7 legs, 2985 steps.
-        # The eighth export (20261024152400, turtle-agent 4aa0d55) splits leg-2 pull group 6 (3 elites at once wiped
+        # The eighth export (20261024152400, turtle-agent 67cd44f) splits leg-2 pull group 6 (3 elites at once wiped
         # a level-31 party 3 times live, r34 step 1025) into the Bonespeaker 62774 alone (new group 6, radius 2) and
         # the Avenger + Shaman (new group 7, radius 2), with stands 15-25 yd from their units and outside every other
         # unpulled unit's aggro + 5 yd, mesh-checked and server path-checked from the previous MOVE point; the joiner
@@ -664,7 +664,7 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual({r["leg"] for r in rows}, {"0", "1", "2", "3", "4", "5", "6"})
         self.assertEqual(len(rows), 2906)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [46, 32, 18, 14, 36, 9, 34])
-        self.assertIn("('windhorn_canyon', 820, '62773,62774', '62773', '', 'turtle-agent 4aa0d55 dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('windhorn_canyon', 820, '62773,62774', '62773', '', 'turtle-agent 67cd44f dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["62784", "62783", "62780", "62781", "62779", "62782", "62778"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         # The last step of every leg is its boss; the boss rows' entries are the packs that stand with them
