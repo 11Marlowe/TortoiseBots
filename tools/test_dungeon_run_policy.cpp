@@ -16094,24 +16094,26 @@ static void TestSpawnEventsOffReadsEveryAssociation()
 // below him on z 95. Two pulls drew no fight (AwaitPull passed him after kPullTriesPerUnit), and the step said 'boss
 // 4274 not at his spot: waiting for him', waited kBossSearchMs and, after the instance search, paused 'is alive at
 // -135.6 2168.7 128.8, 0.0 yd from his spot': twice, 60 s each. A boss alive in sight by his spot whom the pulls passed
-// is not away: the step pauses at once and says where his spot lies from the lead bot. An add the pulls passed, with
-// the boss himself not in sight, keeps the wait.
+// is not away: the step pauses at once and says where he stands from the lead bot. The height is his real one, not the
+// plan point's (Codex review round 1: a boss inside the radius but at another height read the plan's height).
 static void TestPassedBossAtHisSpotPausesAtOnce()
 {
     DungeonPlan plan;
-    PlanStep boss = Step(PlanStepKind::Boss, 0, 0, 33);
+    PlanStep boss = Step(PlanStepKind::Boss, 0, 0, 0);
     boss.entry = 4274;
     boss.entries = {7076};
     plan.steps = {boss, Step(PlanStepKind::Move, 60)};
     Run r = Start(&plan);
     Facts f = Party(0);
-    f.units = {Unit(5, 4274, 33.1f)};
+    UnitFact seen = Unit(5, 4274, 33.1f);
+    seen.z = 12.0f; // his real height: 12 yd above the plan point, still inside the radius
+    f.units = {seen};
     int pulls = 0;
     for (std::uint32_t i = 0; i < 2 * kPullNoFightMs / kTickMs + 10 && r.state == State::Running; ++i)
         pulls += Tick(r, f) == "pullback 5" ? 1 : 0;
     CHECK(pulls == 2 && r.passed.count(5));
     CHECK(r.state == State::Paused && r.step == 0 && r.bossWaitMs == 0 && !r.bossSearchWanted);
-    CHECK(r.note == "boss 4274 is alive by his spot, 33.1 yd from the lead bot (33.0 yd above it), and 2 pulls drew no "
+    CHECK(r.note == "boss 4274 is alive by his spot, 33.1 yd from the lead bot (12.0 yd above it), and 2 pulls drew no "
         "fight with him: bring the party where it can reach him, then .bot run resume, or .bot run skip");
     // An add passed, the boss not in sight: he is away, the wait as before.
     Run a = Start(&plan);

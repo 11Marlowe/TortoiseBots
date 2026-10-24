@@ -456,7 +456,7 @@ struct UnitFact
     std::uint32_t entry = 0;
     float distLead = 0.0f;
     float x = 0.0f, y = 0.0f; // hold units and patrollers: where it stands (HoldStands: the side the event comes from)
-    float z = 0.0f;           // ... patrollers only (OwnedByLaterStep)
+    float z = 0.0f;           // ... patrollers (OwnedByLaterStep); step units: the unit's real height (the passed-boss pause)
     bool hostile = true;     // not friendly to the party (hostile or neutral): it may be pulled
     bool stealthed = false;
     bool evading = false;    // running home: not pulled this tick
@@ -8510,7 +8510,7 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
             {
                 auto const tries = r.pullTries.find(u.guid);
                 Pause(r, "boss " + std::to_string(s.entry) + " is alive by his spot, " +
-                    FromLeadBot(u.distLead, s.z - f.leadZ) + ", and " +
+                    FromLeadBot(u.distLead, u.z - f.leadZ) + ", and " +
                     std::to_string(tries == r.pullTries.end() ? 0u : tries->second) + " pulls drew no fight with him: " +
                     "bring the party where it can reach him, then .bot run resume, or .bot run skip");
                 return;
