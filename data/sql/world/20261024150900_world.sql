@@ -43,7 +43,7 @@
 -- 22+ yd off the boss); both stands on the mesh floor (z -25.3) with complete paths from the swarmers and on to group 6.
 -- The old group 8 at the leg's end is gone; the boss step takes Slip'kik already dead. No other leg-2 move walks into an
 -- unpulled pack (every other move keeps 25+ yd centre distance on its floor); legs 0, 1, 3, 4 unchanged.
--- 5 legs, 149 steps (19 + 28 + 10 + 10 + 4 pulls, 74 moves, the 5 bosses), 155 rows.
+-- 5 legs, 149 steps (19 + 28 + 10 + 10 + 4 pulls, 73 moves, the 5 bosses), 155 rows.
 
 -- Dungeon plans for the run leader (.bot run), exported by turtle-agent (plan-export). Plan format v1; the mapping is
 -- docs/guides/dungeon-run-leader.md ("From plan v1 to rows"). The plan file in turtle-agent is the single source: edit it
