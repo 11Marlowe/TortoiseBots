@@ -1890,14 +1890,19 @@ static void TestHopPullsNearUnitsFirst()
 
 // r36 shadowfang_keep slotI: the walk back replayed step 1 and pulled Deathstalker Adamant 3849, the friendly
 // prisoner whose gossip opens the courtyard door; he died and step 130's gossip could not be done (respawn 4 h
-// 36 min). A hop pick never takes a unit whose entry a gossip, open, use_on, use_item or ritual step of the plan
-// names, on a move step or on a walk back replay; a pull step's own units are unaffected.
+// 36 min). A hop pick never takes a unit whose entry a gossip step of the plan
+// names, on a move step or on a walk back replay; a pull step's own units are unaffected. Only gossip steps count:
+// open/use_on name game objects, use_item an item and ritual encounter data (other id namespaces), so a hostile
+// creature sharing such a number is still pulled. The guard is hop-only: an event NPC that turned hostile and is
+// engaged with the party is still fought through the engaged/attacker path (PickPull's non-hop picks,
+// GuardTarget/EngageTarget), never through a hop pick.
 static void TestHopNeverPullsAnEventUnit()
 {
     DungeonPlan plan;
     PlanStep gossip;
     gossip.kind = PlanStepKind::Gossip;
     gossip.entry = 3849;
+    gossip.param = 1;
     ai::NormalizePlanStep(gossip);
     plan.steps = {Step(PlanStepKind::Move, 40), gossip};
     {
@@ -1924,6 +1929,66 @@ static void TestHopNeverPullsAnEventUnit()
         f.hopUnits = {Unit(9, 3849, 5), Unit(10, 3851, 8)};
         const UnitFact* hopUnit = PickPull(r, f.hopUnits, 0, true);
         CHECK(hopUnit && hopUnit->guid == 10);
+    }
+    {
+        // (a) An open step's OBJECT entry equal to a hostile creature's entry does not protect it.
+        DungeonPlan openPlan;
+        PlanStep open = Step(PlanStepKind::Open, 4, 5, 6);
+        open.entry = 3851;
+        ai::NormalizePlanStep(open);
+        openPlan.steps = {Step(PlanStepKind::Move, 40), open};
+        Run r = Start(&openPlan);
+        Facts f = Party(0);
+        f.hopUnits = {Unit(9, 3851, 5)};
+        CHECK(Tick(r, f) == "pullback 9");
+    }
+    {
+        // (b) The same for a use_item ITEM entry.
+        DungeonPlan itemPlan;
+        PlanStep use;
+        use.kind = PlanStepKind::UseItem;
+        use.entry = 3851;
+        use.item = 7733;
+        ai::NormalizePlanStep(use);
+        itemPlan.steps = {Step(PlanStepKind::Move, 40), use};
+        Run r = Start(&itemPlan);
+        Facts f = Party(0);
+        f.hopUnits = {Unit(9, 3851, 5)};
+        CHECK(Tick(r, f) == "pullback 9");
+    }
+    {
+        // (d) The Adamant case still skipped: the gossip entry alone protects him as a hop pick.
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.hopUnits = {Unit(9, 3849, 5)};
+        CHECK(!PickPull(r, f.hopUnits, 0, true));
+        CHECK(PickPull(r, f.hopUnits, 0, false) && PickPull(r, f.hopUnits, 0, false)->guid == 9);
+    }
+    {
+        // (c) An engaged event NPC is still fought: the guard is hop-only, so a non-hop pick takes him, and the
+        // engaged/attacker path (GuardTarget/EngageTarget) is untouched by the guard. The engaged hostile in the
+        // step's own units is picked when asked without the hop scope; the hop pick still skips him.
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        UnitFact adamant = Unit(9, 3849, 5);
+        adamant.engaged = true;
+        f.units = {adamant};
+        f.hopUnits = {adamant};
+        CHECK(PickPull(r, f.units, 0, false) && PickPull(r, f.units, 0, false)->guid == 9);
+        CHECK(PickPull(r, f.units, 3849, false) && PickPull(r, f.units, 3849, false)->guid == 9);
+        CHECK(!PickPull(r, f.hopUnits, 0, true));
+        // The fight path sees him: an engaged hostile of the event entry in the party's attackers is a guard target.
+        Facts g = Party(0);
+        g.anyInCombat = true;
+        g.leadAlive = true;
+        g.leadIsTank = true;
+        g.leadStaying = true;
+        g.carrier = "Tanky";
+        UnitFact hitting = Unit(9, 3849, 5);
+        hitting.hitting = true;
+        hitting.engaged = true;
+        g.partyAttackers = {hitting};
+        CHECK(GuardTarget(r, g) && GuardTarget(r, g)->guid == 9);
     }
     {
         // A pull step's own units are unaffected: entry-gated picks still take the event entry when asked.
