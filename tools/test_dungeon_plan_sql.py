@@ -774,36 +774,37 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
 
     def test_stormwrought_ruins_is_the_census_fixed_draft(self):
-        # 20261024151200 (turtle-agent 839e703, 2026-10-24): SW-FIX2b re-export of the 20261024150700 SW-FIX2
-        # rows (see ~/TortoiseBots-audit/SW-FIX2-2026-10-24.md and RUN-LESSONS.md r30): same content, with the
-        # exporter's DELETE shape restored (20261024150700 lost its step/leg DELETEs in a hand edit after
-        # export and is deleted in the same commit; never applied anywhere). No row hand-set, boss rows of
-        # map 818 scoped to its own eleven entries. 11 legs, 768 steps (224 pulls), bosses in leg order, no
-        # boss.first, no door or event step. Leg 5 keeps the SW-FIX1 south-shore order; the lake ledge
-        # (steps 252-262) gets explicit approach rows along the verified ramp corridor (group 10: 3 down the
-        # ramp ending 17 yd from the pack; group 11: 4 back up, ending 18.4 yd out), and the 12 water-only
-        # z207.06 Razormaw singles (old groups 29-40) are gone. Leg 6 loses its water-only 62660 single, leg 7
-        # its eight water-only/off-mesh 62655 singles, leg 8 its six water-only 62648 groups. The nine packs
-        # inside a boss's 18 yd detection are still their leg's last pull, and Remains of the Innocent 62670
-        # (boss-grade trash) is still in leg 10 and in kill_first.
+        # 20261024154300 (turtle-agent bd6ecb2, 2026-10-24): SW-FIX3, the back-half seam bridged after
+        # RUN-LESSONS r36 stormwrought_ruins slotJ stopped at step 553. The party stood on the z215 island at
+        # -6045.1 -3784.5 215.2-215.9 and the pack 62650/62645 (at -5990.5 -3783.86 219.37) is on the east
+        # shelf: the server's path query is NOPATH between them (nearest reachable -6045.1 -3784.5 215.9,
+        # 54.7 yd short), the floors are there (215.43 launch, 215.88 mid-gap, 216.88 landing). Leg 7 is split:
+        # mycellakos_west keeps the route and pull groups 0-9; leg 8 mycellakos starts with the exact move to
+        # the island edge and the 6.3 yd move_hop_exact to the east shelf, then the packs 10-18 (its groups 0-8)
+        # and the boss. 12 legs, 771 steps (224 pulls; three rows added), bosses in leg order, no boss.first, no
+        # door or event step. Every other row is 20261024151200's, shifted (legs 8-10 are 9-11). Leg 5 keeps the
+        # SW-FIX1 south-shore order and the SW-FIX2 ledge approach rows (groups 10-11); the 12 water-only
+        # z207.06 Razormaw singles, leg 6's 62660 single, leg 7's eight 62655 singles and leg 8's six 62648
+        # groups are gone. The nine packs inside a boss's 18 yd detection are still their leg's last pull, and
+        # Remains of the Innocent 62670 (boss-grade trash) is still in leg 11 and in kill_first.
         name, text = newest_plan_text("stormwrought_ruins")
-        self.assertEqual(name, "20261024151200_world.sql")
-        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 839e703 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024154300_world.sql")
+        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent bd6ecb2 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "stormwrought_ruins"),
                          {0: ("dagar_the_glutton", ""), 1: ("oronok_torn-heart", ""),
                           2: ("librarian_theodorus", ""), 3: ("duke_balor_the_iv", ""),
                           4: ("chieftain_stormsong", ""), 5: ("deathlord_tidebane", ""),
-                          6: ("subjugator_halthas_shadecrest", ""), 7: ("mycellakos", ""),
-                          8: ("eldermaw_the_primordial", ""), 9: ("lady_drazare", ""),
-                          10: ("ighal'for", "")})
+                          6: ("subjugator_halthas_shadecrest", ""), 7: ("mycellakos_west", ""),
+                          8: ("mycellakos", ""), 9: ("eldermaw_the_primordial", ""),
+                          10: ("lady_drazare", ""), 11: ("ighal'for", "")})
         rows = [r for r in self.step_rows(text) if r["plan"] == "stormwrought_ruins"]
-        self.assertEqual(len(rows), 768)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(11)],
-                         [11, 28, 18, 19, 19, 31, 27, 19, 10, 30, 12])
+        self.assertEqual(len(rows), 771)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(12)],
+                         [11, 28, 18, 19, 19, 31, 27, 10, 9, 10, 30, 12])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
                          ["62547", "62548", "62552", "62549", "62551", "62550", "62652", "62664", "62661", "62665", "62671"])
-        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
-        for leg in range(11):
+        self.assertEqual({r["kind"] for r in rows}, {"move", "move_hop_exact", "pull", "boss"})
+        for leg in list(range(7)) + list(range(8, 12)):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], [""] * 11)
         pulls = [r for r in rows if r["kind"] == "pull"]
@@ -815,8 +816,8 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertFalse([r for r in pulls if "62655" in r["entries"].split(",")])
         self.assertFalse([r for r in pulls if "62648" in r["entries"].split(",")])
         # The packs inside a boss's 18 yd detection are the last pull of their leg (the boss joins by design;
-        # leg 8's water-only 62648 pack is gone, so only five such legs remain).
-        self.assertEqual([leg_steps(rows, leg)[-2]["entries"] for leg in (1, 3, 5, 7, 9)],
+        # mycellakos is now leg 8 and lady_drazare leg 10, and mycellakos_west has no boss).
+        self.assertEqual([leg_steps(rows, leg)[-2]["entries"] for leg in (1, 3, 5, 8, 10)],
                          ["62540", "62541,62543", "62542", "62646", "62667,62647,62663"])
         # SW-FIX1 kept: leg 5's south-shore packs come right after g1 (old g9-g13 first); leg 4 group 3 radius 4.
         self.assertEqual([(r["entries"], r["radius"]) for r in leg_steps(rows, 5) if r["kind"] == "pull"][:7],
@@ -825,7 +826,7 @@ class DungeonPlanSql(unittest.TestCase):
                           ("62544,62546,62545", "10.5"), ("62546", "8.4"), ("62546", "5")])
         self.assertEqual([(r["entries"], r["radius"]) for r in leg_steps(rows, 4) if r["kind"] == "pull"][3:5],
                          [("62537,62539", "4"), ("62539,62537,62536", "5")])
-        self.assertIn("62670", [r["entries"] for r in leg_steps(rows, 10) if r["kind"] == "pull"])
+        self.assertIn("62670", [r["entries"] for r in leg_steps(rows, 11) if r["kind"] == "pull"])
         # SW-FIX2: leg 5 groups 10-11 carry the ledge approach rows (the export writes them as move rows right
         # before their pull); the stands are pinned so a re-export that moves one is caught.
         steps5 = leg_steps(rows, 5)
@@ -851,6 +852,21 @@ class DungeonPlanSql(unittest.TestCase):
             lo = pos[id(pulls5[n - 1])] if n else -1
             hi = pos[id(pull)]
             self.assertTrue(all(lo < i < hi for i in (pos[id(r)] for r in approach[c])), c)
+        # SW-FIX3: the seam hop. Leg 7 (mycellakos_west) ends with its group-9 pull on the z215 island; leg 8
+        # starts with the exact move to the island edge (flags 64), its move_hop_exact 6.3 yd east (the seam),
+        # and the move to the east shelf, then the step-553 pack and its neighbour. The exact/hop pair is the
+        # shape the exporter and the run leader require (DungeonRunPolicy.h ExactWalkTo), so it is pinned here.
+        steps7, steps8 = leg_steps(rows, 7), leg_steps(rows, 8)
+        self.assertEqual((steps7[-1]["kind"], steps7[-1]["entries"]), ("pull", "62646"))
+        self.assertEqual((float(steps7[-1]["x"]), float(steps7[-1]["y"]), float(steps7[-1]["z"])),
+                         (-6054.58, -3784.35, 213.87))
+        self.assertEqual([(r["kind"], r["x"], r["y"], r["z"], r["flags"]) for r in steps8[:3]],
+                         [("move", "-6043.7", "-3790.6", "215.4", "64"),
+                          ("move_hop_exact", "-6038", "-3788", "216.9", "0"),
+                          ("move", "-6036", "-3792", "217.1", "0")])
+        self.assertEqual([(r["kind"], r["x"], r["y"], r["z"], r["entries"]) for r in steps8[3:5]],
+                         [("pull", "-6012.28", "-3784.58", "218.45", "62645,62650"),
+                          ("pull", "-5990.5", "-3783.86", "219.37", "62650,62645")])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwrought_ruins"])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_leg` WHERE `plan` = '(\w+)';", text), ["stormwrought_ruins"])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_plan` WHERE `plan` = '(\w+)';", text), ["stormwrought_ruins"])
