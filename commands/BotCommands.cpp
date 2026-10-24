@@ -9632,21 +9632,6 @@ void HostileCreaturesAround(Player* lead, float range, std::list<Unit*>& out)
         return !unit->IsCreature() || !unit->GetOwnerGuid().IsEmpty() || !lead->IsHostileTo(unit);
     });
 }
-// Living hostile creatures out of combat (no owner, hostile to the lead bot) within `range` of `unit`, itself left out:
-// a pack not pulled yet next to a caster that hits the party from there (DungeonRun::UnitFact::campIdle).
-uint32 IdleHostilesNear(Player* lead, Unit* unit, float range)
-{
-    std::list<Unit*> around;
-    MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck check(unit, lead, range);
-    MaNGOS::UnitListSearcher<MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck> searcher(around, check);
-    Cell::VisitAllObjects(unit, searcher, range);
-    uint32 n = 0;
-    for (Unit* other : around)
-        if (other != unit && other->IsAlive() && other->IsCreature() && other->GetOwnerGuid().IsEmpty() &&
-            lead->IsHostileTo(other) && !other->IsInCombat())
-            ++n;
-    return n;
-}
 
 // The island escape's facts (DungeonRun::LeadOnIsland, LeadPathGood) from a
 // navmesh path the lead bot's own search gave toward (x,y,z): partial and
@@ -10417,6 +10402,23 @@ Player* RunJudge(Player* lead, std::vector<Player*> const& bots)
 bool GroupCanAttack(Player* judge, Unit* unit)
 {
     return !judge || !unit || judge->IsValidAttackTarget(unit);
+}
+// Living hostile creatures out of combat (no owner, hostile to the lead bot) within `range` of `unit`, itself left out:
+// a pack not pulled yet next to a caster that hits the party from there (DungeonRun::UnitFact::campIdle). Only units
+// the group can attack count (GroupCanAttack: the same test the pull reads use; a totem or trigger the party cannot
+// hit is no pack).
+uint32 IdleHostilesNear(Player* lead, Unit* unit, float range)
+{
+    std::list<Unit*> around;
+    MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck check(unit, lead, range);
+    MaNGOS::UnitListSearcher<MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck> searcher(around, check);
+    Cell::VisitAllObjects(unit, searcher, range);
+    uint32 n = 0;
+    for (Unit* other : around)
+        if (other != unit && other->IsAlive() && other->IsCreature() && other->GetOwnerGuid().IsEmpty() &&
+            lead->IsHostileTo(other) && !other->IsInCombat() && GroupCanAttack(lead, other))
+            ++n;
+    return n;
 }
 
 // The party's guids and the guids of the units a living party bot or pet has as its victim, for ReadEngagedWith
@@ -12167,12 +12169,33 @@ void ClearRunCcIcons(uint64 leadRaw, uint32 groupId, DungeonRunSlot& slot)
             PendingRunCcIcons().push_back(pending);
         }
 
-    // The run's focus skull (DungeonRun::DropFocus) at the run's end, one try.
-    for (uint64 const focus : {slot.run.focusIconGuid, slot.run.focusIconClear})
+    // The run's focus skull (DungeonRun::DropFocus) at the run's end: an unresolved skull is queued in
+    // PendingRunCcIcons like a cc icon (the same retry path), and a recorded GUID is only zeroed once EndRunIcon
+    // reports success or drop. Both units (the new focus and, while its order has not landed: Run::prevFocusIconGuid,
+    // the previous focus unit, still skull-marked) are queued when their group is not resolved.
+    for (uint64 focus : {slot.run.focusIconGuid, slot.run.focusIconClear, slot.run.prevFocusIconGuid})
         if (focus)
-            EndRunIcon(group, TortoiseBots::DungeonRun::kFocusIcon, focus);
-    slot.run.focusIconGuid = 0;
-    slot.run.focusIconClear = 0;
+        {
+            bool const settled = EndRunIcon(group, TortoiseBots::DungeonRun::kFocusIcon, focus);
+            if (!settled)
+            {
+                PendingRunIcon pending;
+                pending.leadRaw = leadRaw;
+                pending.groupId = groupId;
+                pending.icon = TortoiseBots::DungeonRun::kFocusIcon;
+                pending.guid = focus;
+                PendingRunCcIcons().push_back(pending);
+            }
+            else
+            {
+                if (slot.run.focusIconGuid == focus)
+                    slot.run.focusIconGuid = 0;
+                if (slot.run.focusIconClear == focus)
+                    slot.run.focusIconClear = 0;
+                if (slot.run.prevFocusIconGuid == focus)
+                    slot.run.prevFocusIconGuid = 0;
+            }
+        }
     slot.run.ccIcons.clear(); // settled or kept in PendingRunCcIcons
 }
 
@@ -12864,11 +12887,24 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         StopLeadReach(commander, lead);
     }
 
+    // The run's focus is over (DungeonRun::DropFocus): its skull comes off, only where it still is. An unresolved
+    // one (the group not found) is queued for the retry path, like a cc icon; the recorded GUID then moves there.
     if (it->second.run.focusIconClear)
     {
-        // The run's focus is over (DungeonRun::DropFocus): its skull comes off, only where it still is. One try.
-        EndRunIcon(lead->GetGroup(), TortoiseBots::DungeonRun::kFocusIcon, it->second.run.focusIconClear);
-        it->second.run.focusIconClear = 0;
+        uint64 const focus = it->second.run.focusIconClear;
+        Group* clearGroup = lead->GetGroup();
+        if (EndRunIcon(clearGroup, TortoiseBots::DungeonRun::kFocusIcon, focus))
+            it->second.run.focusIconClear = 0;
+        else
+        {
+            PendingRunIcon pending;
+            pending.leadRaw = binding->leadGuid;
+            pending.groupId = binding->groupId;
+            pending.icon = TortoiseBots::DungeonRun::kFocusIcon;
+            pending.guid = focus;
+            PendingRunCcIcons().push_back(pending);
+            it->second.run.focusIconClear = 0;
+        }
     }
 
     SyncRunHold(commander, lead, bots, it->second, !order.empty());

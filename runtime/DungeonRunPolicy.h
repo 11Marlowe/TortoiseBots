@@ -1336,12 +1336,17 @@ struct Run
     // asks them), so the guard keeps watching though focusGuid is cleared.
     std::unordered_map<std::uint64_t, std::uint64_t> focusRefused;
     bool focusUnstayed = false;
-    // The unit the run's own focus order put the skull on (0: none), and the unit whose skull the glue takes off now
-    // (DropFocus; 0: none). Every bot's "rti" is "skull" (RtiValue's default) and RtiTargetValue takes any living
-    // skull-marked unit in sight, in combat or not: a skull left on a unit that went home after a wipe held every DPS
-    // bot's target for minutes (Scholomance r30 slot C, t 595-973: four bots on an Acolyte 48 yd away at its spawn).
+    // The unit the run's own focus order put the skull on (0: none), the unit whose skull the glue takes off now
+    // (DropFocus; 0: none), and the previous focus unit's skull (0: none). Every bot's "rti" is "skull" (RtiValue's
+    // default) and RtiTargetValue takes any living skull-marked unit in sight, in combat or not: a skull left on a
+    // unit that went home after a wipe held every DPS bot's target for minutes (Scholomance r30 slot C, t 595-973:
+    // four bots on an Acolyte 48 yd away at its spawn).
+    // A new focus moves the skull with its order; until that order lands (it may be refused before the glue moves
+    // the skull: not visible/found/dead) the old skull stays where it was, remembered here. The glue clears both
+    // where they still are (EndRunIcon: a moved skull is a Drop, a no-op).
     std::uint64_t focusIconGuid = 0;
     std::uint64_t focusIconClear = 0;
+    std::uint64_t prevFocusIconGuid = 0;
     // Aggro estimate (Facts::joinerCeiling): a pull expected to bring more
     // joiners than the ceiling waits once for the party to be rested.
     std::unordered_set<std::uint64_t> joinerHeld; // units already held once this step
@@ -1799,8 +1804,11 @@ inline bool DirectStillToCross(const Run& r, std::size_t idx)
     return !(CheckpointKnown(r) && idx <= r.checkpoint);
 }
 
+inline void DropFocus(Run& r);
+
 inline void Pause(Run& r, const std::string& why)
 {
+    DropFocus(r); // a pause leaves nobody's target skull-marked: a resume picks a focus again as usual
     SuspendRoute(r); // a player may move the lead bot while the run is paused
     r.exactProved = static_cast<std::size_t>(-1); // ... so an exact point is proved again after a resume
     r.state = State::Paused;
@@ -1883,12 +1891,14 @@ inline void ClearFightProgress(Run& r)
     r.fightHpDeathAt = 0;
 }
 
-// The run's kill_first focus is over: the unit its skull is on (Run::focusIconGuid) is handed to the glue to take the
-// skull off (Run::focusIconClear; only where it still is: EndRunIcon), and the focus is forgotten.
+// The run's kill_first focus is over: the unit its skull is on (Run::focusIconGuid) is handed to the glue to take
+// the skull off (Run::focusIconClear; only where it still is: EndRunIcon), and the focus is forgotten. A pending
+// new focus (Run::prevFocusIconGuid: the old unit, whose skull the refused new order never replaced) is kept next
+// to it: the glue reads all three recorded GUIDs (both skulls must clear) and only zeroes them once EndRunIcon
+// reports success or drop for each.
 inline void DropFocus(Run& r)
 {
-    if (r.focusIconGuid != 0)
-        r.focusIconClear = r.focusIconGuid;
+    r.focusIconClear = r.focusIconGuid;
     r.focusIconGuid = 0;
     r.focusGuid = 0;
 }
@@ -4467,7 +4477,8 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
     // A kill_first focus every bot refused (an evading, fleeing unit): the
     // focus is not left on it. Its unit is passed over kFocusRefusedIgnoreMs,
     // and the next tick's pick goes to the next kill_first unit, or to none
-    // (the bots' own picks, the plan's order). It never pauses.
+    // (the bots' own picks, the plan's order). It never pauses. DropFocus hands both the new unit's skull and the
+    // previous focus unit's (not yet replaced: the refused order moved the skull) to the glue to take off.
     if (order.compare(0, 6, "focus ") == 0)
     {
         std::uint64_t const guid = std::strtoull(order.c_str() + 6, nullptr, 10);
@@ -11889,9 +11900,13 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         {
             if (k->guid != r.focusGuid)
             {
+                // The order moves the skull onto k; the old skull stays until it lands (the order may be
+                // refused first: not visible/found/dead), so the old unit is remembered (cleared: a refusal of
+                // the new order).
+                r.prevFocusIconGuid = r.focusIconGuid;
                 r.focusGuid = k->guid;
-                r.focusIconGuid = k->guid; // the order moves the skull onto it
-                r.focusIconClear = 0;      // ... so an earlier unit's skull is gone already
+                r.focusIconGuid = k->guid;
+                r.focusIconClear = 0;
                 r.note = "fighting: kill " + std::to_string(k->entry) + " first";
                 order = "focus " + std::to_string(k->guid);
             }

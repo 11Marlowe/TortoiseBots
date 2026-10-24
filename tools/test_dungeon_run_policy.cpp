@@ -7342,6 +7342,46 @@ static void TestFocusSkullComesOffWhenTheFightEnds()
 }
 
 // The wipe regroup's ResetStep drops the skull too.
+// A pause clears the run's focus skull (the same clear path as a fight end); a resume picks a focus again as usual.
+static void TestPauseDropsTheFocusSkull()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.killFirst = {Engaged(Unit(30, 5650, 8))};
+    CHECK(Tick(r, f) == "focus 30");
+    CHECK(r.focusIconGuid == 30);
+    Pause(r, "paused by hand");
+    CHECK(r.state == State::Paused);
+    CHECK(r.focusGuid == 0 && r.focusIconGuid == 0 && r.focusIconClear == 30);
+    CHECK(Resume(r));
+    f.anyInCombat = true;
+    CHECK(Tick(r, f) == "focus 30");
+}
+
+// Documented limit: no ownership token. A player who puts the skull back on the run's own focus unit cannot be
+// told apart, so the run clears a skull on its own focus unit when the focus drops, whoever set it last.
+static void TestFocusClearTakesItsOwnSkullWhoeverSetIt()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.killFirst = {Engaged(Unit(30, 5650, 8))};
+    CHECK(Tick(r, f) == "focus 30");
+    // The focus ends (the unit is gone): the recorded skull is handed to the glue to take off even if a player
+    // re-marked the same unit meanwhile (indistinguishable).
+    f.killFirst.clear();
+    CHECK(Tick(r, f).empty());
+    CHECK(r.focusGuid == 0 && r.focusIconClear == 30);
+}
+
+// The wipe regroup's ResetStep drops the skull too.
 static void TestFocusSkullComesOffAtResetStep()
 {
     DungeonPlan plan = ZfPlan();
@@ -7381,6 +7421,30 @@ static void TestRefusedFocusTakesItsSkullOff()
     CHECK(s.focusGuid == 30 && s.focusIconGuid == 30 && s.focusIconClear == 0);
 }
 
+// A refused new focus clears both the new pending clear and the previous skull: focus A, then a better-ranked B
+// whose order is refused -> both A and B are pending clears. Mutation (dropping the prev field) must fail it.
+static void TestRefusedNewFocusClearsBothSkulls()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    // A (rank 1) is focused first.
+    f.killFirst = {Engaged(Unit(30, 5650, 8))};
+    CHECK(Tick(r, f) == "focus 30");
+    CHECK(r.focusGuid == 30 && r.focusIconGuid == 30 && r.prevFocusIconGuid == 0);
+    // A better-ranked ward comes up: the new focus order goes out on B, remembering A's skull.
+    f.killFirst.push_back(Ward(9, 30, true, 12));
+    CHECK(Tick(r, f) == "focus 9");
+    CHECK(r.focusGuid == 9 && r.focusIconGuid == 9 && r.prevFocusIconGuid == 30);
+    // B's order is refused (not visible/found/dead): both clears are pending.
+    OrderRefused(r, "focus 9", "failed: No bot of the group accepted the focus order.");
+    CHECK(r.focusGuid == 0 && r.focusIconClear == 9 && r.prevFocusIconGuid == 30);
+    CHECK(r.focusIconGuid == 0);
+}
+
 // A new focus moves the skull with no clear: pin for M5.
 static void TestANewFocusMovesTheSkullWithNoClear()
 {
@@ -7395,6 +7459,7 @@ static void TestANewFocusMovesTheSkullWithNoClear()
     f.killFirst = {Engaged(Unit(31, 5650, 6))};
     CHECK(Tick(r, f) == "focus 31");
     CHECK(r.focusIconGuid == 31 && r.focusIconClear == 0);
+    CHECK(r.prevFocusIconGuid == 30);
 }
 
 // FocusGone in a fight (cc landed on the focused unit) drops the skull too.
@@ -17718,7 +17783,10 @@ int main()
     TestKillFirstBoundDoesNotFlipFlop();
     TestFocusSkullComesOffWhenTheFightEnds();
     TestFocusSkullComesOffAtResetStep();
+    TestPauseDropsTheFocusSkull();
+    TestFocusClearTakesItsOwnSkullWhoeverSetIt();
     TestRefusedFocusTakesItsSkullOff();
+    TestRefusedNewFocusClearsBothSkulls();
     TestANewFocusMovesTheSkullWithNoClear();
     TestACrowdControlledFocusTakesItsSkullOff();
     TestKillFirstKeepsItsUnitAgainstAnEqualRank();
