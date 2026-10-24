@@ -2366,6 +2366,20 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(later, [])
 
     def test_hateforge_quarry_is_the_plan_with_the_census_fixes(self):
+        # 20261024153700 (turtle-agent a1ae53f, 2026-10-24): the hfq-fix6 leg-0 low-floor approach chains.
+        # r35 slot4c stopped at step 15 of the 469-step plan: step 14's pack (-8234.2 -3371.8 132.6) was
+        # deferred and the lead stood at -8225.7 -3303.2 163.6 (3.9 yd under the west-wall floor, a dead
+        # island: every server query from it is NOPATH), so step 15 (-8254.9 -3377.5 139.4) had no stand
+        # 15-25 yd with a path and paused 4x; the step-16 pack (-8278.3 -3366.7 168.4) is 29 yd above.
+        # Leg 0 groups 10-14 now have approach chains that descend the east wall once (group 10: -8200.0
+        # -3300.0 165.59 -> -8200.0 -3320.0 139.32 -> -8208.1 -3324.23 140.71) and pull the low floor
+        # from stands 15.4-22.3 yd away (g11 -8211.95 -3331.25 140.73, g12 -8227.35 -3359.3 138.4, g13
+        # -8234.23 -3371.84 133.15, g14 -8260.0 -3380.0 140.61 then -8280.0 -3384.0 166.75), so the west
+        # wall that stranded the lead is never walked. Leg 0 group 50 gets four approach rows (through
+        # -8311.76 -3338.32 173.56, -8300.24 -3327.22 171.57, -8288.72 -3316.11 176.03, -8282.97 -3310.56
+        # 172.91) replacing the cut chord through the off-mesh -8293.0 -3301.9 169.2, and the Corrosis boss
+        # gets four (-8216.73 -3514.3 135.58, -8218.23 -3490.35 137.07, -8219.73 -3466.4 139.24, -8221.23
+        # -3442.45 135.72) replacing the cut chord through the off-mesh -8219.9 -3462.9 135.0.
         # 20261024153400 (turtle-agent bcb3d45, 2026-10-24): the hfq-fix5 stands for the leg-4 pulls. r35
         # slot4b stopped at step 273: steps 264/265 refused ('the tank could not start moving to a firing
         # position': 60720's stand 2 at 38.4 yd; 60721's stand-1 walk stalled), step 272's pack
@@ -2377,7 +2391,7 @@ class DungeonPlanSql(unittest.TestCase):
         # -8044.42 -3414.46 z167.67 (16.4 yd), group 12 -8058.8 -3385.2 z171.27 (15.1 yd). Every hop is a
         # server-exact path-check type 0x1 ok from the lead's real position; the leg-5 group-6 stand of
         # hfq-fix4 is unchanged.
-        # 6 legs, 469 steps (304 moves, 2 move_hop_exact, 158 pulls: 54 + 0 + 29 + 5 + 63 + 7, the 5 bosses), bosses in
+        # 6 legs, 478 steps (313 moves, 2 move_hop_exact, 158 pulls: 54 + 0 + 29 + 5 + 63 + 7, the 5 bosses), bosses in
         # leg order; every leg with a boss ends on it (leg 0 is the trash clear, its boss moved to the terrace leg).
         # The plan row carries the census unit lists; Broody 60715 is Engineer
         # Figgles' boss.first (his lone pull is gone); the boss room is one 7-entry pull, the leg's last, and every pull
@@ -2386,15 +2400,15 @@ class DungeonPlanSql(unittest.TestCase):
         # island), then to the stand 18.8 yd from the boss (ray clear) and the boss approach; corrosis starts with the
         # reverse hop down the same seam (exact launch at the ramp top), then the server-path waypoint.
         name, text = newest_plan_text("hateforge_quarry")
-        self.assertEqual(name, "20261024153400_world.sql")
+        self.assertEqual(name, "20261024153700_world.sql")
         self.assertIn("('hateforge_quarry', 808, '60717,60720,60719,60725', '', '60718,60726,60723,60712,60738', "
-                      "'turtle-agent bcb3d45 dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+                      "'turtle-agent a1ae53f dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "hateforge_quarry")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["high_foreman_bargul_blackhammer", "bargul_terrace", "corrosis", "har'gesh_doomcaller",
                           "engineer_figgles", "hatereaver_annihilator"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "hateforge_quarry"]
-        self.assertEqual(len(rows), 469)
+        self.assertEqual(len(rows), 478)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [54, 0, 29, 5, 63, 7])
         for leg in range(6):
             # Leg 0 is the trash clear (its boss moved to the terrace leg); every other leg ends on its boss.
@@ -2411,6 +2425,26 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["kind"], r["x"], r["y"]) for r in corrosis[:2]],
                          [("move", "-8323.71", "-3452.3"), ("move_hop_exact", "-8320", "-3447.5")])
         self.assertIn(("move", "-8192", "-3349.33"), [(r["kind"], r["x"], r["y"]) for r in corrosis])
+        # The hfq-fix6 leg-0 approaches: group 10's east-wall descent (top, bottom, stand), one stand each for
+        # groups 11-13, group 14's ramp bottom and top, then group 50's four rows in place of the dead chord.
+        leg0_approaches = [(r["comment"], r["x"], r["y"], r["z"]) for r in leg_steps(rows, 0)
+                           if r["kind"] == "move" and r["comment"].endswith(" approach")]
+        self.assertEqual([r[1:] for r in leg0_approaches],
+                         [("-8200", "-3300", "165.59"), ("-8200", "-3320", "139.32"), ("-8208.1", "-3324.23", "140.71"),
+                          ("-8211.95", "-3331.25", "140.73"), ("-8227.35", "-3359.3", "138.4"),
+                          ("-8234.23", "-3371.84", "133.15"), ("-8260", "-3380", "140.61"), ("-8280", "-3384", "166.75"),
+                          ("-8311.76", "-3338.32", "173.56"), ("-8300.24", "-3327.22", "171.57"),
+                          ("-8288.72", "-3316.11", "176.03"), ("-8282.97", "-3310.56", "172.91")])
+        self.assertEqual([r[0] for r in leg0_approaches],
+                         ["pull group 10 approach"] * 3 + ["pull group 11 approach", "pull group 12 approach",
+                                                           "pull group 13 approach"] + ["pull group 14 approach"] * 2
+                         + ["pull group 50 approach"] * 4)
+        # The hfq-fix6 Corrosis approach: four rows; the off-mesh chord point is gone.
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in corrosis if r["kind"] == "move" and r["comment"] == "boss approach"],
+                         [("-8216.73", "-3514.3", "135.58"), ("-8218.23", "-3490.35", "137.07"),
+                          ("-8219.73", "-3466.4", "139.24"), ("-8221.23", "-3442.45", "135.72")])
+        for bad in (("-8225.7", "-3303.2"), ("-8293.01", "-3301.8716"), ("-8219.884", "-3462.8818")):
+            self.assertFalse([r for r in rows if (r["x"], r["y"]) == bad], bad)
         # The hatereaver leg carries the two server-path waypoints (the audit halfway point, then the
         # route midpoint), the group-6 approach stand 18.2 yd from the last pack, and still ends on its boss.
         hatereaver = leg_steps(rows, 5)
