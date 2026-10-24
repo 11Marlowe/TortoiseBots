@@ -94,7 +94,7 @@ class UnattackableFightWiringTest(unittest.TestCase):
         self.assertNotIn(", true);", party)
 
     def test_combat_drop_runs_after_tick_on_rechecked_bots_only(self):
-        self.assertIn("std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);\n\n"
+        self.assertIn(": TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);\n\n"
                       "    DropUnattackableCombat(lead, bots, slot.run.combatDrops);", CODE)
         drop = body(CODE, "void DropUnattackableCombat(Player* lead, std::vector<Player*> const& bots,")
         self.assertIn("if (!bot->IsAlive() || !bot->IsInWorld() ||", drop)

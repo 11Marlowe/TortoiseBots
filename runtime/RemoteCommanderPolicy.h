@@ -64,6 +64,9 @@ struct Binding
     // bots, the lead bot always a bot). Real players in the group do not end
     // this binding; the lead bot still leads it.
     bool inParty = false;
+    // Player-led run (`.bot run start ... player`, 2026-10-24; PlayerLedPolicy.h): the binding the start made. The
+    // commander leads the party and walks it; the lead bot is the run's tank (the puller). Always inParty too.
+    bool playerLed = false;
 };
 
 enum class BindResult : uint8_t
@@ -200,6 +203,7 @@ struct BindingState
     bool realPlayerInGroup = false; // a human other than the commander is in the bound group
     bool commanderInGroup = false;  // the commander is a member of the bound group (an in-party binding needs him there)
     size_t memberCount = 0;
+    bool commanderIsLeader = false; // the commander leads the lead bot's group (a player-led binding's rule)
 };
 
 enum class ReleaseReason : uint8_t
@@ -218,6 +222,8 @@ enum class ReleaseReason : uint8_t
     CommanderLeftParty,
     // Not a CheckBinding verdict: the commander's own `.bot commander unbind`.
     Unbound,
+    // A player-led binding: the commander handed the party's lead to somebody else.
+    CommanderNotLeader,
 };
 
 // None while the binding still stands; otherwise why it ends. A binding never
@@ -237,7 +243,10 @@ inline ReleaseReason CheckBinding(Binding const& binding, BindingState const& st
     // the bots leave it (2026-10-23 review round 1).
     if (binding.inParty && !state.commanderInGroup)
         return ReleaseReason::CommanderLeftParty;
-    if (!state.leadIsLeader)
+    // Player-led: the commander leads the party, the lead bot (the tank) does not.
+    if (binding.playerLed && !state.commanderIsLeader)
+        return ReleaseReason::CommanderNotLeader;
+    if (!binding.playerLed && !state.leadIsLeader)
         return ReleaseReason::LeaderChanged;
     // A bound party is never a raid, even one of five: a conversion ends the binding.
     if (state.leadGroupIsRaidOrBg)
@@ -275,6 +284,7 @@ struct ReleaseCommanderFacts
     bool hasSession = false; // a session with its network transport (a live client)
     bool isMember = false;   // his guid is in the bound group's member slots
     bool leadFound = false;  // the lead bot's character exists and is still in the bound group (review round 3)
+    bool playerLed = false;  // a player-led binding (the commander's own party)
 };
 
 // Which group the release works on (review round 3): the lead bot's own group when it is the bound one; else the
@@ -312,6 +322,11 @@ inline ReleasePartyAction DecideReleaseParty(ReleaseCommanderFacts const& facts)
         return ReleasePartyAction::None;
     if (facts.reason == ReleaseReason::CommanderLeft || facts.reason == ReleaseReason::CommanderLeftParty)
         return ReleasePartyAction::BotsLeave;
+    // A player-led binding (PlayerLedPolicy.h) was made of the commander's own party: with him there its end changes
+    // nothing in the party, whatever ended it (he gave the lead away, the tank logged out, a stop): no bot leaves and
+    // the lead is not handed back to him.
+    if (facts.playerLed && facts.found && facts.inWorld && facts.hasSession && facts.isMember)
+        return ReleasePartyAction::None;
     // The lead bot gone (logged out, removed): its followers lose the binding's protections with it, so they leave
     // the players' party too (review round 3).
     if (facts.reason == ReleaseReason::LeadLeft || !facts.leadFound)
@@ -358,6 +373,7 @@ inline char const* ReleaseReasonText(ReleaseReason reason)
         case ReleaseReason::GroupRaid: return "the group became a raid";
         case ReleaseReason::CommanderLeftParty: return "the commander left the party";
         case ReleaseReason::Unbound: return "unbound by the commander";
+        case ReleaseReason::CommanderNotLeader: return "the player no longer leads the party";
     }
     return "unknown";
 }

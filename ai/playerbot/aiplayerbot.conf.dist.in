@@ -909,6 +909,28 @@ AiPlayerbot.DungeonRunPullStand = 0
 # Only read while AiPlayerbot.DungeonSelfClear = 1.
 AiPlayerbot.DungeonRunLootFfa = 0
 
+# Player-led runs (owner 2026-10-23). A player who leads his own party of bots
+# (up to three other players may be in it) starts `.bot run start [plan] player
+# [tank <Bot>]`: he walks wherever he wants, and the run leader pulls the plan's
+# packs near him with the tank bot, marks, crowd controls, rests and revives.
+# Plain `.bot run start` stays bot-led. Needs AiPlayerbot.DungeonSelfClear = 1 and
+# AiPlayerbot.RemoteCommander = 1 too (the run's orders are `.bot cmd` orders).
+# 0 - `.bot run start ... player` is refused (Default)
+# 1 - a player who leads his party may start a player-led run
+AiPlayerbot.DungeonRunPlayerLed = 0
+
+# How close (yards, straight line) the leading player must stand to a plan pack
+# or boss for the player-led run to pull it.
+# 40 - default; 5 to 100. Only read while AiPlayerbot.DungeonRunPlayerLed = 1.
+AiPlayerbot.DungeonRunPlayerLedPullYd = 40
+
+# How long (minutes) the leading player of a player-led run may be out of the
+# plan's dungeon. Meanwhile the bots that stayed inside hold where they stand;
+# back in time, they follow him again and the run goes on. Past it the run
+# stops with a note and its binding ends (the bots keep holding).
+# 10 - default; 1 to 60. Only read while AiPlayerbot.DungeonRunPlayerLed = 1.
+AiPlayerbot.DungeonRunPlayerLedAwayMinutes = 10
+
 # Scripted area triggers for bots (an audited allowlist of trigger ids, off by default).
 # A bot has no game client, so it never tells the server it walked into an area
 # trigger, and a trigger script never ran for it: Zul'Farrak's Witch Doctor
