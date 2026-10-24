@@ -170,12 +170,16 @@ SEEDED_BOSSES.update({(269, 65125): "Antnormi", (269, 50105): "Medivh",
                       (269, 65116): "Time-Lord Epochronos", (269, 65113): "Chronar"})
 NOT_BOSSES |= {65122, 65124, 61575}  # Rotmaw, Mossheart and Epidamu: scripted mobs inside pull groups, not leg ends
 
-# Stratholme's live side (20261024020100): its map and its three boss steps, names from the core's creature_template (all rank 1).
+# Stratholme's live side (20261024060700): its map and its three boss steps, names from the core's creature_template (all rank 1).
+# Dathrohan's step ends on Balnazzar 10813 (UpdateEntry on the same creature, no 10813 spawn row); Jarien 16101/Sothos
+# 16102 are the step's first, Skul 10393, Hearthsinger Forresten 10558 and Malor the Zealous 11032 are not boss steps,
+# Balzaphon 14684 is a never-started event spawn: none is seeded. The 10812 row of 20261024020100 stays seeded (Dathrohan
+# is still a boss, the step just ends on his second form).
 # Jarien 16101/Sothos 16102 are Dathrohan's first (an EventAI pair), Skul 10393, Hearthsinger Forresten 10558 and Malor the Zealous
 # 11032 are not boss steps, and Balzaphon 14684 is a never-started event spawn: none is seeded.
 BOSS_PLANS["stratholme_live"] = 329
 SEEDED_BOSSES.update({(329, 10811): "Archivist Galford", (329, 10812): "Grand Crusader Dathrohan",
-                      (329, 10997): "Cannon Master Willey"})
+                      (329, 10813): "Balnazzar", (329, 10997): "Cannon Master Willey"})
 
 # Stratholme, undead side (20261024020200): its map and its five boss steps, names from the core's creature_template (all rank 1).
 # Baron Rivendare 10440 is rank 1 with detection 1 (his script gates him on the Slaughter Square event); the two hostile rares inside
@@ -1123,15 +1127,18 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (429) AND `entry` IN (11489, 14690, 11488, 11487, 11496, 11486);", text)
 
     def test_stratholme_live_is_the_live_side_with_the_census_fixes(self):
-        # 20261024020100 (turtle-agent a5309ee, 2026-10-24, the census of PREP-STRATHOLME-LIVE-2026-10-24.md): the generator draft of
-        # map 329's live side, no row hand-set, with the boss rows of map 329 scoped to this plan's own three entries. 3 legs, 195
-        # steps (141 moves, 51 pulls: 42 + 0 + 9; 3 bosses), 199 rows. The 16 neutral citizens (faction 7) are out of every pull and the
+        # 20261024060700 (turtle-agent ef83bc5, 2026-10-24): re-export of 20261024020100 (the census of
+        # PREP-STRATHOLME-LIVE-2026-10-24.md, no row hand-set) with the Dathrohan fix: Dathrohan (10812) UpdateEntry-transforms
+        # into Balnazzar (10813) below 40 % on the same creature, so the boss step's entry is 10813 (a corpse of 10813 ends
+        # it; 10812 never leaves one) with 10812 in first, and ai_dungeon_boss seeds 10813. The boss rows of map 329 stay
+        # scoped to this plan's boss-step entries, so stratholme_undead's five keep theirs. 3 legs, 195 steps (141 moves,
+        # 51 pulls: 42 + 0 + 9; 3 bosses), 199 rows. The 16 neutral citizens (faction 7) are out of every pull and the
         # legs skip 10384/10385/10558, Balzaphon 14684 (event 81, never spawned) is gone, Skul 10393 is listed in the pack he stands in,
         # every radius is the members' spread (<= 18.7 yd), Jarien/Sothos are Dathrohan's first (his leg is a move and the boss) and the
         # Galford hall packs are leg 0's last pulls, before the boss.
         name, text = newest_plan_text("stratholme_live")
-        self.assertEqual(name, "20261024020100_world.sql")
-        self.assertIn("('stratholme_live', 329, '10419,10425,10426,10422', '', '10423,10421,10420,11032', 'turtle-agent cd375ad dungeons/stratholme_live.json', 'plan v1, draft (census-fixed, not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024060700_world.sql")
+        self.assertIn("('stratholme_live', 329, '10419,10425,10426,10422', '', '10423,10421,10420,11032', 'turtle-agent ef83bc5 dungeons/stratholme_live.json', 'plan v1, draft (census-fixed, not mapped, not live-checked)');", text)
         legs = leg_rows(text, "stratholme_live")
         self.assertEqual([legs[i][0] for i in range(3)],
                          ["archivist_galford", "grand_crusader_dathrohan", "cannon_master_willey"])
@@ -1139,8 +1146,8 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(len(rows), 195)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(3)], [42, 0, 9])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
-        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["10811", "10812", "10997"])
-        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "16101,16102", ""])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["10811", "10813", "10997"])
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "16101,16102,10812", ""])
         for leg in range(3):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
         self.assertEqual([r["kind"] for r in leg_steps(rows, 1)], ["move", "boss"])
@@ -1155,8 +1162,8 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((last0["kind"], round(dist(last0, 3439.0, -3090.0), 1)), ("pull", 0.4))
         self.assertLessEqual(dist(leg_steps(rows, 0)[-1], 3455.96, -3103.41), 0.1)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stratholme_live"])
-        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (329) AND `entry` IN (10811, 10812, 10997);", text)
-        self.assertIn("(329, 10811, 'Archivist Galford'),\n(329, 10812, 'Grand Crusader Dathrohan'),\n(329, 10997, 'Cannon Master Willey');", text)
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (329) AND `entry` IN (10811, 10813, 10997);", text)
+        self.assertIn("(329, 10811, 'Archivist Galford'),\n(329, 10813, 'Balnazzar'),\n(329, 10997, 'Cannon Master Willey');", text)
 
     def test_stratholme_undead_is_the_undead_side_with_the_census_fixes(self):
         # 20261024020200 (turtle-agent prep/stratholme_undead 58edf6e, 2026-10-24): the generator draft of map 329's undead side with
