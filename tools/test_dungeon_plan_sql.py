@@ -778,24 +778,26 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwind_stockade"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
-    def test_stormwind_vault_is_the_plan_with_the_census_fixes(self):
-        # 20261024010200 (turtle-agent 7c80a94, 2026-10-24): the Stormwind Vault draft rebuilt from the map-35 spawn census
-        # (PREP-STORMWIND-VAULT-2026-10-24.md): every pull from the 8-yd spawn clusters with the radius at farthest+0.5, the two
-        # giant draft groups split into 39 pulls of 1-6, the duplicate draft groups merged, the Aszosh and Black Bride guards as
-        # those bosses' first, and the west-wing trash moved to the Tham'Grarr leg with Arc'tiras last. 6 legs, 100 steps
-        # (7 + 2 + 10 + 10 + 24 + 0 pulls), bosses in leg order, no door, event or patrol step. The plan row carries kill_first
-        # for the four AoE/root casters (cc_priority and cc_always stay empty: no humanoid worth a Polymorph). No pull row reaches
+    def test_stormwind_vault_is_the_plan_with_the_leg0_split(self):
+        # 20261024151700 (turtle-agent 33dcce5, 2026-10-24): 20261024010200 again, with leg-0 pull group 0 split in
+        # three: the census shows the two 60597 and the 60596 unlinked (every map-35 group_leader is 0, no
+        # creature_linking row for any map-35 spawn), so each is one single pull in route order (60597 at 1.86 58.70,
+        # 60597 at -4.20 59.17, then the 60596 alone at -1.50 67.34), each from the corridor stand (-1.0 47.0
+        # z -27.55, 11.8-12.6 yd from its unit, 25+ yd from the next pack). 6 legs, 105 steps
+        # (9 + 2 + 10 + 10 + 24 + 0 pulls), bosses in leg order, no door, event or patrol step. The plan row carries kill_first
+        # for the four AoE/root casters (cc_priority and cc_always stay empty: no humanoid worth a Polymorph; the lone
+        # 60596 keeps the plan-level kill_first for mixed pulls). No pull row reaches
         # a neighbouring spawn (every radius <= 8.5 yd), and no pull is the boss guard the boss row now carries.
         name, text = newest_plan_text("stormwind_vault")
-        self.assertEqual(name, "20261024010200_world.sql")
-        self.assertIn("('stormwind_vault', 35, '', '', '60602,60596,60601,60603', 'turtle-agent 7c80a94 dungeons/stormwind_vault.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024151700_world.sql")
+        self.assertIn("('stormwind_vault', 35, '', '', '60602,60596,60601,60603', 'turtle-agent 33dcce5 dungeons/stormwind_vault.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "stormwind_vault"),
                          {0: ("volkan_cruelblade", ""), 1: ("damian", ""), 2: ("aszosh_grimflame", ""),
                           3: ("black_bride", ""), 4: ("tham'grarr", ""), 5: ("arc'tiras", "")})
         rows = [r for r in self.step_rows(text) if r["plan"] == "stormwind_vault"]
-        self.assertEqual(len(rows), 100)
-        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(6)}, {0: 9, 1: 4, 2: 13, 3: 23, 4: 44, 5: 7})
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [7, 2, 10, 10, 24, 0])
+        self.assertEqual(len(rows), 105)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(6)}, {0: 14, 1: 4, 2: 13, 3: 23, 4: 44, 5: 7})
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [9, 2, 10, 10, 24, 0])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["80851", "80854", "80853", "80850", "80852", "93107"])
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "60597", "60604", "", ""])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -804,6 +806,12 @@ class DungeonPlanSql(unittest.TestCase):
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertLessEqual(max(float(r["radius"]) for r in pulls), 8.5)
         self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 4.9)
+        # The three single pulls open leg 0 in route order, each from the corridor stand.
+        leg0 = leg_steps(rows, 0)
+        self.assertEqual([(r["kind"], r["entries"]) for r in leg0[:7]],
+                         [("move", ""), ("move", ""), ("pull", "60597"), ("move", ""), ("pull", "60597"),
+                          ("move", ""), ("pull", "60596")])
+        self.assertEqual([(float(r["x"]), float(r["y"])) for r in leg0[1:7:2]], [(-1.0, 47.0)] * 3)
         # The two guard positions are gone as pulls (the boss rows carry their entries); no pull centre sits on them.
         for x, y in ((-5.7097, 181.434), (3.5689, 192.759), (65.0286, 116.118)):
             self.assertFalse([r for r in pulls if math.hypot(float(r["x"]) - x, float(r["y"]) - y) < 1.0], (x, y))
