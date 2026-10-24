@@ -2523,24 +2523,27 @@ class DungeonPlanSql(unittest.TestCase):
 
 
     def test_scholomance_is_the_census_fixed_draft(self):
-        # 20261024060000 (turtle-agent 29fcc48, 2026-10-24): the Scholomance draft with the census fixes of
-        # PREP-SCHOLOMANCE-2026-10-24.md and leg 0's route clear after the r28c slotC first run (RUN-LESSONS.md): the landing-to-Malicia
-        # walk is 554 yd and passes 40 census packs within 30 yd, so leg 0 is those 40 pulls with their approach rows instead of one
-        # move row. No row hand-set, and the boss rows of map 289 scoped to this plan's ten entries. 10 legs, 561 steps (152 pulls,
-        # 10 bosses, 399 moves), bosses in leg order. The plan row carries cc_priority, the undead no_cc is not a column and kill_first;
-        # the 55 Rats 4075 and the Black Rat 2110 are out of every pull, as are the disabled Kormok 16118 and his trigger 16047. Every
-        # pull is at most six members and its radius (5-13.1 yd) covers its own positions; Alexei's linked Risen Guards 10489 and
-        # Rattlegore's linked Risen Construct 10488 are the boss rows' first.
+        # 20261024150000 (turtle-agent 993e275, 2026-10-24): the Scholomance draft with the census fixes of
+        # PREP-SCHOLOMANCE-2026-10-24.md, leg 0's route clear after the r28c slotC first run and the step-11 reorder after the
+        # r29 slot8 run (RUN-LESSONS.md): the landing-to-Malicia walk is 554 yd and passes 40 census packs within 30 yd, so leg 0
+        # is those 40 pulls with their approach rows instead of one move row. The r29 run wiped five times on the move at step 11
+        # (leg-0 seq 10: 235.8 40.1, 7 yd from the live 10499 pack), so the three packs around that point (the 10499 pack, the lone
+        # patrolling 10471, the 10470 pack) are pulled before the southern pair, from western stands. No row hand-set, and the boss
+        # rows of map 289 scoped to this plan's ten entries. 10 legs, 565 steps (152 pulls, 10 bosses, 403 moves), bosses in leg order.
+        # The plan row carries cc_priority, the undead no_cc is not a column and kill_first; the 55 Rats 4075 and the Black Rat 2110
+        # are out of every pull, as are the disabled Kormok 16118 and his trigger 16047. Every pull is at most six members and its
+        # radius (5-13.1 yd) covers its own positions; Alexei's linked Risen Guards 10489 and Rattlegore's linked Risen Construct
+        # 10488 are the boss rows' first.
         name, text = newest_plan_text("scholomance")
-        self.assertEqual(name, "20261024060000_world.sql")
-        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469', '', '10471,11582,10477', 'turtle-agent 29fcc48 dungeons/scholomance.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024150000_world.sql")
+        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469', '', '10471,11582,10477', 'turtle-agent 993e275", text)
         legs = leg_rows(text, "scholomance")
         self.assertEqual([legs[i][0] for i in range(10)],
                          ["instructor_malicia", "the_ravenian", "lorekeeper_polkelt", "lady_illucia_barov",
                           "jandice_barov", "rattlegore", "vectus", "ras_frostwhisper",
                           "doctor_theolen_krastinov", "lord_alexei_barov"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "scholomance"]
-        self.assertEqual(len(rows), 561)
+        self.assertEqual(len(rows), 565)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
                          [40, 7, 4, 14, 36, 25, 18, 3, 2, 3])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
@@ -2556,9 +2559,9 @@ class DungeonPlanSql(unittest.TestCase):
         # Leg 0 is the whole route: every pull is preceded by its approach move row, and the 40 packs are the stair guards, the
         # 115.8 hall, the 109.7 ring, the 104.8 hall and Malicia's room, in that order.
         leg0 = leg_steps(rows, 0)
-        self.assertEqual(len(leg0), 87)
-        self.assertEqual([r["kind"] for r in leg0].count("move"), 46)
-        self.assertEqual(len([r for r in leg0 if r["kind"] == "move" and r["comment"].endswith(" approach")]), 45)
+        self.assertEqual(len(leg0), 91)
+        self.assertEqual([r["kind"] for r in leg0].count("move"), 50)
+        self.assertEqual(len([r for r in leg0 if r["kind"] == "move" and r["comment"].endswith(" approach")]), 49)
         pulls0 = [r for r in leg0 if r["kind"] == "pull"]
         self.assertEqual(len(pulls0), 40)
         for i, r in enumerate(leg0):
@@ -2569,6 +2572,10 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((leg0[0]["x"], leg0[0]["y"], leg0[0]["z"]), ("190.819", "126.329", "137.227"))
         self.assertEqual(leg0[-1]["kind"], "boss")
         self.assertEqual(pulls0[0]["entries"], "10489")
+        # The step-11 cluster: the 10499 pack, the southern pair, the lone 10471 and the 10470 pack come in that order.
+        entries0 = [r["entries"] for r in pulls0[:8]]
+        self.assertEqual(entries0[4:8],
+                         ["10471,10470,10499", "10471,10470", "10471", "10470,10471"])
         self.assertFalse([r["entries"] for r in pulls
                           if {"2110", "4075", "16047", "16118"} & set(r["entries"].split(","))])
         self.assertLessEqual(max(len(r["entries"].split(",")) for r in pulls), 6)
