@@ -1715,21 +1715,22 @@ class DungeonPlanSql(unittest.TestCase):
         # The map 48 ai_dungeon_boss rows stay in 20261022210800 (the seed test holds them to one seeding).
 
     def test_windhorn_canyon_is_the_plan_with_the_pack_fixes(self):
-        # 20261023230200 (turtle-agent f93774a, 2026-10-23) re-exports the Windhorn Canyon draft that 20261023150100 (0afaeeb) first
-        # put in, with the pack fixes of PREP-WINDHORN-CANYON-2026-10-23.md and the terrace fix of run 1 (approach stands on the
-        # z 241 terrace of leg 0, reached by the ring route; the leg-0 pull order changed so that no walk passes a live pack), no row
-        # hand-set. 20261023230000 was the second export. The map-820 boss rows stay in
-        # 20261023150100. 7 legs, 1993 steps (2001 rows: 188 pulls (46 + 32 + 17 + 14 + 36 + 9 + 34), the 7 boss rows and
-        # approach moves), bosses in leg order, no door or event step. The plan row has
+        # 20261024060200 (turtle-agent 3c4f085b, 2026-10-24) re-exports the Windhorn Canyon draft that 20261023150100 (0afaeeb) first
+        # put in, with the pack fixes of PREP-WINDHORN-CANYON-2026-10-23.md, the terrace fix of run 1 (approach stands on the
+        # z 241 terrace of leg 0, reached by the ring route; the leg-0 pull order changed so that no walk passes a live pack) and the
+        # leg-1 floor-stand fix of run 2 (leg 1 group 16 stands on the z 219 shelf, which the navmesh does not join to the z 198
+        # floor: floor approach stands for group 16 and 17), no row hand-set. 20261023230000 was the second export, 20261023230200 the
+        # third. The map-820 boss rows stay in 20261023150100. 7 legs, 1941 steps (1949 rows: 188 pulls
+        # (46 + 32 + 17 + 14 + 36 + 9 + 34), the 7 boss rows and approach moves), bosses in leg order, no door or event step. The plan row has
         # empty unit lists (the world data has no AI/spell rows for these entries); the packs that stand with a
         # boss are that boss row's entries; co-located packs are merged; radii are cut to the groups' members.
         name, text = newest_plan_text("windhorn_canyon")
-        self.assertEqual(name, "20261023230200_world.sql")
+        self.assertEqual(name, "20261024060200_world.sql")
         rows = [r for r in self.step_rows(text) if r["plan"] == "windhorn_canyon"]
         # leg_rows() matches [A-Za-z0-9_] leg names only; ahgk'tos_the_pure is not a word, so the legs are
         # counted from the step rows (each leg's boss step proves its rows are there).
         self.assertEqual({r["leg"] for r in rows}, {"0", "1", "2", "3", "4", "5", "6"})
-        self.assertEqual(len(rows), 1993)
+        self.assertEqual(len(rows), 1941)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [46, 32, 17, 14, 36, 9, 34])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["62784", "62783", "62780", "62781", "62779", "62782", "62778"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -1750,6 +1751,11 @@ class DungeonPlanSql(unittest.TestCase):
                           "62767,62766,62765", "62760", "62763"])
         self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg0 if r["comment"].endswith(" approach") and r["z"].startswith("24")],
                          [("pull group 25 approach", "-7786.4", "-3493.8", "240.8"), ("pull group 26 approach", "-7787.9", "-3459.4", "241.4"), ("pull group 27 approach", "-7723.1", "-3423.4", "241.7"), ("pull group 28 approach", "-7668.5", "-3405.1", "241.9"), ("pull group 29 approach", "-7660.3", "-3404.4", "241.9"), ("pull group 34 approach", "-7794.8", "-3450.1", "241"), ("pull group 35 approach", "-7816", "-3446.9", "240.9"), ("pull group 41 approach", "-7870.2", "-3445.1", "241.6"), ("pull group 45 approach", "-7761.1", "-3449.3", "241.5")])
+        # The leg-1 floor-stand fix (fourth export): leg 1 group 16 (the z 219 shelf pack) is pulled from its floor approach stand,
+        # and group 17 from its own on the way north; the two shelf walk rows (server steps 504/505 of the third export) are gone.
+        leg1 = leg_steps(rows, 1)
+        self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg1 if r["comment"].endswith(" approach")],
+                         [("pull group 16 approach", "-7680", "-3605.3", "198"), ("pull group 17 approach", "-7680", "-3584", "198.4")])
         # The map-820 boss DELETE is scoped to this plan's own entries (it shares no map with another plan); it stays in the first file.
         first = dict(migrations())["20261023150100_world.sql"]
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", first)
