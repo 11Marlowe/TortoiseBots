@@ -194,6 +194,15 @@ SEEDED_BOSSES.update({(818, 62547): "Dagar the Glutton", (818, 62548): "Oronok T
                       (818, 62661): "Eldermaw the Primordial", (818, 62665): "Lady Drazare",
                       (818, 62671): "Ighal'for"})
 
+# Karazhan Crypt (20261024021100): its map and its six boss steps, names from the core's creature_template (Enkhraz 91916,
+# Corpsemuncher 91917, Marrowspike 91920 and Hivaxxis 91929 are rank 3; Commander Andreon 91919 and Guard Captain Gort 92935 rank 1).
+# Alarus 91928 (rank 3) has no spawn row - the six Necrotic Runes summon him - and is not a boss step, so he is not seeded.
+# Midnight 91927 is Enkhraz's boss.first, not a boss.
+BOSS_PLANS["karazhan_crypt"] = 800
+SEEDED_BOSSES.update({(800, 91916): "Archlich Enkhraz", (800, 91917): "Corpsemuncher",
+                      (800, 91920): "Marrowspike", (800, 91929): "Hivaxxis",
+                      (800, 91919): "Commander Andreon", (800, 92935): "Guard Captain Gort"})
+
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
         with open(path, encoding="utf-8") as handle:
@@ -1155,6 +1164,41 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("62670", [r["entries"] for r in leg_steps(rows, 10) if r["kind"] == "pull"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (818) AND `entry` IN (62547, 62548, 62552, 62549, 62551, 62550, 62652, 62664, 62661, 62665, 62671);", text)
         self.assertIn("(818, 62671, 'Ighal''for');", text)
+
+    def test_karazhan_crypt_is_the_plan_with_the_census_fixes(self):
+        # 20261024021100 (turtle-agent prep/karazhan_crypt e91b69a, 2026-10-24): the hand-written plan of map 800 with the census fixes
+        # of PREP-KARAZHAN-CRYPT-2026-10-24.md, no row hand-set, with the boss rows of map 800 scoped to its own six entries. 6 legs,
+        # 246 steps (164 pulls, 76 moves, 6 bosses), 253 rows, bosses in leg order, no boss.first but Midnight 91927 on leg 0's boss.
+        # The critters 14881 are out of every pull; the spider room's 7 Tomb Creepers 91930 are three pulls; Skeletal Remains 91924 that
+        # no Remains Trigger can wake are out; the plan row carries kill_first and no cc_priority (the trash is undead).
+        name, text = newest_plan_text("karazhan_crypt")
+        self.assertEqual(name, "20261024021100_world.sql")
+        self.assertIn("('karazhan_crypt', 800, '', '', '91918,91913,91911,91925', 'turtle-agent e91b69a3 dungeons/karazhan_crypt.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "karazhan_crypt")
+        self.assertEqual([legs[i][0] for i in range(6)],
+                         ["archlich_enkhraz", "marrowspike", "hivaxxis", "guard_captain_gort", "commander_andreon",
+                          "corpsemuncher"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "karazhan_crypt"]
+        self.assertEqual(len(rows), 246)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)],
+                         [23, 26, 4, 42, 43, 26])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["91916", "91920", "91929", "92935", "91919", "91917"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(6):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["91927", "", "", "", "", ""])
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        entries = [e for r in pulls for e in r["entries"].split(",")]
+        self.assertNotIn("14881", entries)      # the 19 critters of the spider room
+        self.assertNotIn("91927", entries)      # Enkhraz's cat is his boss.first
+        self.assertNotIn("91931", entries)      # the GM-only Alarus trigger
+        self.assertEqual(len([r for r in pulls if "91930" in r["entries"].split(",")]), 3)   # the 7 Tomb Creepers, in three pulls
+        self.assertIn("91922", entries)         # the Crypt Fearfeaster is real trash
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 12.8)
+        self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 5.0)
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["karazhan_crypt"])
+        # Entry-scoped on map 800: only this plan's six bosses are deleted and replaced (the SM-wing rule).
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (800) AND `entry` IN (91916, 91917, 91920, 91929, 91919, 92935);", text)
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
         # 20261023210000 (turtle-agent cg-fix1 479dc0d) re-exports the 20261023130100 draft (prep/crescent_grove ba00e7c, the census
