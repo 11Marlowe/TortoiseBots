@@ -632,7 +632,7 @@ class DungeonPlanSql(unittest.TestCase):
         # The map 48 ai_dungeon_boss rows stay in 20261022210800 (the seed test holds them to one seeding).
 
     def test_windhorn_canyon_is_the_plan_with_the_pack_fixes(self):
-        # 20261024150400 (turtle-agent 2ad4475, 2026-10-24) re-exports the Windhorn Canyon draft that 20261023150100 (0afaeeb) first
+        # 20261024150400 (turtle-agent e63d1d9, 2026-10-24) re-exports the Windhorn Canyon draft that 20261023150100 (0afaeeb) first
         # put in, with the pack fixes of PREP-WINDHORN-CANYON-2026-10-23.md, the terrace fix of run 1 (approach stands on the
         # z 241 terrace of leg 0, reached by the ring route; the leg-0 pull order changed so that no walk passes a live pack),
         # the leg-1 floor-stand fix of run 2 (leg 1 group 16 stands on the z 219 shelf, which the navmesh does not join to the z 198
@@ -649,7 +649,7 @@ class DungeonPlanSql(unittest.TestCase):
         # leg_rows() matches [A-Za-z0-9_] leg names only; ahgk'tos_the_pure is not a word, so the legs are
         # counted from the step rows (each leg's boss step proves its rows are there).
         self.assertEqual({r["leg"] for r in rows}, {"0", "1", "2", "3", "4", "5", "6"})
-        self.assertEqual(len(rows), 2169)
+        self.assertEqual(len(rows), 1937)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [46, 32, 17, 14, 36, 9, 34])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["62784", "62783", "62780", "62781", "62779", "62782", "62778"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -685,9 +685,9 @@ class DungeonPlanSql(unittest.TestCase):
                          ["62763,62767", "62772", "62772,62865", "62777", "62774", "62985,62773", "62777,62773,62774",
                           "62773,62774", "62760", "62985,62760", "62760", "62764", "62760", "62774", "62768", "62760", "62764"])
         self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg2 if r["comment"].endswith(" approach")],
-                         [("pull group 3 approach", "-7599.7", "-3623.2", "220.1"), ("pull group 4 approach", "-7599.7", "-3623.2", "220.1"),
-                          ("pull group 5 approach", "-7599.7", "-3623.2", "220.1"), ("pull group 6 approach", "-7650", "-3630", "197.6"),
-                          ("pull group 7 approach", "-7605", "-3625", "220"), ("pull group 8 approach", "-7599.7", "-3623.2", "220.1")])
+                         [("pull group 3 approach", "-7628", "-3570", "241"), ("pull group 4 approach", "-7628", "-3570", "241"),
+                          ("pull group 5 approach", "-7628", "-3570", "241"), ("pull group 6 approach", "-7650", "-3630", "197.6"),
+                          ("pull group 7 approach", "-7600", "-3625", "220"), ("pull group 8 approach", "-7620", "-3585", "282.3")])
         # The map-820 boss DELETE is scoped to this plan's own entries (it shares no map with another plan); it stays in the first file.
         first = dict(migrations())["20261023150100_world.sql"]
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", first)
