@@ -16716,6 +16716,65 @@ static void TestAliveSearchPauseSaysWhereTheLeadBotIs()
     CHECK(a.note == "boss 3976 is alive at 30.0 0.0 43.0, 43.0 yd from his spot (an instance search after 60 s), 44.6 yd "
         "from the lead bot (33.0 yd above it): bring the party to him or wait for him, then .bot run resume, or .bot run skip");
 }
+// Stormwrought Ruins leg 9 (specs/sw-eldermaw.md, Spec A): Eldermaw 62661 swims a pool whose bed navmesh is cut off
+// from the shore, so the boss row carries kPlanFlagSkipUnreachable. Where the step would pause on him ALIVE it ends
+// "not cleared" with a note instead, and the run goes on.
+static void TestSkipUnreachableBossAliveElsewhereEndsNotCleared()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 30);
+    boss.entry = 3976;
+    ai::NormalizePlanStep(boss);
+    boss.flags |= ai::kPlanFlagSkipUnreachable;
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    Run a = Start(&plan);
+    Facts f = Party(0);
+    f.leadZ = 10.0f;
+    for (std::uint32_t i = 0; i < kBossSearchMs / kTickMs + 2 && !a.bossSearchWanted && a.state == State::Running; ++i)
+        Tick(a, f);
+    Facts alive = f;
+    alive.bossSearchRead = true;
+    alive.bossSearchAlive = true;
+    alive.bossAliveX = 30.0f;
+    alive.bossAliveZ = 43.0f;
+    Tick(a, alive);
+    CHECK(a.state == State::Running);
+    CHECK(a.step == 1);
+    CHECK(a.notCleared.count(0));
+    CHECK(a.note == "boss 3976 is alive at 30.0 0.0 43.0, 43.0 yd from his spot (an instance search after 60 s), 44.6 yd "
+        "from the lead bot (33.0 yd above it): skipped, not cleared (the plan marks him out of reach)");
+}
+
+static void TestSkipUnreachableBossPassedBySpotEndsNotCleared()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 0, 0, 0);
+    boss.entry = 3976;
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    // Today's behaviour without the flag: the step pauses and says the pulls drew no fight with him.
+    Run p = Start(&plan);
+    Facts f = Party(0);
+    UnitFact seen = Unit(7, 3976, 33.1f);
+    seen.hostile = true;
+    f.seen = true;
+    f.units = {seen};
+    p.passed.insert(7);
+    p.pullTries[7] = 3;
+    Tick(p, f);
+    CHECK(p.state == State::Paused);
+    CHECK(p.note.find("and 3 pulls drew no fight with him") != std::string::npos);
+    // With the flag: not cleared with a note, and the run goes on.
+    plan.steps[0].flags |= ai::kPlanFlagSkipUnreachable;
+    Run a = Start(&plan);
+    a.passed.insert(7);
+    a.pullTries[7] = 3;
+    Tick(a, f);
+    CHECK(a.state == State::Running);
+    CHECK(a.step == 1);
+    CHECK(a.notCleared.count(0));
+    CHECK(a.note.find(": skipped, not cleared (the plan marks him out of reach)") != std::string::npos);
+    CHECK(a.note.find("and 3 pulls drew no fight with him") != std::string::npos);
+}
 
 // Scarlet Cathedral r23 slot 5, step 97 (fix 6): the party killed Mograine at the door, 290 yd from his spot, and the
 // boss step paused "not found" three times until the corpse decay moved him home 600 s later. After kBossSearchMs at
@@ -19275,6 +19334,8 @@ int main()
     TestBossNotAtHisSpotIsSearchedForInTheInstance();
     TestPassedBossAtHisSpotPausesAtOnce();
     TestAliveSearchPauseSaysWhereTheLeadBotIs();
+    TestSkipUnreachableBossAliveElsewhereEndsNotCleared();
+    TestSkipUnreachableBossPassedBySpotEndsNotCleared();
     TestSpawnEventsOffReadsEveryAssociation();
     TestUnitThatCannotDieNowPauses();
     TestSlowSteadyBossFightNeverPausesBeforeTheHardCap();

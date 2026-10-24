@@ -8620,10 +8620,16 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
             if (u.entry == s.entry && u.hostile && r.passed.count(u.guid))
             {
                 auto const tries = r.pullTries.find(u.guid);
-                Pause(r, "boss " + std::to_string(s.entry) + " is alive by his spot, " +
+                std::string const noFight = "boss " + std::to_string(s.entry) + " is alive by his spot, " +
                     FromLeadBot(u.distLead, u.z - f.leadZ) + ", and " +
-                    std::to_string(tries == r.pullTries.end() ? 0u : tries->second) + " pulls drew no fight with him: " +
-                    "bring the party where it can reach him, then .bot run resume, or .bot run skip");
+                    std::to_string(tries == r.pullTries.end() ? 0u : tries->second) + " pulls drew no fight with him";
+                if (s.flags & ai::kPlanFlagSkipUnreachable)
+                {
+                    r.notCleared.insert(r.step);
+                    NextStep(r, noFight + ": skipped, not cleared (the plan marks him out of reach)");
+                    return;
+                }
+                Pause(r, noFight + ": bring the party where it can reach him, then .bot run resume, or .bot run skip");
                 return;
             }
         // Not seen alive and not seen dead: he is away (a patrol, Theka in
@@ -8656,12 +8662,18 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         {
             // Alive elsewhere: the party is not sent after him (he may be on a patrol, or in another part of the
             // instance); the pause says where he stands.
-            Pause(r, "boss " + std::to_string(s.entry) + " is alive at " + Num(f.bossAliveX) + " " + Num(f.bossAliveY) +
+            std::string const aliveAt = "boss " + std::to_string(s.entry) + " is alive at " + Num(f.bossAliveX) + " " + Num(f.bossAliveY) +
                 " " + Num(f.bossAliveZ) + ", " + Num(ai::PlanDistance(f.bossAliveX, f.bossAliveY, f.bossAliveZ, s.x, s.y, s.z)) +
                 " yd from his spot (an instance search after " + std::to_string(kBossSearchMs / 1000) + " s), " +
                 FromLeadBot(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, f.bossAliveX, f.bossAliveY, f.bossAliveZ),
-                    f.bossAliveZ - f.leadZ) +
-                ": bring the party to him or wait for him, then .bot run resume, or .bot run skip");
+                    f.bossAliveZ - f.leadZ);
+            if (s.flags & ai::kPlanFlagSkipUnreachable)
+            {
+                r.notCleared.insert(r.step);
+                NextStep(r, aliveAt + ": skipped, not cleared (the plan marks him out of reach)");
+                return;
+            }
+            Pause(r, aliveAt + ": bring the party to him or wait for him, then .bot run resume, or .bot run skip");
             return;
         }
         if (f.bossSearchRead && f.bossSearchDead)
