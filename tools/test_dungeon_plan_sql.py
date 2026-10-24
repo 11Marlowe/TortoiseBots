@@ -1075,30 +1075,32 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("(429, 11492, 'Alzzin the Wildshaper');", text)
 
     def test_dire_maul_north_is_the_plan_with_the_census_fixes(self):
-        # 20261024060600 (turtle-agent 1d3b021a, 2026-10-24): the first plan of Dire Maul North, rebuilt from the map-429 spawn census of
+        # 20261024150900 (turtle-agent 107dead, 2026-10-24): the first plan of Dire Maul North, rebuilt from the map-429 spawn census of
         # PREP-DIRE-MAUL-NORTH-2026-10-24.md. 5 legs in door order (Mol'dar, the great hall + Fengus, Slip'kik, the Kromcrush tier, the King),
-        # 153 steps (19 + 28 + 9 + 10 + 4 pulls, 78 moves, the 5 bosses), no row hand-set. The skeleton's 13 Gordok Spirit pulls (11446,
+        # 149 steps (19 + 28 + 10 + 10 + 4 pulls, 73 moves, the 5 bosses), no row hand-set. The skeleton's 13 Gordok Spirit pulls (11446,
         # non-attackable) are gone, and the Gordok ogres the generator dropped for their gossip flag (114 rows, 99 spawned) are pull members. The plan row
         # carries cc_priority for the three casters; no fleer and no trash healer in the wing, so kill_first is empty. Cho'Rush 14324 is
         # the King's first, not a pull and not a boss of the table. Leg 0 pull group 2 carries the four approach stands down the g1-g2
         # corridor on the mesh floor (r28c stopped at step 6: the exporter's cut joined the straight corners at z -3.8 while the floor
         # drops to z -25, so 361.7/411.7 floated 21 yd above the mesh); every hop plans complete at 47-49 yd, the last 48 yd from the pack.
+        # Leg 2 pulls Slip'kik (14323, stand 545 560) and his guard pack (2 x 11448, stand 575 565) right after the swarmers,
+        # before the north-loop walk (r31 wiped at old step 115: the 552.8 563.5 move stood 15-17 yd off Slip'kik's spawn on his
+        # 465 yd patrol loop); the old group 8 at the leg's end is gone and the boss step takes him already dead.
         name, text = newest_plan_text("dire_maul_north")
-        self.assertEqual(name, "20261024060600_world.sql")
-        self.assertIn("('dire_maul_north', 429, '11448,11444,11445', '', '', 'turtle-agent 1d3b021a dungeons/dire_maul_north.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024150900_world.sql")
+        self.assertIn("('dire_maul_north', 429, '11448,11444,11445', '', '', 'turtle-agent 107dead dungeons/dire_maul_north.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "dire_maul_north")
         self.assertEqual([legs[i][0] for i in range(5)],
                          ["guard_mol_dar", "guard_fengus", "guard_slip_kik", "captain_kromcrush", "king_gordok"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "dire_maul_north"]
-        self.assertEqual(len(rows), 153)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [19, 28, 9, 10, 4])
+        self.assertEqual(len(rows), 149)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [19, 28, 10, 10, 4])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["14326", "14321", "14323", "14325", "11501"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         for leg in range(5):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "", "", "14324"])
         pulls = [r for r in rows if r["kind"] == "pull"]
-        self.assertEqual(len(pulls), 70)
         self.assertFalse([r for r in pulls if {"11446", "14338", "14322"} & set(r["entries"].split(","))])
         # The courtyard's First Pack (pool-of-pools 4294, one variant live): the four variant entries at one centre, radius 13.6.
         self.assertEqual((pulls[0]["entries"], float(pulls[0]["radius"])), ("11441,11444,13036", 13.6))
@@ -1109,7 +1111,18 @@ class DungeonPlanSql(unittest.TestCase):
                          [("319.73", "10.93", "-8.64"), ("363.73", "10.93", "-25.28"),
                           ("411.73", "10.93", "-24.85"), ("456.27", "10.93", "-3.82")])
         self.assertTrue(all(r["comment"] == "pull group 2 approach" for r in moves[1:5]))
-        # Every radius covers its own pack and no more than the wide aggro-together flocks need (the 10 Swarmers span up to 21.9 yd).
+        # Leg 2 pulls Slip'kik and his guard pack before the north-loop walk: the stands sit 15-25 yd off their own
+        # pack on the mesh floor and outside the other's reach, and the old end-of-leg guard pull is gone.
+        leg2 = leg_steps(rows, 2)
+        leg2pulls = [r for r in leg2 if r["kind"] == "pull"]
+        self.assertEqual([(r["entries"], r["comment"]) for r in leg2pulls[4:6]],
+                         [("14323", "pull group 4"), ("11448", "pull group 5")])
+        leg2moves = [r for r in leg2 if r["kind"] == "move"]
+        self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in leg2moves[6:8]],
+                         [("545", "560", "-25.3", "pull group 4 approach"),
+                          ("575", "565", "-25.3", "pull group 5 approach")])
+        self.assertEqual([r["comment"] for r in leg2pulls],
+                         ["pull group %d" % i for i in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)])
         self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 5.0)
         self.assertLessEqual(max(float(r["radius"]) for r in pulls), 22.0)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["dire_maul_north"])
