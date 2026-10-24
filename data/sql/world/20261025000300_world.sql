@@ -27,9 +27,10 @@
 --     --stamp 20261025000300 --out <dir> sunken_temple
 -- 6 legs, 2349 steps, 2356 rows; 92 pulls (21 + 11 + 37 + 20 + 2 + 1), 6 open_proof rows and 1 hold row in leg 0.
 -- Plan check (server-exact path-check, map 109): every new approach hop and the cut rows around them type 0x1 ok,
--- 0.3-0.9 yd short; plan-check --mmaps: 401 points on the navmesh, no failure, the same 70 warnings as HEAD
--- (47 run-leader hops, 23 detours: the same pre-existing floor-change shapes; the moved groups warn at 122-152 yd
--- of way, as they did at 87-113 yd in the dreamscythe leg).
+-- 0.3-0.9 yd short; plan-check --mmaps: 401 points on the navmesh, no failure, 68 warnings (45 run-leader hops,
+-- 23 detours) where 20261024151900 has 70 (47 + 23): the same pre-existing classes (floor-change detours, 60-150 yd
+-- anchors); the moved groups warn at 112-152 yd of way, as they did at 87-113 yd in the dreamscythe leg, and the
+-- group-9 ring stand takes leg 0 groups 10 and 11 off the hop list.
 -- Diff vs 20261024151900: this header and the plan source rev. Legs 1, 2, 4 and 5 are byte-identical. Leg 0
 -- (767 -> 760 steps): the two island cut rows (-448 103.2 -187.83, -422.93 104.27 -172.93) are replaced by the
 -- group-9 approach moves and the ring stand; five pulls join after group 15 (the walk to the statues loses the
