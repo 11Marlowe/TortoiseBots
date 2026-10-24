@@ -10,8 +10,8 @@
 --     the Darkpelt Alpha, a Howl of Terror 5484 fear). cc_always stays empty: no pack depends on a Polymorph (the r21 lesson).
 --   * critters: 4075 Rat and 61643 Raven (faction 31, flags_extra 2 civilian, 8 hp) were members of 68 of the draft's 171 pull groups; 49
 --     groups were nothing but critters (a pull of a rat). They are out of every group.
---   * packs: the three Footmen + Arbalest of the `creature_groups` link (flags 2, aggro together) and the same-pack neighbours within 8 yd are one
---     pull now (at most 5 units; the draft split one pack over 2-4 rows); radii stop at the farthest member plus 0.5 yd, so a row does not reach
+--   * packs: the `creature_groups` link (two Footmen 61389 and their Arbalest 61364, flags 2, aggro together) and the same-pack neighbours
+--     within 8 yd are one pull now (at most 5 units; the draft split one pack over 2-4 rows); radii stop at the farthest member plus 0.5 yd, so a row does not reach
 --     the pack beside it.
 --   * boss guards: the Darkpelt Alpha 61425 (2.9 yd from Packmaster Ragetooth) and three Greymane Justicars 61417 (1.9-5.3 yd from Marshal
 --     Magnus Greystone) stand inside their boss's detection; their pulls are gone and they are the bosses' `first` lists. Regent-Lady Celia
