@@ -1065,6 +1065,15 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", text)
 
     def test_hateforge_quarry_is_the_plan_with_the_census_fixes(self):
+        # 20261024154500 (turtle-agent dbf3859, 2026-10-24): the hfq-fix7 magma fix. r37 slot4 ran the 478-step plan
+        # (Bargul, the terrace, Corrosis, Har'gesh; 1 death) and stopped at step 273, leg 4 pull group 7's approach
+        # stand -8073.12 -3441.07 z162.52: 4 pauses 'the lead bot is stuck 11.4 yd from -8073.1 -3441.1 162.5', the
+        # lead at -8072.5 -3452 z165.8, the server's lead log 'why=magma path=0x0'. The point sits exactly on the shared
+        # edge of a ground polygon (0x01) and a magma polygon (0x02): floors at it list only the ground polygon, but it
+        # is 0.00 yd from the magma polygon (0.5 yd west z161.75 and 1 yd north z161.92 are magma) and the server's snap
+        # of the goal can land on the magma side. The stand moves to -8069 -3442 z164.04 (3.83 yd from the magma, 14.25
+        # yd from the pack centroid; server path type 0x1 ok from step 272's stop and the r37 stall); no other plan point
+        # of the 478 is within 25.4 yd of a magma or slime polygon. The plan file is back in Marshal's canonical form.
         # 20261024153700 (turtle-agent a1ae53f, 2026-10-24): the hfq-fix6 leg-0 low-floor approach chains.
         # r35 slot4c stopped at step 15 of the 469-step plan: step 14's pack (-8234.2 -3371.8 132.6) was
         # deferred and the lead stood at -8225.7 -3303.2 163.6 (3.9 yd under the west-wall floor, a dead
@@ -1099,9 +1108,9 @@ class DungeonPlanSql(unittest.TestCase):
         # island), then to the stand 18.8 yd from the boss (ray clear) and the boss approach; corrosis starts with the
         # reverse hop down the same seam (exact launch at the ramp top), then the server-path waypoint.
         name, text = newest_plan_text("hateforge_quarry")
-        self.assertEqual(name, "20261024153700_world.sql")
+        self.assertEqual(name, "20261024154500_world.sql")
         self.assertIn("('hateforge_quarry', 808, '60717,60720,60719,60725', '', '60718,60726,60723,60712,60738', "
-                      "'turtle-agent a1ae53f dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+                      "'turtle-agent dbf3859 dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "hateforge_quarry")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["high_foreman_bargul_blackhammer", "bargul_terrace", "corrosis", "har'gesh_doomcaller",
@@ -1142,7 +1151,9 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in corrosis if r["kind"] == "move" and r["comment"] == "boss approach"],
                          [("-8216.73", "-3514.3", "135.58"), ("-8218.23", "-3490.35", "137.07"),
                           ("-8219.73", "-3466.4", "139.24"), ("-8221.23", "-3442.45", "135.72")])
-        for bad in (("-8225.7", "-3303.2"), ("-8293.01", "-3301.8716"), ("-8219.884", "-3462.8818")):
+        # The r37 step-273 magma-seam row (0.00 yd from a magma polygon) is gone, with the hfq-fix6 points before it.
+        for bad in (("-8225.7", "-3303.2"), ("-8293.01", "-3301.8716"), ("-8219.884", "-3462.8818"),
+                    ("-8073.12", "-3441.07")):
             self.assertFalse([r for r in rows if (r["x"], r["y"]) == bad], bad)
         # The hatereaver leg carries the two server-path waypoints (the audit halfway point, then the
         # route midpoint), the group-6 approach stand 18.2 yd from the last pack, and still ends on its boss.
@@ -1160,9 +1171,10 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertFalse([r for r in pulls if gone in r["entries"].split(",")], gone)
         # The boss room is one row (the plan's 7 spawns, deduplicated to its 4 entries) and the leg's last pull.
         self.assertEqual([r["entries"] for r in leg_steps(rows, 4) if r["kind"] == "pull"][-1], "60719,60720,60712,60722")
-        # The five leg-4 approach stands (hfq-fix5): group 7 and 8 one each, group 10 and 11 two each, group 12 one.
+        # The leg-4 approach stands: group 7's is the hfq-fix7 magma move (it was -8073.12 -3441.07 z162.52, 0.00 yd
+        # from a magma polygon; now -8069 -3442 z164.04, 3.83 yd clear); group 8 one, groups 10 and 11 two each, group 12 one.
         self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg_steps(rows, 4) if r["kind"] == "move" and r["comment"].endswith(" approach")],
-                         [("pull group 7 approach", "-8073.12", "-3441.07", "162.52"),
+                         [("pull group 7 approach", "-8069", "-3442", "164.04"),
                           ("pull group 8 approach", "-8069.9", "-3459.9", "167.78"),
                           ("pull group 10 approach", "-8049.48", "-3436.5", "168.37"),
                           ("pull group 10 approach", "-8041.87", "-3433.57", "170.31"),
