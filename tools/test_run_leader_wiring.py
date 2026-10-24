@@ -890,6 +890,58 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
 
 
 
+class WaitObjectGoneWiringTest(unittest.TestCase):
+    """A wait_object row with ai::kPlanFlagGoneIsDone (Shadowfang Keep's Courtyard Door 18895, removed by the escort) is
+    done by the object being gone after a wait step read it found. The glue reads the object's state for the wait step
+    (-1 when not found), the step reads it into Run::objectsSeen before it judges, and the loader refuses the flag on any
+    kind but loot, open and wait_object."""
+
+    POLICY = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+    PLAN = (ROOT / "ai/playerbot/DungeonPlanPolicy.h").read_text()
+
+    def test_glue_reads_the_wait_objects_state(self):
+        facts = body(strip_comments(COMMANDS), "case ai::PlanStepKind::WaitObject:", "case ai::PlanStepKind::Hold:")
+        self.assertIn("f.objectState = 0;", facts)
+        self.assertIn("GameObject* go = guid && objectGuid.IsGameObject()", facts)
+
+    def test_glue_reads_the_object_as_authoritative_only_when_it_could_find_it(self):
+        facts = body(strip_comments(COMMANDS), "case ai::PlanStepKind::WaitObject:", "case ai::PlanStepKind::Hold:")
+        read = body(facts, "f.objectReadable =", ";")
+        for needed in ("lead->IsAlive()", "!lead->IsBeingTeleported()", "lead->GetMapId() == slot.run.plan->map",
+                       "EntryPointReachable(lead, spec)", "lead->GetMap()->IsLoaded(step->x, step->y)"):
+            self.assertIn(needed, read)
+
+    def test_sighting_and_miss_count_are_updated_before_any_fight_handling(self):
+        tick = body(strip_comments(self.POLICY), "NoteLeadPath(r, f);", "bool const objectDone")
+        self.assertIn("UpdateObjectSighting(r, *s, f, dt);", tick)
+        update = body(strip_comments(self.POLICY), "inline void UpdateObjectSighting(", "\n}\n")
+        self.assertIn("r.objectsSeen.push_back({s.entry, s.x, s.y, s.z});", update)
+        self.assertIn("f.objectReadable && f.leadAlive", update)
+
+    def test_wait_step_judges_gone_before_the_timeout_pause(self):
+        step = body(strip_comments(self.POLICY), "case PlanStepKind::WaitObject:", "case PlanStepKind::WaitClear:")
+        self.assertIn("WaitObjectGoneIsDone(r, *s, f)", step)
+        # The pause on the timeout stays after the gone check: a never-seen object still pauses.
+        self.assertLess(step.index("WaitObjectGoneIsDone(r, *s, f)"), step.index("Pause(r,"))
+
+    def test_stale_combat_shortcut_accepts_a_confirmed_gone(self):
+        short = body(strip_comments(self.POLICY), "bool const objectDone =", ";")
+        self.assertIn("WaitObjectGoneIsDone(r, *s, f)", short)
+
+    def test_gone_check_needs_a_sighting_and_a_confirmed_readable_miss(self):
+        check = body(strip_comments(self.POLICY), "inline bool WaitObjectGoneIsDone(", "\n}\n")
+        self.assertIn("f.objectState < 0", check)
+        self.assertIn("f.objectReadable", check)
+        self.assertIn("r.goneMissMs >= kGoneConfirmMs", check)
+        self.assertIn("WaitSightSeen(r, s)", check)
+        self.assertIn("ai::kPlanFlagGoneIsDone", check)
+
+    def test_loader_accepts_the_flag_on_wait_object_only_beside_loot_and_open(self):
+        norm = body(strip_comments(self.PLAN), "inline PlanStepRefusal NormalizePlanStep(", "if ((step.flags & kPlanFlagDeadNpcIsDone)")
+        for kind in ("Loot", "Open", "WaitObject"):
+            self.assertIn("step.kind != PlanStepKind::" + kind, norm)
+
+
 class BossTacticsJoinWiringTest(unittest.TestCase):
     """The Codex review of d7aca6b5: the run leader's deferral gate (DungeonRun::PullMayBeDeferred) reads a later boss
     step's ai_boss_tactic subjects from the sealed plan (PlanStep::tacticEntries). The loader fills them from the tactic
