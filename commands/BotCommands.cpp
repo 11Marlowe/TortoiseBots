@@ -11901,11 +11901,24 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             }
             std::list<Unit*> hostiles;
             HostileCreaturesAround(lead, std::min(toPoint + step->radius, 2.0f * kSeeYd), hostiles);
+            // Engaged with the party (EngagedWithParty above: a party bot is its victim or attacks it): such a
+            // hostile counts whatever its dz (DungeonRunPolicy.h WaitClearCount); the floor filter drops bystanders only.
+            std::unordered_set<uint64> party;
+            for (Player* bot : bots)
+            {
+                party.insert(bot->GetObjectGuid().GetRawValue());
+                if (Pet* pet = bot->GetPet())
+                    party.insert(pet->GetObjectGuid().GetRawValue());
+            }
             for (Unit* unit : hostiles)
             {
                 float const dx = unit->GetPositionX() - step->x, dy = unit->GetPositionY() - step->y;
                 if (std::sqrt(dx * dx + dy * dy) <= step->radius)
-                    f.clearUnits.push_back(HostileSpot{unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ()});
+                {
+                    HostileSpot spot{unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ()};
+                    spot.engaged = EngagedWithParty(unit, party);
+                    f.clearUnits.push_back(spot);
+                }
             }
             break;
         }

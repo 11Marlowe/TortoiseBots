@@ -1035,14 +1035,16 @@ class WaitObjectGoneWiringTest(unittest.TestCase):
 class WaitClearFloorWiringTest(unittest.TestCase):
     """Shadowfang Keep r38 slotA step 308: the wait_clear spot at z 129 counted hostiles on other floors (z ~100-157)
     and paused four times on "waited 120 s; 3-4 hostiles still near the spot". The glue lists every living hostile
-    within the 2D radius of the step's point with its z (unit->GetPositionZ()), and the policy counts only those
-    within kWaitClearMaxDz of the spot."""
+    within the 2D radius of the step's point with its z (unit->GetPositionZ()) and whether it is engaged with the
+    party (EngagedWithParty, the same 'a party bot is its victim or attacks it' rule the engaged reads use); the
+    policy counts an engaged hostile whatever its dz and the rest only within kWaitClearMaxDz of the spot."""
 
     POLICY = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
 
     def test_policy_counts_only_the_spots_floor(self):
         self.assertIn("constexpr float kWaitClearMaxDz = 10.0f;", self.POLICY)
         count = body(strip_comments(self.POLICY), "inline std::uint32_t WaitClearCount(", "\n}\n")
+        self.assertIn("h.engaged ||", count)
         self.assertIn("std::fabs(h.z - s.z) <= kWaitClearMaxDz", count)
         step = body(strip_comments(self.POLICY), "case PlanStepKind::WaitClear:", "case PlanStepKind::Rest:")
         self.assertIn("WaitClearCount(*s, f)", step)
@@ -1053,7 +1055,10 @@ class WaitClearFloorWiringTest(unittest.TestCase):
         self.assertIn("float const dx = unit->GetPositionX() - step->x, dy = unit->GetPositionY() - step->y;", facts)
         self.assertIn("if (std::sqrt(dx * dx + dy * dy) <= step->radius)", facts)
         self.assertIn("unit->GetPositionZ()", facts)
+        self.assertIn("EngagedWithParty(unit, party)", facts)
+        self.assertIn("spot.engaged =", facts)
         self.assertIn("f.clearUnits.push_back(", facts)
+
 
 
 class BossTacticsJoinWiringTest(unittest.TestCase):

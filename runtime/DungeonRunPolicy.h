@@ -669,6 +669,10 @@ struct PlayerFact
 struct HostileSpot
 {
     float x = 0.0f, y = 0.0f, z = 0.0f;
+    // In combat with, or targeting, a party member (BotCommands.cpp
+    // EngagedWithParty: a party bot is its victim or attacks it): counts
+    // whatever its dz.
+    bool engaged = false;
 };
 
 // What the glue reads once a tick for the run's current step.
@@ -870,9 +874,9 @@ struct Facts
     // friendly, still dormant ones too):
     std::uint32_t eventDown = 0;        // dead units of its `entries` within its radius
     long long eventData = -1;           // done by instance data: the value now; -1 the map has no instance data
-    std::vector<HostileSpot> clearUnits; // wait_clear: where the living hostiles within the 2D radius of the step's
-                                         // point stand; the step counts those within kWaitClearMaxDz of it, ignoring
-                                         // the rest (other floors).
+    std::vector<HostileSpot> clearUnits; // wait_clear: the living hostiles within the 2D radius of the step's
+                                         // point, with z and whether engaged with the party; the step counts an
+                                         // engaged hostile whatever its dz, the rest only within kWaitClearMaxDz of it.
     std::string carrier;                // the bot that does object and item steps (the lead bot)
     // open / use_item: the step's inputs (its item, and `param` when set) are
     // split between bots, none carries them all: who holds what (PickItemCarrier).
@@ -4940,17 +4944,22 @@ inline bool StallDirectLineClear(bool leadInWater, bool swimLine, const std::vec
     return true;
 }
 
-// A wait_clear hostile counts as near the spot only on its floor: within the
-// step's 2D radius (the glue lists only those) and at most kWaitClearMaxDz
-// above or below it (Shadowfang Keep r38 slotA step 308: hostiles on other
-// floors held the spot for four 120 s waits).
+// A wait_clear hostile counts when it stands on the spot's floor or fights the
+// party: within the step's 2D radius (the glue lists only those) and either
+// engaged with a party member (whatever its dz: a required mob on a ramp or a
+// ledge, or one already fighting the party from above) or at most
+// kWaitClearMaxDz above or below the spot. Bystanders on other floors
+// (Shadowfang Keep r38 slotA step 308: hostiles at z ~100-157, the spot at
+// z 129) do not hold the step.
 inline std::uint32_t WaitClearCount(const PlanStep& s, const Facts& f)
 {
     std::uint32_t near = 0;
     for (const HostileSpot& h : f.clearUnits)
     {
         float const dx = h.x - s.x, dy = h.y - s.y;
-        if (std::sqrt(dx * dx + dy * dy) <= s.radius && std::fabs(h.z - s.z) <= kWaitClearMaxDz)
+        if (std::sqrt(dx * dx + dy * dy) > s.radius)
+            continue;
+        if (h.engaged || std::fabs(h.z - s.z) <= kWaitClearMaxDz)
             ++near;
     }
     return near;

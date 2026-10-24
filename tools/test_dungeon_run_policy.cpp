@@ -8382,8 +8382,8 @@ static void TestStepIdleCeiling()
 
 // Shadowfang Keep r38 slotA step 308: the wait_clear spot at z 129 counted
 // hostiles on other floors (z ~100-157) and paused four times on
-// "waited 120 s; 3-4 hostiles still near the spot". Only hostiles within the
-// 2D radius AND at most kWaitClearMaxDz above or below the spot count.
+// "waited 120 s; 3-4 hostiles still near the spot". Only bystanders are
+// dropped by the floor filter: an engaged hostile counts whatever its dz.
 static void TestWaitClearIgnoresOtherFloors()
 {
     CHECK(kWaitClearMaxDz == 10.0f);
@@ -8419,6 +8419,48 @@ static void TestWaitClearIgnoresOtherFloors()
     f4.clearUnits = {HostileSpot{-147.1f, 2171.6f, 139.1f}};
     CHECK(Tick(r4, f4).empty());
     CHECK(r4.state == State::Done);
+}
+
+// Round 1: the floor filter drops bystanders only. A hostile engaged with the
+// party counts whatever its dz (an event mob on a ramp, or one already
+// fighting the party from above); unengaged hostiles on other floors do not.
+static void TestWaitClearEngagedCountsWhateverDz()
+{
+    DungeonPlan plan;
+    PlanStep clear = Step(PlanStepKind::WaitClear, -147.1f, 2171.6f, 129.0f);
+    clear.radius = 35.0f;
+    clear.timeoutS = 120;
+    plan.steps = {clear};
+    auto Spot = [](float x, float y, float z, bool engaged) {
+        HostileSpot h{x, y, z};
+        h.engaged = engaged;
+        return h;
+    };
+    // (a) an engaged hostile at dz 27 still waits.
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.seen = true;
+    f.clearUnits = {Spot(-147.1f, 2171.6f, 156.0f, true)};
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && r.note.find("waiting for the spot to clear") != std::string::npos);
+    CHECK(WaitClearCount(plan.steps[0], f) == 1);
+    // (c) the r38 Shadowfang case: bystanders at dz 19-28, none engaged, still clears.
+    Run r2 = Start(&plan);
+    Facts f2 = Party(0);
+    f2.seen = true;
+    f2.clearUnits = {Spot(-147.1f, 2171.6f, 148.0f, false), Spot(-140.0f, 2170.0f, 157.0f, false),
+        Spot(-150.0f, 2175.0f, 100.0f, false), Spot(-147.1f, 2171.6f, 156.0f, false)};
+    CHECK(Tick(r2, f2).empty());
+    CHECK(r2.state == State::Done);
+    CHECK(WaitClearCount(plan.steps[0], f2) == 0);
+    // Mixed: one engaged far above plus bystanders below still waits.
+    Run r3 = Start(&plan);
+    Facts f3 = Party(0);
+    f3.seen = true;
+    f3.clearUnits = {Spot(-147.1f, 2171.6f, 148.0f, false), Spot(-140.0f, 2170.0f, 100.0f, true)};
+    CHECK(Tick(r3, f3).empty());
+    CHECK(r3.state == State::Running);
+    CHECK(WaitClearCount(plan.steps[0], f3) == 1);
 }
 
 static void TestTeamFlags()
@@ -19054,6 +19096,7 @@ int main()
     TestPlayerOrderAndRefusalPause();
     TestStepIdleCeiling();
     TestWaitClearIgnoresOtherFloors();
+    TestWaitClearEngagedCountsWhateverDz();
     TestTeamFlags();
     TestOtherTeamBossIsLookedAtAndFoughtUnlessFriendly();
     TestRefusedGatherIsRetriedOnceThenLeftOut();
