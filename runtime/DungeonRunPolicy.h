@@ -328,6 +328,14 @@ constexpr std::uint32_t kGuardHealerWaitMs = 0;   // ... a mob hitting a healer 
                                                   // took the healer from 73 % to dead in 4 s
 constexpr std::uint32_t kGuardRepeatMs = 2000;    // a further pick-up no sooner than this after the last one
 constexpr std::uint32_t kGuardOrdersPerFight = 3; // pick-up orders one fight may send (per budget: see below)
+// A mob hitting the party only by a spell from where it stands (UnitFact::castingAtRange), with a living hostile out of
+// combat within kGuardCampYd of it (UnitFact::campIdle: its own camp, a pack not pulled yet), is not picked up or engaged
+// when the tank would walk more than kGuardNoWalkYd to it (GuardLeavesCampAlone). Scholomance r30 slot C step 16
+// (t 398.8-402.8): the tank walked 14 yd after a Neophyte casting at the priest from its spawn, the priest died behind it
+// and four mobs of the next pack were on it. 15 yd is inside the 17-20 yd a level-57-60 elite aggroes a level-60 bot at;
+// 8 yd is a step past melee reach.
+constexpr float kGuardCampYd = 15.0f;
+constexpr float kGuardNoWalkYd = 8.0f;
 // The budget above starts over when a unit that was not in the fight joins it
 // once the budget is spent (a summon lands, a mob crosses into the party).
 // Deadmines r12-19z29 steps 90, 118 and 125: the three pick-ups went in the
@@ -476,6 +484,11 @@ struct UnitFact
     // Facts::partyAttackers only:
     bool hitting = false;      // it hits its victim now: in melee reach of it, or standing and casting (not running in)
     bool victimPet = false;    // its victim is a party bot's pet (the lead bot's own too), not a bot (victimHealer false)
+    // ... `hitting` only by a spell cast from where it stands, not in melee reach of its victim (Facts::partyAttackers),
+    bool castingAtRange = false;
+    // ... and for such a caster farther than kGuardNoWalkYd from the lead bot: how many living hostile creatures out of
+    // combat stand within kGuardCampYd of it (a pack not pulled yet). 0: none, or not read.
+    std::uint32_t campIdle = 0;
     float distSpot = -1.0f;    // ... during a hold: its distance from the hold spot (-1: not read)
     // Pull step units only, when Facts::joinerCeiling is set: how many other
     // creatures an estimate (ai::EstimateAggro) says come if this one is pulled.
@@ -572,6 +585,8 @@ inline int CcMarkIcon(const std::string& mark)
 {
     return mark == "moon" ? 4 : mark == "square" ? 5 : mark == "diamond" ? 2 : mark == "triangle" ? 3 : -1;
 }
+// The raid icon slot of the run's kill_first focus (CommanderFocus puts the skull on its unit; RtiTargetValue::GetRtiIndex).
+constexpr int kFocusIcon = 7;
 // A warlock is the crowd control of a unit only within Banish's range of the
 // lead bot (the party is gathered on it): beyond it the warlock's "fear on
 // cc" row (20 yd) is the one that can fire on the mark.
@@ -1321,6 +1336,17 @@ struct Run
     // asks them), so the guard keeps watching though focusGuid is cleared.
     std::unordered_map<std::uint64_t, std::uint64_t> focusRefused;
     bool focusUnstayed = false;
+    // The unit the run's own focus order put the skull on (0: none), the unit whose skull the glue takes off now
+    // (DropFocus; 0: none), and the previous focus unit's skull (0: none). Every bot's "rti" is "skull" (RtiValue's
+    // default) and RtiTargetValue takes any living skull-marked unit in sight, in combat or not: a skull left on a
+    // unit that went home after a wipe held every DPS bot's target for minutes (Scholomance r30 slot C, t 595-973:
+    // four bots on an Acolyte 48 yd away at its spawn).
+    // A new focus moves the skull with its order; until that order lands (it may be refused before the glue moves
+    // the skull: not visible/found/dead) the old skull stays where it was, remembered here. The glue clears both
+    // where they still are (EndRunIcon: a moved skull is a Drop, a no-op).
+    std::uint64_t focusIconGuid = 0;
+    std::uint64_t focusIconClear = 0;
+    std::uint64_t prevFocusIconGuid = 0;
     // Aggro estimate (Facts::joinerCeiling): a pull expected to bring more
     // joiners than the ceiling waits once for the party to be rested.
     std::unordered_set<std::uint64_t> joinerHeld; // units already held once this step
@@ -1792,8 +1818,11 @@ inline bool DirectStillToCross(const Run& r, std::size_t idx)
     return !(CheckpointKnown(r) && idx <= r.checkpoint);
 }
 
+inline void DropFocus(Run& r);
+
 inline void Pause(Run& r, const std::string& why)
 {
+    DropFocus(r); // a pause leaves nobody's target skull-marked: a resume picks a focus again as usual
     SuspendRoute(r); // a player may move the lead bot while the run is paused
     r.exactProved = static_cast<std::size_t>(-1); // ... so an exact point is proved again after a resume
     r.state = State::Paused;
@@ -1876,6 +1905,18 @@ inline void ClearFightProgress(Run& r)
     r.fightHpDeathAt = 0;
 }
 
+// The run's kill_first focus is over: the unit its skull is on (Run::focusIconGuid) is handed to the glue to take
+// the skull off (Run::focusIconClear; only where it still is: EndRunIcon), and the focus is forgotten. A pending
+// new focus (Run::prevFocusIconGuid: the old unit, whose skull the refused new order never replaced) is kept next
+// to it: the glue reads all three recorded GUIDs (both skulls must clear) and only zeroes them once EndRunIcon
+// reports success or drop for each.
+inline void DropFocus(Run& r)
+{
+    r.focusIconClear = r.focusIconGuid;
+    r.focusIconGuid = 0;
+    r.focusGuid = 0;
+}
+
 // Clears what belongs to one step (also on resume, so a resumed step gets
 // fresh tries and ceilings).
 inline void ResetStep(Run& r)
@@ -1947,7 +1988,7 @@ inline void ResetStep(Run& r)
     r.joinerRests = 0;
     r.joinerNote.clear();
     ResetShotStand(r);
-    r.focusGuid = 0;
+    DropFocus(r);
     r.focusRefused.clear();
     r.focusUnstayed = false;
     r.ccPending = 0;
@@ -4486,14 +4527,15 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
     // A kill_first focus every bot refused (an evading, fleeing unit): the
     // focus is not left on it. Its unit is passed over kFocusRefusedIgnoreMs,
     // and the next tick's pick goes to the next kill_first unit, or to none
-    // (the bots' own picks, the plan's order). It never pauses.
+    // (the bots' own picks, the plan's order). It never pauses. DropFocus hands both the new unit's skull and the
+    // previous focus unit's (not yet replaced: the refused order moved the skull) to the glue to take off.
     if (order.compare(0, 6, "focus ") == 0)
     {
         std::uint64_t const guid = std::strtoull(order.c_str() + 6, nullptr, 10);
         r.focusRefused[guid] = r.runMs + kFocusRefusedIgnoreMs;
         r.focusUnstayed = true;
         if (r.focusGuid == guid)
-            r.focusGuid = 0;
+            DropFocus(r);
         r.note = order + " refused: " + answer + ": the focus is picked again (that unit left out " +
             std::to_string(kFocusRefusedIgnoreMs / 1000) + " s)";
         return;
@@ -5767,7 +5809,8 @@ inline bool FocusGone(const Run& r, const Facts& f)
 }
 
 // In a fight: the kill_first unit to focus (best rank, then nearest; not a
-// crowd-controlled one). On a pull or move step (KillFirstBounded) only one
+// crowd-controlled one). The unit already focused stays against units of its own rank
+// (2b); only a better rank, or its death, cc or refusal, moves the focus. On a pull or move step (KillFirstBounded) only one
 // within kKillFirstMaxYd of the lead bot (the tank): the focus sends every bot
 // at it, and Zul'Farrak r5-19z23 step 27 lost the party twice to a focus on a
 // witch doctor 20 and 43 yd off, in its camp. A farther one is left to come
@@ -5777,6 +5820,7 @@ inline bool FocusGone(const Run& r, const Facts& f)
 // focus once, not every tick. There is no order that takes a focus back (the
 // skull and every bot's attack stay), so a held focus is never dropped for
 // distance: a focused unit that walks back to its camp still draws the party.
+// A better rank still takes it.
 // Boss steps and events: any distance, as before. Only this fight's units:
 // engaged with the party, the ward of one that is, or one keeping an aura on
 // one that is (UnitFact::auraOnEngaged: Hailar's Ritualists channelled their
@@ -5788,6 +5832,8 @@ inline const UnitFact* PickKillFirst(const Run& r, const Facts& f)
     bool const bounded = KillFirstBounded(r);
     const UnitFact* best = nullptr;
     int bestRank = 0;
+    const UnitFact* held = nullptr;
+    int heldRank = 0;
     for (const UnitFact& u : f.killFirst)
     {
         if (!u.hostile || !u.attackable || u.evading || u.stealthed || r.ccSent.count(u.guid))
@@ -5805,12 +5851,22 @@ inline const UnitFact* PickKillFirst(const Run& r, const Facts& f)
         int const rank = r.plan->KillFirstRank(u.entry);
         if (rank < 0)
             continue;
+        if (u.guid == r.focusGuid)
+        {
+            held = &u;
+            heldRank = rank;
+        }
         if (!best || rank < bestRank || (rank == bestRank && u.distLead < best->distLead))
         {
             best = &u;
             bestRank = rank;
         }
     }
+    // The focused unit stays against one of the same rank: the nearest of a rank changes as the tank and the mobs move,
+    // and each change moved the skull and every bot's attack before anything died (Scholomance r30 slot C, t 1521.6-
+    // 1530.7: three Acolytes at 80-100 % focused in turn every 3 s). A better rank still takes it.
+    if (held && heldRank == bestRank)
+        return held;
     return best;
 }
 
@@ -10034,6 +10090,13 @@ inline bool GuardUnitCapped(const Run& r, std::uint64_t guid)
     return it != r.guardUnitOrders.end() && it->second >= kGuardOrdersPerUnit;
 }
 
+// A caster hitting the party from its own camp (UnitFact::castingAtRange, campIdle) that the tank would have to walk to
+// (kGuardNoWalkYd): the guard leaves it to the DPS (kGuardCampYd).
+inline bool GuardLeavesCampAlone(const UnitFact& u)
+{
+    return u.castingAtRange && u.campIdle > 0 && u.distLead > kGuardNoWalkYd;
+}
+
 inline const UnitFact* GuardPick(const Facts& f, float holdRadius, const Run* capped = nullptr)
 {
     const UnitFact* best = nullptr;
@@ -10042,6 +10105,8 @@ inline const UnitFact* GuardPick(const Facts& f, float holdRadius, const Run* ca
         if (!u.hostile || !u.attackable || u.evading || u.polymorphed || !u.hitting || u.distLead > kGuardYd)
             continue;
         if (capped && GuardUnitCapped(*capped, u.guid))
+            continue;
+        if (holdRadius <= 0.0f && GuardLeavesCampAlone(u))
             continue;
         if (holdRadius > 0.0f && (u.distSpot < 0.0f || u.distSpot > holdRadius))
             continue;
@@ -10167,6 +10232,8 @@ inline const UnitFact* EngageTarget(const Run& r, const Facts& f)
             u.distLead > kGuardYd)
             continue;
         if (GuardUnitCapped(r, u.guid))
+            continue;
+        if (GuardLeavesCampAlone(u))
             continue;
         if (!best || u.distLead < best->distLead)
             best = &u;
@@ -12074,13 +12141,19 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         {
             if (k->guid != r.focusGuid)
             {
+                // The order moves the skull onto k; the old skull stays until it lands (the order may be
+                // refused first: not visible/found/dead), so the old unit is remembered (cleared: a refusal of
+                // the new order).
+                r.prevFocusIconGuid = r.focusIconGuid;
                 r.focusGuid = k->guid;
+                r.focusIconGuid = k->guid;
+                r.focusIconClear = 0;
                 r.note = "fighting: kill " + std::to_string(k->entry) + " first";
                 order = "focus " + std::to_string(k->guid);
             }
         }
         else if (r.focusGuid != 0 && FocusGone(r, f))
-            r.focusGuid = 0;
+            DropFocus(r);
         return order;
     }
     if (runBackWait)
@@ -12092,7 +12165,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.restDue = true;
         r.eatWaitMs = 0;
         r.pullGuid = 0;
-        r.focusGuid = 0;
+        DropFocus(r);
         r.focusRefused.clear();
         r.focusUnstayed = false;
         r.guardMs = 0;

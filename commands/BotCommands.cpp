@@ -10403,6 +10403,23 @@ bool GroupCanAttack(Player* judge, Unit* unit)
 {
     return !judge || !unit || judge->IsValidAttackTarget(unit);
 }
+// Living hostile creatures out of combat (no owner, hostile to the lead bot) within `range` of `unit`, itself left out:
+// a pack not pulled yet next to a caster that hits the party from there (DungeonRun::UnitFact::campIdle). Only units
+// the group can attack count (GroupCanAttack: the same test the pull reads use; a totem or trigger the party cannot
+// hit is no pack).
+uint32 IdleHostilesNear(Player* lead, Unit* unit, float range)
+{
+    std::list<Unit*> around;
+    MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck check(unit, lead, range);
+    MaNGOS::UnitListSearcher<MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck> searcher(around, check);
+    Cell::VisitAllObjects(unit, searcher, range);
+    uint32 n = 0;
+    for (Unit* other : around)
+        if (other != unit && other->IsAlive() && other->IsCreature() && other->GetOwnerGuid().IsEmpty() &&
+            lead->IsHostileTo(other) && !other->IsInCombat() && GroupCanAttack(lead, other))
+            ++n;
+    return n;
+}
 
 // The party's guids and the guids of the units a living party bot or pet has as its victim, for ReadEngagedWith
 // (DungeonRun::HpHeldTick needs the victims; a party member is never an engaged unit).
@@ -10768,8 +10785,11 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
             fact.evading = attacker->IsCreature() && static_cast<Creature*>(attacker)->IsInEvadeMode();
             fact.polymorphed = RunCcHeld(attacker);
             fact.engaged = true;
-            fact.hitting = attacker->CanReachWithMeleeAutoAttack(victim) ||
-                (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
+            bool const melee = attacker->CanReachWithMeleeAutoAttack(victim);
+            fact.hitting = melee || (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
+            fact.castingAtRange = fact.hitting && !melee;
+            if (fact.castingAtRange && fact.distLead > TortoiseBots::DungeonRun::kGuardNoWalkYd)
+                fact.campIdle = IdleHostilesNear(lead, attacker, TortoiseBots::DungeonRun::kGuardCampYd);
             fact.victimHealer = healer;
             fact.victimPet = petVictim;
             fact.attackable = GroupCanAttack(lead, attacker); // never picked up when it cannot be attacked
@@ -12148,6 +12168,34 @@ void ClearRunCcIcons(uint64 leadRaw, uint32 groupId, DungeonRunSlot& slot)
             pending.guid = icon.second;
             PendingRunCcIcons().push_back(pending);
         }
+
+    // The run's focus skull (DungeonRun::DropFocus) at the run's end: an unresolved skull is queued in
+    // PendingRunCcIcons like a cc icon (the same retry path), and a recorded GUID is only zeroed once EndRunIcon
+    // reports success or drop. Both units (the new focus and, while its order has not landed: Run::prevFocusIconGuid,
+    // the previous focus unit, still skull-marked) are queued when their group is not resolved.
+    for (uint64 focus : {slot.run.focusIconGuid, slot.run.focusIconClear, slot.run.prevFocusIconGuid})
+        if (focus)
+        {
+            bool const settled = EndRunIcon(group, TortoiseBots::DungeonRun::kFocusIcon, focus);
+            if (!settled)
+            {
+                PendingRunIcon pending;
+                pending.leadRaw = leadRaw;
+                pending.groupId = groupId;
+                pending.icon = TortoiseBots::DungeonRun::kFocusIcon;
+                pending.guid = focus;
+                PendingRunCcIcons().push_back(pending);
+            }
+            else
+            {
+                if (slot.run.focusIconGuid == focus)
+                    slot.run.focusIconGuid = 0;
+                if (slot.run.focusIconClear == focus)
+                    slot.run.focusIconClear = 0;
+                if (slot.run.prevFocusIconGuid == focus)
+                    slot.run.prevFocusIconGuid = 0;
+            }
+        }
     slot.run.ccIcons.clear(); // settled or kept in PendingRunCcIcons
 }
 
@@ -12373,8 +12421,11 @@ void AddPlayerAttackers(Player* lead, std::vector<Player*> const& players, Torto
             fact.evading = attacker->IsCreature() && static_cast<Creature*>(attacker)->IsInEvadeMode();
             fact.polymorphed = RunCcHeld(attacker);
             fact.engaged = true;
-            fact.hitting = attacker->CanReachWithMeleeAutoAttack(player) ||
-                (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
+            bool const melee = attacker->CanReachWithMeleeAutoAttack(player);
+            fact.hitting = melee || (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
+            fact.castingAtRange = fact.hitting && !melee;
+            if (fact.castingAtRange && fact.distLead > TortoiseBots::DungeonRun::kGuardNoWalkYd)
+                fact.campIdle = IdleHostilesNear(lead, attacker, TortoiseBots::DungeonRun::kGuardCampYd);
             fact.attackable = GroupCanAttack(lead, attacker);
             if (hold)
                 fact.distSpot = DistanceTo(attacker, hold->x, hold->y, hold->z);
@@ -12835,6 +12886,27 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         it->second.run.stopReachDue = false;
         StopLeadReach(commander, lead);
     }
+
+    // The run's focus is over (DungeonRun::DropFocus): its skull comes off, only where it still is. An unresolved
+    // one (the group not found) is queued for the retry path, like a cc icon; the recorded GUID then moves there.
+    if (it->second.run.focusIconClear)
+    {
+        uint64 const focus = it->second.run.focusIconClear;
+        Group* clearGroup = lead->GetGroup();
+        if (EndRunIcon(clearGroup, TortoiseBots::DungeonRun::kFocusIcon, focus))
+            it->second.run.focusIconClear = 0;
+        else
+        {
+            PendingRunIcon pending;
+            pending.leadRaw = binding->leadGuid;
+            pending.groupId = binding->groupId;
+            pending.icon = TortoiseBots::DungeonRun::kFocusIcon;
+            pending.guid = focus;
+            PendingRunCcIcons().push_back(pending);
+            it->second.run.focusIconClear = 0;
+        }
+    }
+
     SyncRunHold(commander, lead, bots, it->second, !order.empty());
     SyncHoldStands(commander, lead, bots, it->second, order);
     SendRunLine(commander, it->second, false);
