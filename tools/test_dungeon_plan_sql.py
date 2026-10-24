@@ -481,21 +481,22 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
     def test_blackrock_depths_is_the_plan_with_the_angerforge_hall_first(self):
-        # 20261024153500 (turtle-agent brd-fix1 98efa86, 2026-10-24, after r35 slot6 stopped at step 377 with three
-        # 63.8 yd approach-hop pauses and four wipes into 8911/8898/9033, and paused at steps 91 and 172): leg 3
-        # clears the z-45 hall (8911/8898) and Angerforge before g3, g3 opens leg 4 from the boss's hall and the old
-        # leg-3 lower hall follows it. g9 gets a four-point descent to the z-65 tier, the g38 pit a four-point descent
-        # to its own z-84 floor; Warder Stilgiss 16079 (cleared without a fight in the run) is dropped.
-        # No row hand-set, with the boss rows of map 230. 10 legs, 1134 steps (30 + 60 + 6 + 11 + 30 + 26 + 14 + 8
+        # 20261024154600 (turtle-agent brd-fix1 1c42ba1, 2026-10-24, after r37 slot5 reached step 451/1134, passed the
+        # old step-377/395 blocker and stopped at the Angerforge boss step with 11 of 15 wipes; paused at steps 93 and
+        # 240, both passed on resume): leg 3 clears the z-45 hall (8911/8898) and Angerforge before g3, g3 opens leg 4
+        # from the boss's hall and the old leg-3 lower hall follows it. The g9 approach starts on the party's real z-65
+        # stand, g45 gets the descent to its own z-72 floor, and the Angerforge approach stands 25.0 yd from the boss
+        # (the four linked 8901 guards cannot be split: creature_linking flag 1031).
+        # No row hand-set, with the boss rows of map 230. 10 legs, 1124 steps (30 + 60 + 6 + 11 + 30 + 26 + 14 + 8
         # + 67 + 8 pulls), bosses in leg order. The lava points are out of the pulls, leg 7's start is on
         # Flamelash's platform, the packs that stand at five bosses are those boss rows' entries, the four rares
         # are pulls of their own, and no pull reaches beyond its own spread.
         name, text = newest_plan_text("blackrock_depths")
-        self.assertEqual(name, "20261024153500_world.sql")
-        self.assertIn("('blackrock_depths', 230, '8903,8892,8890,8891', '8903', '8894,8898,8896,8904,8900', 'turtle-agent 98efa86 dungeons/blackrock_depths.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024154600_world.sql")
+        self.assertIn("('blackrock_depths', 230, '8903,8892,8890,8891', '8903', '8894,8898,8896,8904,8900', 'turtle-agent 1c42ba1 dungeons/blackrock_depths.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "blackrock_depths")), 10)
         rows = [r for r in self.step_rows(text) if r["plan"] == "blackrock_depths"]
-        self.assertEqual(len(rows), 1134)
+        self.assertEqual(len(rows), 1124)
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
                          [30, 60, 6, 11, 30, 26, 14, 8, 67, 8])
@@ -520,20 +521,24 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in stands8],
                          [("719", "40", "-45"), ("719", "35", "-45")])
         # The step-377 fix: the z-45 hall is pulled before g3 and g3 opens leg 4 from Angerforge's hall. The boss
-        # approach stands 21.4 yd from 652.4 21.4 -60.0 on the z-60 floor.
+        # approach stands 25.0 yd from 652.4 21.4 -60.0 on the z-60 floor, outside his 20 yd aggro with the party's
+        # 3 yd spread (the four linked 8901 guards cannot be split: creature_linking flag 1031).
         self.assertFalse([r for r in leg3 if r["entries"] == "8898,8899"])
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg3 if r["comment"] == "boss approach"],
-                         [("668", "36", "-59.4")])
+                         [("668.4", "40.6", "-59.4")])
         leg4 = leg_steps(rows, 4)
         self.assertEqual([r["entries"] for r in leg4 if r["comment"] == "pull group 0"], ["8898,8899"])
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg4 if r["comment"] == "pull group 0 approach"],
                          [("682", "12", "-59.5")])
-        # Steps 91 and 172: the two descents to the packs' own floors, each point path-checked from the lead's real
-        # position (550.2 -273 -43.1 and 584.4 -128.3 -34.2). Warder Stilgiss 16079 (no fight in the run) is gone.
+        # Steps 93 and 240: the g9 approach starts on the party's real z-65 stand (522 -241 -65, 13.4 yd from
+        # 535 -244 -68) and the g45 descent walks the only served route down to its own z-72 floor
+        # (565 -53 -60, 583 17 -69, 676 -94 -71.5); every hop was path-checked from the lead's real position
+        # (523.6 -237.8 -64.4 and 624.5 -11.8 -72.7). Warder Stilgiss 16079 (no fight in the run) is gone.
         leg1 = leg_steps(rows, 1)
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg1 if r["comment"] == "pull group 9 approach"],
-                         [("499.13", "-128.93", "-61.95"), ("514.06", "-173.13", "-59.94"),
-                          ("516.89", "-205.01", "-58.6"), ("535", "-244", "-68")])
+                         [("522", "-241", "-65"), ("535", "-244", "-68")])
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg1 if r["comment"] == "pull group 45 approach"],
+                         [("565", "-53", "-60"), ("583", "17", "-69"), ("676", "-94", "-71.5")])
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg1 if r["comment"] == "pull group 37 approach"],
                          [("589.9", "-117.9", "-39.7"), ("584.2", "-124.2", "-49.7"),
                           ("583.6", "-143.7", "-53.2"), ("582.8", "-164.4", "-83.9")])
