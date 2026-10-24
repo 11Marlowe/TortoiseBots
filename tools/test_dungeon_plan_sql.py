@@ -112,6 +112,15 @@ SEEDED_BOSSES.update({(230, 9018): "High Interrogator Gerstahn", (230, 9319): "H
                       (230, 9056): "Fineous Darkvire", (230, 9156): "Ambassador Flamelash",
                       (230, 9938): "Magmus", (230, 9019): "Emperor Dagran Thaurissan"})
 
+# Gilneas City (20261024020700): its map and its seven boss steps, names from the map-815 spawn export (all rank 1).
+# Regent-Lady Celia Harlow 61263 is a boss step's `first`, not a boss step, so she is not seeded. Added apart from the
+# dicts above so that this change merges with the other plans' edits of them.
+BOSS_PLANS["gilneas_city"] = 815
+SEEDED_BOSSES.update({(815, 61419): "Matthias Holtz", (815, 61420): "Packmaster Ragetooth",
+                      (815, 61421): "Judge Sutherland", (815, 61422): "Dustivan Blackcowl",
+                      (815, 61423): "Marshal Magnus Greystone", (815, 61264): "Regent-Lord Mortimer Harlow",
+                      (815, 61418): "Genn Greymane"})
+
 # Windhorn Canyon (20261023150100): its map and its seven boss steps, names from the map-820 spawn export
 # (all rank 1). Added apart from the dicts above so that this change merges with the other plans' edits of them.
 BOSS_PLANS["windhorn_canyon"] = 820
@@ -1003,6 +1012,52 @@ class DungeonPlanSql(unittest.TestCase):
         # The map's ai_dungeon_boss seed stays in 20261022210500 (the five bosses are unchanged): this file must not seed it again (the
         # boss seed test asserts every (map, entry) is seeded once).
         self.assertNotRegex(text, r"(?m)^(?:INSERT|REPLACE) INTO `ai_dungeon_boss`")
+
+    def test_gilneas_city_is_the_census_fixed_draft(self):
+        # 20261024020700 (turtle-agent 198727f, 2026-10-24): the generated draft rebuilt from the map-815 spawn census
+        # (PREP-GILNEAS-CITY-2026-10-24.md), no row hand-set. The generated draft had 171 pull groups, 49 of them nothing but
+        # critters (Rat 4075, Raven 61643: faction 31, flags_extra 2, 8 hp) and 19 more with critters as members; the same pack was
+        # split over 2-4 rows and the boss guards stood inside their boss's detection as pulls of their own. Now: 7 legs, 276 steps
+        # (10 + 20 + 21 + 21 + 25 + 21 + 4 pulls; the 7 bosses in leg order, `first` on Ragetooth, Magnus and Mortimer), the plan
+        # row's cc_priority 61426,61390,61417 and kill_first 61391,61425, every pull radius <= 10.2 yd, at most 5 units a pull, no
+        # critter in any group, and the boss rows of map 815 scoped to its own seven entries.
+        name, text = newest_plan_text("gilneas_city")
+        self.assertEqual(name, "20261024020700_world.sql")
+        self.assertIn("('gilneas_city', 815, '61426,61390,61417', '', '61391,61425', 'turtle-agent 198727f dungeons/gilneas_city.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "gilneas_city")
+        self.assertEqual([legs[i][0] for i in range(7)],
+                         ["matthias_holtz", "packmaster_ragetooth", "judge_sutherland", "dustivan_blackcowl",
+                          "marshal_magnus_greystone", "regent-lord_mortimer_harlow", "genn_greymane"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "gilneas_city"]
+        self.assertEqual(len(rows), 276)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(7)},
+                         {0: 17, 1: 65, 2: 37, 3: 52, 4: 63, 5: 36, 6: 6})
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)],
+                         [10, 20, 21, 21, 25, 21, 4])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
+                         ["61419", "61420", "61421", "61422", "61423", "61264", "61418"])
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
+                         ["", "61425", "", "", "61417", "61263", ""])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(7):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertFalse([r["entries"] for r in pulls
+                          if "4075" in r["entries"].split(",") or "61643" in r["entries"].split(",")],
+                         "a critter (Rat 4075, Raven 61643) is in a pull")
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 10.2)
+        self.assertLessEqual(max(len(r["entries"].split(",")) for r in pulls), 5)
+        # Every pull position is a spawn row of the map-815 export (the 5-unit Cleric pack at -1468.5 2380.3 183.7 is the widest).
+        self.assertEqual([(r["entries"], float(r["radius"])) for r in pulls
+                          if r["entries"] == "61364,61389,61394,61391"], [("61364,61389,61394,61391", 10.2)])
+        # Each leg starts where the previous leg's boss died (leg 0 at the entrance, leg 6 at the Harlow stair foot).
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in rows if r["kind"] == "move" and r["comment"] == "to"],
+                         [("-1100", "2237.75", "182.86"), ("-1100.35", "2332.63", "182.737"),
+                          ("-1288.2", "2221.51", "183.195"), ("-1475.25", "2321.64", "185.343"),
+                          ("-1450.66", "2567.06", "182.67"), ("-1061.79", "2805.39", "182.25"),
+                          ("-934.875", "2971.25", "182.954")])
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["gilneas_city"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (815) AND `entry` IN (61419, 61420, 61421, 61422, 61423, 61264, 61418);", text)
 
     def test_blackfathom_deeps_is_the_plan_with_the_pack_fixes(self):
         # 20261023080000 (turtle-agent a87a3f5, 2026-10-23): the Blackfathom Deeps draft with the pack fixes of PREP-BFD-MUSE-2026-10-22.md,
