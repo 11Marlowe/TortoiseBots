@@ -1727,25 +1727,24 @@ class DungeonPlanSql(unittest.TestCase):
         # this file replaces the plan rows only.
 
     def test_gnomeregan_is_the_plan_with_the_pack_fixes(self):
-        # 20261023220000 (turtle-agent 7e49b4f, 2026-10-23): 20261023140000 carried over unchanged except the Ambassador fix and the
-        # four refused move points. 6228 is a 30 % pool spawn (pool 9001, max_limit 1; the other member is the Agent 6212 at 70 % and
-        # the same spot), so r25 slot 8 reached his boss step with no Ambassador in the instance. His boss step and the one Agent pull
-        # in front of him are now new leg 5, after Mekgineer Thermaplugg; leg 3 is renamed thermaplugg_route and keeps its 23 ring and
-        # north pulls, the trash on the route to Thermaplugg. Leg 3 pull group 5 (the 6212/6234 pack at -740.75 541.25 -291.0) gets an
-        # approach stand at -760 552 -290.69 (30.5 yd from the pack, on its floor; the z -303.7 tier reaches it only around the ring,
-        # 197.9 yd). The refused points move onto the server mesh on the same route: leg 2 gets the via -544.9 551.8 -219.18 and the
-        # approach points -677.3 416.0 -271.0 and -640.0 448.0 -273.06 (steps 421/422 in r25 were -672.8 417.3 and -658.4 435.7);
-        # leg 3 gets vias -677.3 416.0 -271.0, -656.0 437.5 -273.06 and -683.9 524.3 -273.93 (steps 561/562 and 572). 6 legs,
-        # 647 steps (87 + 37 + 17 + 23 + 4 + 1 pulls, 473 moves, the 5 bosses), bosses in leg order (6228 last). The plan row has the
-        # unit lists (6223 is kill_first, not cc_priority); the Agent at the Ambassador's own spot is that boss row's entries, not a
-        # pull. Leg 0's cave chain (groups 23-29) is radius 8 and each has an approach move on its own floor.
+        # 20261024151000 (turtle-agent f4c8900, 2026-10-24): 20261023220000 carried over with legs 0-4 byte-identical;
+        # the dark_iron_ambassador leg (the Agent pull + the 6228 boss step, 19 rows) is gone: 6228 is a 30 % pool spawn
+        # (pool 9001, max_limit 1; the other member is the Agent 6212 at 70 % and the same spot), so r25 AND r31 slot 8
+        # reached his boss step with no Ambassador in the instance. No loader/run flag makes a boss step 'skip when not
+        # in the instance', so no new flag: the plan ends with Mekgineer Thermaplugg (leg 4), and 6228 stays in the
+        # ai_dungeon_boss seed of 20261022210500 so a kill still counts. The 20261023220000 pins below still hold for
+        # legs 0-2 (approach stands, refused points, cave chain); the counts are 5 legs, 628 steps, bosses in leg order
+        # (7800 last). The plan row's unit lists are unchanged; the Agent at the Ambassador's own spot is no row now.
         name, text = newest_plan_text("gnomeregan")
-        self.assertEqual(name, "20261023220000_world.sql")
-        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent 7e49b4f dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
-        self.assertEqual(len(leg_rows(text, "gnomeregan")), 6)
+        self.assertEqual(name, "20261024151000_world.sql")
+        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent f4c8900 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(len(leg_rows(text, "gnomeregan")), 5)
         rows = [r for r in self.step_rows(text) if r["plan"] == "gnomeregan"]
-        self.assertEqual(len(rows), 647)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [87, 37, 17, 23, 4, 1])
+        self.assertEqual(len(rows), 628)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [87, 37, 17, 23, 4])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["7079", "6235", "6229", "7800"])
+        self.assertEqual((rows[-1]["leg"], rows[-1]["kind"], rows[-1]["entry"]), ("4", "boss", "7800"))
+        self.assertFalse([r for r in rows if r["entry"] == "6228"], "the Ambassador's boss step is back")
         # Step 375 (1-based) is still the Electrocutioner's boss row; the failed exporter cut is gone, and its two approach moves stand before it.
         self.assertEqual((rows[374]["leg"], rows[374]["kind"], rows[374]["entry"]), ("1", "boss", "6235"))
         leg1 = leg_steps(rows, 1)
@@ -1778,8 +1777,8 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertAlmostEqual(math.dist([float(leg2[k - 1][c]) for c in ("x", "y", "z")],
                                          [float(leg2[k][c]) for c in ("x", "y", "z")]), 32.1, places=1)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["gnomeregan"])
-        # The map's ai_dungeon_boss seed stays in 20261022210500 (the five bosses are unchanged): this file must not seed it again (the
-        # boss seed test asserts every (map, entry) is seeded once).
+        # The map's ai_dungeon_boss seed stays in 20261022210500 (all five bosses incl. 6228, unchanged): this file
+        # must not seed it again (the boss seed test asserts every (map, entry) is seeded once).
         self.assertNotRegex(text, r"(?m)^(?:INSERT|REPLACE) INTO `ai_dungeon_boss`")
 
     def test_blackfathom_deeps_is_the_plan_with_the_kelris_fix(self):
