@@ -9468,14 +9468,14 @@ bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& o
     path.calculate(x, y, z, false);
     if (way)
         NoteLeadWay(path, lead, x, y, z, *way);
-    // A path that ends short of the point (DungeonRun::PathEndsShort: a bare PATHFIND_INCOMPLETE is also set at the
-    // path finder's polygon cap and for a point just off the mesh): DungeonRun::Facts::approachIncomplete.
+    // A path a walk may not take (DungeonRun::PathWalkable false: short of the point, and not a capped path that still
+    // gets on toward it): DungeonRun::Facts::approachIncomplete.
     if (incomplete)
     {
         uint32 const type = static_cast<uint32>(path.getPathType());
         Vector3 const end = path.getActualEndPosition();
-        *incomplete = PathEndsShort((type & PATHFIND_NOPATH) != 0, (type & PATHFIND_INCOMPLETE) != 0, end.x, end.y,
-            end.z, x, y, z);
+        *incomplete = !PathWalkable((type & PATHFIND_NOPATH) != 0, (type & PATHFIND_INCOMPLETE) != 0,
+            lead->GetPositionX(), lead->GetPositionY(), lead->GetPositionZ(), end.x, end.y, end.z, x, y, z);
     }
     if (path.getPathType() & PATHFIND_NOPATH)
         return false;

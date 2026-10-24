@@ -945,13 +945,15 @@ static void TestSpiralRampWalkIsNotStuck()
     CHECK(st.state == State::Paused && still * kTickMs <= kWalkTries * kWalkRetryMs + 2 * kTickMs);
 }
 
-// Round 1 of 0d9957be (Opus must 1): a bare PATHFIND_INCOMPLETE is set at the path finder's 256-polygon cap and for a
-// point just off the mesh; only an end far from the point (kPathShortYd) or on another floor (kPathShortDzYd) is short.
+// Round 1 of 0d9957be (Opus must 1): a bare PATHFIND_INCOMPLETE is set for a point just off the mesh (the end a few
+// yards from it) and at the path finder's 256-polygon cap (the end anywhere along a long way); only an end far from the
+// point (kPathShortYd) or on another floor (kPathShortDzYd) is short, and a walk takes a capped path that still gets on
+// (round 3, the Opus re-review of a4a16e14: CappedPathGetsOn, PathWalkable).
 static void TestPathEndsShortOnlyFarFromThePoint()
 {
     CHECK(PathEndsShort(true, false, 0, 0, 0, 100, 0, 0));       // no path
     CHECK(!PathEndsShort(false, false, 0, 0, 0, 100, 0, 0));     // complete
-    CHECK(!PathEndsShort(false, true, 95, 0, 0, 100, 0, 0));     // the polygon cap: 5 yd short, same floor
+    CHECK(!PathEndsShort(false, true, 95, 0, 0, 100, 0, 0));     // ending 5 yd short on the same floor
     CHECK(!PathEndsShort(false, true, 99, 0, 1, 100, 0, 0));     // a point just off the mesh
     CHECK(PathEndsShort(false, true, 88, 0, 0, 100, 0, 0));      // 12 yd short
     CHECK(PathEndsShort(false, true, 100, 2, 7, 100, 0, 0));     // 7 yd above it: another floor
@@ -959,7 +961,7 @@ static void TestPathEndsShortOnlyFarFromThePoint()
     // Round 2 (the Codex review of a4a16e14): a fallback result proves no navmesh route, for fight forward and the
     // replay shortcut alike (both read it through DirectNavPath -> NavPathReaches), complete or not.
     CHECK(NavPathReaches(false, false, false, false, 100, 0, 0, 100, 0, 0));
-    CHECK(NavPathReaches(false, true, false, false, 95, 0, 0, 100, 0, 0));   // the polygon cap, as above
+    CHECK(NavPathReaches(false, true, false, false, 95, 0, 0, 100, 0, 0));   // 5 yd short, as above
     CHECK(!NavPathReaches(false, false, true, false, 100, 0, 0, 100, 0, 0)); // PATHFIND_SHORTCUT
     CHECK(!NavPathReaches(false, false, false, true, 100, 0, 0, 100, 0, 0)); // PATHFIND_NOT_USING_PATH
     CHECK(!NavPathReaches(false, true, true, false, 95, 0, 0, 100, 0, 0));
@@ -967,7 +969,22 @@ static void TestPathEndsShortOnlyFarFromThePoint()
     CHECK(!NavPathReaches(true, false, false, false, 100, 0, 0, 100, 0, 0)); // no path
     CHECK(!NavPathReaches(false, true, false, false, 88, 0, 0, 100, 0, 0));  // short
     CHECK(NavPathIsFallback(true, false) && NavPathIsFallback(false, true) && !NavPathIsFallback(false, false));
-    // A long straight walk back whose path stops at the cap 6 yd short stays straight (the glue's read, PathEndsShort).
+    // The capped long path: from -300 0 toward 400 0 (700 yd) it ends at 150 0 (250 yd short, more than half the way
+    // made): a walk takes it; one ending at 100 0 (300 yd short of a 700 yd way, 57 %: also more than half) too; one at
+    // -100 0 (500 yd short) does not; nor one that went up a floor (z 20, both floors at 0) or a skip's or shortcut's
+    // read (NavPathReaches: the end must reach the point).
+    CHECK(PathEndsShort(false, true, 150, 0, 0, 400, 0, 0));
+    CHECK(CappedPathGetsOn(false, true, -300, 0, 0, 150, 0, 0, 400, 0, 0));
+    CHECK(PathWalkable(false, true, -300, 0, 0, 150, 0, 0, 400, 0, 0));
+    CHECK(PathWalkable(false, true, -300, 0, 0, 100, 0, 0, 400, 0, 0));
+    CHECK(!PathWalkable(false, true, -300, 0, 0, -100, 0, 0, 400, 0, 0));
+    CHECK(!PathWalkable(false, true, -300, 0, 0, 150, 0, 20, 400, 0, 0));
+    CHECK(PathWalkable(false, true, -300, 0, 0, 150, 0, 3, 400, 0, 5)); // on the point's floor
+    CHECK(PathWalkable(false, true, -300, 0, 0, 150, 0, 15, 400, 0, 18)); // up a ramp onto the point's floor
+    CHECK(!PathWalkable(true, false, -300, 0, 0, 150, 0, 0, 400, 0, 0)); // no path
+    CHECK(!CappedPathGetsOn(false, false, -300, 0, 0, 150, 0, 0, 400, 0, 0)); // a complete path is not "capped"
+    CHECK(!NavPathReaches(false, true, false, false, 150, 0, 0, 400, 0, 0));
+    // A long straight walk back whose path stops at the cap halfway stays straight (the glue's read, PathWalkable).
     DungeonPlan plan;
     plan.steps = {Move(0, 0), Move(400, 0), Pull(600, 200, 9)};
     Run r = Start(&plan, 2);
@@ -978,7 +995,7 @@ static void TestPathEndsShortOnlyFarFromThePoint()
     f.approachRead = true;
     f.approachKnown = true;
     f.approachX = -260;
-    f.approachIncomplete = PathEndsShort(false, true, 394, 0, 0, 400, 0, 0);
+    f.approachIncomplete = !PathWalkable(false, true, -300, 0, 0, 150, 0, 0, 400, 0, 0);
     CHECK(Tick(r, f) == "move -260.0 0.0 0.0" && r.walkBackDirect);
 }
 
@@ -998,6 +1015,41 @@ static void TestStuckRescueGoesToASafePoint()
         order = Tick(r, f);
     CHECK(order == "rescue from 10.0 40.0 30.0 to 80.0 0.0 0.0"); // not 110 0, 15 yd from the pack
     CHECK(r.walkBackIdx == 2);
+    // Round 3 (the Opus re-review of a4a16e14): with the route checkpoint known on the stand beside the pack (MoveStep's
+    // NoteReached after the walk there, the normal case), the safe point is still searched before it.
+    Run known = Start(&plan, 4);
+    known.routeKnown = true;
+    known.checkpoint = 3;
+    CHECK(ReplayFloor(known) == 3 && LastReachedBefore(known, 4) == 3);
+    CHECK(StraightWalkBackTarget(known, 0, 3) == 2 && SafePointAtOrBefore(known, 0, 3) == 2);
+    known.walkBack = true;
+    known.walkBackIdx = known.walkBackStart = 3;
+    std::string ko;
+    for (int i = 0; i < 60 && known.state == State::Running && ko.compare(0, 7, "rescue ") != 0; ++i)
+        ko = Tick(known, f);
+    CHECK(ko == "rescue from 10.0 40.0 30.0 to 80.0 0.0 0.0");
+    // Not past a direct step (a hole): the search ends there.
+    DungeonPlan hole = plan;
+    hole.steps[2] = Direct(80, 0);
+    Run hr = Start(&hole, 4);
+    CHECK(SafePointAtOrBefore(hr, 0, 3) == static_cast<std::size_t>(-1));
+    // No safe point at all: the pause with that reason, never a teleport beside the pack.
+    DungeonPlan tight;
+    tight.steps = {Move(100, 0), Move(110, 0), Pull(125, 0, 4519)};
+    Run t = Start(&tight, 2);
+    t.routeKnown = true;
+    t.checkpoint = 1;
+    t.walkBack = true;
+    t.walkBackIdx = t.walkBackStart = 1;
+    std::string to;
+    for (int i = 0; i < 60 && t.state == State::Running; ++i)
+    {
+        std::string const o = Tick(t, f);
+        if (!o.empty())
+            to = o;
+    }
+    CHECK(t.state == State::Paused && to.compare(0, 7, "rescue ") != 0);
+    CHECK(t.note.find("no point on the way it came is out of every live pack's reach") != std::string::npos);
     Run off = Start(&plan, 4);
     Facts g = f;
     g.walkBackRescue = false;
@@ -1045,6 +1097,27 @@ static void TestFightForwardNeedsTheGluesRead()
     ForwardCase off = Forward();
     off.key = false;
     CHECK(!skipped(off));
+    // Round 3: a rest after the ask drops it (no navmesh read on a rest tick); the ask goes out again after the rest.
+    {
+        ForwardCase c = Forward();
+        Run r = Start(&c.plan);
+        r.pulls = 1;
+        Facts f = Party(5, 0);
+        f.seen = true;
+        Tick(r, f); // pack cleared
+        Tick(r, f); // the ask
+        CHECK(r.fightForwardWanted == 2);
+        r.phase = Phase::Rest;
+        f.minHealthPct = 30;
+        Tick(r, f);
+        CHECK(r.phase == Phase::Rest && r.fightForwardWanted == static_cast<std::size_t>(-1) && r.fightForwardDue);
+        Tick(r, f);
+        CHECK(r.fightForwardWanted == static_cast<std::size_t>(-1));
+        f.minHealthPct = 100;
+        for (int i = 0; i < 3 && r.fightForwardWanted == static_cast<std::size_t>(-1); ++i)
+            Tick(r, f);
+        CHECK(r.fightForwardWanted == 2); // asked again once the rest is over
+    }
     // A leg end between the cleared pack and the next one.
     ForwardCase leg = Forward();
     leg.plan.steps[1].leg = 1;

@@ -4717,7 +4717,7 @@ inline bool StallFallback(Run& r, const Facts& f, float x, float y, float z, boo
     return false;
 }
 
-inline std::size_t StraightWalkBackTarget(const Run& r, std::uint32_t team, std::size_t last);
+inline std::size_t SafePointAtOrBefore(const Run& r, std::uint32_t team, std::size_t last);
 
 // The rescue teleport's bounds (StrandedLead's): out of combat, at most once a step, kStrandTries failed tries a step,
 // AiPlayerbot.DungeonRunWalkBackRescue on. Then it is due to plan point `target` (the walk back goes on from there).
@@ -4758,7 +4758,15 @@ inline bool WalkBackStuckRescue(Run& r, const Facts& f, float dist, float x, flo
     std::size_t const last = LastReachedBefore(r, r.step);
     if (last == static_cast<std::size_t>(-1) || last >= r.plan->steps.size())
         return false;
-    std::size_t const target = StraightWalkBackTarget(r, f.team, last);
+    std::size_t const target = SafePointAtOrBefore(r, f.team, last);
+    if (target == static_cast<std::size_t>(-1))
+    {
+        // Never a teleport beside a live pack: the pause says so.
+        Pause(r, "walk back: the lead bot is stuck " + Num(dist) + " yd from " + Num(x) + " " + Num(y) + " " + Num(z) +
+            StuckNote(r, f) + "; no point on the way it came is out of every live pack's reach for the rescue: bring " +
+            "the lead bot to the party's way, then .bot run resume");
+        return true;
+    }
     const PlanStep& p = r.plan->steps[target];
     if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) <= kArriveYd)
         return false;
@@ -6757,9 +6765,11 @@ constexpr std::uint32_t kStraightBackoffs = 2;
 constexpr float kStraightBackoffYd = 40.0f;
 constexpr float kRouteLinkYd = 12.0f;
 constexpr float kRouteLinkDzYd = 3.0f;
-// A navmesh path that "reaches" a point (PathEndsShort false), and one that is no detour (PathFitsStraight): the
-// Opus review of 0d9957be: the path finder sets PATHFIND_INCOMPLETE at its polygon cap (256) and for a point just
-// off the mesh too, so only an end far from the point (or on another floor) is short.
+// A navmesh path that "reaches" a point (PathEndsShort false), and one that is no detour (PathFitsStraight). The path
+// finder sets PATHFIND_INCOMPLETE for a point just off the mesh (its end then lies a few yards from the point), so only
+// an end far from the point (or on another floor) is short. It sets it as well at its polygon cap (256): such a path
+// ends wherever its polygons ran out, anywhere along a long way (the Opus re-review of a4a16e14), so a walk takes a
+// capped path that still gets on (PathWalkable) and plans again from its end; a skip or a shortcut does not.
 constexpr float kPathShortYd = 10.0f;
 constexpr float kPathShortDzYd = 6.0f;
 constexpr float kPathDetourFactor = 1.3f;
@@ -6771,6 +6781,30 @@ inline bool PathEndsShort(bool noPath, bool incomplete, float endX, float endY, 
     if (!incomplete)
         return false;
     return ai::PlanDistance(endX, endY, endZ, x, y, z) > kPathShortYd || std::fabs(endZ - z) > kPathShortDzYd;
+}
+
+// A partial path whose end still makes way toward the point: at least kCappedGainShare of the straight distance
+// nearer than the start, and on the start's or the point's floor (kPathShortDzYd). The capped long path of above.
+constexpr float kCappedGainShare = 0.5f;
+
+inline bool CappedPathGetsOn(bool noPath, bool incomplete, float sx, float sy, float sz, float endX, float endY,
+    float endZ, float x, float y, float z)
+{
+    if (noPath || !incomplete)
+        return false;
+    float const from = ai::PlanDistance(sx, sy, sz, x, y, z);
+    float const left = ai::PlanDistance(endX, endY, endZ, x, y, z);
+    bool const floor = std::fabs(endZ - sz) <= kPathShortDzYd || std::fabs(endZ - z) <= kPathShortDzYd;
+    return floor && left <= (1.0f - kCappedGainShare) * from;
+}
+
+// A path a walk (the walk back's approach hops) may take: it reaches the point (PathEndsShort false) or, capped, still
+// gets on toward it (CappedPathGetsOn): the next hop plans again from its end.
+inline bool PathWalkable(bool noPath, bool incomplete, float sx, float sy, float sz, float endX, float endY, float endZ,
+    float x, float y, float z)
+{
+    return !PathEndsShort(noPath, incomplete, endX, endY, endZ, x, y, z) ||
+        CappedPathGetsOn(noPath, incomplete, sx, sy, sz, endX, endY, endZ, x, y, z);
 }
 
 // A path finder result that is a fallback, not a navmesh route: PATHFIND_SHORTCUT (a straight line the finder made up)
@@ -6829,14 +6863,17 @@ inline std::unordered_set<std::size_t> UnclearedForPath(const Run& r)
     return out;
 }
 
-// The latest plain move point at or before `from` and at or after ReplayFloor that is out of every live pack's
-// reach and, when `minYd` > 0, at least that far from point `from` (npos for none).
+// The latest plain move point at or before `from` and at or after the run's start step that is out of every live
+// pack's reach and, when `minYd` > 0, at least that far from point `from` (npos for none). Not bounded by the route
+// checkpoint (the Opus re-review of a4a16e14: after a wipe the checkpoint is the stand beside the pack that wiped the
+// party, so a search from it found nothing and the rescue teleported there); a direct step still ends the search,
+// so no point behind a navmesh hole is chosen.
 inline std::size_t ClearPointBefore(const Run& r, std::uint32_t team, std::size_t from, float minYd)
 {
     if (!r.plan || from >= r.plan->steps.size())
         return static_cast<std::size_t>(-1);
     const PlanStep& t = r.plan->steps[from];
-    std::size_t const floor = ReplayFloor(r);
+    std::size_t const floor = r.startStep;
     for (std::size_t j = from + 1; j-- > floor;)
     {
         const PlanStep& p = r.plan->steps[j];
@@ -6852,17 +6889,24 @@ inline std::size_t ClearPointBefore(const Run& r, std::uint32_t team, std::size_
     return static_cast<std::size_t>(-1);
 }
 
-// The straight walk back's target: the last move point `last` when no live pack is near it, else the latest plain
-// move point before it that is clear (ClearPointBefore); `last` when there is none.
-inline std::size_t StraightWalkBackTarget(const Run& r, std::uint32_t team, std::size_t last)
+// A safe point at or before `last`: `last` when no live pack is near it, else the latest plain move point before it
+// that is clear (ClearPointBefore); npos when there is none.
+inline std::size_t SafePointAtOrBefore(const Run& r, std::uint32_t team, std::size_t last)
 {
     if (!r.plan || last >= r.plan->steps.size())
-        return last;
+        return static_cast<std::size_t>(-1);
     const PlanStep& p = r.plan->steps[last];
     if (!PointNearLivePack(r, team, p.x, p.y, p.z))
         return last;
-    std::size_t const clear = ClearPointBefore(r, team, last, 0.0f);
-    return clear == static_cast<std::size_t>(-1) ? last : clear;
+    return ClearPointBefore(r, team, last, 0.0f);
+}
+
+// The straight walk back's target: the safe point (SafePointAtOrBefore), or `last` itself when there is none (the walk
+// goes there as before; only the rescue's teleport refuses an unsafe point).
+inline std::size_t StraightWalkBackTarget(const Run& r, std::uint32_t team, std::size_t last)
+{
+    std::size_t const safe = SafePointAtOrBefore(r, team, last);
+    return safe == static_cast<std::size_t>(-1) ? last : safe;
 }
 
 // A placed run's lead bot revived behind its start step (the lead's decision on round 1 of 0d9957be; Gnomeregan r27
@@ -11492,6 +11536,9 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         return order;
     }
 
+    // A rest holds fight forward's ask (FightForwardTick): no navmesh read on a rest tick; it asks again after it.
+    if (r.phase == Phase::Rest)
+        r.fightForwardWanted = static_cast<std::size_t>(-1);
     // Rest gate. The lines of the next fight (LightRestAhead): the full ones before a boss, an event or a big pull.
     bool const stepOver = (s->kind == PlanStepKind::Pull || s->kind == PlanStepKind::Boss) &&
         FightStepEnd(r, f, *s) != FightEnd::NotYet;

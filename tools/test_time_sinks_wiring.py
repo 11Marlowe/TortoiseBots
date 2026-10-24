@@ -33,8 +33,9 @@ class TimeSinksWiringTest(unittest.TestCase):
 
     def test_partial_approach_path_is_reported(self):
         approach = body(COMMANDS, "bool ApproachOnPath(Player* lead,", "\n}\n")
-        # Round 1 of 0d9957be: a bare PATHFIND_INCOMPLETE (the polygon cap, a point just off the mesh) is not short.
-        self.assertIn("*incomplete = PathEndsShort((type & PATHFIND_NOPATH) != 0, (type & PATHFIND_INCOMPLETE) != 0, end.x, end.y,", approach)
+        # Round 1/3: a bare PATHFIND_INCOMPLETE (a point just off the mesh, a capped path still getting on) is walkable.
+        self.assertIn("*incomplete = !PathWalkable((type & PATHFIND_NOPATH) != 0, (type & PATHFIND_INCOMPLETE) != 0,\n"
+                      "            lead->GetPositionX(), lead->GetPositionY(), lead->GetPositionZ(), end.x, end.y, end.z, x, y, z);", approach)
         # Before the no-path return, so a no path leaves it read too.
         self.assertLess(approach.index("*incomplete ="), approach.index("if (path.getPathType() & PATHFIND_NOPATH)"))
         self.assertIn("direct ? &f.approachIncomplete : nullptr);", COMMANDS)
