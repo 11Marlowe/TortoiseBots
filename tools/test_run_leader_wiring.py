@@ -1032,6 +1032,29 @@ class WaitObjectGoneWiringTest(unittest.TestCase):
         for kind in ("Loot", "Open", "WaitObject"):
             self.assertIn("step.kind != PlanStepKind::" + kind, norm)
 
+class WaitClearFloorWiringTest(unittest.TestCase):
+    """Shadowfang Keep r38 slotA step 308: the wait_clear spot at z 129 counted hostiles on other floors (z ~100-157)
+    and paused four times on "waited 120 s; 3-4 hostiles still near the spot". The glue lists every living hostile
+    within the 2D radius of the step's point with its z (unit->GetPositionZ()), and the policy counts only those
+    within kWaitClearMaxDz of the spot."""
+
+    POLICY = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+
+    def test_policy_counts_only_the_spots_floor(self):
+        self.assertIn("constexpr float kWaitClearMaxDz = 10.0f;", self.POLICY)
+        count = body(strip_comments(self.POLICY), "inline std::uint32_t WaitClearCount(", "\n}\n")
+        self.assertIn("std::fabs(h.z - s.z) <= kWaitClearMaxDz", count)
+        step = body(strip_comments(self.POLICY), "case PlanStepKind::WaitClear:", "case PlanStepKind::Rest:")
+        self.assertIn("WaitClearCount(*s, f)", step)
+        self.assertNotIn("f.hostilesNear", self.POLICY)
+
+    def test_glue_lists_2d_near_hostiles_with_z(self):
+        facts = body(strip_comments(COMMANDS), "case ai::PlanStepKind::WaitClear:", "case ai::PlanStepKind::WaitObject:")
+        self.assertIn("float const dx = unit->GetPositionX() - step->x, dy = unit->GetPositionY() - step->y;", facts)
+        self.assertIn("if (std::sqrt(dx * dx + dy * dy) <= step->radius)", facts)
+        self.assertIn("unit->GetPositionZ()", facts)
+        self.assertIn("f.clearUnits.push_back(", facts)
+
 
 class BossTacticsJoinWiringTest(unittest.TestCase):
     """The Codex review of d7aca6b5: the run leader's deferral gate (DungeonRun::PullMayBeDeferred) reads a later boss

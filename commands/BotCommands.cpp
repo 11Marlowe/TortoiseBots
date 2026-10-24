@@ -11902,8 +11902,11 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             std::list<Unit*> hostiles;
             HostileCreaturesAround(lead, std::min(toPoint + step->radius, 2.0f * kSeeYd), hostiles);
             for (Unit* unit : hostiles)
-                if (DistanceTo(unit, step->x, step->y, step->z) <= step->radius)
-                    ++f.hostilesNear;
+            {
+                float const dx = unit->GetPositionX() - step->x, dy = unit->GetPositionY() - step->y;
+                if (std::sqrt(dx * dx + dy * dy) <= step->radius)
+                    f.clearUnits.push_back(HostileSpot{unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ()});
+            }
             break;
         }
         case ai::PlanStepKind::WaitObject:

@@ -91,6 +91,7 @@ constexpr float kStalledArriveYd = 6.0f;          // ... or this close once it s
                                                   // just off the mesh or on a ledge the bot cannot reach)
 constexpr float kStandZTolYd = 4.5f;              // a stand this far above or below the lead bot or less is judged on the ground plane
 constexpr float kSeeYd = 60.0f;                   // a pack, boss or spot is judged only from this close
+constexpr float kWaitClearMaxDz = 10.0f;          // wait_clear: a hostile counts as near the spot only this far above or below it
 // A lead bot revived in another part of the instance (LeadInOtherPart, Scarlet
 // Monastery r20-19z39 slot 7): raised at a door's destination ...
 constexpr float kDoorSpotYd = 10.0f;              // ... this close to it
@@ -664,6 +665,12 @@ struct PlayerFact
     std::uint32_t healthPct = 100;
 };
 
+// A hostile's place, as the glue saw it this tick.
+struct HostileSpot
+{
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+};
+
 // What the glue reads once a tick for the run's current step.
 struct Facts
 {
@@ -863,7 +870,9 @@ struct Facts
     // friendly, still dormant ones too):
     std::uint32_t eventDown = 0;        // dead units of its `entries` within its radius
     long long eventData = -1;           // done by instance data: the value now; -1 the map has no instance data
-    std::uint32_t hostilesNear = 0;     // wait_clear: living hostiles within the radius
+    std::vector<HostileSpot> clearUnits; // wait_clear: where the living hostiles within the 2D radius of the step's
+                                         // point stand; the step counts those within kWaitClearMaxDz of it, ignoring
+                                         // the rest (other floors).
     std::string carrier;                // the bot that does object and item steps (the lead bot)
     // open / use_item: the step's inputs (its item, and `param` when set) are
     // split between bots, none carries them all: who holds what (PickItemCarrier).
@@ -4917,11 +4926,6 @@ inline float PointToSegmentYd(float px, float py, float pz, float ax, float ay, 
     return ai::PlanDistance(px, py, pz, ax + dx * t, ay + dy * t, az + dz * t);
 }
 
-struct HostileSpot
-{
-    float x = 0.0f, y = 0.0f, z = 0.0f;
-};
-
 // The glue's verdict for the stall's direct move: the lead bot in water, the line to
 // the point a swim line (swimLine: WorldPosition::IsSwimLine), and no living hostile
 // creature within kStallDirectHostileYd of the line.
@@ -4934,6 +4938,22 @@ inline bool StallDirectLineClear(bool leadInWater, bool swimLine, const std::vec
         if (PointToSegmentYd(h.x, h.y, h.z, ax, ay, az, bx, by, bz) <= kStallDirectHostileYd)
             return false;
     return true;
+}
+
+// A wait_clear hostile counts as near the spot only on its floor: within the
+// step's 2D radius (the glue lists only those) and at most kWaitClearMaxDz
+// above or below it (Shadowfang Keep r38 slotA step 308: hostiles on other
+// floors held the spot for four 120 s waits).
+inline std::uint32_t WaitClearCount(const PlanStep& s, const Facts& f)
+{
+    std::uint32_t near = 0;
+    for (const HostileSpot& h : f.clearUnits)
+    {
+        float const dx = h.x - s.x, dy = h.y - s.y;
+        if (std::sqrt(dx * dx + dy * dy) <= s.radius && std::fabs(h.z - s.z) <= kWaitClearMaxDz)
+            ++near;
+    }
+    return near;
 }
 
 // Whether the glue reads the direct move's line this tick (Facts::stallDirectRead):
@@ -12769,6 +12789,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                 r.note = "waiting for object " + std::to_string(s->entry);
             break;
         case PlanStepKind::WaitClear:
+        {
             if (!f.seen)
             {
                 ApproachHop(r, f, *s, dt, order, "spot to watch");
@@ -12776,14 +12797,16 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             }
             if (r.phase != Phase::Wait)
                 EnterPhase(r, Phase::Wait);
-            if (f.hostilesNear == 0)
+            std::uint32_t const near = WaitClearCount(*s, f);
+            if (near == 0)
                 NextStep(r, "no hostile left near the spot");
             else if (r.phaseMs >= s->timeoutS * 1000)
-                Pause(r, "waited " + std::to_string(s->timeoutS) + " s; " + std::to_string(f.hostilesNear) +
+                Pause(r, "waited " + std::to_string(s->timeoutS) + " s; " + std::to_string(near) +
                     " hostiles still near the spot");
             else
                 r.note = "waiting for the spot to clear";
             break;
+        }
         case PlanStepKind::Rest:
             NextStep(r, "rested");
             break;

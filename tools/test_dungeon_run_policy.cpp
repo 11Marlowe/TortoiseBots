@@ -8374,10 +8374,51 @@ static void TestStepIdleCeiling()
     Run r = Start(&plan);
     Facts f = Party(0);
     f.seen = true;
-    f.hostilesNear = 2;
+    f.clearUnits = {HostileSpot{5.0f, 0.0f, 0.0f}, HostileSpot{-5.0f, 0.0f, 0.0f}};
     for (int i = 0; i < 100 && r.state == State::Running; ++i)
         Tick(r, f);
     CHECK(r.state == State::Paused && r.note.find("hostiles still near") != std::string::npos);
+}
+
+// Shadowfang Keep r38 slotA step 308: the wait_clear spot at z 129 counted
+// hostiles on other floors (z ~100-157) and paused four times on
+// "waited 120 s; 3-4 hostiles still near the spot". Only hostiles within the
+// 2D radius AND at most kWaitClearMaxDz above or below the spot count.
+static void TestWaitClearIgnoresOtherFloors()
+{
+    CHECK(kWaitClearMaxDz == 10.0f);
+    // (a) hostiles within the 2D radius but 27 yd above the spot: the step clears.
+    DungeonPlan plan;
+    PlanStep clear = Step(PlanStepKind::WaitClear, -147.1f, 2171.6f, 129.0f);
+    clear.radius = 35.0f;
+    clear.timeoutS = 120;
+    plan.steps = {clear};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.seen = true;
+    f.clearUnits = {HostileSpot{-147.1f, 2171.6f, 156.0f}, HostileSpot{-140.0f, 2170.0f, 156.0f}};
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Done); // other-floor hostiles do not hold the spot
+    // (b) a hostile within the radius at dz 5 still waits.
+    Run r2 = Start(&plan);
+    Facts f2 = Party(0);
+    f2.seen = true;
+    f2.clearUnits = {HostileSpot{-147.1f, 2171.6f, 156.0f}, HostileSpot{-147.1f, 2171.6f, 134.0f}};
+    CHECK(Tick(r2, f2).empty());
+    CHECK(r2.state == State::Running && r2.note.find("waiting for the spot to clear") != std::string::npos);
+    // (c) exactly dz 10.0 counts, 10.1 does not.
+    Run r3 = Start(&plan);
+    Facts f3 = Party(0);
+    f3.seen = true;
+    f3.clearUnits = {HostileSpot{-147.1f, 2171.6f, 139.0f}};
+    CHECK(Tick(r3, f3).empty());
+    CHECK(r3.state == State::Running);
+    Run r4 = Start(&plan);
+    Facts f4 = Party(0);
+    f4.seen = true;
+    f4.clearUnits = {HostileSpot{-147.1f, 2171.6f, 139.1f}};
+    CHECK(Tick(r4, f4).empty());
+    CHECK(r4.state == State::Done);
 }
 
 static void TestTeamFlags()
@@ -19012,6 +19053,7 @@ int main()
     TestUnsupportedPausesAndSkip();
     TestPlayerOrderAndRefusalPause();
     TestStepIdleCeiling();
+    TestWaitClearIgnoresOtherFloors();
     TestTeamFlags();
     TestOtherTeamBossIsLookedAtAndFoughtUnlessFriendly();
     TestRefusedGatherIsRetriedOnceThenLeftOut();
