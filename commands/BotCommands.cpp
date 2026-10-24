@@ -11770,6 +11770,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.guid = creature->GetObjectGuid().GetRawValue();
                     unit.entry = creature->GetEntry();
                     unit.distLead = lead->GetDistance(creature);
+                    unit.z = creature->GetPositionZ(); // the passed-boss pause reads the unit's real height off it
                     // Hostile or neutral may be pulled; only a friendly one is left alone.
                     unit.hostile = !sServerFacade.IsFriendlyTo(creature, lead);
                     unit.stealthed = IsStealthed(creature);
