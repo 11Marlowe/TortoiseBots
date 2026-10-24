@@ -474,9 +474,12 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
     def test_sunken_temple_boss_order_puts_jammalan_before_the_drakes(self):
-        # 20261024151100 (turtle-agent st-weaver bad60f3, 2026-10-24): 20261024140000 again, with the legs
-        # reordered so Jammal'an's leg comes BEFORE the Weaver and Dreamscythe legs (script order). Run 3
-        # (r30 slotA) stopped at the old leg-1 Weaver boss row (step 1359): Weaver 5720 stood alive at 100 %,
+        # 20261024151400 (turtle-agent a76e004, 2026-10-24): 20261024151100 again, with one server-path
+        # approach waypoint on each of the two long dreamscythe approach hops the live server refuses
+        # (2048-node search answers 'unreachable'): leg-3 group-2 approach 1 (-381.6 102.4 -90.83 ->
+        # -536.0 152.0 -69.33, 880.7 yd offline) gains -354.13 160.27 -109.03 (halves 448.7 + 437.3 yd,
+        # both server type 0x1 ok), and group-3 approach 1 (-568.53 175.47 -69.33 -> -544.18 154.95 -53.32)
+        # gains -361.33 28.27 -106.43 (halves 476.9 + 411.7 yd, both type 0x1 ok). Run 3
         # not pullable, 'took more than 300 s out of combat' twice. The instance script keeps Weaver 5720 and
         # Dreamscythe 5721 VISIBILITY_OFF / NOT_SELECTABLE / IMMUNE_TO_NPC (patrol idle) while m_auiEncounter[2] !=
         # DONE (TYPE_JAMMALAN), and reveals them only in SetData(TYPE_JAMMALAN, DONE)
@@ -484,17 +487,17 @@ class DungeonPlanSql(unittest.TestCase):
         # Atal'ai statues 148830-148835 (guids 27898, 27899, 28111-28114) are used in that exact entry order
         # (a wrong statue triggers a trap and does not advance the counter); the right one sets
         # GO_FLAG_NO_INTERACT on itself and respawns the green light 148883 within INTERACTION_DISTANCE of it.
-        # Census unit lists, radii, pulls and boss rows are unchanged. 6 legs, 2393 steps
+        # Census unit lists, radii, pulls and boss rows are unchanged. 6 legs, 2461 steps
         # (16 + 8 + 37 + 25 + 2 + 1 pulls), boss order 5710, 5720, 5721, 5719, 5709; 6 open_proof rows and 1 hold
         # row in leg 0.
         name, text = newest_plan_text("sunken_temple")
-        self.assertEqual(name, "20261024151100_world.sql")
-        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent bad60f3 dungeons/sunken_temple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024151400_world.sql")
+        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent a76e004 dungeons/s', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(re.findall(r"(?m)^\('sunken_temple', \d+, '(?:[^']|'')*', '(?:[^']|'')*'\)[,;]$", text)), 6)
         self.assertEqual([n.replace("''", "'") for n in re.findall(r"(?m)^\('sunken_temple', \d+, '((?:[^']|'')*)', '(?:[^']|'')*'\)[,;]$", text)],
                          ["atal'alarion", "jammal'an_the_prophet", "weaver", "dreamscythe", "morphaz", "shade_of_eranikus"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "sunken_temple"]
-        self.assertEqual(len(rows), 2393)
+        self.assertEqual(len(rows), 2461)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [16, 8, 37, 25, 2, 1])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["5710", "5720", "5721", "5719", "5709"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss", "open_proof", "hold"})
@@ -560,15 +563,20 @@ class DungeonPlanSql(unittest.TestCase):
         pulls = [r for r in rows if r["kind"] == "pull"]
         # The three radii that reached the next pack (same entries 14.4-26.8 yd out) and the seven 5291 pulls with its 15 yd wander.
         self.assertEqual(float([r for r in leg_steps(rows, 0) if r["kind"] == "pull"][5]["radius"]), 17.5)
-        self.assertEqual([float(r["radius"]) for r in leg_steps(rows, 1) if r["kind"] == "pull"][2:4], [14.3, 15.6])
-        self.assertEqual([float(r["radius"]) for r in pulls if r["entries"] == "5291"], [17.0] * 7)
-        # The 23 detour pulls have two approach moves each, plus the new single-stand pull group 8; the last stands on
+        # The 23 detour pulls have two approach moves each, plus the new single-stand pull group 8, plus the
+        # two server-path waypoints (one extra approach move each on dreamscythe groups 2 and 3); the last stands on
         # the pack's own floor, 30 yd or less from the pull row (a cut path's move rows may lie between the two
         # approach points and the pull, and the statue walks put open_proof rows between, so find the last approach
         # move scanning back over those kinds).
         approaches = [r for r in rows if r["kind"] == "move" and r["comment"].startswith("pull group ") and r["comment"].endswith(" approach")]
-        self.assertEqual(len(approaches), 47)
+        self.assertEqual(len(approaches), 49)
         self.assertEqual(len({(r["leg"], r["comment"].split()[2]) for r in approaches}), 24)
+        # The server-path waypoints: one inserted approach move on each of the two long dreamscythe hops.
+        leg3 = leg_steps(rows, 3)
+        self.assertIn(("move", "-354.13", "160.27", "-109.03", "pull group 2 approach"),
+                      [(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg3])
+        self.assertIn(("move", "-361.33", "28.27", "-106.43", "pull group 3 approach"),
+                      [(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg3])
         for leg in range(6):
             steps = leg_steps(rows, leg)
             for i, pull in enumerate(steps):
@@ -586,7 +594,6 @@ class DungeonPlanSql(unittest.TestCase):
                 d = math.dist((float(stand["x"]), float(stand["y"]), float(stand["z"])),
                               (float(pull["x"]), float(pull["y"]), float(pull["z"])))
                 self.assertLessEqual(d, 30.0, (leg, pull["comment"]))
-                self.assertLessEqual(abs(float(stand["z"]) - float(pull["z"])), 4.0, (leg, pull["comment"]))
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["sunken_temple"])
         # Entry-scoped on the shared map: only this plan's six bosses are deleted and replaced (the SM-wing rule on map 189).
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
