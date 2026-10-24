@@ -83,7 +83,7 @@ SEEDED_BOSSES = {
 # Grubbis 7361: no spawn row in the map 90 export and no boss step names him, Gnomeregan).
 # Shadowfang Keep's extras that are not legs (Sever 14682, Prelate Ironmane 61969, the intro Arugal 10000).
 # the BFD neutrals Argent Guard 4787 and Woji the Toad 62531 (both rank 0).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929, 12237}
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929, 12237, 14695, 16118}
 # Ragglesnout 7354 (rank 2, Razorfen Downs: he is in a pull group).
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
@@ -124,6 +124,14 @@ SEEDED_BOSSES.update({(820, 62784): "Walgan Bloodcaller", (820, 62783): "Ambassa
                       (820, 62780): "Bonespeaker Narlgom", (820, 62781): "Prophet Stormhoof",
                       (820, 62779): "Pathun Duskhide", (820, 62782): "Chieftain Shalk Blackwind",
                       (820, 62778): "Ahgk'tos the Pure"})
+# Scholomance (20261024020000): its map and its ten boss steps, names from the map-289 spawn export (all rank 1). Lord Blackwood 14695
+# is a Turtle boss fought as a member of the leg-7 hall pull, and Kormok 16118's spawn is SPAWN_FLAG_DISABLED: neither is seeded.
+BOSS_PLANS["scholomance"] = 289
+SEEDED_BOSSES.update({(289, 10505): "Instructor Malicia", (289, 10507): "The Ravenian",
+                      (289, 10901): "Lorekeeper Polkelt", (289, 10502): "Lady Illucia Barov",
+                      (289, 10503): "Jandice Barov", (289, 11622): "Rattlegore", (289, 10432): "Vectus",
+                      (289, 10508): "Ras Frostwhisper", (289, 11261): "Doctor Theolen Krastinov",
+                      (289, 10504): "Lord Alexei Barov"})
 
 # Maraudon: Purple (20261024010000): its map and its six boss steps, names from the core's creature_template (all rank 1).
 # Meshlok the Harvester 12237 (rank 2, a patrolling rare) is not a boss step and is not seeded.
@@ -1944,6 +1952,61 @@ class DungeonPlanSql(unittest.TestCase):
                 self.assertEqual({int(e) for e in scoped[0][1].split(",")}, {e for _m, e in seeded_entries}, name)
             self.assertEqual({int(m) for m in scoped[0][0].split(",")}, seeded, name)
 
+
+    def test_scholomance_is_the_census_fixed_draft(self):
+        # 20261024060000 (turtle-agent 29fcc48, 2026-10-24): the Scholomance draft with the census fixes of
+        # PREP-SCHOLOMANCE-2026-10-24.md and leg 0's route clear after the r28c slotC first run (RUN-LESSONS.md): the landing-to-Malicia
+        # walk is 554 yd and passes 40 census packs within 30 yd, so leg 0 is those 40 pulls with their approach rows instead of one
+        # move row. No row hand-set, and the boss rows of map 289 scoped to this plan's ten entries. 10 legs, 561 steps (152 pulls,
+        # 10 bosses, 399 moves), bosses in leg order. The plan row carries cc_priority, the undead no_cc is not a column and kill_first;
+        # the 55 Rats 4075 and the Black Rat 2110 are out of every pull, as are the disabled Kormok 16118 and his trigger 16047. Every
+        # pull is at most six members and its radius (5-13.1 yd) covers its own positions; Alexei's linked Risen Guards 10489 and
+        # Rattlegore's linked Risen Construct 10488 are the boss rows' first.
+        name, text = newest_plan_text("scholomance")
+        self.assertEqual(name, "20261024060000_world.sql")
+        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469', '', '10471,11582,10477', 'turtle-agent 29fcc48 dungeons/scholomance.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "scholomance")
+        self.assertEqual([legs[i][0] for i in range(10)],
+                         ["instructor_malicia", "the_ravenian", "lorekeeper_polkelt", "lady_illucia_barov",
+                          "jandice_barov", "rattlegore", "vectus", "ras_frostwhisper",
+                          "doctor_theolen_krastinov", "lord_alexei_barov"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "scholomance"]
+        self.assertEqual(len(rows), 561)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
+                         [40, 7, 4, 14, 36, 25, 18, 3, 2, 3])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
+                         ["10505", "10507", "10901", "10502", "10503", "11622", "10432", "10508", "11261", "10504"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(10):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual(leg_steps(rows, 0)[0]["kind"], "move")
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
+                         ["", "", "", "", "", "10488", "10433", "", "", "10489"])
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertEqual(len(pulls), 152)
+        # Leg 0 is the whole route: every pull is preceded by its approach move row, and the 40 packs are the stair guards, the
+        # 115.8 hall, the 109.7 ring, the 104.8 hall and Malicia's room, in that order.
+        leg0 = leg_steps(rows, 0)
+        self.assertEqual(len(leg0), 87)
+        self.assertEqual([r["kind"] for r in leg0].count("move"), 46)
+        self.assertEqual(len([r for r in leg0 if r["kind"] == "move" and r["comment"].endswith(" approach")]), 45)
+        pulls0 = [r for r in leg0 if r["kind"] == "pull"]
+        self.assertEqual(len(pulls0), 40)
+        for i, r in enumerate(leg0):
+            if r["kind"] == "pull":
+                self.assertEqual(leg0[i - 1]["kind"], "move")
+                self.assertTrue(leg0[i - 1]["comment"].endswith(" approach"), leg0[i - 1])
+        self.assertEqual(leg0[0]["comment"], "to")
+        self.assertEqual((leg0[0]["x"], leg0[0]["y"], leg0[0]["z"]), ("190.819", "126.329", "137.227"))
+        self.assertEqual(leg0[-1]["kind"], "boss")
+        self.assertEqual(pulls0[0]["entries"], "10489")
+        self.assertFalse([r["entries"] for r in pulls
+                          if {"2110", "4075", "16047", "16118"} & set(r["entries"].split(","))])
+        self.assertLessEqual(max(len(r["entries"].split(",")) for r in pulls), 6)
+        self.assertEqual((min(float(r["radius"]) for r in pulls), max(float(r["radius"]) for r in pulls)), (5.0, 13.1))
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["scholomance"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (289) AND `entry` IN (10505,10507,10901,10502,10503,11622,10432,10508,11261,10504);", text)
+        self.assertEqual(len(re.findall(r"(?m)^\(289, \d+, '", text)), 10)
 
 if __name__ == "__main__":
     unittest.main()
