@@ -752,23 +752,24 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
 
     def test_lower_blackrock_spire_is_the_plan_with_the_census_fixes(self):
-        # 20261024152200 (turtle-agent 8b44fd6, PREP-LOWER-BLACKROCK-SPIRE-2026-10-24 and RUN-LESSONS r33 slot5): the generator draft
-        # of map 229 after the census and the server-path route fix, no row hand-set, with the boss rows scoped to this plan's seven
-        # entries (map 229 is shared with the upper_blackrock_spire raid plan). 7 legs, 420 steps (115 pulls: 22 + 25 + 32 + 5 + 4 +
-        # 22 + 5; 298 moves; 7 bosses). The draft's 11 UBRS-level packs (z 106-111, x 8-29) are out, the four static rares are pack
-        # members, Mor Grayhoof and his trigger are out, no pull lists more than six units and every radius covers its own pack
-        # (<= 16 yd). Leg 0 now walks from the z 31 pit floor a refused or skipped pull leaves the party on (r33 steps 52-54 were
-        # refused from the z 50 shelf row): pull group 14's approach starts at -45.3 -404 31.5.
+        # 20261024152800 (turtle-agent d615c20, PREP-LOWER-BLACKROCK-SPIRE-2026-10-24 and RUN-LESSONS r33 slot4b): the generator
+        # draft of map 229 after the census and the server-path route fixes, no row hand-set, with the boss rows scoped to this
+        # plan's seven entries (map 229 is shared with the upper_blackrock_spire raid plan). 7 legs, 450 steps (115 pulls: 22 + 25
+        # + 32 + 5 + 4 + 22 + 5; 328 moves; 7 bosses). The draft's 11 UBRS-level packs (z 106-111, x 8-29) are out, the four static
+        # rares are pack members, Mor Grayhoof and his trigger are out, no pull lists more than six units and every radius covers
+        # its own pack (<= 16 yd). Leg 0 walks from the z 31 pit floor a refused or skipped pull leaves the party on: pull group
+        # 14's approach starts at -45.3 -404 31.5 (r33 slot5's steps 52-54), and pull group 20 -- back up on the z 48.8 shelf after
+        # the pit pulls -- carries the approach that walks the east loop and the ramp (r33 slot4b's step 80).
         name, text = newest_plan_text("lower_blackrock_spire")
-        self.assertEqual(name, "20261024152200_world.sql")
+        self.assertEqual(name, "20261024152800_world.sql")
         self.assertIn("('lower_blackrock_spire', 229, '9240,9257,9261,9262,9269', '', '9217,9045,9198,9239,9717,9266', "
-                      "'turtle-agent 8b44fd6 dungeons/lower_blackrock_spire.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+                      "'turtle-agent d615c20 dungeons/lower_blackrock_spire.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "lower_blackrock_spire")
         self.assertEqual([legs[i][0] for i in range(7)],
                          ["highlord_omokk", "shadow_hunter_vosh'gajin", "war_master_voone", "mother_smolderweb",
                           "quartermaster_zigris", "halycon", "overlord_wyrmthalak"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "lower_blackrock_spire"]
-        self.assertEqual(len(rows), 420)
+        self.assertEqual(len(rows), 450)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)],
                          [22, 25, 32, 5, 4, 22, 5])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
@@ -784,6 +785,19 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertEqual(len([r for r in pulls if rare in r["entries"].split(",")]), 1, rare)
         for out in ("16080", "16044"):
             self.assertFalse([r for r in pulls if out in r["entries"].split(",")], out)
+        # 20261024152800: leg 0 pull group 20 stands on the z 48.8 shelf while the pit pulls leave the party on the z 31 floor, and
+        # the server has no path between the two except the east loop and the ramp. Its four approach points and the stand they end
+        # on are pinned: a re-export that drops the chain (or moves the stand off the shelf) is caught here.
+        steps0 = leg_steps(rows, 0)
+        pos = {id(r): i for i, r in enumerate(steps0)}
+        approach = [r for r in steps0 if r["kind"] == "move" and r["comment"] == "pull group 20 approach"]
+        self.assertEqual([(float(r["x"]), float(r["y"]), float(r["z"])) for r in approach],
+                         [(-35.2, -395.2, 31.63), (-42.67, -533.0, 29.3), (5.33, -574.93, 29.23),
+                          (35.2, -355.73, 48.73)])
+        pull20 = [r for r in steps0 if r["kind"] == "pull" and r["comment"] == "pull group 20"][0]
+        self.assertLess(pos[id(approach[-1])], pos[id(pull20)])
+        self.assertGreater(pos[id(approach[0])], pos[id([r for r in steps0 if r["comment"] == "pull group 19"][0])])
+        self.assertAlmostEqual(math.dist((35.2, -355.73, 48.73), tuple(float(pull20[k]) for k in "xyz")), 38.3, delta=0.5)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["lower_blackrock_spire"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (229) AND `entry` IN (9196, 9236, 9237, 10596, 9736, 10220, 9568);", text)
 
