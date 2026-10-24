@@ -1680,26 +1680,29 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertNotRegex(text, r"(?m)^(?:INSERT|REPLACE) INTO `ai_dungeon_boss`")
 
     def test_blackfathom_deeps_is_the_plan_with_the_kelris_fix(self):
-        # 20261024060400 (turtle-agent 1c8005d, 2026-10-24): 20261024050000 again, with leg twilight_lord_kelris
-        # groups 8-9 split for the r28 slot8 wipe (the step-584 pull of 4813 with radius 11 took the whole
-        # platform: 4813 x2 + 4814 x3 + summon 8996, then the runners at 7-16 %). 27403 (-799.3 -108.7,
-        # the isolated east Shadowmage) pulls alone first (radius 5), then the linked 27409/27410 pair
-        # (4813+4814, 10.5 yd apart, radius 8) from the east-edge stand (-797.6 -107.2 -24.4, on the mesh);
-        # the stand is 20+ yd clear of the west packs, and each pull's radius (+ 3 yd margin) does not reach
-        # the next pack. 4813 joins kill_first (out of cc_priority), 4814 joins cc_priority and stays a
-        # fleer. Route order, the fires, the waves and the portal are unchanged. 7 legs, 655 steps
-        # (44 + 8 + 47 + 11 + 17 + 28 + 3 pulls), bosses in leg order. The plan row has the unit lists;
-        # the packs that stand with a boss are that boss row's entries; radii are cut to the groups'
-        # members (the overlap test is clean) and 9 groups carry patrol blocks.
+        # 20261024150300 (turtle-agent 3ec9ef9, 2026-10-24): 20261024060400 again, with leg twilight_lord_kelris
+        # de-pooled for the r29 slot6 stall (step 580 pulled 4827 at -818.6 -54.69 z -38.27, 9 yd below the
+        # hall floor z -29.6: 4 pauses 'no walkable path toward the pack', lead in water path 0x81). The 8
+        # pulls whose census members stand in the pool below the hall floor (z more than 5 yd below z -29.6,
+        # or water-only floor in map 48 mmaps) are gone: 4823 at -761.47 -34.66 z -40.33, 4827 at -818.6
+        # -54.69 z -38.27, 4827 at -816.93 -88.56 z -40.27, 4823 at -844.07 -70.65 z -35.84, 4827 at
+        # -843.47 -94.06 z -37.24, 4827 at -778.37 -94.49 z -40.14, 4823 at -808.04 -116.28 z -36.87 and
+        # 4827 at -795.99 -156.21 z -43.10. The step-574 walk (-785 -58 to -816 -59, z -29) wiped twice
+        # straight through the un-pulled 4811/4809/4811 pack at -816.2 -55.4: it gets the explicit pull
+        # it never had, from the stand (-806 -58 -29.64, on the hall floor mesh, 10.5 yd off the pack and
+        # 21.1 yd clear of the 4812 pair south) before the west walk, in route order. Route order, the
+        # boss, the fires, the waves and the portal are unchanged. 7 legs, 627 steps
+        # (44 + 8 + 47 + 11 + 17 + 20 + 3 pulls), bosses in leg order. The plan row keeps the unit lists;
+        # the packs that stand with a boss are that boss row's entries; 9 groups carry patrol blocks.
         name, text = newest_plan_text("blackfathom_deeps")
-        self.assertEqual(name, "20261024060400_world.sql")
-        self.assertIn("('blackfathom_deeps', 48, '4820,4809,4811,4799,4814', '4820,4809', '4809,4813', 'turtle-agent 1c8005d dungeons/blackfathom_deeps.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024150300_world.sql")
+        self.assertIn("('blackfathom_deeps', 48, '4820,4809,4811,4799,4814', '4820,4809', '4809,4813', 'turtle-agent 3ec9ef94237cda3a3a912640452ec8078471a78d dungeons/b', 'plan v1, draft (not mapped, not live-checked)');", text)
 
         # leg_rows() matches [A-Za-z0-9_] leg names only; ghamoo-ra, old_serra'kis and aku'mai are not
         # words, so the legs are counted from the step rows (each leg's boss step proves its rows are there).
         rows = [r for r in self.step_rows(text) if r["plan"] == "blackfathom_deeps"]
-        self.assertEqual(len(rows), 655)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [44, 8, 47, 11, 17, 28, 3])
+        self.assertEqual(len(rows), 627)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [44, 8, 47, 11, 17, 20, 3])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["4887", "4831", "6243", "62530", "4830", "4832", "4829"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss", "open", "wait_clear", "wait_object"})
         # The last step of every leg is its boss, except leg 5 (its after_boss fires and waits follow the Kelris row).
@@ -1708,15 +1711,15 @@ class DungeonPlanSql(unittest.TestCase):
                 continue
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "4807", "4819,4820", "", "", "", ""])
-        # Leg 5 in route order: the hall entry first, the Kelris-adjacent pack last of the pre-boss packs (the four
-        # 4825 packs south of Kelris follow it, then the boss, then the fires).
-        # The platform caster pack is split: the isolated 27403 Shadowmage (group 8) pulls alone first,
-        # then the linked 27409/27410 pair (group 9) from the east-edge stand, each with its approach row.
+        # Leg 5 in route order: the hall packs first, the Kelris-adjacent pack last of the pre-boss packs (the
+        # four 4825 packs south of Kelris follow it, then the boss, then the fires). The pool pulls are gone,
+        # so group 3 (the 4811/4809/4811 pack at -819.39 -56.72 the step-574 walk wiped on) pulls from its new
+        # hall-floor stand (-806 -58) before the west walk; the platform caster split (groups 5-6) is unchanged.
         leg5 = [r for r in leg_steps(rows, 5) if r["kind"] == "pull"]
-        self.assertEqual([(r["entries"], r["radius"]) for r in leg5[8:10]], [("4813", "5"), ("4813,4814", "8")])
-        self.assertEqual([(r["x"], r["y"]) for r in leg_steps(rows, 5) if r["kind"] == "move" and r["comment"] in ("pull group 8 approach", "pull group 9 approach")], [("-797.6", "-107.2"), ("-797.6", "-107.2")])
-        self.assertEqual([(r["x"], r["y"]) for r in leg5[:2]], [("-761.47", "-34.66"), ("-764.81", "-57.77")])
-        self.assertEqual([(r["x"], r["y"], r["entries"]) for r in leg5[22:24]], [("-795.99", "-156.21", "4827"), ("-784.06", "-161.77", "4813")])
+        self.assertEqual([(r["entries"], r["radius"]) for r in leg5[5:7]], [("4813", "5"), ("4813,4814", "8")])
+        self.assertEqual([(r["x"], r["y"]) for r in leg_steps(rows, 5) if r["kind"] == "move" and r["comment"] in ("pull group 3 approach", "pull group 5 approach", "pull group 6 approach")], [("-806", "-58"), ("-797.6", "-107.2"), ("-797.6", "-107.2")])
+        self.assertEqual([(r["entries"], r["x"], r["y"]) for r in leg5[:3]], [("4809,4810", "-764.81", "-57.77"), ("4811", "-779.2", "-58.67"), ("4810,4811,4812", "-798.1", "-58.09")])
+        self.assertEqual([(r["x"], r["y"], r["entries"]) for r in leg5[14:16]], [("-789.71", "-140.38", "4814"), ("-784.06", "-161.77", "4813")])
         boss5 = [r for r in leg_steps(rows, 5) if r["kind"] == "boss"][0]
         after5 = [r for r in leg_steps(rows, 5) if int(r["seq"]) > int(boss5["seq"])]
         self.assertEqual([r["kind"] for r in after5], ["move", "open", "move", "open", "move", "open", "move", "open", "wait_clear", "wait_object"])
