@@ -12000,7 +12000,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 f.taskReply = slot.taskReply;
                 f.taskText = slot.taskText;
             }
-            if (step->kind == ai::PlanStepKind::Open && step->openProof)
+            if (TortoiseBots::DungeonRun::ProofStep(slot.run) == step && step)
             {
                 f.proofRead = true;
                 f.proofUp = OpenProofUp(lead, *step);

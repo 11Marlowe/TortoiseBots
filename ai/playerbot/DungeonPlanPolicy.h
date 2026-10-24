@@ -311,7 +311,7 @@ namespace ai
                           // flag without the data flag or a state above 4, an object state above 2;
                           // the exact flag on a step that is not a move; gossip with an option
                           // outside 1-15 or with any flag; use_on with any flag or param;
-                          // an open_proof whose proof equals its entry (no 1024), with param, a flag but 2048,
+                          // an open_proof whose proof equals its entry (no 2048), with param, a flag but 2048,
                           // or 2048 on any row that is not open_proof
         BadPoint,         // not a finite point; a use_on or an open_proof without a point (0,0,0)
         BadEntries,       // `entries` is not a comma list of non-zero creature entries; an open_proof names exactly one

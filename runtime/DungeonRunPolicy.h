@@ -2811,6 +2811,15 @@ inline const PlanStep* FactStep(const Run& r)
     return r.plan && r.step < r.plan->steps.size() ? &r.plan->steps[r.step] : nullptr;
 }
 
+// The proof's own step (DungeonRun::OpenProofStep): the actual current step,
+// and only when it is an open_proof. Never FactStep's walk-back replayed
+// point: a stale proof left up in the world must not finish the current step.
+inline const PlanStep* ProofStep(const Run& r)
+{
+    const PlanStep* s = Current(r);
+    return s && s->kind == PlanStepKind::Open && s->openProof ? s : nullptr;
+}
+
 // OwnedByLaterStep's `from` for the hop pulls: the current step; during a walk
 // back the step before it, so a pack of a step already done (back after a
 // respawn) is pulled on the way, and the current step's own pack and later

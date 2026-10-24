@@ -4300,6 +4300,44 @@ static void TestOpenProofCreatureName()
     CHECK(r.note.find("creature 148883 within 10 yd") != std::string::npos);
 }
 
+static void TestProofStepIsTheCurrentOpenProofOnly()
+{
+    // The helper the glue reads the proof through: the actual current step when it is an
+    // open_proof (StatueRow), null for anything else and null on a walk back whose replayed
+    // point is that same open_proof (FactStep still replays it: movement facts are unchanged).
+    DungeonPlan plan;
+    plan.steps = {StatueRow(), Step(PlanStepKind::Pull, 60), PullStep(120, {4851})};
+    Run r = Start(&plan);
+    CHECK(ProofStep(r) == &plan.steps[0]);
+    r.step = 1;
+    CHECK(ProofStep(r) == nullptr);
+    r.step = 2;
+    r.walkBack = true;
+    r.walkBackIdx = 0;
+    CHECK(FactStep(r) == &plan.steps[0]);
+    CHECK(ProofStep(r) == nullptr);
+}
+
+static void TestOpenProofWalkBackStepDoesNotFinishIt()
+{
+    // Glue-side rule (BotCommands.cpp ReadRunFacts): the proof is read only for the actual current
+    // step, never for FactStep's walk-back replayed point. So a walk back whose replayed point is an
+    // old open_proof with its proof up must not finish the current (different) step: the glue leaves
+    // proofRead false and the policy waits instead of advancing.
+    DungeonPlan plan;
+    plan.steps = {StatueRow(), Step(PlanStepKind::Pull, 60), PullStep(120, {4851})};
+    Run r = Start(&plan);
+    r.step = 2; // current step: the pull, not either open_proof
+    r.walkBack = true;
+    r.walkBackIdx = 0; // replayed point: the old open_proof, its proof left up in the world
+    CHECK(FactStep(r) == &plan.steps[0]);
+    Facts f = Party(0);
+    f.proofRead = false; // the glue reads no proof: the current step is no open_proof
+    f.proofUp = true;
+    Tick(r, f);
+    CHECK(r.step == 2 && r.state == State::Running);
+}
+
 static void TestPlainOpenStillPausesWithoutChange()
 {
     DungeonPlan plan;
@@ -17149,6 +17187,8 @@ int main()
     TestOpenProofNotReadIsNoProof();
     TestOpenProofAlreadyUpSkipsTheUse();
     TestOpenProofResendsAnInCombatAnswer();
+    TestProofStepIsTheCurrentOpenProofOnly();
+    TestOpenProofWalkBackStepDoesNotFinishIt();
     TestOpenProofCreatureName();
     TestPlainOpenStillPausesWithoutChange();
     TestTaskResendNotForOtherFailures();

@@ -326,12 +326,15 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("slot.carrierRaw = 0;\n            slot.carrierRaw = RunTaskBot(slot, lead, bots,", COMMANDS)
 
     def test_open_proof_is_read_only_for_its_step(self):
-        # open_proof: the proof facts are read only while that step is current, in the Loot/Open/UseItem/UseOn facts case.
+        # open_proof: the proof is read only for the actual current step (not FactStep's walk-back
+        # replayed point), and only when that step is an open_proof (the way ReadHoldDone reads its
+        # own step before the facts' own step). The glue asks the policy's ProofStep helper for step,
+        # scoped to the task-facts case: the old string-only pin passed with the read moved out of
+        # the guard, so only the guarded read inside this block passes.
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
-        self.assertIn("if (step->kind == ai::PlanStepKind::Open && step->openProof)", facts)
-        self.assertIn("f.proofUp = OpenProofUp(lead, *step);", facts)
-        self.assertIn("case ai::PlanStepKind::Loot:", facts)
-        self.assertLess(facts.index("case ai::PlanStepKind::Loot:"), facts.index("f.proofUp = OpenProofUp(lead, *step);"))
+        proof = facts.index("f.proofUp = OpenProofUp(lead, *step);")
+        block = facts[facts.index("case ai::PlanStepKind::Loot:"):proof]
+        self.assertIn("ProofStep(slot.run) == step", block)
 
     def test_open_proof_object_must_be_spawned(self):
         # A placed but despawned light is no proof: the object search uses EntryGameObjectCheck (isSpawned).
