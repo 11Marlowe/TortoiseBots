@@ -578,6 +578,50 @@ static void TestRefusedReplayRescueReplaysThePlansPoints()
     CHECK(!r.strandOn && !r.strandDue && !r.strandReplay); // the replay answered the failure: no second send
 }
 
+// Round 3: a ReplayRescue armed bot-only, then a real player joins before the send: no rescue order goes out (no
+// try spent); the walk back replays the plan's points, exactly as a refused rescue of that kind does. The
+// bot-only control still teleports.
+static void TestJoinedPlayerCancelsTheReplayRescue()
+{
+    DungeonPlan plan;
+    for (int i = 0; i <= 5; ++i)
+        plan.steps.push_back(Move(20.0f * i, 0.0f)); // 0 .. 100
+    plan.steps.push_back(Pull(120.0f, 100.0f, 9));
+    std::size_t const step = plan.steps.size() - 1;
+    auto arm = [&](Run& r, Facts& f)
+    {
+        r = Start(&plan, step);
+        f = Party(-210.0f);
+        f.seen = false;
+        StartWalkBack(r, f);
+        f.approachKnown = true;
+        f.approachRead = true;
+        f.approachX = -170.0f;
+        f.directPathCrossesPack = true;
+        for (int i = 0; i < 3; ++i)
+            Tick(r, f); // two backoffs, then the rescue (310 yd)
+        CHECK(r.strandDue && r.strandReplay && r.strandBotOnly && r.strandIdx == 5 && r.walkBackIdx == 5);
+    };
+    Run r;
+    Facts f = Party(0.0f);
+    arm(r, f);
+    PlayerFact p;
+    p.name = "Hypeer";
+    p.commander = true;
+    f.players.push_back(p); // joins between the arm and the send
+    CHECK(Tick(r, f).empty()); // no rescue order: he walks back with the party
+    CHECK(r.state == State::Running && r.walkBack && !r.walkBackDirect && r.walkBackIdx == 0 &&
+        r.walkBackStart == 0);
+    CHECK(!r.strandDue && !r.strandBotOnly && !r.strandOn && r.strandTries == 0 && r.strandStep ==
+        static_cast<std::size_t>(-1));
+    CHECK(r.note == "walk back: a real player joined after the rescue was armed: replaying the plan's points");
+    Run b;
+    Facts g = Party(0.0f);
+    arm(b, g); // control: nobody joined, the teleport still goes out
+    CHECK(Tick(b, g) == "rescue from -210.0 0.0 0.0 to 100.0 0.0 0.0");
+    CHECK(b.strandOn && !b.strandDue && b.strandTries == 0);
+}
+
 // Round 1 (3): ReplayRescue never teleports the lead bot onto its own spot: already within kArriveYd of the target,
 // no rescue is due and the latch stays unused (a later real need still gets it). A MoveDirect hole before the target
 // forces the replay to start at the first point (ReplayStartPoint with a hole), so the replay is 800 yd even with
@@ -1510,6 +1554,7 @@ int main()
     TestLongReplayIsRescuedInAFullRun();
     TestShortReplayAndPlayersKeepTheReplay();
     TestRefusedReplayRescueReplaysThePlansPoints();
+    TestJoinedPlayerCancelsTheReplayRescue();
     TestReplayRescueNeedsDistanceToTheTarget();
     TestReplayRescueAfterEveryStraightFailure();
     TestRetreatAtTwoDead();

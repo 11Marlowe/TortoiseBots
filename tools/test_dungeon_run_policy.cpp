@@ -11832,6 +11832,41 @@ static void TestIslandWalkBackWithPlayerPassesThePoint()
     CHECK(b.state == State::Running && b.strandDue && b.walkBackIdx == 4);
 }
 
+// Round 3: an IslandWalkBackRescue armed bot-only, then a real player joins before the send: no rescue order goes
+// out (no try spent); the point is passed as before, exactly as a refused rescue of that kind does (no safe point,
+// a player, the latch used). The bot-only control still teleports.
+static void TestJoinedPlayerCancelsTheIslandRescue()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 1;
+    r.walkBackRestarted = true;
+    Facts g = OnIsland();
+    std::string const hop = Tick(r, g);
+    CHECK(hop.compare(0, 7, "escape ") == 0);
+    OrderRefused(r, hop, "no-spot: no spot within 10 yd");
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Running && r.strandDue && r.strandBotOnly && r.strandIdx == 4);
+    PlayerFact p;
+    p.name = "Hypeer";
+    p.commander = true;
+    g.players.push_back(p); // joins between the arm and the send
+    CHECK(Tick(r, g).empty()); // no rescue order: he walks back with the party
+    CHECK(r.state == State::Running && !r.strandDue && !r.strandBotOnly && !r.strandOn && r.strandTries == 0 &&
+        r.walkBackIdx == 5 && r.note.find("on to the next") != std::string::npos);
+    Run b = Start(&plan, 5);
+    b.walkBack = true;
+    b.walkBackIdx = b.walkBackStart = 1;
+    b.walkBackRestarted = true;
+    Facts f = OnIsland();
+    std::string const bhop = Tick(b, f);
+    OrderRefused(b, bhop, "no-spot: no spot within 10 yd");
+    CHECK(Tick(b, f).empty());
+    CHECK(Tick(b, f) == "rescue from 1589.6 1046.9 8.9 to 1633.6 1130.7 9.9"); // control: still teleports
+    CHECK(b.strandOn && !b.strandDue && b.strandTries == 0);
+}
+
 
 // A good read between the hops gives fresh tries, but one step sends at most kStepEscapes.
 static void TestStepEscapeCap()
@@ -18029,6 +18064,7 @@ int main()
     TestIslandWalkBackIsRescued();
     TestIslandRescueNeedsTheNoSpotSpot();
     TestIslandWalkBackWithPlayerPassesThePoint();
+    TestJoinedPlayerCancelsTheIslandRescue();
     TestStepEscapeCap();
     TestNoSpotWalkBackNeverSpins();
     TestSignBFromTheMainMeshIsBounded();

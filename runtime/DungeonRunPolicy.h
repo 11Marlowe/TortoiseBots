@@ -1461,6 +1461,14 @@ struct Run
     // teleport is used), by any other rescue, when the replay starts, and by ResetStep; a send keeps it (the
     // outcome is not known yet).
     bool strandReplay = false;
+    // A pending teleport is a bot-only kind's (set by ReplayRescue and IslandWalkBackRescue beside RescueDue):
+    // a real player who joined the party since it was armed walks back with the party, so StrandedTeleportTick
+    // drops it before the send (no try spent) and falls back as a refused rescue of that kind does. Cleared with
+    // the due flag (ResetStep, ReplayWalkBack, the cancel), by any other rescue (RescueDue drops it; the two
+    // bot-only kinds set it again after it), when the lead bot arrives (its step's teleport is used) and when
+    // StrandFailed gives it up; a send keeps it (a refused send is tried again, and the recheck runs before
+    // every send).
+    bool strandBotOnly = false;
     // The walk-back point last sent, from where, and how often (kWalkBackResends).
     std::size_t resendIdx = static_cast<std::size_t>(-1);
     float resendX = 0.0f, resendY = 0.0f, resendZ = 0.0f;
@@ -1970,6 +1978,7 @@ inline void ResetStep(Run& r)
     r.strandDue = false;
     r.strandOn = false;
     r.strandReplay = false;
+    r.strandBotOnly = false;
     r.strandMs = 0;
     r.strandSummon = false;
     r.strandSummoned.clear();
@@ -4350,6 +4359,7 @@ inline void StrandFailed(Run& r, const std::string& why)
     }
     bool const replay = r.strandReplay;
     r.strandReplay = false;
+    r.strandBotOnly = false;
     if (replay && r.walkBack && r.plan)
     {
         // The lead bot's spot is unknown here (StrandFailed has no Facts), so replay from the rescue's spot
@@ -4618,6 +4628,7 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
                 // No hop off and no way back: the teleport, the next walk-back tick out of combat.
                 StrandCountsForStep(r);
                 r.strandDue = true;
+                r.strandBotOnly = false; // an older rescue: never a bot-only kind
                 r.strandIdx = r.walkBackIdx;
                 r.strandX = r.leadLastX;
                 r.strandY = r.leadLastY;
@@ -4959,6 +4970,7 @@ inline void RescueDue(Run& r, const Facts& f, std::size_t target)
     r.walkBackIdx = r.walkBackStart = target; // the walk back goes on from the point it is teleported to
     r.walkBackDirect = false;
     r.strandReplay = false;
+    r.strandBotOnly = false; // the two bot-only kinds set it again below
     r.approachHops = 0;
     EnterPhase(r, Phase::Begin);
 }
@@ -6946,6 +6958,7 @@ inline std::size_t ReplayStartPoint(const Run& r, const Facts& f)
 inline bool ReplayWalkBack(Run& r, const Facts& f)
 {
     r.strandReplay = false;
+    r.strandBotOnly = false;
     r.strandDue = false; // a refused teleport's replay answers the same failure, not a second send
     r.walkBackDirect = false;
     r.shortcutWanted = r.shortcutFrom = static_cast<std::size_t>(-1);
@@ -7291,6 +7304,7 @@ inline bool ReplayRescue(Run& r, const Facts& f, const std::string& why)
     if (yd < kReplayRescueYd)
         return false;
     RescueDue(r, f, target);
+    r.strandBotOnly = true; // armed bot-only: StrandedTeleportTick rechecks for a joined player before the send
     r.strandReplay = true; // refused kStrandTries times: the walk back replays the plan's points (StrandFailed)
     r.note = "walk back: " + why + ": the replay of the plan's points would walk " + Num(yd) + " yd: the lead bot " +
         "is teleported to a safe point on the way it came (step " + std::to_string(target + 1) + ") out of combat";
@@ -7320,6 +7334,7 @@ inline bool IslandWalkBackRescue(Run& r, const Facts& f, const std::string& why)
     if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) <= kArriveYd)
         return false;
     RescueDue(r, f, target);
+    r.strandBotOnly = true; // armed bot-only: StrandedTeleportTick rechecks for a joined player before the send
     r.note = "walk back: " + why + " from a navmesh island the hop could not leave: the lead bot is teleported to a " +
         "safe point on the way it came (step " + std::to_string(target + 1) + ") out of combat";
     return true;
@@ -7552,6 +7567,7 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
         }
         r.strandStep = r.step;
         r.strandReplay = false; // used: no replay after it
+        r.strandBotOnly = false; // used: no player recheck after it
         r.strandSummon = true;
         r.strandSummoned.clear();
         r.strandSummonMs = 0;
@@ -7609,6 +7625,30 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
             " with no way back: the teleport to " + target + " waits for the fight to end";
         return true;
     }
+    // A bot-only rescue armed, then a real player joined before the send: he walks back with the party, so drop
+    // the teleport (no try spent) and fall back as a refused rescue of that kind does (a refused ReplayRescue
+    // replays the plan's points, a refused island rescue passes the point as before). Older rescues never set
+    // the flag and send as before.
+    if (r.strandBotOnly && !f.players.empty())
+    {
+        r.strandDue = false;
+        r.strandBotOnly = false;
+        if (r.strandReplay)
+        {
+            std::string const why = "a real player joined after the rescue was armed: replaying the plan's points";
+            if (ReplayWalkBack(r, f))
+            {
+                r.note = "walk back: " + why;
+                return true;
+            }
+            r.note = "walk back: a real player joined after the rescue was armed: the walk back goes on as before";
+            return true;
+        }
+        std::string const whyJoined = "walk back: a real player joined after the rescue was armed";
+        PassWalkBackPoint(r, f.leadX, f.leadY, f.leadZ, whyJoined);
+        return true;
+    }
+
     // The spot as the facts read it now (the lead bot may have moved on the island); a send keeps strandReplay
     // (it says what the teleport was, cleared when StrandFailed gives it up).
     r.strandX = f.leadX;
