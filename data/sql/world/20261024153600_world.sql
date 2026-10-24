@@ -38,7 +38,8 @@
 --   * Five crystal blocks before the Immol'thar boss step (legs 0, 2 and 4), each a pull of the crystal's four 11483 from a stand
 --     15-25 yd off the pack followed by a hold on the crystal's object state (kind hold, entry the crystal, param 1 active,
 --     flags 16 done-by-object, radius 40, timeout 120, entries 11483), so a remnant the pull left is fought on the spot and the step
---     ends only when the crystal reads active: steps 13 (177259), 99 (177257), 70 (leg 2, 177258), 35 (179505), 45 (179504).
+--     ends only when the crystal reads active: leg 0 seq 13 and 99 (177259, 177257), leg 2 seq 70 (177258), leg 4 seq 35 and 45
+--     (179505, 179504); plan steps 14, 100, 234, 454, 464.
 --     plan-export learned Hold.object/state for this (entry the object, param the state, flag 16); the run leader already reads a
 --     hold done by an object (DungeonRunPolicy.h kPlanFlagDoneObject, HoldStep). The single 11483 pulls of 20261024153000 in legs 0
 --     (crystal 1: groups 6-8 and 11; crystal 2: groups 29-32; crystal 3: groups 19-21), leg 2 group 7 (crystal 3's fourth) and leg 4
@@ -49,7 +50,7 @@
 --     ring walk stays explicit through approach points on the three Arcane Torrent pulls and on the boss: (17 716, -128 725),
 --     (-173 789, -146 885), (-86 928.5, 13.9 929.5), boss (25.07 891.66, -7.05 853.36). kill_first still names 11484 for the boss
 --     fight, and no pull lists 11466.
---   * The Immol'thar boss row (leg 4 seq 74, entry 11496 at -40.45 811.14 -29.36) carries entries '' = the boss alone: the step's
+--   * The Immol'thar boss row (leg 4 seq 70 = plan step 489, entry 11496 at -40.45 811.14 -29.36) carries entries '' = the boss alone: the step's
 --     own entry is 11496 (the plan refuses the boss in boss.first), so it waits on no Highborne Summoner. Its 300 s stall in r36
 --     was Immol'thar himself, alive at the step point with UNIT_FLAG_NOT_SELECTABLE|SPAWNING: the crystal event had not completed.
 --   * Path checks (server-exact, turtle-agent 940fc091 built from origin/dev f38e184 + the object-hold export): every consecutive
