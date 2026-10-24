@@ -184,6 +184,15 @@ BOSS_PLANS["stratholme_undead"] = 329
 SEEDED_BOSSES.update({(329, 10435): "Magistrate Barthilas", (329, 10437): "Nerub'enkan",
                       (329, 10438): "Maleki the Pallid", (329, 10436): "Baroness Anastari",
                       (329, 10440): "Baron Rivendare"})
+# Stormwrought Ruins (20261024021000): its map and its eleven boss steps, names from the map-818 export and Turtle's creature_template
+# (all rank 1). Remains of the Innocent 62670 (17393 hp, a boss-grade trash pack of leg 10) is not a boss step and is not seeded.
+BOSS_PLANS["stormwrought_ruins"] = 818
+SEEDED_BOSSES.update({(818, 62547): "Dagar the Glutton", (818, 62548): "Oronok Torn-Heart",
+                      (818, 62552): "Librarian Theodorus", (818, 62549): "Duke Balor the IV",
+                      (818, 62551): "Chieftain Stormsong", (818, 62550): "Deathlord Tidebane",
+                      (818, 62652): "Subjugator Halthas Shadecrest", (818, 62664): "Mycellakos",
+                      (818, 62661): "Eldermaw the Primordial", (818, 62665): "Lady Drazare",
+                      (818, 62671): "Ighal'for"})
 
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
@@ -1109,6 +1118,43 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (329) AND `entry` IN (10435, 10437, 10438, 10436, 10440);", text)
         self.assertEqual([(m, e) for m, e, _n in self.boss_rows(text)],
                          [(329, 10435), (329, 10437), (329, 10438), (329, 10436), (329, 10440)])
+
+    def test_stormwrought_ruins_is_the_census_fixed_draft(self):
+        # 20261024021000 (turtle-agent e16271e, 2026-10-24): the generated Stormwrought Ruins draft with the pack census of
+        # PREP-STORMWROUGHT-RUINS-2026-10-24.md, no row hand-set, with the boss rows of map 818 scoped to its own eleven entries.
+        # 11 legs, 686 steps (251 pulls), bosses in leg order, no boss.first, no door or event step. The plan row carries cc_priority
+        # and kill_first; 15 duplicate rows were merged, every radius is the group's own members (max 17.7), the nine packs inside a
+        # boss's 18 yd detection are their leg's last pull, and Remains of the Innocent 62670 (boss-grade trash) is in leg 10's group 6
+        # and in kill_first. The 24 needs_walk groups and Eldermaw's boss point are the mapping walk's, not invented here.
+        name, text = newest_plan_text("stormwrought_ruins")
+        self.assertEqual(name, "20261024021000_world.sql")
+        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent e16271e dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(leg_rows(text, "stormwrought_ruins"),
+                         {0: ("dagar_the_glutton", ""), 1: ("oronok_torn-heart", ""),
+                          2: ("librarian_theodorus", ""), 3: ("duke_balor_the_iv", ""),
+                          4: ("chieftain_stormsong", ""), 5: ("deathlord_tidebane", ""),
+                          6: ("subjugator_halthas_shadecrest", ""), 7: ("mycellakos", ""),
+                          8: ("eldermaw_the_primordial", ""), 9: ("lady_drazare", ""),
+                          10: ("ighal'for", "")})
+        rows = [r for r in self.step_rows(text) if r["plan"] == "stormwrought_ruins"]
+        self.assertEqual(len(rows), 686)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(11)],
+                         [11, 28, 18, 19, 19, 43, 28, 27, 16, 30, 12])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
+                         ["62547", "62548", "62552", "62549", "62551", "62550", "62652", "62664", "62661", "62665", "62671"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(11):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], [""] * 11)
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 17.7)
+        self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 5.0)
+        # The nine packs inside a boss's 18 yd detection are the last pull of their leg (the boss joins by design).
+        self.assertEqual([leg_steps(rows, leg)[-2]["entries"] for leg in (1, 3, 5, 7, 8, 9)],
+                         ["62540", "62541,62543", "62542", "62646", "62648", "62667,62647,62663"])
+        self.assertIn("62670", [r["entries"] for r in leg_steps(rows, 10) if r["kind"] == "pull"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (818) AND `entry` IN (62547, 62548, 62552, 62549, 62551, 62550, 62652, 62664, 62661, 62665, 62671);", text)
+        self.assertIn("(818, 62671, 'Ighal''for');", text)
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
         # 20261023210000 (turtle-agent cg-fix1 479dc0d) re-exports the 20261023130100 draft (prep/crescent_grove ba00e7c, the census
