@@ -16675,6 +16675,7 @@ static Facts OutsideDropped()
 static DungeonPlan GraveyardPlan()
 {
     DungeonPlan plan;
+    plan.map = 429;
     plan.steps = {PullStep(40, {11473}), Step(PlanStepKind::Move, 400)};
     return plan;
 }
@@ -16838,6 +16839,108 @@ static void TestRegroupQuietTickEndsTheFightClock()
     for (int i = 0; i < 100; ++i)
         Tick(r, fight);
     CHECK(r.state == State::Running);
+}
+
+static void TestOutsideBotIsReturnedInABotOnlyRun()
+{
+    DungeonPlan plan = GraveyardPlan();
+    Run r = Start(&plan);
+    Facts f = OutsideFight();
+    std::string order;
+    CHECK(OffMapReturnTick(r, f, order) && order == "return Pozzle 429");
+    CHECK(r.offMapReturnTries == 1 && r.state == State::Running);
+    CHECK(Has(r.note, "Pozzle is outside the instance: teleported back to the lead bot (try 1 of 3 at this step)"));
+    // The 30 s: not before, then once more
+    order.clear();
+    r.runMs += kOffMapReturnRepeatMs - 1000;
+    CHECK(!OffMapReturnTick(r, f, order) && order.empty());
+    r.runMs += 1000;
+    CHECK(OffMapReturnTick(r, f, order) && order == "return Pozzle 429" && r.offMapReturnTries == 2);
+    // Through Tick: a tick with no order of its own sends it (out of combat too: whether it fights does not matter)
+    Run t = Start(&plan);
+    BeginRegroup(t);
+    Facts g = OutsideDropped();          // Pozzle outside, out of combat
+    g.alive = 4;
+    g.dead = 1;
+    g.deadNames = {"Hilde"};
+    CHECK(Tick(t, g) == "revive party"); // the step's own order first
+    CHECK(Tick(t, g) == "return Pozzle 429");
+    // A refusal is no pause
+    OrderRefused(t, "return Pozzle 429", "player: a real player is in the party");
+    CHECK(t.state == State::Running && Has(t.note, "refused: player: a real player is in the party: tried again in 30 s"));
+}
+static void TestOutsideBotIsNotReturnedWhenGuarded()
+{
+    DungeonPlan plan = GraveyardPlan();
+    std::string order;
+    // (a) a real player in the party
+    Run a = Start(&plan);
+    Facts fa = OutsideFight();
+    PlayerFact p;
+    p.name = "Hypeer";
+    fa.players = {p};
+    CHECK(!OffMapReturnTick(a, fa, order) && order.empty() && a.offMapReturnTries == 0);
+    // (b) the lead bot dead
+    Run b = Start(&plan);
+    Facts fb = OutsideFight();
+    fb.leadAlive = false;
+    CHECK(!OffMapReturnTick(b, fb, order) && order.empty());
+    // (c) the owner's switch off
+    Run c = Start(&plan);
+    Facts fc = OutsideFight();
+    fc.walkBackRescue = false;
+    CHECK(!OffMapReturnTick(c, fc, order) && order.empty());
+    // (d) a lead bot teleport due or settling
+    Run d = Start(&plan);
+    d.strandDue = true;
+    CHECK(!OffMapReturnTick(d, OutsideFight(), order) && order.empty());
+    d.strandDue = false;
+    d.strandOn = true;
+    CHECK(!OffMapReturnTick(d, OutsideFight(), order) && order.empty());
+    // (e) a bot at 1000 yd on the plan's map (no flag), and a revive summon under way
+    Run e = Start(&plan);
+    Facts fe = OutsideFight();
+    fe.members[1].offPlanMap = false;
+    CHECK(!OffMapReturnTick(e, fe, order) && order.empty());
+    Facts fs = OutsideFight();
+    e.reviveSummons["Pozzle"] = 0;
+    CHECK(!OffMapReturnTick(e, fs, order) && order.empty());
+    // (f) the tick's own order is never displaced
+    Run g = Start(&plan);
+    order = "revive party";
+    CHECK(!OffMapReturnTick(g, OutsideFight(), order) && order == "revive party");
+    // (g) paused: nothing
+    Run h = Start(&plan);
+    Pause(h, "x");
+    order.clear();
+    CHECK(!OffMapReturnTick(h, OutsideFight(), order) && order.empty());
+}
+static void TestOutsideBotReturnsArePausedAfterThreeAStep()
+{
+    DungeonPlan plan = GraveyardPlan();
+    Run r = Start(&plan);
+    Facts f = OutsideFight();
+    std::string order;
+    for (std::uint32_t i = 1; i <= kOffMapReturnTries; ++i)
+    {
+        order.clear();
+        CHECK(OffMapReturnTick(r, f, order) && order == "return Pozzle 429" && r.offMapReturnTries == i);
+        r.runMs += kOffMapReturnRepeatMs;
+    }
+    order.clear();
+    CHECK(OffMapReturnTick(r, f, order) && order.empty() && r.state == State::Paused);
+    CHECK(r.note == "Pozzle is outside the instance (not on map 429) after 3 returns at this step: bring it to the lead "
+        "bot, then .bot run resume");
+    // A resume gives three more
+    CHECK(Resume(r));
+    CHECK(r.offMapReturnTries == 0);
+    // A new step starts the count over too
+    Run s = Start(&plan);
+    s.offMapReturnStep = 0;
+    s.offMapReturnTries = kOffMapReturnTries;
+    s.step = 1;
+    order.clear();
+    CHECK(OffMapReturnTick(s, f, order) && order == "return Pozzle 429" && s.offMapReturnTries == 1);
 }
 
 // Scarlet Graveyard r23 slot 7 (Scorn, event 81) and Codex review round 1: the skip reads every event association of
@@ -19488,6 +19591,9 @@ int main()
     TestOutsideBotFightLetsTheWipeRegroup();
     TestFightOnThePlanMapStillCounts();
     TestRegroupQuietTickEndsTheFightClock();
+    TestOutsideBotIsReturnedInABotOnlyRun();
+    TestOutsideBotIsNotReturnedWhenGuarded();
+    TestOutsideBotReturnsArePausedAfterThreeAStep();
     TestBossNotAtHisSpotIsSearchedForInTheInstance();
     TestPassedBossAtHisSpotPausesAtOnce();
     TestAliveSearchPauseSaysWhereTheLeadBotIs();

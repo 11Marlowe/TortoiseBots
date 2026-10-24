@@ -992,6 +992,24 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
                         tick.index("CombatDropTick(r, in, dt)"))
         fight_on = body(policy, "inline bool FightOn(Run& r, const Facts& f, std::uint32_t dt)", "\n}\n")
         self.assertIn("OffMapUnitsOnly(f)", fight_on)
+    def test_a_bot_outside_the_instance_is_returned(self):
+        issue = body(COMMANDS, "bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer,", "\n}\n")
+        self.assertIn('if (text.compare(0, 7, "return ") == 0)\n        return RunOffMapReturn(commander, text, answer);', issue)
+        fn = body(strip_comments(COMMANDS),
+                  "bool RunOffMapReturn(Player* commander, std::string const& order, std::string& answer)\n{", "\n}\n")
+        # the player recheck and the map checks before anything is touched; CombatStop before the teleport
+        self.assertLess(fn.index('answer = "player: a real player is in the party";'), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("lead->GetMapId() != planMap"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("bot->GetMapId() == planMap"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("pet->CombatStop();"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("sServerFacade.GetHostileRefManager(bot).deleteReferences();"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("bot->CombatStop();"), fn.index("bot->TeleportTo(lead->GetMapId(),"))
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        tick = body(policy, "inline std::string Tick(Run& r, const Facts& raw,", "\n}\n")
+        self.assertLess(tick.index("order = TickBody(r, f, dt, lines);"), tick.index("OffMapReturnTick(r, f, order);"))
+        refused = body(policy, "inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)", "\n}\n")
+        self.assertLess(refused.index('order.compare(0, 7, "return ") == 0'),
+                        refused.index('Pause(r, "cmd " + order + " refused: " + answer + MissingHint(r));'))
 
 
 

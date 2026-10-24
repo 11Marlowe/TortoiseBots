@@ -9580,6 +9580,7 @@ void SendRunLine(Player* commander, DungeonRunSlot& slot, bool force)
 bool RunIslandEscape(Player* commander, std::string const& order, std::string& answer);
 bool RunBotWalk(Player* commander, std::string const& order, std::string& answer);
 bool RunStrandedTeleport(Player* commander, std::string const& order, std::string& answer);
+bool RunOffMapReturn(Player* commander, std::string const& order, std::string& answer);
 
 // Sends one order as the commander's own `.bot cmd <text>`. False with the
 // module's answer when it was refused (ERR). A pending task answers later.
@@ -9593,6 +9594,8 @@ bool IssueRunOrder(Player* commander, std::string const& text, std::string& answ
         return RunBotWalk(commander, text, answer);
     if (text.compare(0, 7, "rescue ") == 0)
         return RunStrandedTeleport(commander, text, answer);
+    if (text.compare(0, 7, "return ") == 0)
+        return RunOffMapReturn(commander, text, answer);
     ChatHandler handler(commander);
     s_runOrderCapture = RunOrderCapture();
     s_runOrderCapture.active = true;
@@ -10270,6 +10273,84 @@ bool RunStrandedTeleport(Player* commander, std::string const& order, std::strin
     SetStayAnchor(leadAi, x, y, ground, lead->GetMapId());
     lead->GetMotionMaster()->Clear();
     answer = "teleported to " + Num(x) + " " + Num(y) + " " + Num(ground);
+    return true;
+}
+// The return of a party bot outside the instance (DungeonRun::OffMapReturnTick, lead decision 2026-10-24; Dire Maul
+// West r38 slot B: the hunter stood outside in Feralas in a Gordok Mauler's fight for 20 min): "return <name> <map>".
+// Bot-only parties only (rechecked here, right before the send: any member of the group that is not a bot refuses
+// it), the lead bot alive on the plan's map, the bot alive and still off it. Its pet and itself leave combat first
+// (off every threat list, CombatStop), then it is teleported to the lead bot at once (no summon portal: the summon is
+// cancelled by any combat). False with the refusal; the run tries again after its 30 s.
+bool RunOffMapReturn(Player* commander, std::string const& order, std::string& answer)
+{
+    RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(commander->GetObjectGuid().GetRawValue());
+    Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+    char name[64] = {};
+    unsigned planMap = 0;
+    if (std::sscanf(order.c_str(), "return %63s %u", name, &planMap) != 2)
+    {
+        answer = "invalid: " + order;
+        return false;
+    }
+    if (!lead || !lead->IsInWorld() || !lead->IsAlive() || lead->IsTaxiFlying() || lead->IsBeingTeleported() ||
+        lead->GetMapId() != planMap)
+    {
+        answer = "lead-unavailable: the lead bot is dead, off the plan's map, on a taxi or teleporting";
+        return false;
+    }
+    Group* const group = lead->GetGroup();
+    if (!group)
+    {
+        answer = "lead-unavailable: the lead bot has no group";
+        return false;
+    }
+    for (Group::MemberSlot const& slot : group->GetMemberSlots())
+        if (!BotManager::Instance().IsBot(slot.guid))
+        {
+            answer = "player: a real player is in the party";
+            return false;
+        }
+    Player* bot = nullptr;
+    for (Player* member : CommandedBots(group, lead))
+        if (member && member != lead && std::string(member->GetName()) == name)
+            bot = member;
+    if (!bot || !bot->IsInWorld() || !bot->IsAlive() || bot->IsTaxiFlying() || bot->IsBeingTeleported())
+    {
+        answer = "unavailable: that bot is gone, dead, on a taxi or teleporting";
+        return false;
+    }
+    if (bot->GetMapId() == planMap)
+    {
+        answer = "invalid: that bot is on the plan's map";
+        return false;
+    }
+    // Out of combat first: its pet, then itself (as DropUnattackableCombat), so nothing holds it outside.
+    Pet* const pet = bot->GetPet();
+    if (pet && pet->IsAlive() && pet->IsInWorld())
+    {
+        sServerFacade.GetHostileRefManager(pet).deleteReferences();
+        pet->CombatStop();
+    }
+    sServerFacade.GetHostileRefManager(bot).deleteReferences();
+    bot->CombatStop();
+    // Then at once to the lead bot (a headless bot acks its own far teleport, as the summon does).
+    bot->GetMotionMaster()->Clear(false);
+    bot->StopMoving();
+    if (!bot->TeleportTo(lead->GetMapId(), lead->GetPositionX(), lead->GetPositionY(), lead->GetPositionZ(),
+            lead->GetOrientation(), 0))
+    {
+        answer = "failed: the teleport was refused";
+        return false;
+    }
+    if (bot->GetSession() && bot->GetSession()->IsHeadless())
+    {
+        if (bot->IsBeingTeleportedNear())
+            bot->ExecuteTeleportNear();
+        else if (bot->IsBeingTeleportedFar())
+            bot->GetSession()->HandleMoveWorldportAckOpcode();
+    }
+    TB_LOG_DETAIL("TortoiseBots: run leader: %s returned to the lead bot from outside the instance", bot->GetName());
+    answer = "returned " + std::string(name) + " to " + lead->GetName();
     return true;
 }
 

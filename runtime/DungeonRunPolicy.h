@@ -1501,6 +1501,12 @@ struct Run
     // StrandFailed gives it up; a send keeps it (a refused send is tried again, and the recheck runs before
     // every send).
     bool strandBotOnly = false;
+    // The return of a bot outside the instance (OffMapReturnTick, Dire Maul West r38 slot B): the run clock (runMs)
+    // of each bot's last return, and the returns sent at the step offMapReturnStep (kOffMapReturnTries a step; Resume
+    // starts them over).
+    std::unordered_map<std::string, std::uint64_t> offMapReturnAt;
+    std::size_t offMapReturnStep = static_cast<std::size_t>(-1);
+    std::uint32_t offMapReturnTries = 0;
     // The walk-back point last sent, from where, and how often (kWalkBackResends).
     std::size_t resendIdx = static_cast<std::size_t>(-1);
     float resendX = 0.0f, resendY = 0.0f, resendZ = 0.0f;
@@ -3603,6 +3609,7 @@ inline bool Resume(Run& r)
     r.otherPartPaused = false;
     r.fighting = false;
     r.autoRegroups = 0;
+    r.offMapReturnTries = 0;
     ResetStep(r);
     // A step that is never skipped starts its refusals over: the next one may
     // search a stand-in from the lead bot's new spot and hop it off an island.
@@ -4446,6 +4453,11 @@ inline void StrandFailed(Run& r, const std::string& why)
 
 inline bool PullbackRefusedUnreachable(Run& r, const std::string& order, const std::string& answer);
 
+constexpr std::uint64_t kOffMapReturnRepeatMs = 30000; // one bot's returns at least this far apart
+constexpr std::uint32_t kOffMapReturnTries = 3;        // returns a step (all bots), then the pause
+
+inline bool OffMapReturnTick(Run& r, const Facts& f, std::string& order);
+
 inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)
 {
     // The retreat at two dead (RetreatTick): a refused move ends it, the fight goes on as the bots' own; no pause.
@@ -4561,6 +4573,13 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
             DropFocus(r);
         r.note = order + " refused: " + answer + ": the focus is picked again (that unit left out " +
             std::to_string(kFocusRefusedIgnoreMs / 1000) + " s)";
+        return;
+    }
+    // The return of a bot outside the instance (OffMapReturnTick): never a pause; the next one after its 30 s.
+    if (order.compare(0, 7, "return ") == 0)
+    {
+        r.note = order + " refused: " + answer + ": tried again in " + std::to_string(kOffMapReturnRepeatMs / 1000) +
+            " s";
         return;
     }
     // The run leader's walk of one bot (the straggler ladder, a rogue back from a failed Sap): help, never a pause.
@@ -11208,6 +11227,42 @@ inline bool OffMapUnitsOnly(const Facts& f)
             return false;
     return true;
 }
+// A bot-only run brings a party bot outside the instance back to the lead bot (lead decision 2026-10-24, Dire Maul
+// West r38 slot B: the hunter stood outside 20 min and the summon, refused for a bot in combat and cancelled by any
+// combat, could not bring him): `return <name> <map>`, the glue's RunOffMapReturn drops its combat and teleports it.
+// True when it set the order or paused (the caller sends the order). Only with `order` empty.
+inline bool OffMapReturnTick(Run& r, const Facts& f, std::string& order)
+{
+    if (!order.empty() || r.state != State::Running || !r.plan || !f.walkBackRescue || !f.players.empty() ||
+        !f.leadAlive || r.strandDue || r.strandOn)
+        return false;
+    if (r.offMapReturnStep != r.step)
+    {
+        r.offMapReturnStep = r.step;
+        r.offMapReturnTries = 0;
+    }
+    for (const MemberFact& m : f.members)
+    {
+        if (m.name.empty() || !m.offPlanMap || m.name == f.carrier || r.reviveSummons.count(m.name))
+            continue;
+        auto const last = r.offMapReturnAt.find(m.name);
+        if (last != r.offMapReturnAt.end() && r.runMs < last->second + kOffMapReturnRepeatMs)
+            continue;
+        if (r.offMapReturnTries >= kOffMapReturnTries)
+        {
+            Pause(r, m.name + " is outside the instance (not on map " + std::to_string(r.plan->map) + ") after " +
+                std::to_string(kOffMapReturnTries) + " returns at this step: bring it to the lead bot, then .bot run resume");
+            return true;
+        }
+        ++r.offMapReturnTries;
+        r.offMapReturnAt[m.name] = r.runMs;
+        order = "return " + m.name + " " + std::to_string(r.plan->map);
+        r.note += (r.note.empty() ? "" : "; ") + m.name + " is outside the instance: teleported back to the lead bot " +
+            "(try " + std::to_string(r.offMapReturnTries) + " of " + std::to_string(kOffMapReturnTries) + " at this step)";
+        return true;
+    }
+    return false;
+}
 
 // The party is in a fight the run counts as one: in combat, and not one the grace above has let go (it ticks
 // the grace). The glue's self-resume of a ceiling pause asks this (CeilingFightOverWhilePaused). Units all off the lead bot's map are quiet (OffMapUnitsOnly).
@@ -11728,6 +11783,7 @@ inline std::string Tick(Run& r, const Facts& raw, std::uint32_t dt = kTickMs, co
     }
     if (!held)
         order = TickBody(r, f, dt, lines);
+    OffMapReturnTick(r, f, order); // a bot outside the instance in a bot-only run (lead decision 2026-10-24)
     if (!r.shotGateRan)
         EndShotHold(r); // the pull stand's hold ends with any tick its gate did not run on
     ArmReachedTriggers(r); // the steps this tick reached
