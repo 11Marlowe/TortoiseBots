@@ -2720,8 +2720,10 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
                     BotCommandFirstWordLower(filtered) + "|denied|Not authorized for this bot command.");
             return;
         }
-        // A player's order to a bot of a party a run leader drives pauses the run.
-        TortoiseBots::BotCommands::NoteHumanChatOrder(bot, filtered);
+        // A player's order to a bot of a party a run leader drives: the commander's whisper pauses the run;
+        // party chat is chatting (dropped as an order while the run runs); another player's whisper is refused.
+        if (!TortoiseBots::BotCommands::NoteHumanChatOrder(bot, fromPlayer, filtered, type == CHAT_MSG_WHISPER))
+            return;
     }
     if (!IsAllowedCommand(filtered) && !GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, type != CHAT_MSG_WHISPER, &fromPlayer))
         return;
@@ -3474,6 +3476,12 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
     // mid-fight and, through the BotManager (ClaimForMaster / ReleaseMaster), replace
     // the Dungeon lease that keeps the random-bot services off the crew.
     bool const dungeonCrew = TortoiseBots::BotActivityLeaseManager::Instance().GetActivity(bot->GetGUIDLow()) == TortoiseBots::BotActivity::Dungeon;
+    // A bot of a group a remote commander bound keeps its master and its group's leader as the binding has them: no
+    // master strip below, no hand-over of the lead to a real player of the group and no adoption of a real player as
+    // master (`.bot commander bind ... inparty` keeps players in the group; the lead bot leads it, and another player
+    // must never become the bots' master, even while the commander is offline or gone until the binding is released;
+    // the release then takes the bots out of that party, BotCommands ReleaseBinding).
+    bool const commanded = TortoiseBots::BotCommands::IsInCommandedGroup(bot);
 
     // Issue #1014: a hire keeps its hirer. While the hirer changes maps it is out
     // of the world (FindPlayer misses it, so UpdateAI dropped the pointer) but
@@ -3493,7 +3501,7 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
     }
 
     //Remove bot masters not in our group.
-    if (!dungeonCrew && master && master != bot && !HasActivePlayerMaster() && (!group || group->GetLeaderGuid() != master->getObjectGuid()))
+    if (!dungeonCrew && !commanded && master && master != bot && !HasActivePlayerMaster() && (!group || group->GetLeaderGuid() != master->getObjectGuid()))
     {
         Player* replacementMaster = IsRealPlayer() ? bot : nullptr;
         if (TortoiseBots::BotManager::Instance().IsBot(bot->GetObjectGuid()))
@@ -3521,7 +3529,8 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
     if (!dungeonCrew && group && !IsRealPlayer())
     {
         // If this bot is group leader and there is a real player in the group, yield leadership to the real player.
-        if (group->IsLeader(bot->GetObjectGuid()))
+        // (Not in a commanded group, see `commanded`: handing the lead over would end the binding.)
+        if (group->IsLeader(bot->GetObjectGuid()) && !commanded)
         {
             // Resolve the new leader through the Group's member slots before any
             // change: the GroupReference list can hand out a Player* that is
@@ -3579,7 +3588,9 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
 
         // Issue #1014: never hand a hire to a bot, nor to anyone while its hirer
         // is only between maps.
+        // A commanded bot never takes a real player of its group as master (see `commanded`).
         if (newMaster && (!master || master != newMaster) && bot != newMaster &&
+            !(commanded && IsRealPlayer(newMaster)) &&
             TortoiseBots::HireAllowsMasterAdoption(hired, hirerBetweenMaps, IsRealPlayer(newMaster)))
         {
             bool masterChanged = true;

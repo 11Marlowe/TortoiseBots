@@ -2075,6 +2075,9 @@ static void NoteRunOrderAnswer(bool ok, std::string const& text)
 
 // Any order a player gives the party pauses its run (defined with the run leader).
 static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& order);
+// Another real player of a run-bound party: the run's commander (players in the party, 2026-10-23), else 0.
+uint64 BoundForeignCommander(Player* player);
+namespace { Player* FindCharacter(uint64 raw); }
 
 static std::string ProtocolSafe(std::string value)
 {
@@ -3917,6 +3920,15 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string intent;
     std::string option;
     bool const parsed = requester && ParseAction(Trim(args ? args : ""), intent, option);
+    // Another player of a bound party (in-party binding): its bots take no `.bot action` of his.
+    if (parsed)
+        if (uint64 const owner = BoundForeignCommander(requester))
+        {
+            Player* commander = FindCharacter(owner);
+            SendActionError(handler, "action " + intent, "run-bound",
+                RemoteCommander::RunBoundRefusalText(commander ? commander->GetName() : "its commander").c_str());
+            return true;
+        }
     if (parsed)
         PauseDungeonRunForPlayer(requester->GetObjectGuid().GetRawValue(), "action " + intent);
     if (!parsed)
@@ -4804,9 +4816,13 @@ RemoteCommander::BindingState ReadBindingState(RemoteCommander::Binding const& b
         state.leadIsLeader = group->IsLeader(lead->GetObjectGuid());
         state.leadGroupIsRaidOrBg = group->isRaidGroup() || group->isBGGroup();
         state.memberCount = group->GetMembersCount();
+        // The commander in his own bound group is no joined player (an in-party binding keeps him there; a
+        // classic one stands when he comes back into it). Any other real player is counted.
         for (Group::MemberSlot const& slot : group->GetMemberSlots())
-            if (!BotManager::Instance().IsBot(slot.guid))
+            if (slot.guid.GetRawValue() != binding.commanderGuid && !BotManager::Instance().IsBot(slot.guid))
                 state.realPlayerInGroup = true;
+        // An in-party binding ends once he is not a member any more (left, kicked; a logout ends it as CommanderLeft).
+        state.commanderInGroup = group->IsMember(ObjectGuid(binding.commanderGuid));
     }
     return state;
 }
@@ -4982,14 +4998,92 @@ uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason
     RestoreCommanderAutonomy(removed.leadGuid);
     Player* commander = FindCharacter(commanderRaw);
     Player* lead = FindCharacter(removed.leadGuid);
+    // The bound group, found without the live lead bot too (review round 3: a LeadLeft release has none):
+    // RemoteCommander::PickReleaseGroup over the lead's group, the group store by id, a surviving member's group.
+    Group* const leadGroup = lead ? lead->GetGroup() : nullptr;
+    Group* const byId = removed.groupId ? sObjectMgr.GetGroupById(removed.groupId) : nullptr;
+    Group* viaMember = nullptr;
+    {
+        std::vector<uint64> survivors = removed.followers;
+        survivors.push_back(commanderRaw);
+        for (uint64 raw : survivors)
+            if (Player* member = FindCharacter(raw))
+                if (Group* g = member->GetGroup())
+                    if (g->GetId() == removed.groupId)
+                    {
+                        viaMember = g;
+                        break;
+                    }
+    }
+    RemoteCommander::ReleaseGroupFacts groupFacts;
+    groupFacts.leadGroupMatches = leadGroup && leadGroup->GetId() == removed.groupId;
+    groupFacts.groupById = byId != nullptr;
+    groupFacts.groupViaMember = viaMember != nullptr;
+    Group* boundGroup = nullptr;
+    switch (RemoteCommander::PickReleaseGroup(groupFacts))
+    {
+        case RemoteCommander::ReleaseGroupSource::Lead: boundGroup = leadGroup; break;
+        case RemoteCommander::ReleaseGroupSource::ById: boundGroup = byId; break;
+        case RemoteCommander::ReleaseGroupSource::Member: boundGroup = viaMember; break;
+        case RemoteCommander::ReleaseGroupSource::None:
+            TB_LOG_DETAIL("TortoiseBots: remote commander release: bound group %u not found, nothing to clean up",
+                removed.groupId);
+            break;
+    }
     // A bot that joined after the bind is no follower but may hold the
     // binding's "threat" (noted by AiFactory): release it too.
-    if (Group* group = lead ? lead->GetGroup() : nullptr)
-        if (group->GetId() == removed.groupId)
-            for (Group::MemberSlot const& slot : group->GetMemberSlots())
+    if (Group* group = boundGroup)
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+        {
+            RestoreCommanderThreatBackoff(slot.guid.GetRawValue());
+            RestoreCommanderAutonomy(slot.guid.GetRawValue());
+        }
+    // In-party (review round 1): with the commander no longer in the bound group the binding's bots leave it, so no
+    // other player of it becomes their master and the core gives the lead to a player of it; with him in it the
+    // lead goes back to him (RemoteCommander::DecideReleaseParty, from the release's reason and his presence). Before the hires are ended below: they are still
+    // held by the binding, so leaving the party does not end their hire, and they then go back to him as on any release.
+    if (removed.inParty)
+        if (Group* group = boundGroup)
             {
-                RestoreCommanderThreatBackoff(slot.guid.GetRawValue());
-                RestoreCommanderAutonomy(slot.guid.GetRawValue());
+                RemoteCommander::ReleaseCommanderFacts present;
+                present.inParty = removed.inParty;
+                present.reason = reason;
+                present.found = commander != nullptr;
+                present.inWorld = commander && commander->IsInWorld();
+                present.hasSession = commander && commander->GetSession() &&
+                    commander->GetSession()->HasNetworkTransport();
+                present.isMember = group->IsMember(ObjectGuid(commanderRaw));
+                present.leadFound = lead && group->IsMember(lead->GetObjectGuid());
+                RemoteCommander::ReleasePartyAction const action = RemoteCommander::DecideReleaseParty(present);
+                if (action == RemoteCommander::ReleasePartyAction::BotsLeave)
+                {
+                    // The lead first to an online real player of the party (never the gone commander), so the
+                    // core does not pass it on to an offline member when the leading bot leaves.
+                    if (group->IsLeader(ObjectGuid(removed.leadGuid)))
+                        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+                        {
+                            if (slot.guid.GetRawValue() == commanderRaw || BotManager::Instance().IsBot(slot.guid))
+                                continue;
+                            Player* const player = FindCharacter(slot.guid.GetRawValue());
+                            if (player && player->IsInWorld() && player->GetSession() &&
+                                player->GetSession()->HasNetworkTransport())
+                            {
+                                group->ChangeLeader(slot.guid);
+                                break;
+                            }
+                        }
+                    std::vector<ObjectGuid> leaving;
+                    for (Group::MemberSlot const& slot : group->GetMemberSlots())
+                        if (BotManager::Instance().IsBot(slot.guid))
+                            leaving.push_back(slot.guid);
+                    // The group pointer stays valid after a disband (the module's RemoveMember never deletes it).
+                    for (ObjectGuid const& guid : leaving)
+                        if (group->IsMember(guid))
+                            group->RemoveMember(guid, 0);
+                }
+                else if (action == RemoteCommander::ReleasePartyAction::LeadToCommander &&
+                    group->IsLeader(ObjectGuid(removed.leadGuid)))
+                    group->ChangeLeader(ObjectGuid(commanderRaw));
             }
     // The commander's own hires go back to its party (or wait for it to come
     // back online inside the logout grace): a hire lives in its hirer's party.
@@ -5437,9 +5531,11 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
 {
     std::string const intent = "commander bind";
     std::vector<std::string> names = RemoteCommander::SplitOrderArgs(args);
+    // `inparty` (last word): the commander and the other real players of his party stay in it (2026-10-23).
+    bool const inParty = RemoteCommander::TakeBindInParty(names);
     if (names.empty() || names.size() > RemoteCommander::kMaxGroupSize)
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot commander bind <LeadBot> [<Bot> ...] (a party of up to five bots)");
+        SendActionError(handler, intent, "invalid", "Usage: .bot commander bind <LeadBot> [<Bot> ...] [inparty] (a party of up to five)");
         return true;
     }
 
@@ -5470,7 +5566,16 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
             if (slot.guid != commander->GetObjectGuid() && !BotManager::Instance().IsBot(slot.guid))
                 planFacts.partyHasOtherPlayer = true;
     }
-    RemoteCommander::BindGroupPlan const plan = RemoteCommander::DecideBindGroup(planFacts);
+    // In-party: the commander's party is kept whoever else plays in it (a raid is refused by the gate below); a lead
+    // bot outside it is refused (BindRefusal::NotInParty) before anything moves.
+    RemoteCommander::BindGroupPlan const plan = inParty
+        ? (planFacts.leadInCommanderParty ? RemoteCommander::BindGroupPlan::KeepCommanderParty
+                                          : RemoteCommander::BindGroupPlan::FormNew)
+        : RemoteCommander::DecideBindGroup(planFacts);
+    facts.inParty = inParty;
+    facts.leadInCommanderParty = planFacts.leadInCommanderParty;
+    // In-party: only the party's leader may hand its lead to a bot (BindRefusal::NotLeader, before anything moves).
+    facts.commanderLeadsParty = commanderParty && commanderParty->IsLeader(commander->GetObjectGuid());
     bool const keepParty = plan == RemoteCommander::BindGroupPlan::KeepCommanderParty;
     bool const leadLeavesParty = plan == RemoteCommander::BindGroupPlan::ReformFromCommanderParty;
     if (leadGroup && (keepParty || plan == RemoteCommander::BindGroupPlan::AdoptLeadGroup))
@@ -5481,6 +5586,11 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
             if (slot.guid != commander->GetObjectGuid() && !BotManager::Instance().IsBot(slot.guid))
                 facts.leadGroupHasRealPlayer = true;
         facts.leadGroupBound = CommanderBindings().FindByGroup(leadGroup->GetId()) != nullptr;
+        // In-party: the real players who stay (the commander too) count toward the party's five.
+        if (inParty)
+            for (Group::MemberSlot const& slot : leadGroup->GetMemberSlots())
+                if (!BotManager::Instance().IsBot(slot.guid))
+                    ++facts.partyPlayers;
 
         // A kept party is commanded as a whole: every bot in it must have been
         // named (a bot is never taken under command without being asked).
@@ -5492,6 +5602,7 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
                     named.push_back(bot->GetObjectGuid());
             for (Group::MemberSlot const& slot : leadGroup->GetMemberSlots())
                 if (slot.guid != lead->GetObjectGuid() && slot.guid != commander->GetObjectGuid() &&
+                    BotManager::Instance().IsBot(slot.guid) &&
                     std::find(named.begin(), named.end(), slot.guid) == named.end())
                     facts.keptPartyHasUnnamedBot = true;
         }
@@ -5519,6 +5630,9 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
         for (Group::MemberSlot const& slot : leadGroup->GetMemberSlots())
         {
             if (slot.guid == lead->GetObjectGuid() || slot.guid == commander->GetObjectGuid())
+                continue;
+            // In-party: the other real players stay as members, not as bots to command (counted in partyPlayers).
+            if (inParty && !BotManager::Instance().IsBot(slot.guid))
                 continue;
             counted.push_back(slot.guid);
             facts.members.push_back(MemberFacts(commander, ObjectAccessor::FindPlayer(slot.guid)));
@@ -5613,10 +5727,13 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
             group->ChangeLeader(lead->GetObjectGuid());
     for (Player* bot : joiners)
     {
-        if (keepParty && lead->GetGroup() && lead->GetGroup()->IsFull() &&
-            !DropCommanderFromParty(lead->GetGroup(), commander))
+        if (keepParty && lead->GetGroup() && lead->GetGroup()->IsFull())
         {
-            return failBind("invite-failed", "The party is full and the commander cannot leave it.");
+            // In-party the commander never leaves to make room.
+            if (inParty)
+                return failBind("party-full", "The party is full: make room for the named bots first.");
+            if (!DropCommanderFromParty(lead->GetGroup(), commander))
+                return failBind("invite-failed", "The party is full and the commander cannot leave it.");
         }
         if (!JoinLeadGroup(lead, bot))
         {
@@ -5625,7 +5742,7 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
             return failBind("invite-failed", message.c_str());
         }
     }
-    if (keepParty && lead->GetGroup() && !DropCommanderFromParty(lead->GetGroup(), commander))
+    if (keepParty && !inParty && lead->GetGroup() && !DropCommanderFromParty(lead->GetGroup(), commander))
     {
         return failBind("invite-failed", "The commander cannot leave the party (it would be left with fewer than two bots).");
     }
@@ -5640,6 +5757,7 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
     binding.commanderGuid = commanderRaw;
     binding.leadGuid = lead->GetObjectGuid().GetRawValue();
     binding.groupId = group->GetId();
+    binding.inParty = inParty;
     RemoteCommander::BindResult result = CommanderBindings().Bind(binding);
     if (result != RemoteCommander::BindResult::Bound)
     {
@@ -5670,7 +5788,8 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
     std::string roster;
     for (Player* bot : bots)
         roster += (roster.empty() ? "" : ", ") + std::string(bot->GetName());
-    handler->PSendSysMessage("You command %s's group: %s. Orders: .bot cmd <order>.", lead->GetName(), roster.c_str());
+    handler->PSendSysMessage("You command %s's group: %s.%s Orders: .bot cmd <order>.", lead->GetName(), roster.c_str(),
+        inParty ? " You stay in the party: the run leader orders the bots only." : "");
     SendActionAck(handler, intent, "party", static_cast<uint32>(bots.size()), lead->GetName());
     return true;
 }
@@ -5688,7 +5807,7 @@ static bool HandleCommander(ChatHandler* handler, char const* args)
 
     if (verb != "bind" && verb != "unbind" && verb != "status" && verb != "view")
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot commander bind <LeadBot> [<Bot> ...] / unbind / status / view on|off");
+        SendActionError(handler, intent, "invalid", "Usage: .bot commander bind <LeadBot> [<Bot> ...] [inparty] / unbind / status / view on|off");
         return true;
     }
     if (!commander || !commander->GetSession())
@@ -12121,6 +12240,119 @@ void StandLeadForWalk(Player* lead)
         lead->SetStandState(UNIT_STAND_STATE_STAND);
 }
 
+// The real players of the bound group (players in the party, 2026-10-23: the commander and up to three others): facts
+// only (DungeonRun::PlayerFact), never the target of a run order. One pass over the group's member slots; for a loot
+// step the item in a player's bags and the remembered corpse's round-robin turn, as the bots' are read (no scan).
+// The mobs on a fighting player within the guard's reach of the lead bot join the guard's list
+// (DungeonRun::Facts::partyAttackers), as the mobs on a bot do: the tank picks them up (review round 1).
+void AddPlayerAttackers(Player* lead, std::vector<Player*> const& players, TortoiseBots::DungeonRun::Facts& f,
+    ai::PlanStep const* hold)
+{
+    std::unordered_set<uint64> seen;
+    for (TortoiseBots::DungeonRun::UnitFact const& known : f.partyAttackers)
+        seen.insert(known.guid);
+    if (f.leadHasAttacker)
+        seen.insert(f.leadAttacker.guid);
+    for (Player* player : players)
+    {
+        if (!player->IsAlive() || !player->IsInWorld() || player->GetMap() != lead->GetMap() ||
+            player->GetDistance(lead) > TortoiseBots::DungeonRun::kGuardYd)
+            continue;
+        for (Unit* attacker : player->GetAttackers())
+        {
+            if (!attacker || !attacker->IsAlive() || attacker->GetVictim() != player ||
+                !seen.insert(attacker->GetObjectGuid().GetRawValue()).second ||
+                sServerFacade.IsFriendlyTo(attacker, lead))
+                continue;
+            TortoiseBots::DungeonRun::UnitFact fact;
+            fact.guid = attacker->GetObjectGuid().GetRawValue();
+            fact.entry = attacker->GetEntry();
+            fact.distLead = lead->GetDistance(attacker);
+            fact.evading = attacker->IsCreature() && static_cast<Creature*>(attacker)->IsInEvadeMode();
+            fact.polymorphed = RunCcHeld(attacker);
+            fact.engaged = true;
+            fact.hitting = attacker->CanReachWithMeleeAutoAttack(player) ||
+                (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
+            fact.attackable = GroupCanAttack(lead, attacker);
+            if (hold)
+                fact.distSpot = DistanceTo(attacker, hold->x, hold->y, hold->z);
+            f.partyAttackers.push_back(fact);
+        }
+    }
+}
+
+void ReadRunPlayers(DungeonRunSlot const& slot, uint64 commanderRaw, Player* lead, Group* group,
+    std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
+{
+    if (!group || !lead || !slot.run.plan)
+        return;
+    ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(slot.run);
+    bool const lootItem = step && step->kind == ai::PlanStepKind::Loot && step->item;
+    std::vector<Player*> fighting; // the living players in a fight
+    Creature const* body = nullptr;
+    if (lootItem && !slot.run.lootRefusal.empty() && lead->GetMap())
+    {
+        auto const corpse = slot.run.corpses.find(step->entry);
+        if (corpse != slot.run.corpses.end() && corpse->second.guid)
+            body = lead->GetMap()->GetCreature(ObjectGuid(corpse->second.guid));
+    }
+    for (Group::MemberSlot const& entry : group->GetMemberSlots())
+    {
+        if (BotManager::Instance().IsBot(entry.guid))
+            continue;
+        TortoiseBots::DungeonRun::PlayerFact p;
+        p.commander = entry.guid.GetRawValue() == commanderRaw;
+        Player* const member = FindCharacter(entry.guid.GetRawValue());
+        if (!member || !member->GetSession() || !member->GetSession()->HasNetworkTransport())
+        {
+            // Logged out (or his connection lost) but still a member: offline, not in the instance; a pull waits
+            // for him (bounded, then a pause naming him offline).
+            p.name = member ? std::string(member->GetName()) : entry.name;
+            p.online = false;
+            p.onMap = false;
+            p.yd = 1000.0f;
+            f.players.push_back(p);
+            continue;
+        }
+        p.name = member->GetName();
+        p.onMap = member->IsInWorld() && member->GetMapId() == slot.run.plan->map;
+        p.alive = member->IsAlive();
+        p.ghost = member->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST);
+        p.yd = p.onMap && lead->IsInWorld() && member->GetMap() == lead->GetMap() ? member->GetDistance(lead) : 1000.0f;
+        p.healthPct = member->GetMaxHealth() ? member->GetHealth() * 100 / member->GetMaxHealth() : 100;
+        if (lootItem && f.itemPlayer.empty() && member->HasItemCount(step->item))
+            f.itemPlayer = p.name;
+        if (body && body->loot.roundRobinPlayer && body->loot.roundRobinPlayer == entry.guid.GetRawValue())
+            f.lootTurnPlayer = p.name;
+        // A living player in a fight on the lead bot's map is the party's fight (DungeonRun::ApplyPlayerFacts).
+        p.inCombat = p.alive && member->IsInWorld() && member->GetMap() == lead->GetMap() && member->IsInCombat();
+        if (p.inCombat)
+            fighting.push_back(member);
+        f.players.push_back(p);
+    }
+    if (fighting.empty())
+        return;
+    // What ReadRunFacts reads in a fight, for the players too: the units engaged with them (each once with the bots'),
+    // and, when only a player fights, the guard's facts; then the mobs on them for the guard.
+    bool const fresh = !f.anyInCombat;
+    f.anyInCombat = true;
+    ReadEngagedUnits(lead, fighting, f);
+    {
+        std::unordered_set<uint64> once;
+        std::vector<TortoiseBots::DungeonRun::UnitFact> unique;
+        for (TortoiseBots::DungeonRun::UnitFact const& u : f.engagedUnits)
+            if (once.insert(u.guid).second)
+                unique.push_back(u);
+        f.engagedUnits.swap(unique);
+    }
+    f.staleCombat = f.engagedUnits.empty();
+    ai::PlanStep const* current = TortoiseBots::DungeonRun::FactStep(slot.run);
+    ai::PlanStep const* hold = current && current->kind == ai::PlanStepKind::Hold ? current : nullptr;
+    if (fresh)
+        ReadGuardFacts(lead, bots, f, hold);
+    AddPlayerAttackers(lead, fighting, f, hold);
+}
+
 void TickDungeonRun(uint64 commanderRaw, uint32 dt)
 {
     auto it = DungeonRuns().find(commanderRaw);
@@ -12232,6 +12464,9 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     // The tactic rows the server reads now (a reload may have swapped them under this run's old plan): the deferral
     // gate reads them beside the plan's own (DungeonRun::PullMayBeDeferred), in the tick and in the stand's answer below.
     slot.run.liveTactics = &ai::GetBossTactics();
+    // The real players of the party (the commander and others): deaths, wipes, the regroup, the pull hold, health.
+    ReadRunPlayers(slot, commanderRaw, lead, group, bots, facts);
+    TortoiseBots::DungeonRun::ApplyPlayerFacts(facts);
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
     // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
     DropUnattackableCombat(lead, bots, slot.run.combatDrops);
@@ -13447,24 +13682,62 @@ bool IsInCommandedGroup(Player* bot)
     return false;
 }
 
-void NoteHumanChatOrder(Player* bot, std::string const& text)
+bool NoteHumanChatOrder(Player* bot, Player& from, std::string const& text, bool whisper)
 {
-    if (!bot || DungeonRuns().empty() || CommanderBindings().Empty())
-        return;
+    if (!bot || CommanderBindings().Empty())
+        return true;
     for (uint64 commanderRaw : CommanderBindings().Commanders())
     {
-        if (!DungeonRuns().count(commanderRaw))
-            continue;
+        // Bound from the bind on, a run or not (review round 1): another player's orders are refused then too.
+        auto const run = DungeonRuns().find(commanderRaw);
+        bool const runExists = run != DungeonRuns().end();
         RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(commanderRaw);
         Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
         Group* group = lead ? lead->GetGroup() : nullptr;
-        if (group && group->GetId() == binding->groupId && group->IsMember(bot->GetObjectGuid()))
+        if (!group || group->GetId() != binding->groupId || !group->IsMember(bot->GetObjectGuid()))
+            continue;
+        std::string const word = Trim(text).substr(0, Trim(text).find_first_of(" \t"));
+        // Players in the party (2026-10-23): the commander's whisper pauses the run as before; party chat is
+        // chatting while the run runs (no pause, not a bot order); another player's whisper is refused.
+        bool const fromCommander = from.GetObjectGuid().GetRawValue() == commanderRaw;
+        bool const running = runExists && run->second.run.state == TortoiseBots::DungeonRun::State::Running;
+        switch (RemoteCommander::ClassifyRunBoundOrder(true, runExists, running, fromCommander, whisper))
         {
-            std::string const word = Trim(text).substr(0, Trim(text).find_first_of(" \t"));
-            PauseDungeonRunForPlayer(commanderRaw, "chat '" + word.substr(0, 32) + "' to " + bot->GetName());
-            return;
+            case RemoteCommander::RunOrderVerdict::PauseRun:
+                PauseDungeonRunForPlayer(commanderRaw, "chat '" + word.substr(0, 32) + "' to " + bot->GetName());
+                return true;
+            case RemoteCommander::RunOrderVerdict::IgnoreChat:
+                return false;
+            case RemoteCommander::RunOrderVerdict::Refuse:
+            {
+                Player* commander = FindCharacter(commanderRaw);
+                std::string const reply = RemoteCommander::RunBoundRefusalText(commander ? commander->GetName() : "its commander");
+                from.SendAddonMessage("TBM", "ACTION_ERR|" + ProtocolSafe(word.empty() ? std::string("chat") : word.substr(0, 32)) +
+                    "|run-bound|" + ProtocolSafe(reply));
+                ChatHandler(&from).SendSysMessage(reply.c_str());
+                return false;
+            }
+            case RemoteCommander::RunOrderVerdict::Obey:
+                return true;
         }
+        return true;
     }
+    return true;
+}
+
+// The commander of this player's bound party, when the player is a member of it and not its commander (another
+// real player of an in-party binding): his `.bot action` is refused from the bind on, a run or not. 0: none.
+uint64 BoundForeignCommander(Player* player)
+{
+    if (!player || CommanderBindings().Empty())
+        return 0;
+    Group* group = player->GetGroup();
+    if (!group)
+        return 0;
+    RemoteCommander::Binding const* binding = CommanderBindings().FindByGroup(group->GetId());
+    if (!binding || binding->commanderGuid == player->GetObjectGuid().GetRawValue())
+        return 0;
+    return binding->commanderGuid;
 }
 
 bool HasCommanderBinding(uint64_t commanderRaw)

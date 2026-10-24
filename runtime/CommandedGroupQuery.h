@@ -34,10 +34,14 @@ std::vector<uint32_t> const* RunArmedAreaTriggers(Player* bot);
 void NoteRunAreaTriggerFired(Player* bot, uint32_t id);
 
 // A real player's chat command (whisper, `.bot command`, party chat) reached
-// this bot and passed its authorization: a run leader (`.bot run`) of the
-// bot's bound party pauses, so the player's order is not overridden by the
-// run's next one (player control first). Does nothing while no run exists.
-void NoteHumanChatOrder(Player* bot, std::string const& text);
+// this bot and passed its authorization. While a run leader (`.bot run`) drives
+// the bot's bound party: the commander's whisper pauses the run, so the
+// player's order is not overridden by the run's next one (player control
+// first); party chat while the run runs is chatting, not an order; another
+// player's whisper is refused with a reply (RemoteCommander::
+// ClassifyRunBoundOrder, players in the party 2026-10-23). False: the command
+// is dropped. Always true while no run exists.
+bool NoteHumanChatOrder(Player* bot, Player& from, std::string const& text, bool whisper);
 
 // The "threat" back-off a binding gave a bot (RemoteCommander::
 // CommanderThreatLedger): AiFactory and the strategy snapshot load note it,

@@ -19,7 +19,7 @@ Remote Commander is disabled by default and requires [`AiPlayerbot.RemoteCommand
 
 ## Commander Rules and Architecture
 
-- **Binding Authority:** A GM, or anyone who controls every bot in the group (owner account, master, or claim). Even GMs cannot bind parties containing real players, raid groups, or another player's hires.
+- **Binding Authority:** A GM, or anyone who controls every bot in the group (owner account, master, or claim). Even GMs cannot bind parties containing real players (unless they bind with `inparty`, below), raid groups, or another player's hires.
 - **Party Leadership:** The group is led by a designated lead bot. Follower bots follow the lead bot and maintain threat backoff behind the tank (yielding on mobs hitting healer or damage bots; threat backoff is never stored with the bot).
 - **Suppressed Behaviors:** Bound bots have open-world behaviors stripped: `grind`, `travel`, `travel once`, `tfish`, `rpg` (including craft, player, guild, and jump), and `explore`. Autonomous `wander` is explicitly not stripped. Autonomous alt-bots are never moved by `.bot cmd` (they are stripped from tactical orders; order them via whisper or party chat instead).
 - **Hired Companions:** You can bind up to 5 of your own hired mercenary companions. While bound, the requirement that hires share a group with their hirer is suspended. Unbinding returns the hires to your group if you are online. Disbanding ends the binding and returns hires. Hirer logout initiates normal logout grace and regrouping. Server restarts end active hires.
@@ -63,7 +63,7 @@ Remote Commander is disabled by default and requires [`AiPlayerbot.RemoteCommand
 Binds a bot-only party under your remote leadership.
 
 ```text
-.bot commander bind <LeadBot> [<Bot> ...]
+.bot commander bind <LeadBot> [<Bot> ...] [inparty]
 ```
 
 The specified lead bot becomes party leader. If you specify additional bots, they are invited to the group. A groupless lead bot requires at least one named follower (refused with `no-members` if none given). An existing bot-only group is adopted as-is.
@@ -72,8 +72,9 @@ The specified lead bot becomes party leader. If you specify additional bots, the
 <summary>How binding works and refusal codes</summary>
 
 - **Kept-Party Rule:** If the lead bot and named bots are already in your party, the party is kept intact: the lead bot takes leadership, you leave the group, and dungeon instances remain preserved.
+- **Real players in the party (`inparty`, 2026-10-23):** `.bot commander bind <LeadBot> [<Bot> ...] inparty` kept the commander in the party with any other real players of it: 1 to 4 players and the rest bots, five in all, the lead bot always a bot. The word counted only as the last argument. The lead bot had to be in the commander's party (else `not-in-party`) and the commander had to lead that party (else `not-leader`, refused before anything changed: a plain member could not take the lead through a bind); the lead bot became the party's leader, the named bots outside joined (`party-full` when there was no room), every bot of the party had to be named and controlled by the commander as before, and the commander never left. A bot of a bound group no longer handed the lead to a real player of it (which would have ended the binding) and never took a real player of it as its master. The binding stood with players in it; a player taking the lead, a raid conversion or the commander leaving still ended it: when he left the party (left, was kicked, logged out or lost his connection) it ended at once and the binding's bots left that party, the lead going first to an online player of it; a commander who was offline when the binding ended counted as gone even while his character still held a group slot; when the lead bot logged out or was removed, the remaining bots left the players' party the same way (the bound group was found by its id, or through a remaining bot or the commander) (his hires went back to him or waited for his login, as on any release), so no other player became their master; when it ended with him still in the party (unbind) the bots stayed and the lead went back to him. From the bind on, another player's whispers and `.bot action` to the bound bots were refused (`run-bound`) and his party chat was not taken as a bot command. A classic binding (without the word) kept the old rules, except that its own commander coming back into the group no longer ended it.
 - **Hired Companions:** You can bind up to 5 of your own hired companions. Hires belonging to other players cannot be bound.
-- **Refusal Codes:** `disabled`, `already-bound`, `no-bot`, `group-has-player`, `group-raid`, `group-too-large`, `group-bound`, `no-members`, `member-grouped`, `bot-bound`, `party-unnamed`, `lead-bound`, `hired`, `denied`, `invite-failed`.
+- **Refusal Codes:** `disabled`, `already-bound`, `no-bot`, `group-has-player`, `group-raid`, `group-too-large`, `group-bound`, `no-members`, `member-grouped`, `bot-bound`, `party-unnamed`, `lead-bound`, `not-in-party`, `not-leader`, `party-full`, `hired`, `denied`, `invite-failed`.
 
 </details>
 
@@ -356,7 +357,7 @@ Off by default: needs `AiPlayerbot.DungeonSelfClear = 1` **and** `AiPlayerbot.Re
 
 **Time limit:** a run ends by itself `AiPlayerbot.DungeonRunMaxMinutes` minutes (default 180 = 3 h, `0` = none) after `run start`, a pause counting; the status line then reads `done` with the note `time limit reached (3h)`, and the bots stay bound.
 
-**Any player order pauses the run:** every `.bot cmd` order but `state`, every `.bot action`, and every chat command a real player gives a bot of the party (a whispered `stay`, `follow`, `attack`, `.bot command`, ...) sets it to `paused` with the order named, until `.bot run resume`. Unbinding ends it.
+**Any player order pauses the run:** every `.bot cmd` order but `state`, every `.bot action`, and every chat command a real player gives a bot of the party (a whispered `stay`, `follow`, `attack`, `.bot command`, ...) sets it to `paused` with the order named, until `.bot run resume`. Unbinding ends it. With real players in the party (2026-10-23) this was the commander's rule only: his `.bot run`, `.bot cmd`, `.bot action` and whispered bot commands paused the run as before; party chat to the bots while the run ran was chatting (not taken as a bot command, no pause); another player's `.bot action` or whisper to a bound bot was refused (from the bind on, a run or not) (`TBM:ACTION_ERR|...|run-bound|...` and a plain line naming the commander). A player's normal play (moving, attacking, casting, looting, targeting) never paused it.
 
 **Status line** (to the commander, whenever the step, phase or note changes, and on `start`, `status`, `pause`, `resume`, `skip`, `stop`):
 
