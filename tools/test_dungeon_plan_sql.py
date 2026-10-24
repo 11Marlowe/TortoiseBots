@@ -1953,26 +1953,24 @@ class DungeonPlanSql(unittest.TestCase):
         # this file replaces the plan rows only.
 
     def test_gnomeregan_is_the_plan_with_the_pack_fixes(self):
-        # 20261024151000 (turtle-agent f4c8900, 2026-10-24): 20261023220000 carried over with legs 0-4 byte-identical;
-        # the dark_iron_ambassador leg (the Agent pull + the 6228 boss step, 19 rows) is gone: 6228 is a 30 % pool spawn
-        # (pool 9001, max_limit 1; the other member is the Agent 6212 at 70 % and the same spot), so r25 AND r31 slot 8
-        # reached his boss step with no Ambassador in the instance. No loader/run flag makes a boss step 'skip when not
-        # in the instance', so no new flag: the plan ends with Mekgineer Thermaplugg (leg 4), and 6228 stays in the
-        # ai_dungeon_boss seed of 20261022210500 so a kill still counts. The 20261023220000 pins below still hold for
-        # legs 0-2 (approach stands, refused points, cave chain); the counts are 5 legs, 628 steps, bosses in leg order
-        # (7800 last). The plan row's unit lists are unchanged; the Agent at the Ambassador's own spot is no row now.
+        # 20261024152900 (turtle-agent d04ea67, 2026-10-24): r34 slotF stopped at step 424 of 628 because the lead stood
+        # on the -677.7 416.1 z -271 navmesh seam and the next hop was refused. The full skipped-pull server replay over
+        # the exported rows fixed that seam stop and four more refused/under-floor cut rows (leg 0 pull groups 70/71,
+        # leg 2 pull group 8, leg 3's -683.9 to -725.33 ramp hop and pull group 18); 20261024151000 stays applied and
+        # its plan is carried over except the rows named here. The plan row's unit lists are unchanged; the counts are
+        # 5 legs, 627 steps, bosses in leg order (7800 last).
         name, text = newest_plan_text("gnomeregan")
-        self.assertEqual(name, "20261024151000_world.sql")
-        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent f4c8900 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024152900_world.sql")
+        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent d04ea67 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "gnomeregan")), 5)
         rows = [r for r in self.step_rows(text) if r["plan"] == "gnomeregan"]
-        self.assertEqual(len(rows), 628)
+        self.assertEqual(len(rows), 627)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [87, 37, 17, 23, 4])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["7079", "6235", "6229", "7800"])
         self.assertEqual((rows[-1]["leg"], rows[-1]["kind"], rows[-1]["entry"]), ("4", "boss", "7800"))
         self.assertFalse([r for r in rows if r["entry"] == "6228"], "the Ambassador's boss step is back")
-        # Step 375 (1-based) is still the Electrocutioner's boss row; the failed exporter cut is gone, and its two approach moves stand before it.
-        self.assertEqual((rows[374]["leg"], rows[374]["kind"], rows[374]["entry"]), ("1", "boss", "6235"))
+        # Step 376 (1-based) is the Electrocutioner's boss row; the failed exporter cut is gone, and its two approach moves stand before it.
+        self.assertEqual((rows[375]["leg"], rows[375]["kind"], rows[375]["entry"]), ("1", "boss", "6235"))
         leg1 = leg_steps(rows, 1)
         self.assertEqual([(r["kind"], r["comment"]) for r in leg1[-3:]],
                          [("move", "boss approach"), ("move", "boss approach"), ("boss", "boss")])
@@ -1980,8 +1978,10 @@ class DungeonPlanSql(unittest.TestCase):
                          [(-524.0, 582.7, -230.56), (-541.58, 534.7, -216.68)])
         self.assertFalse([r for r in leg1 if abs(float(r["x"]) + 541.31885) < 0.001 and abs(float(r["y"]) - 535.48035) < 0.001],
                          "the off-mesh exporter cut is back")
-        # Leg 2: the via on the Electrocutioner ramp floor, the two approach points that replace -672.8/-658.4, and the z -312 pull.
-        # The last move before the pull is the 32.1 yd stand the cut generates; the old -623.2 and -822.7 approach rows are now path rows.
+        # Leg 2: the via on the Electrocutioner ramp floor and the z -312 pull. Its approach now ends at -672.8 417.3
+        # after the -677.7 416.1 seam instead of standing on it: no move row of the leg is within 2 yd of the seam, and
+        # -704 426.6665 -273.06 is the explicit hop into the seam's far side. The last move before the pull is the
+        # 32.1 yd stand the cut generates; the old -623.2 and -822.7 approach rows are now path rows.
         leg2 = leg_steps(rows, 2)
         self.assertEqual((leg2[0]["kind"], leg2[0]["x"], leg2[0]["y"], leg2[0]["z"], leg2[0]["comment"]),
                          ("move", "-544.9", "551.8", "-219.18", "via"))
@@ -1989,19 +1989,46 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((int(leg2[k]["seq"]), leg2[k]["entries"], float(leg2[k]["radius"])), (71, "6226", 10.0))
         approach = [r for r in leg2[:k] if r["kind"] == "move" and r["comment"] == "pull group 2 approach"]
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in approach],
-                         [("-677.3", "416", "-271"), ("-640", "448", "-273.06"),
+                         [("-704", "426.6665", "-273.06"), ("-672.8", "417.3", "-273.06"),
                           ("-671.10754", "524.2145", "-272.87"), ("-751.2637", "548.34406", "-290.81")])
-        self.assertEqual([int(r["seq"]) for r in approach], [46, 47, 54, 57])
-        self.assertFalse([r for r in leg2 if abs(float(r["x"]) + 672.8) < 0.01 and abs(float(r["y"]) - 417.3) < 0.01],
-                         "the refused -672.8 move is back")
-        self.assertFalse([r for r in leg2 if abs(float(r["x"]) + 658.4) < 0.01 and abs(float(r["y"]) - 435.7) < 0.01],
-                         "the refused -658.4 move is back")
+        self.assertEqual([int(r["seq"]) for r in approach], [44, 45, 54, 57])
+        seam = [(-677.7, 416.1, -271.0)]
+        self.assertGreater(min(math.dist([float(r[c]) for c in ("x", "y", "z")], seam[0])
+                               for r in leg2 if r["kind"] == "move"), 2.0,
+                           "a move row stands on the -677.7 416.1 navmesh seam again")
+        # Pull group 8's approach replaces the under-floor cut row -656.09 520.05 -276.72 (3.86 yd under the floor)
+        # and the two seam rows the old cut wrote:
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg2
+                          if r["kind"] == "move" and r["comment"] == "pull group 8 approach"],
+                         [("-656.0925", "520.0519", "-272.87"), ("-672.8", "417.3", "-273.06"),
+                          ("-700", "426.6665", "-273.06")])
+        self.assertFalse([r for r in leg2 if abs(float(r["x"]) + 677.6001) < 0.001 and abs(float(r["y"]) - 416) < 0.001],
+                         "the seam cut row is back")
         start = [j for j, r in enumerate(leg2) if r["kind"] == "pull" and r["comment"] == "pull group 1"][0] + 1
         walk = leg2[start:k]
         self.assertEqual(len(walk), 35, "the walk from pull group 1 to the z -312 pull is 35 move rows")
         self.assertTrue(all(r["kind"] == "move" for r in walk))
         self.assertAlmostEqual(math.dist([float(leg2[k - 1][c]) for c in ("x", "y", "z")],
                                          [float(leg2[k][c]) for c in ("x", "y", "z")]), 32.1, places=1)
+        # Leg 0's ring loop: pull group 70's -536.32 183.47 -193.66 and pull group 71's -509 128 -154.52 and
+        # -520 210 -188.9 are the floor points that replace the refused -533.33 192 and -512 128 cut hops (r34's
+        # step-210 refusal went to -509 128). The -512 128 row may not come back.
+        leg0 = leg_steps(rows, 0)
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg0
+                          if r["comment"] in ("pull group 70 approach", "pull group 71 approach")],
+                         [("-536.32", "183.47", "-193.66"), ("-509", "128", "-154.52"),
+                          ("-520", "210", "-188.9")])
+        self.assertFalse([r for r in leg0 if r["kind"] == "move" and r["x"] == "-512" and r["y"] == "128"],
+                         "the refused -512 128 cut row is back")
+        # Leg 3: the via chain crosses the seam at -704 and -672.8 and breaks the refused -683.9 to -725.33 ramp
+        # hop at -690 526 -276.4; pull group 18's approach is the floor point under the old -324.05 cut row.
+        leg3 = leg_steps(rows, 3)
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg3 if r["comment"] == "via"],
+                         [("-704", "426.6665", "-273.06"), ("-672.8", "417.3", "-273.06"),
+                          ("-656", "437.5", "-273"), ("-683.9", "524.3", "-273.93"),
+                          ("-690", "526", "-276.4")])
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg3 if r["comment"] == "pull group 18 approach"],
+                         [("-732.04", "671.15", "-328.66")])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["gnomeregan"])
         # The map's ai_dungeon_boss seed stays in 20261022210500 (all five bosses incl. 6228, unchanged): this file
         # must not seed it again (the boss seed test asserts every (map, entry) is seeded once).
