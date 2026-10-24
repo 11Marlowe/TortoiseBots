@@ -216,6 +216,7 @@ static void TestFoldedRouteReplaysTheEarlierHole()
 {
     DungeonPlan plan = FoldedPlan();
     Facts f = At(165, 5);
+    f.walkBackRescue = false;
     Run r = DiesAndRevivesAt(plan, 165, 5);
     CHECK(!r.routeKnown); // came back away from where it fell: where it is on the route is not known
     CHECK(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, 0, 0, 0) > kSeeYd);

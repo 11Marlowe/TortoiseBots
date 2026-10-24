@@ -11682,6 +11682,7 @@ static void TestWalkBackNoSpotPassesThePoint()
     r.walkBackIdx = r.walkBackStart = 4;
     r.walkBackRestarted = true;
     Facts g = OnIsland();
+    g.walkBackRescue = false; // the pass itself (IslandWalkBackRescue off)
     std::string const order = Tick(r, g);
     CHECK(order.compare(0, 7, "escape ") == 0);
     OrderRefused(r, order, "no-spot: no spot within 10 yd");
@@ -11716,6 +11717,156 @@ static void TestWalkBackNoSpotPassesThePoint()
     EnterPhase(b, Phase::Begin);
     CHECK(Tick(b, g).compare(0, 7, "escape ") == 0);
 }
+
+// Dire Maul North r31 slot 6: revived on the entrance island, the hop off it found no spot, and the walk back passed
+// every point ('no walkable path toward the point of step N: on to the next') to a pause, four times. The walk back
+// and the island hop both failed: the rescue teleports the lead bot to the safe point on the way it came
+// (IslandWalkBackRescue), out of combat, once a step; refused kStrandTries times, the walk back goes on as before.
+static void TestIslandWalkBackIsRescued()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 1;
+    r.walkBackRestarted = true;
+    Facts g = OnIsland();
+    std::string const hop = Tick(r, g);
+    CHECK(hop.compare(0, 7, "escape ") == 0);
+    OrderRefused(r, hop, "no-spot: no spot within 10 yd");
+    CHECK(r.noSpotKnown);
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Running && r.strandDue && r.strandIdx == 4 && r.walkBackIdx == 4);
+    CHECK(r.note == "walk back: no walkable path toward the point of step 2 from a navmesh island the hop could not "
+        "leave: the lead bot is teleported to a safe point on the way it came (step 5) out of combat");
+    std::string const rescue = Tick(r, g);
+    CHECK(rescue == "rescue from 1589.6 1046.9 8.9 to 1633.6 1130.7 9.9");
+    // In a fight: no rescue is due (RescueAllowed), nothing is passed.
+    Run c = Start(&plan, 5);
+    c.walkBack = true;
+    c.walkBackIdx = c.walkBackStart = 1;
+    c.walkBackRestarted = true;
+    std::string const chop = Tick(c, g);
+    OrderRefused(c, chop, "no-spot: no spot within 10 yd");
+    Facts fight = g;
+    fight.anyInCombat = true;
+    Tick(c, fight);
+    CHECK(!c.strandDue && c.state == State::Running);
+    // Refused every time: kStrandTries tries, then no more teleports: the walk back goes on as before (one more hop
+    // off the island, then the points passed) and ends.
+    OrderRefused(r, rescue, "failed: the near teleport was refused");
+    std::uint32_t sent = 1;
+    for (int i = 0; i < 60 && r.state == State::Running && r.walkBack; ++i)
+    {
+        std::string const order = Tick(r, g);
+        if (order.compare(0, 7, "rescue ") == 0)
+        {
+            ++sent;
+            OrderRefused(r, order, "failed: the near teleport was refused");
+        }
+        else if (order.compare(0, 7, "escape ") == 0)
+            OrderRefused(r, order, "no-spot: no spot within 10 yd");
+    }
+    CHECK(sent == kStrandTries && r.strandTries == kStrandTries);
+    CHECK(!r.walkBack && r.note.find("walked back to step 6") == 0);
+    // Used on this step already: the point is passed as before.
+    Run u = Start(&plan, 5);
+    u.strandStep = 5;
+    u.walkBack = true;
+    u.walkBackIdx = u.walkBackStart = 1;
+    u.walkBackRestarted = true;
+    std::string const uhop = Tick(u, g);
+    OrderRefused(u, uhop, "no-spot: no spot within 10 yd");
+    Tick(u, g);
+    CHECK(!u.strandDue && u.walkBackIdx == 2 && u.note.find("on to the next") != std::string::npos);
+}
+
+// Round 1 (2): IslandWalkBackRescue fires only while the lead bot still stands within kArriveYd of the spot where
+// the island hop found no spot. Moved off it, the no-way point is passed as before.
+static void TestIslandRescueNeedsTheNoSpotSpot()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 1;
+    r.walkBackRestarted = true;
+    Facts g = OnIsland();
+    std::string const hop = Tick(r, g);
+    CHECK(hop.compare(0, 7, "escape ") == 0);
+    OrderRefused(r, hop, "no-spot: no spot within 10 yd");
+    CHECK(r.noSpotKnown);
+    Facts off = g;
+    off.leadX += kArriveYd + 1.0f; // more than kArriveYd from the no-spot spot: the no-spot half is gone
+    CHECK(!IslandWalkBackRescue(r, off, "no walkable path toward the point of step 2")); // ... even with noWay true
+    CHECK(Tick(r, off).compare(0, 7, "escape ") == 0); // a hop again, not the rescue
+    CHECK(r.state == State::Running && !r.strandDue && r.walkBackIdx == 1 && !r.noSpotKnown);
+}
+// With a real player in the party the run keeps walking back with him: the same eligible island/no-spot state
+// passes the point as before (no strandDue); the bot-only control still rescues.
+static void TestIslandWalkBackWithPlayerPassesThePoint()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 1;
+    r.walkBackRestarted = true;
+    Facts g = OnIsland();
+    PlayerFact p;
+    p.name = "Hypeer";
+    p.commander = true;
+    g.players.push_back(p);
+    std::string const hop = Tick(r, g);
+    CHECK(hop.compare(0, 7, "escape ") == 0);
+    OrderRefused(r, hop, "no-spot: no spot within 10 yd");
+    CHECK(r.noSpotKnown);
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Running && !r.strandDue && r.walkBackIdx == 2 &&
+        r.note.find("on to the next") != std::string::npos);
+    Run b = Start(&plan, 5);
+    b.walkBack = true;
+    b.walkBackIdx = b.walkBackStart = 1;
+    b.walkBackRestarted = true;
+    Facts f = OnIsland();
+    std::string const bhop = Tick(b, f);
+    OrderRefused(b, bhop, "no-spot: no spot within 10 yd");
+    CHECK(Tick(b, f).empty());
+    CHECK(b.state == State::Running && b.strandDue && b.walkBackIdx == 4);
+}
+
+// Round 3: an IslandWalkBackRescue armed bot-only, then a real player joins before the send: no rescue order goes
+// out (no try spent); the point is passed as before, exactly as a refused rescue of that kind does (no safe point,
+// a player, the latch used). The bot-only control still teleports.
+static void TestJoinedPlayerCancelsTheIslandRescue()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 1;
+    r.walkBackRestarted = true;
+    Facts g = OnIsland();
+    std::string const hop = Tick(r, g);
+    CHECK(hop.compare(0, 7, "escape ") == 0);
+    OrderRefused(r, hop, "no-spot: no spot within 10 yd");
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Running && r.strandDue && r.strandBotOnly && r.strandIdx == 4);
+    PlayerFact p;
+    p.name = "Hypeer";
+    p.commander = true;
+    g.players.push_back(p); // joins between the arm and the send
+    CHECK(Tick(r, g).empty()); // no rescue order: he walks back with the party
+    CHECK(r.state == State::Running && !r.strandDue && !r.strandBotOnly && !r.strandOn && r.strandTries == 0 &&
+        r.walkBackIdx == 5 && r.note.find("on to the next") != std::string::npos);
+    Run b = Start(&plan, 5);
+    b.walkBack = true;
+    b.walkBackIdx = b.walkBackStart = 1;
+    b.walkBackRestarted = true;
+    Facts f = OnIsland();
+    std::string const bhop = Tick(b, f);
+    OrderRefused(b, bhop, "no-spot: no spot within 10 yd");
+    CHECK(Tick(b, f).empty());
+    CHECK(Tick(b, f) == "rescue from 1589.6 1046.9 8.9 to 1633.6 1130.7 9.9"); // control: still teleports
+    CHECK(b.strandOn && !b.strandDue && b.strandTries == 0);
+}
+
 
 // A good read between the hops gives fresh tries, but one step sends at most kStepEscapes.
 static void TestStepEscapeCap()
@@ -11778,6 +11929,7 @@ static void TestNoSpotWalkBackNeverSpins()
         f.approachKnown = !f.seen;
         f.leadIsland = LeadOnIsland(false, true, 3.05f, to);
         f.goodSpotCut = false;
+        f.walkBackRescue = false; // the pass bound itself (IslandWalkBackRescue off)
         std::string const order = Tick(r, f);
         if (!r.walkBack && endedAt < 0)
             endedAt = t;
@@ -17909,6 +18061,10 @@ int main()
     TestSingleIslandReadingChangesNothing();
     TestSecondReadingConfirmsTheIsland();
     TestWalkBackNoSpotPassesThePoint();
+    TestIslandWalkBackIsRescued();
+    TestIslandRescueNeedsTheNoSpotSpot();
+    TestIslandWalkBackWithPlayerPassesThePoint();
+    TestJoinedPlayerCancelsTheIslandRescue();
     TestStepEscapeCap();
     TestNoSpotWalkBackNeverSpins();
     TestSignBFromTheMainMeshIsBounded();

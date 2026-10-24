@@ -116,6 +116,35 @@ class TimeSinksWiringTest(unittest.TestCase):
         resume = body(POLICY, "inline bool Resume(Run& r)", "\n}\n")
         self.assertNotIn("RearmRescueAfterDeath", resume)
 
+    def test_walk_back_rescues_off_an_island(self):
+        walk = body(POLICY, "inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& order)", "\n}\n")
+        # The island rescue: after the replay's one restart, before the direct-step pause and the pass.
+        island = walk.index("if (noWay && IslandWalkBackRescue(r, f, why))")
+        self.assertLess(walk.index("r.walkBackRestarted = true;"), island)
+        self.assertLess(island, walk.index("if (DirectStillToCross(r, r.walkBackIdx))"))
+        self.assertLess(island, walk.index('PassWalkBackPoint(r, f.leadX, f.leadY, f.leadZ, "walk back: " + why);'))
+        isle = body(POLICY, "inline bool IslandWalkBackRescue(Run& r, const Facts& f, const std::string& why)", "\n}\n")
+        for part in ("r.noSpotKnown", "!f.players.empty()", "RescueAllowed(r, f)", "SafePointAtOrBefore(r, f.team, last)",
+                     "RescueDue(r, f, target);"):
+            self.assertIn(part, isle)
+        self.assertIn("ReplayStartPoint(r, f)", body(POLICY, "inline bool ReplayWalkBack(Run& r, const Facts& f)\n{", "\n}\n"))
+
+    def test_walk_back_rescues_before_a_long_replay(self):
+        walk = body(POLICY, "inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& order)", "\n}\n")
+        # Every straight-walk failure asks the rescue right before its replay.
+        for ask in ('ReplayRescue(r, f, "no complete path to " + what + " from here")',
+                    'ReplayRescue(r, f, "the straight way to " + what + " passes an uncleared pack")',
+                    "ReplayRescue(r, f, why)"):
+            at = walk.index(ask)
+            self.assertLess(at, walk.index("if (ReplayWalkBack(r, f))", at))
+        self.assertEqual(walk.count("ReplayRescue("), 3)
+        self.assertEqual(walk.count("if (ReplayWalkBack(r, f))"), 3)
+        rescue = body(POLICY, "inline bool ReplayRescue(Run& r, const Facts& f, const std::string& why)", "\n}\n")
+        for part in ("!f.players.empty()", "RescueAllowed(r, f)", "SafePointAtOrBefore(r, f.team, last)",
+                     "ReplayYardsTo(r, f, target)", "kReplayRescueYd", "RescueDue(r, f, target);"):
+            self.assertIn(part, rescue)
+        self.assertIn("ReplayStartPoint(r, f)", body(POLICY, "inline float ReplayYardsTo(", "\n}\n"))
+
 
 if __name__ == "__main__":
     unittest.main()
