@@ -3104,33 +3104,34 @@ class DungeonPlanSql(unittest.TestCase):
 
 
     def test_scholomance_is_the_census_fixed_draft(self):
-        # 20261024152700 (turtle-agent f956df8, 2026-10-24): the Scholomance draft with the census fixes of
+        # 20261024153800 (turtle-agent e76875c, 2026-10-24): the Scholomance draft with the census fixes of
         # PREP-SCHOLOMANCE-2026-10-24.md, leg 0's route clear after the r28c slotC first run, the step-11 reorder after the
-        # r29 slot8 run (RUN-LESSONS.md), the hall-stand fix after the r30 slotC run (spec scholo-leg0-kill-order.md section 7)
-        # and the Vectus fix after the r34 slotA run: the boss row gains its approach stand (128 105 102.4, 16.7 yd from
-        # Vectus and 25.1 yd from Marduk) and the ras leg leaves the room north (via 124 116, 120 115, 110 110, all 25.9+ yd
-        # from Vectus) instead of walking through his room at 9.2 yd:
+        # r29 slot8 run (RUN-LESSONS.md), the hall-stand fix after the r30 slotC run (spec scholo-leg0-kill-order.md section 7),
+        # the Vectus fix after the r34 slotA run and the Vectus-room clear after the r35 slot8b run (spec
+        # scholo-vectus-fight.md): the r35 slot8b FULL run chained the Marduk pull into Vectus and all 32 students and wiped
+        # 12 times, so leg vectus clears the 32 students 10475 first in ten pulls (groups 18-27) from stands 26+ yd from
+        # every later student and 31+ yd from Vectus before the boss row (Marduk 10433 first, then Vectus):
         # the landing-to-Malicia walk is 554 yd and passes 40 census packs within 30 yd, so leg 0 is those 40 pulls with their
         # approach rows instead of one move row. The r30 run wiped on the step-16 stands (215 22, 218 30, 220 24: 11-20 yd from
         # the unpulled 48845 pack and the 91341/91350 pair), so the 48849 pack is pulled from the stairs (224.2 48.1), the lone
         # 10471 and the 48844 pack from the stair foot (229.6 45.9), the southern 48841 pair from 220 38. No row hand-set, and the
-        # boss rows of map 289 scoped to this plan's ten entries. 10 legs, 561 steps (152 pulls, 10 bosses, 399 moves), bosses in
+        # boss rows of map 289 scoped to this plan's ten entries. 10 legs, 581 steps (162 pulls, 10 bosses, 409 moves), bosses in
         # leg order. The plan row carries cc_priority, the undead no_cc is not a column and kill_first; the 55 Rats 4075 and the
         # Black Rat 2110 are out of every pull, as are the disabled Kormok 16118 and his trigger 16047. Every pull is at most six
         # members and its radius (5-13.1 yd) covers its own positions; Alexei's linked Risen Guards 10489 and Rattlegore's linked
         # Risen Construct 10488 are the boss rows' first.
         name, text = newest_plan_text("scholomance")
-        self.assertEqual(name, "20261024152700_world.sql")
-        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469', '', '10471,11582,10477', 'turtle-agent f956df8", text)
+        self.assertEqual(name, "20261024153800_world.sql")
+        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', 'turtle-agent e76875c", text)
         legs = leg_rows(text, "scholomance")
         self.assertEqual([legs[i][0] for i in range(10)],
                          ["instructor_malicia", "the_ravenian", "lorekeeper_polkelt", "lady_illucia_barov",
                           "jandice_barov", "rattlegore", "vectus", "ras_frostwhisper",
                           "doctor_theolen_krastinov", "lord_alexei_barov"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "scholomance"]
-        self.assertEqual(len(rows), 561)
+        self.assertEqual(len(rows), 581)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
-                         [40, 7, 4, 14, 36, 25, 18, 3, 2, 3])
+                         [40, 7, 4, 14, 36, 25, 28, 3, 2, 3])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
                          ["10505", "10507", "10901", "10502", "10503", "11622", "10432", "10508", "11261", "10504"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -3140,7 +3141,7 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
                          ["", "", "", "", "", "10488", "10433", "", "", "10489"])
         pulls = [r for r in rows if r["kind"] == "pull"]
-        self.assertEqual(len(pulls), 152)
+        self.assertEqual(len(pulls), 162)
         # Leg 0 is the whole route: every pull is preceded by its approach move row, and the 40 packs are the stair guards, the
         # 115.8 hall, the 109.7 ring, the 104.8 hall and Malicia's room, in that order.
         leg0 = leg_steps(rows, 0)
@@ -3164,9 +3165,19 @@ class DungeonPlanSql(unittest.TestCase):
         # The r34 Vectus fix: the boss row walks to its stand (128 105 102.4, 16.7 yd from Vectus, 25.1 yd from Marduk)
         # before the boss, and the ras leg leaves the room north (via 124 116, 120 115, 110 110, all 25.9+ yd from Vectus
         # and 40 yd from the nearest hostile-233 pack) instead of the through-room path at 9.2 yd from him. Legs 0-5, 8
-        # and 9 are byte-identical to the 150800 rows.
+        # and 9 are byte-identical to the 150800 rows. The r35 slot8b Vectus-room clear: leg 6 rows 19-38 alternate the
+        # ten approach moves and the ten student pulls (the exporter lists each entry once, so every pull row's entries
+        # is the single 10475; the group sizes [3,5,3,3,4,3,5,1,3,2] show in the pull radii [5.0,8.8,5.0,5.0,5.7,5.0,7.4,
+        # 5.0,5.0,5.0]), then the boss approach and the boss.
         leg6 = leg_steps(rows, 6)
-        self.assertEqual(len(leg6), 21)
+        self.assertEqual(len(leg6), 41)
+        self.assertEqual([r["kind"] for r in leg6[19:39]],
+                         ["move", "pull"] * 10)
+        self.assertTrue(all(r["comment"].endswith(" approach") for r in leg6[19:39:2]))
+        self.assertTrue(all(r["entries"] == "10475" for r in leg6[20:39:2]))
+        self.assertEqual([float(r["radius"]) for r in leg6[20:39:2]],
+                         [5.0, 8.8, 5.0, 5.0, 5.7, 5.0, 7.4, 5.0, 5.0, 5.0])
+        self.assertEqual((leg6[19]["x"], leg6[19]["y"], leg6[19]["z"]), ("165", "74", "102.96"))
         self.assertEqual(leg6[-2]["kind"], "move")
         self.assertEqual(leg6[-2]["comment"], "boss approach")
         self.assertEqual((leg6[-2]["x"], leg6[-2]["y"], leg6[-2]["z"]), ("128", "105", "102.4"))
