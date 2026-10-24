@@ -91,7 +91,7 @@ constexpr float kStalledArriveYd = 6.0f;          // ... or this close once it s
                                                   // just off the mesh or on a ledge the bot cannot reach)
 constexpr float kStandZTolYd = 4.5f;              // a stand this far above or below the lead bot or less is judged on the ground plane
 constexpr float kSeeYd = 60.0f;                   // a pack, boss or spot is judged only from this close
-constexpr float kWaitClearMaxDz = 10.0f;          // wait_clear: a hostile counts as near the spot only this far above or below it
+constexpr float kWaitClearMaxDz = 10.0f;          // wait_clear: past the step's own wait, a remaining hostile this far above or below the spot counts as another floor (WaitClearOffFloorOnly)
 // A lead bot revived in another part of the instance (LeadInOtherPart, Scarlet
 // Monastery r20-19z39 slot 7): raised at a door's destination ...
 constexpr float kDoorSpotYd = 10.0f;              // ... this close to it
@@ -670,8 +670,8 @@ struct HostileSpot
 {
     float x = 0.0f, y = 0.0f, z = 0.0f;
     // In combat with, or targeting, a party member (BotCommands.cpp
-    // EngagedWithParty: a party bot is its victim or attacks it): counts
-    // whatever its dz.
+    // EngagedWithParty: a party bot is its victim or attacks it): at the
+    // timeout such a hostile still pauses the step, whatever its dz.
     bool engaged = false;
 };
 
@@ -875,8 +875,8 @@ struct Facts
     std::uint32_t eventDown = 0;        // dead units of its `entries` within its radius
     long long eventData = -1;           // done by instance data: the value now; -1 the map has no instance data
     std::vector<HostileSpot> clearUnits; // wait_clear: the living hostiles within the 2D radius of the step's
-                                         // point, with z and whether engaged with the party; the step counts an
-                                         // engaged hostile whatever its dz, the rest only within kWaitClearMaxDz of it.
+                                         // point, with z and whether engaged with the party; the wait counts every
+                                         // one, and only the timeout boundary drops all-off-floor bystanders.
     std::string carrier;                // the bot that does object and item steps (the lead bot)
     // open / use_item: the step's inputs (its item, and `param` when set) are
     // split between bots, none carries them all: who holds what (PickItemCarrier).
@@ -4944,25 +4944,42 @@ inline bool StallDirectLineClear(bool leadInWater, bool swimLine, const std::vec
     return true;
 }
 
-// A wait_clear hostile counts when it stands on the spot's floor or fights the
-// party: within the step's 2D radius (the glue lists only those) and either
-// engaged with a party member (whatever its dz: a required mob on a ramp or a
-// ledge, or one already fighting the party from above) or at most
-// kWaitClearMaxDz above or below the spot. Bystanders on other floors
-// (Shadowfang Keep r38 slotA step 308: hostiles at z ~100-157, the spot at
-// z 129) do not hold the step.
+// A wait_clear counts every hostile in the step's 2D radius (the glue lists
+// only those): no dz filter during the normal wait, so a required mob idling
+// on another level (Shadowfang voidwalkers, Sneed, the Aku'mai waves) still
+// holds the step until it targets the party; wait_clear has no entry list.
+// Only past the step's own wait does the timeout boundary drop the
+// bystanders: see the WaitClear case in TickBody.
 inline std::uint32_t WaitClearCount(const PlanStep& s, const Facts& f)
 {
     std::uint32_t near = 0;
     for (const HostileSpot& h : f.clearUnits)
     {
         float const dx = h.x - s.x, dy = h.y - s.y;
-        if (std::sqrt(dx * dx + dy * dy) > s.radius)
-            continue;
-        if (h.engaged || std::fabs(h.z - s.z) <= kWaitClearMaxDz)
+        if (std::sqrt(dx * dx + dy * dy) <= s.radius)
             ++near;
     }
     return near;
+}
+
+// Whether every remaining hostile stands on another floor and none fights the
+// party: non-engaged and more than kWaitClearMaxDz above or below the spot.
+// At the timeout such bystanders (Shadowfang Keep r38 slotA step 308: z
+// ~100-157 against the spot's z 129) finish the step instead of pausing it.
+// Any engaged hostile, or one within |dz| <= 10 of the spot, pauses as before.
+inline bool WaitClearOffFloorOnly(const PlanStep& s, const Facts& f)
+{
+    bool any = false;
+    for (const HostileSpot& h : f.clearUnits)
+    {
+        float const dx = h.x - s.x, dy = h.y - s.y;
+        if (std::sqrt(dx * dx + dy * dy) > s.radius)
+            continue;
+        any = true;
+        if (h.engaged || std::fabs(h.z - s.z) <= kWaitClearMaxDz)
+            return false;
+    }
+    return any;
 }
 
 // Whether the glue reads the direct move's line this tick (Facts::stallDirectRead):
@@ -12810,8 +12827,18 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             if (near == 0)
                 NextStep(r, "no hostile left near the spot");
             else if (r.phaseMs >= s->timeoutS * 1000)
-                Pause(r, "waited " + std::to_string(s->timeoutS) + " s; " + std::to_string(near) +
-                    " hostiles still near the spot");
+            {
+                // The wait ran out: bystanders left on other floors (every
+                // remaining hostile non-engaged and |dz| > 10 from the spot)
+                // finish the step instead of pausing it. Anything engaged or
+                // on the spot's floor pauses exactly as before.
+                if (WaitClearOffFloorOnly(*s, f))
+                    NextStep(r, "the spot is clear on its floor: " + std::to_string(near) +
+                        " hostiles left on other floors (|dz| > 10)");
+                else
+                    Pause(r, "waited " + std::to_string(s->timeoutS) + " s; " + std::to_string(near) +
+                        " hostiles still near the spot");
+            }
             else
                 r.note = "waiting for the spot to clear";
             break;

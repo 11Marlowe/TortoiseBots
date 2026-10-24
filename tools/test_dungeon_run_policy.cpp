@@ -8382,23 +8382,26 @@ static void TestStepIdleCeiling()
 
 // Shadowfang Keep r38 slotA step 308: the wait_clear spot at z 129 counted
 // hostiles on other floors (z ~100-157) and paused four times on
-// "waited 120 s; 3-4 hostiles still near the spot". Only bystanders are
-// dropped by the floor filter: an engaged hostile counts whatever its dz.
-static void TestWaitClearIgnoresOtherFloors()
+// "waited 120 s; 3-4 hostiles still near the spot". Round 2: the normal wait
+// counts every hostile in the 2D radius (no dz filter: a required mob idling
+// on another level still holds the step); only the timeout boundary drops the
+// bystanders. This test guards the count; the boundary has its own test below.
+static void TestWaitClearCountsEveryHostileInRadius()
 {
     CHECK(kWaitClearMaxDz == 10.0f);
-    // (a) hostiles within the 2D radius but 27 yd above the spot: the step clears.
     DungeonPlan plan;
     PlanStep clear = Step(PlanStepKind::WaitClear, -147.1f, 2171.6f, 129.0f);
     clear.radius = 35.0f;
     clear.timeoutS = 120;
     plan.steps = {clear};
+    // (a) a non-engaged hostile at dz 27 HOLDS the step before the timeout.
     Run r = Start(&plan);
     Facts f = Party(0);
     f.seen = true;
     f.clearUnits = {HostileSpot{-147.1f, 2171.6f, 156.0f}, HostileSpot{-140.0f, 2170.0f, 156.0f}};
     CHECK(Tick(r, f).empty());
-    CHECK(r.state == State::Done); // other-floor hostiles do not hold the spot
+    CHECK(r.state == State::Running && r.note.find("waiting for the spot to clear") != std::string::npos);
+    CHECK(WaitClearCount(plan.steps[0], f) == 2);
     // (b) a hostile within the radius at dz 5 still waits.
     Run r2 = Start(&plan);
     Facts f2 = Party(0);
@@ -8406,37 +8409,107 @@ static void TestWaitClearIgnoresOtherFloors()
     f2.clearUnits = {HostileSpot{-147.1f, 2171.6f, 156.0f}, HostileSpot{-147.1f, 2171.6f, 134.0f}};
     CHECK(Tick(r2, f2).empty());
     CHECK(r2.state == State::Running && r2.note.find("waiting for the spot to clear") != std::string::npos);
-    // (c) exactly dz 10.0 counts, 10.1 does not.
+    CHECK(WaitClearCount(plan.steps[0], f2) == 2);
+    // (c) the count keeps the 2D radius: outside it counts nothing.
     Run r3 = Start(&plan);
     Facts f3 = Party(0);
     f3.seen = true;
-    f3.clearUnits = {HostileSpot{-147.1f, 2171.6f, 139.0f}};
+    f3.clearUnits = {HostileSpot{-100.0f, 2171.6f, 156.0f}};
     CHECK(Tick(r3, f3).empty());
-    CHECK(r3.state == State::Running);
-    Run r4 = Start(&plan);
-    Facts f4 = Party(0);
-    f4.seen = true;
-    f4.clearUnits = {HostileSpot{-147.1f, 2171.6f, 139.1f}};
-    CHECK(Tick(r4, f4).empty());
-    CHECK(r4.state == State::Done);
+    CHECK(r3.state == State::Done);
+    CHECK(WaitClearCount(plan.steps[0], f3) == 0);
 }
 
-// Round 1: the floor filter drops bystanders only. A hostile engaged with the
-// party counts whatever its dz (an event mob on a ramp, or one already
-// fighting the party from above); unengaged hostiles on other floors do not.
-static void TestWaitClearEngagedCountsWhateverDz()
+// Round 2: the timeout boundary. Past the step's own wait, bystanders left on
+// other floors (every remaining hostile non-engaged and |dz| > 10) finish the
+// step instead of pausing it; anything engaged or on the spot's floor pauses
+// exactly as before. Uses a second step so the finish note survives DoneNote.
+static void TestWaitClearTimeoutDropsOffFloorBystanders()
 {
-    DungeonPlan plan;
-    PlanStep clear = Step(PlanStepKind::WaitClear, -147.1f, 2171.6f, 129.0f);
-    clear.radius = 35.0f;
-    clear.timeoutS = 120;
-    plan.steps = {clear};
+    auto Plan = []() {
+        DungeonPlan plan;
+        PlanStep clear = Step(PlanStepKind::WaitClear, -147.1f, 2171.6f, 129.0f);
+        clear.radius = 35.0f;
+        clear.timeoutS = 2;
+        plan.steps = {clear, Step(PlanStepKind::Move, 9)};
+        return plan;
+    };
     auto Spot = [](float x, float y, float z, bool engaged) {
         HostileSpot h{x, y, z};
         h.engaged = engaged;
         return h;
     };
-    // (a) an engaged hostile at dz 27 still waits.
+    auto AtTimeout = [](Run& r, const Facts& f) {
+        CHECK(Tick(r, f).empty());
+        CHECK(r.state == State::Running); // the first tick enters the wait
+        CHECK(Tick(r, f).empty());
+        CHECK(r.state == State::Running); // 1 s in, still waiting
+        CHECK(Tick(r, f).empty());        // 2 s: the wait runs out here
+    };
+    // (b) the r38 Shadowfang case at the timeout: non-engaged bystanders at dz
+    // 19-28 finish the step with the note, no pause.
+    DungeonPlan plan = Plan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.seen = true;
+    f.clearUnits = {Spot(-147.1f, 2171.6f, 148.0f, false), Spot(-140.0f, 2170.0f, 157.0f, false),
+        Spot(-150.0f, 2175.0f, 100.0f, false), Spot(-147.1f, 2171.6f, 156.0f, false)};
+    AtTimeout(r, f);
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(r.note.find("the spot is clear on its floor: 4 hostiles left on other floors (|dz| > 10)") != std::string::npos);
+    CHECK(WaitClearOffFloorOnly(plan.steps[0], f));
+    // (c) at the timeout with one engaged hostile at dz 27: pause as before.
+    DungeonPlan planC = Plan();
+    Run rc = Start(&planC);
+    Facts fc = Party(0);
+    fc.seen = true;
+    fc.clearUnits = {Spot(-147.1f, 2171.6f, 148.0f, false), Spot(-140.0f, 2170.0f, 100.0f, true)};
+    AtTimeout(rc, fc);
+    CHECK(rc.state == State::Paused && rc.note.find("hostiles still near the spot") != std::string::npos);
+    CHECK(!WaitClearOffFloorOnly(planC.steps[0], fc));
+    // (d) at the timeout with one non-engaged hostile at dz 5: pause as before.
+    DungeonPlan planD = Plan();
+    Run rd = Start(&planD);
+    Facts fd = Party(0);
+    fd.seen = true;
+    fd.clearUnits = {Spot(-147.1f, 2171.6f, 148.0f, false), Spot(-147.1f, 2171.6f, 134.0f, false)};
+    AtTimeout(rd, fd);
+    CHECK(rd.state == State::Paused && rd.note.find("hostiles still near the spot") != std::string::npos);
+    CHECK(!WaitClearOffFloorOnly(planD.steps[0], fd));
+    // The boundary keeps the edge: exactly dz 10.0 still pauses, 10.1 finishes.
+    DungeonPlan planE = Plan();
+    Run re = Start(&planE);
+    Facts fe = Party(0);
+    fe.seen = true;
+    fe.clearUnits = {Spot(-147.1f, 2171.6f, 139.0f, false)};
+    AtTimeout(re, fe);
+    CHECK(re.state == State::Paused && re.note.find("hostiles still near the spot") != std::string::npos);
+    DungeonPlan planF = Plan();
+    Run rf = Start(&planF);
+    Facts ff = Party(0);
+    ff.seen = true;
+    ff.clearUnits = {Spot(-147.1f, 2171.6f, 139.1f, false)};
+    AtTimeout(rf, ff);
+    CHECK(rf.state == State::Running && rf.step == 1);
+    CHECK(rf.note.find("the spot is clear on its floor: 1 hostiles left on other floors (|dz| > 10)") != std::string::npos);
+}
+
+// Round 2: the engaged flag still matters, but only at the boundary now. An
+// engaged hostile at dz 27 holds the normal wait (as does any hostile), and at
+// the timeout it pauses the step; bystanders alone finish it (covered above).
+static void TestWaitClearEngagedPausesAtTimeout()
+{
+    DungeonPlan plan;
+    PlanStep clear = Step(PlanStepKind::WaitClear, -147.1f, 2171.6f, 129.0f);
+    clear.radius = 35.0f;
+    clear.timeoutS = 120;
+    plan.steps = {clear, Step(PlanStepKind::Move, 9)};
+    auto Spot = [](float x, float y, float z, bool engaged) {
+        HostileSpot h{x, y, z};
+        h.engaged = engaged;
+        return h;
+    };
+    // An engaged hostile at dz 27 holds the normal wait.
     Run r = Start(&plan);
     Facts f = Party(0);
     f.seen = true;
@@ -8444,23 +8517,16 @@ static void TestWaitClearEngagedCountsWhateverDz()
     CHECK(Tick(r, f).empty());
     CHECK(r.state == State::Running && r.note.find("waiting for the spot to clear") != std::string::npos);
     CHECK(WaitClearCount(plan.steps[0], f) == 1);
-    // (c) the r38 Shadowfang case: bystanders at dz 19-28, none engaged, still clears.
-    Run r2 = Start(&plan);
-    Facts f2 = Party(0);
-    f2.seen = true;
-    f2.clearUnits = {Spot(-147.1f, 2171.6f, 148.0f, false), Spot(-140.0f, 2170.0f, 157.0f, false),
-        Spot(-150.0f, 2175.0f, 100.0f, false), Spot(-147.1f, 2171.6f, 156.0f, false)};
-    CHECK(Tick(r2, f2).empty());
-    CHECK(r2.state == State::Done);
-    CHECK(WaitClearCount(plan.steps[0], f2) == 0);
-    // Mixed: one engaged far above plus bystanders below still waits.
+    CHECK(!WaitClearOffFloorOnly(plan.steps[0], f));
+    // Mixed before the timeout: one engaged far above plus bystanders below still waits.
     Run r3 = Start(&plan);
     Facts f3 = Party(0);
     f3.seen = true;
     f3.clearUnits = {Spot(-147.1f, 2171.6f, 148.0f, false), Spot(-140.0f, 2170.0f, 100.0f, true)};
     CHECK(Tick(r3, f3).empty());
     CHECK(r3.state == State::Running);
-    CHECK(WaitClearCount(plan.steps[0], f3) == 1);
+    CHECK(WaitClearCount(plan.steps[0], f3) == 2);
+    CHECK(!WaitClearOffFloorOnly(plan.steps[0], f3));
 }
 
 static void TestTeamFlags()
@@ -19095,8 +19161,9 @@ int main()
     TestUnsupportedPausesAndSkip();
     TestPlayerOrderAndRefusalPause();
     TestStepIdleCeiling();
-    TestWaitClearIgnoresOtherFloors();
-    TestWaitClearEngagedCountsWhateverDz();
+    TestWaitClearCountsEveryHostileInRadius();
+    TestWaitClearTimeoutDropsOffFloorBystanders();
+    TestWaitClearEngagedPausesAtTimeout();
     TestTeamFlags();
     TestOtherTeamBossIsLookedAtAndFoughtUnlessFriendly();
     TestRefusedGatherIsRetriedOnceThenLeftOut();

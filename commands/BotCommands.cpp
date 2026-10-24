@@ -11901,8 +11901,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             }
             std::list<Unit*> hostiles;
             HostileCreaturesAround(lead, std::min(toPoint + step->radius, 2.0f * kSeeYd), hostiles);
-            // Engaged with the party (EngagedWithParty above: a party bot is its victim or attacks it): such a
-            // hostile counts whatever its dz (DungeonRunPolicy.h WaitClearCount); the floor filter drops bystanders only.
+            // The wait counts every hostile listed here (DungeonRunPolicy.h WaitClearCount); the engaged flag and
+            // the z are for the timeout boundary only (WaitClearOffFloorOnly): past the wait, all-off-floor
+            // bystanders finish the step, anything engaged or on the spot's floor pauses it.
             std::unordered_set<uint64> party;
             for (Player* bot : bots)
             {
