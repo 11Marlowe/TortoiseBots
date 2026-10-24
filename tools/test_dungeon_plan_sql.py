@@ -400,18 +400,21 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("gm_cross", text)  # the header names every step the run leader cannot do
 
     def test_shadowfang_keep_is_the_whole_plan_as_exported(self):
-        # 20261024153300 (turtle-agent fed4fe0, 2026-10-24, the r36 slotA + r30 slotB Fenrus fix on top of
-        # 20261024050100, turtle-agent d1f521a, the interaction audit's gone-door wait and Sorcerer's Gate steps on top of
-        # 20261023200000, turtle-agent c77e8cf, the Data fix of r25 shadowfang_keep slot5): the whole draft is
+        # 20261024154000 (turtle-agent bed9fae, 2026-10-24, the r36 slotI Adamant fix on top of 20261024153300,
+        # turtle-agent fed4fe0, the r36 slotA + r30 slotB Fenrus fix on top of 20261024050100, turtle-agent d1f521a,
+        # the interaction audit's gone-door wait and Sorcerer's Gate steps on top of 20261023200000, turtle-agent
+        # c77e8cf, the Data fix of r25 shadowfang_keep slot5): the whole draft is
         # 10 legs. Leg 4 is the courtyard_door leg (the Adamant gossip and the 18895 wait); leg 5 the old leg 4's
         # entrance-side pulls (10, no boss); leg 6 crosses the navmesh stair-top seam with the only move_direct, then the
         # four walkway pulls and Odo; legs 7-9 are Fenrus, Nandos and Arugal. The plan row carries cc_priority
         # 3855,61970,10000; the packs that stand with a boss are that boss row's entries. Legs 0-1 and 3-9 are
         # byte-identical to 20261023180000_world.sql; leg 2 is the r25 step-39 fix (see the test below); leg 7 ends in the
         # voidwalker wait and the Sorcerer's Gate wait (see the test after it). Every pin fails when its row is cut.
+        # The Adamant fix changed no row: the re-export is byte-identical to 20261024153300_world.sql in every
+        # step/leg/plan row but the plan row's source rev (bed9fae for fed4fe0).
         name, text = newest_plan_text("shadowfang_keep")
-        self.assertEqual(name, "20261024153300_world.sql")
-        self.assertIn("('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent fed4fe0 dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024154000_world.sql")
+        self.assertIn("('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent bed9fae dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "shadowfang_keep")
         self.assertEqual(list(legs[i][0] for i in range(10)),
                          ["rethilgore", "razorclaw_the_butcher", "baron_silverlaine", "commander_springvale",
@@ -462,8 +465,8 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(old_rows, mid_rows)
         # The 2026-10-24 migration against 20261023200000: the same rows, except the flag and comment of leg 4's wait (row 47)
         # and the row leg 7 gained after Fenrus (seq 15). The 20261024153300 migration keeps that wait and adds the
-        # boss approach (seq 14-16), the boss reseq and the wait_clear (seq 18); byte-identity against 20261023200000 is
-        # checked on the earlier pair only, not here.
+        # boss approach (seq 14-16), the boss reseq and the wait_clear (seq 18); 20261024154000 keeps all of that (the
+        # Adamant fix changed no row); byte-identity against 20261023200000 is checked on the earlier pair only, not here.
         mid_all = [r for r in self.step_rows(mid) if r["plan"] == "shadowfang_keep"]
         self.assertEqual(len(mid_all), 313)
         rest = [r for r in rows if not (r["leg"] == "7" and int(r["seq"]) >= 14)]
@@ -488,8 +491,9 @@ class DungeonPlanSql(unittest.TestCase):
         # (4627) 14 s later and the fourth voidwalker death opens the Sorcerer's Gate 18972. Leg 7 walks the party up to
         # Fenrus' own floor (three boss-approach moves ending on the ranged stand -152 2168 z128.69), fights the boss,
         # holds on the voidwalker wait_clear until the four are dead, then waits for the gate to be active.
+        # (20261024154000 keeps these rows: the Adamant fix changed no row.)
         name, text = newest_plan_text("shadowfang_keep")
-        self.assertEqual(name, "20261024153300_world.sql")
+        self.assertEqual(name, "20261024154000_world.sql")
         rows = [r for r in self.step_rows(text) if r["plan"] == "shadowfang_keep"]
         fenrus = leg_steps(rows, 7)
         approach, boss, clear, gate = fenrus[-6:-3], fenrus[-3], fenrus[-2], fenrus[-1]
@@ -512,6 +516,50 @@ class DungeonPlanSql(unittest.TestCase):
         # Only the courtyard door's wait carries the gone flag: the gate is a plain wait for a state a script keeps.
         self.assertEqual([(r["leg"], r["entry"]) for r in rows if r["kind"] == "wait_object" and int(r["flags"]) & 256], [("4", "18895")])
 
+    def test_no_plan_pulls_an_event_unit(self):
+        # r36 shadowfang_keep slotI: the walk back replayed step 1 and pulled Deathstalker Adamant 3849, the friendly
+        # prisoner whose gossip opens the courtyard door; he died and step 130's gossip could not be done (respawn
+        # 4 h 36 min). No plan lists, in a pull/boss row's `entries` (or a boss row's `entry`) or the plan row's
+        # cc_priority/cc_always/kill_first, an entry that one of its own gossip/open steps names: such a unit is
+        # talked to, not fought. (A hold's entries are its scripted event's units: Zul'Farrak's Bly hold fights
+        # Sergeant Bly 7604 after his gossip wakes the event, so holds are out of this pin.) Run over every plan in
+        # the repo; shadowfang_keep is pinned clean (3849 in the gossip row only), other failing plans are listed,
+        # not fixed here.
+        EVENT_KINDS = {"gossip", "open"}
+        UNIT_KINDS = ("pull", "boss")
+        for name, text in migrations():
+            rows = list(self.step_rows(text))
+            plans = sorted({r["plan"] for r in rows})
+            for plan in plans:
+                event_entries = {r["entry"] for r in rows if r["plan"] == plan and r["kind"] in EVENT_KINDS and r["entry"] != "0"}
+                if not event_entries:
+                    continue
+                for r in rows:
+                    if r["plan"] != plan or r["kind"] not in UNIT_KINDS:
+                        continue
+                    listed = set(e for e in r["entries"].split(",") if e.strip()) if r["entries"] else set()
+                    if r["kind"] == "boss" and r["entry"] != "0":
+                        listed.add(r["entry"])
+                    hit = listed & event_entries
+                    self.assertEqual(hit, set(), "%s %s: %s/%s lists its own event unit(s) %s in a %s row" %
+                                     (name, plan, r["leg"], r["seq"], sorted(hit), r["kind"]))
+                for m in re.finditer(r"^\('%s', \d+, '([^']*)', '([^']*)', '([^']*)'," % plan, text, re.M):
+                    for listed, what in ((m.group(1), "cc_priority"), (m.group(2), "cc_always"), (m.group(3), "kill_first")):
+                        hit = set(e.strip() for e in listed.split(",") if e.strip()) & event_entries
+                        self.assertEqual(hit, set(), "%s %s: the plan row lists its own event unit(s) %s in %s" %
+                                         (name, plan, sorted(hit), what))
+        # shadowfang_keep pinned: the gossip names 3849 and no pull/boss row (or plan list) lists it (or 3850).
+        name, text = newest_plan_text("shadowfang_keep")
+        rows = [r for r in self.step_rows(text) if r["plan"] == "shadowfang_keep"]
+        self.assertEqual({r["entry"] for r in rows if r["kind"] == "gossip"}, {"3849"})
+        for r in rows:
+            if r["kind"] in UNIT_KINDS:
+                listed = set(e for e in r["entries"].split(",") if e.strip()) if r["entries"] else set()
+                if r["kind"] == "boss" and r["entry"] != "0":
+                    listed.add(r["entry"])
+                self.assertNotIn("3849", listed, "shadowfang_keep %s/%s" % (r["leg"], r["seq"]))
+                self.assertNotIn("3850", listed, "shadowfang_keep %s/%s" % (r["leg"], r["seq"]))
+
     def test_shadowfang_keep_step39_split_and_stair(self):
         # 20261023200000, r25 shadowfang_keep slot5 (traces tests/r25/slot5sfk): the step-39 pull was one row at
         # -248.04 2346.95 radius 22.1 (entries 3854,61970,4075,3855) covering 12 living court units, the next pull's
@@ -519,7 +567,7 @@ class DungeonPlanSql(unittest.TestCase):
         # stand each (20 yd clear of every pack pulled later) and the rat out, and the walk up to the upper court is
         # three approach moves through the stair's real top. Every pin fails when its row is cut.
         name, text = newest_plan_text("shadowfang_keep")
-        self.assertEqual(name, "20261024153300_world.sql")  # 20261023200000 added the split; its leg 2 rows are unchanged since
+        self.assertEqual(name, "20261024154000_world.sql")  # 20261023200000 added the split; its leg 2 rows are unchanged since
         rows = [r for r in self.step_rows(text) if r["plan"] == "shadowfang_keep"]
         steps = leg_steps(rows, 2)
         self.assertEqual(len(steps), 31)

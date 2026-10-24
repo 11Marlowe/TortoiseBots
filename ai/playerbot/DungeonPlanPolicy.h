@@ -718,6 +718,26 @@ namespace ai
         }
         return false;
     }
+    // Whether any gossip step of the plan names `entry` (r36 shadowfang_keep
+    // slotI: the walk back replayed step 1 and pulled Deathstalker Adamant
+    // 3849, the friendly prisoner whose gossip opens the courtyard door; he
+    // died and step 130's gossip could not be done, respawn 4 h 36 min). Only
+    // gossip steps: their entry is a creature entry, while open/use_on name a
+    // game object, use_item an item and ritual encounter data (other id
+    // namespaces: a hostile creature sharing such a number must still be
+    // pulled). The run leader never pulls such a unit as a hop unit: it is
+    // a unit the plan talks to, not a pack unit.
+    inline bool PlanNamesEventUnit(const DungeonPlan& plan, std::uint32_t entry)
+    {
+        for (const PlanStep& step : plan.steps)
+        {
+            if (step.kind != PlanStepKind::Gossip)
+                continue;
+            if (step.entry == entry)
+                return true;
+        }
+        return false;
+    }
 
     // Moves that are more than maxYd from the move before them: a hop that long
     // can pass packs the plan does not name. The loader logs them (the exporter

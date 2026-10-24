@@ -5388,7 +5388,11 @@ inline bool ExactWalkTo(Run& r, const Facts& f, std::size_t idx, std::uint32_t d
 
 // The unit to pull now: hostile, attackable by the group (UnitFact::attackable), not evading, not passed, not
 // stealthed; nearest to the lead bot. When `entry` is not 0 only that entry. Null for none.
-// `hop`: a hop pick (Facts::hopUnits), which also leaves out Run::neverCame.
+// `hop`: a hop pick (Facts::hopUnits), which also leaves out Run::neverCame and
+// any unit whose entry a gossip step of the plan names (r36 shadowfang_keep slotI:
+// Deathstalker Adamant 3849, the friendly gossip NPC that opens the courtyard door,
+// was pulled as a hop unit and killed). Only gossip steps: other kinds name objects,
+// items or encounter data, not creatures.
 inline const UnitFact* PickPull(const Run& r, const std::vector<UnitFact>& units, std::uint32_t entry,
     bool hop = false)
 {
@@ -5399,6 +5403,8 @@ inline const UnitFact* PickPull(const Run& r, const std::vector<UnitFact>& units
             r.unreachable.count(u.guid))
             continue;
         if (hop && r.neverCame.count(u.guid))
+            continue;
+        if (hop && r.plan && ai::PlanNamesEventUnit(*r.plan, u.entry))
             continue;
         if (entry && u.entry != entry)
             continue;

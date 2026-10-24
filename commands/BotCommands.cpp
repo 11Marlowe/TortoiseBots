@@ -11869,6 +11869,11 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             {
                 if (DistanceTo(unit, cx, cy, cz) > kHopPullYd || unit->IsInCombat())
                     continue;
+                // Never a unit the plan talks to (r36 shadowfang_keep slotI: Deathstalker
+                // Adamant 3849, the friendly gossip NPC that opens the courtyard door, was pulled as a hop unit and
+                // killed): a gossip step names its entry (its entry is a creature entry; other kinds' are not).
+                if (ai::PlanNamesEventUnit(*slot.run.plan, unit->GetEntry()))
+                    continue;
                 if (ai::OwnedByLaterStep(*slot.run.plan, OwnerFrom(slot.run), unit->GetEntry(),
                         unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), f.team))
                     continue;
