@@ -761,8 +761,9 @@ class DungeonPlanSql(unittest.TestCase):
         # opens) and its boss row pulls 10440 at his spawn (the normal boss row shape, entries ''). Legs 0-4
         # byte-identical to 20261024150200. 6 legs, 253 steps (15 + 20 + 22 + 13 + 13 + 0 pulls; 164 moves;
         # 5 boss rows + 1 hold); the new leg's 10 rows are the only step rows added. Boss table unchanged (all five);
-        # the ai_boss_tactic row (329, 10440, kill_first 10440) is carried over, now with its own DELETE first
-        # (20261024152000's plain INSERT failed on boots that already had the row from 20261024150200; replaced here).
+        # the ai_boss_tactic row (329, 10440, kill_first) is NOT carried here: 20261024150200 already wrote it with
+        # the same values, so 152300 carries no ai_boss_tactic statement at all (a second DELETE+INSERT of the same
+        # key fails the unique gate; 20261024152000's plain re-INSERT failed the same way, replaced here).
         name, text = newest_plan_text("stratholme_undead")
         self.assertEqual(name, "20261024152300_world.sql")
         self.assertIn("('stratholme_undead', 329, '', '', '10393,10411,10400,10398', 'turtle-agent 47c914f dungeons/stratholme_undead.json', 'plan v1, draft (not mapped, not live-checked)');", text)
@@ -828,9 +829,12 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (329) AND `entry` IN (10435, 10437, 10438, 10436, 10440);", text)
         self.assertEqual([(m, e) for m, e, _n in self.boss_rows(text)],
                          [(329, 10435), (329, 10437), (329, 10438), (329, 10436), (329, 10440)])
-        # Rivendare's tactic: DPS take him before anything else while he attacks the party (unchanged from round 1,
-        # with its own DELETE first: the hand-boss block deletes what it inserts, scoped to map 329 entry 10440)
-        self.assertIn("DELETE FROM `ai_boss_tactic` WHERE `map` = 329 AND `boss_entry` IN (10440);", text)
+        # Rivendare's tactic (329, 10440, kill_first, 0, 0) ships in 20261024150200 with the same values, so this
+        # migration carries no ai_boss_tactic statement (DELETE, INSERT and REPLACE all name the table in backticks;
+        # the header comment mentions it without backticks and stays).
+        self.assertNotIn("`ai_boss_tactic`", text)
+        old = dict(migrations())["20261024150200_world.sql"]
+        self.assertIn("(329, 10440, 'kill_first', 0, 0, 1, 0, 'Rivendare: engage him the moment he is in combat with the party (r28d slotD)');", old)
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
         # 20261023210000 (turtle-agent cg-fix1 479dc0d) re-exports the 20261023130100 draft (prep/crescent_grove ba00e7c, the census

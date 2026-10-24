@@ -311,12 +311,3 @@ REPLACE INTO `ai_dungeon_boss` (`map`, `entry`, `name`) VALUES
 (329, 10438, 'Maleki the Pallid'),
 (329, 10436, 'Baroness Anastari'),
 (329, 10440, 'Baron Rivendare');
-
--- ---------------------------------------------------------------------------------------------------------------
--- Rivendare (10440, map 329): the event holds him UNIT_FLAG_NOT_SELECTABLE|SPAWNING until Ramstein falls; when he
--- walks to the party at 100%% he must be engaged at once (RUN-LESSONS r28d slotD blocker 2: three 'boss took more
--- than 300 s out of combat' pauses and a wipe with Rivendare untouched). DPS take him before anything else while he
--- attacks the party; the temporary adds (skeletons) die after him (priority 1, then nothing: lowest first).
-DELETE FROM `ai_boss_tactic` WHERE `map` = 329 AND `boss_entry` IN (10440);
-INSERT INTO `ai_boss_tactic` (`map`, `boss_entry`, `kind`, `target_entry`, `spell_id`, `priority`, `param`, `comment`) VALUES
-(329, 10440, 'kill_first', 0, 0, 1, 0, 'Rivendare: engage him the moment he is in combat with the party (r28d slotD)');
