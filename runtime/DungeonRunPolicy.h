@@ -1531,12 +1531,20 @@ struct Run
     // how long that same set has stood so without a break.
     std::vector<std::uint64_t> unattackableSet;
     std::uint32_t unattackableMs = 0;
-    // CombatDropTick: per bot, the engaged units (guids, sorted) of its current only-unattackable stretch and how
-    // long that same set has stood so; the run time of its last combat drop; and this tick's drops, which the glue
-    // carries out (CombatStop on the bot and its pet) after Tick.
+    // CombatDropTick: per bot, the engaged units (guids, sorted) of its current only-unattackable or only-far-held
+    // stretch, which kind it is, and how long that same set has stood so as that kind; the run time of its last
+    // combat drop; and this tick's drops, which the glue carries out (CombatStop on the bot and its pet) after Tick.
+    // One unit first UNATTACKABLE then attackable but far away (a phase ending far off) changes kind: the timer
+    // starts over, so a carried-over stretch never drops early.
+    enum class CombatDropKind : std::uint8_t
+    {
+        Unattackable,
+        FarHeld
+    };
     struct CombatDropState
     {
         std::vector<std::uint64_t> set;
+        CombatDropKind kind = CombatDropKind::Unattackable;
         std::uint32_t ms = 0;
     };
     std::unordered_map<std::string, CombatDropState> combatDrop;
@@ -11121,7 +11129,9 @@ constexpr std::uint32_t kCombatDropRepeatMs = 10000;
 // units, all of them ones the group cannot attack, for kUnattackableGraceMs of ticks in a row, on a step that
 // lets such units go (not a boss step, not in an event), the run drops its combat: the bot's name goes into
 // Run::combatDrops for the glue (CombatStop on the bot and its pet, off the units' threat lists), at most once
-// per kCombatDropRepeatMs per bot. An attackable unit, a changed set or another step kind starts it over.
+// per kCombatDropRepeatMs per bot. An attackable unit, a changed set or another step kind starts it over, and so
+// does a change of kind: one unit first UNATTACKABLE then attackable but far away (a phase ending while the unit
+// stands far off) stands the full kFarHoldGraceMs before the drop, not the far grace minus the unattackable time.
 // Returns the note for the drops of this tick ("Varcus dropped combat with entry 7897 (cannot be attacked)").
 // The same for a bot held by far units only (HeldByFarUnitsOnly) while the lead bot is far from the plan
 // (LeadFarFromPlan), on any step, after kFarHoldGraceMs ("Unjin dropped combat with entry 11484 (305.2 yd away)").
@@ -11156,11 +11166,15 @@ inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
             set.push_back(u.guid);
         std::sort(set.begin(), set.end());
         Run::CombatDropState st;
+        Run::CombatDropKind const kind = far ? Run::CombatDropKind::FarHeld : Run::CombatDropKind::Unattackable;
         auto const it = r.combatDrop.find(m.name);
-        if (it != r.combatDrop.end() && it->second.set == set)
+        if (it != r.combatDrop.end() && it->second.set == set && it->second.kind == kind)
             st = it->second;
         else
+        {
             st.set = std::move(set);
+            st.kind = kind;
+        }
         st.ms += dt;
         auto const last = r.combatDroppedAt.find(m.name);
         bool const spaced = last == r.combatDroppedAt.end() || r.runMs >= last->second + kCombatDropRepeatMs;

@@ -16271,6 +16271,163 @@ static void TestPetHeldByUnattackableKeepsTheBotInTheFight()
             CHECK(q.note.find("Helmina (35.0 yd) held in combat") != std::string::npos);
     }
 }
+// A unit the group first cannot attack, then can but only far away (a phase ending with it standing far off):
+// the same guid changes the drop kind, so the timer starts over. 9.9 s accumulated as unattackable, then the same
+// unit attackable + far-held: no drop with only a further 14.9 s stood far-held, the drop after the full 15 s.
+// The no-reset mutation (keep ms across the kind change) drops 0.1 s early and fails the CHECK.
+static void TestCombatDropKindChangeStartsTheGraceOver()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {6206}), Step(PlanStepKind::Move, 9), Step(PlanStepKind::Move, 200)};
+    std::uint64_t const guid = 0xF130002CDC0564C4ull;
+    UnitFact phase = Engaged(Unit(guid, 11484, 305.0f));
+    phase.attackable = false;
+    Facts f = Party(2000); // the other wing's door: 1780 yd from the plan's nearest point
+    f.anyInCombat = true;
+    f.leadInCombat = true;
+    f.engagedRead = true;
+    f.engagedUnits = {phase};
+    MemberFact lead = Mem("Tanky", 0);
+    MemberFact priest = Mem("Varcus", 1);
+    for (MemberFact* m : {&lead, &priest})
+    {
+        m->inCombat = true;
+        m->engagedRead = true;
+        m->engaged = {phase};
+    }
+    f.members = {lead, priest};
+    f.maxMemberYd = 1;
+    Run r = Start(&plan, 2);
+    std::uint32_t const heldTicks = kUnattackableGraceMs / kTickMs - 1; // 9.9 s as unattackable
+    for (std::uint32_t i = 0; i < heldTicks; ++i)
+    {
+        Tick(r, f);
+        CHECK(r.combatDrops.empty());
+    }
+    CHECK(r.combatDrop.count("Varcus") == 1 && r.combatDrop.at("Varcus").ms == heldTicks * kTickMs);
+    // The phase ends: the same unit is attackable now, still 305 yd off. The kind changes unattackable -> far-held.
+    UnitFact loose = Engaged(Unit(guid, 11484, 305.0f));
+    loose.attackable = true;
+    Facts g = f;
+    g.engagedUnits = {loose};
+    for (MemberFact& m : g.members)
+        m.engaged = {loose};
+    std::uint32_t const farTicks = kFarHoldGraceMs / kTickMs;
+    for (std::uint32_t i = 1; i < farTicks; ++i) // 1..14.9 s stood far-held: the carried 9.9 s must not count
+    {
+        Tick(r, g);
+        CHECK(r.combatDrops.empty());
+    }
+    Tick(r, g);
+    CHECK((r.combatDrops == std::vector<std::string>{"Tanky", "Varcus"}));
+    CHECK(r.note.find("Varcus dropped combat with entry 11484 (305.0 yd away)") != std::string::npos);
+}
+// The lead bot died alone and came back at another wing's door during a fight state (the run counted a fight while
+// the lead was down): the rescue path leaves fighting false, so the run does not keep a fight it already won.
+// The no-clear mutation (drop `r.fighting = false` in the LeadRevivedAway rescue arm) leaves fighting true.
+static void TestLeadRevivedAwayRescueLeavesFightingFalse()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+    Run r = Start(&plan, 2);
+    Facts f = Party(210);
+    f.doors = TwoDoors();
+    f.anyInCombat = true;
+    Tick(r, f);
+    CHECK(r.fighting);
+    f.leadAlive = false;
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Tanky"};
+    Tick(r, f); // the fight is on while the lead bot is down
+    CHECK(r.fighting);
+    f.anyInCombat = false; // the fight is over with the lead bot down, but the flag stands
+    r.islandEscapes = 7; // ResetStep would keep it: the rescue path must clear the fight flag the same way
+    f.leadAlive = true;
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.leadX = 2000;
+    f.maxMemberYd = 1785;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 1785)};
+    f.members[1].x = 215;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && r.strandDue && !r.fighting);
+    CHECK(r.note.find("it is teleported to a safe point on the way it came") != std::string::npos);
+}
+
+// The far drop never runs while the run is paused: paused ticks keep no per-bot timer and make no drops.
+// The `r.state == State::Running` mutation in farOff keeps dropping through a pause.
+static void TestFarHoldNeverDropsWhilePaused()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), Step(PlanStepKind::Boss, 220)};
+    plan.steps.back().entry = 9999;
+    Facts const f = FarHeldParty(305.0f);
+    std::uint32_t const graceTicks = kFarHoldGraceMs / kTickMs;
+    Run r = Start(&plan, 2);
+    Pause(r, "a player's order");
+    for (std::uint32_t i = 0; i < 2 * graceTicks; ++i)
+        CHECK(CombatDropTick(r, f, kTickMs).empty());
+    CHECK(r.combatDrops.empty() && r.combatDrop.empty());
+    // The same run resumed drops on the grace's last tick.
+    Run q = Start(&plan, 2);
+    for (std::uint32_t i = 0; i + 1 < graceTicks; ++i)
+        CHECK(CombatDropTick(q, f, kTickMs).empty());
+    CHECK(!CombatDropTick(q, f, kTickMs).empty() &&
+        (q.combatDrops == std::vector<std::string>{"Tanky", "Healy"}));
+}
+
+// A bot with its engaged set read but empty stands in no held stretch: no timer runs, no drop, no note.
+// The `m.engaged.empty()` mutation drops the next bot's stretch under its name (or drops it with nothing engaged).
+static void TestCombatDropEmptyEngagedSetDropsNothing()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {6206}), Step(PlanStepKind::Move, 9), Step(PlanStepKind::Move, 200)};
+    Facts f = Party(2000); // the other wing's door: 1780 yd from the plan's nearest point
+    f.anyInCombat = true;
+    f.leadInCombat = true;
+    f.engagedRead = true;
+    f.engagedUnits = {Bomb()};
+    MemberFact lead = Mem("Tanky", 0);
+    lead.inCombat = true;
+    lead.engagedRead = true; // nothing engaged: outside any stretch
+    MemberFact priest = Mem("Varcus", 1);
+    priest.inCombat = true;
+    priest.engagedRead = true;
+    UnitFact held = Bomb();
+    held.distLead = 305.0f;
+    priest.engaged = {held};
+    f.members = {lead, priest};
+    f.maxMemberYd = 1;
+    Run r = Start(&plan, 2);
+    std::string notes;
+    TickTimes(r, f, 2 * kFarHoldGraceMs / kTickMs, notes);
+    CHECK(r.combatDrop.count("Tanky") == 0);
+    CHECK(notes.find("Tanky dropped combat") == std::string::npos);
+    CHECK(r.combatDrop.count("Varcus") == 1);
+}
+// The regroup's rescue teleport at the site clears a non-empty hold (the living party held at the fight spot):
+// the bots left at the door are summoned to the teleported lead bot instead of staying held away from the party.
+// The `r.hold.clear()` mutation (drop the clear at the regroup site) leaves the stale hold standing.
+static void TestRegroupRescueClearsTheHold()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = WipedAtTheOtherDoor(plan, f);
+    // Two bots 100+ yd from the lead bot at the door: UpdateHold keeps them held to the site tick.
+    f.members[1].yd = 100;
+    f.members[2].yd = 120;
+    f.maxMemberYd = 120;
+    r.hold = {"Healy", "Magey"}; // set before the site tick: the living party held at the fight spot
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && !r.regroup && !r.holdDue && r.strandDue);
+    CHECK(r.hold.empty());
+    CHECK(Tick(r, f) == "rescue from 2000.0 0.0 0.0 to 10.0 0.0 0.0");
+}
+
+
+
 
 // Scarlet Cathedral r23 slot 5, step 66 (fix 2): Mograine 3976 was fought on a pull step; his fake death (not
 // selectable) and a charmed judge read the fight as unattackable only, the grace let it go and the regroup released
@@ -18671,8 +18828,13 @@ int main()
     TestUnattackableUnitIsNeverPulledOrPickedUp();
     TestBotHeldByUnattackableDropsCombat();
     TestCombatDropNeverWhileHeldByAPlanBossOrHoldUnit();
+    TestCombatDropKindChangeStartsTheGraceOver();
+    TestLeadRevivedAwayRescueLeavesFightingFalse();
+    TestFarHoldNeverDropsWhilePaused();
+    TestCombatDropEmptyEngagedSetDropsNothing();
     TestFarHoldIsDroppedAwayFromThePlan();
     TestDireMaulWestR36FarCombatThenRescue();
+    TestRegroupRescueClearsTheHold();
     TestGatherWaitsForABotHeldByUnattackable();
     TestPetHeldByUnattackableKeepsTheBotInTheFight();
     TestUnattackableGraceNeverLetsAPlanBossOrHoldUnitGo();
