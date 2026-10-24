@@ -13353,8 +13353,8 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         if (slot.playerLed.on)
             slot.playerLed.tank = lead->GetName();
         DungeonRunSlot& stored = DungeonRuns()[commanderRaw] = slot;
-        playerLedGuard.commanderRaw = 0; // started: the binding stays with the run
         RebuildRunGroups();
+        playerLedGuard.commanderRaw = 0; // started: the binding stays with the run
         s_dungeonRunMs = 0;
         TB_LOG_DETAIL("TortoiseBots: run leader of %s started plan %s at step %u", commander->GetName(), plan->name.c_str(),
             static_cast<uint32>(startStep + 1));
