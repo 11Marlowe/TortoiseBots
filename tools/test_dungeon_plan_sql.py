@@ -126,6 +126,12 @@ BOSS_PLANS["maraudon_purple"] = 349
 SEEDED_BOSSES.update({(349, 12236): "Lord Vyletongue", (349, 12225): "Celebras the Cursed",
                       (349, 12203): "Landslide", (349, 13601): "Tinkerer Gizlock",
                       (349, 13596): "Rotgrip", (349, 12201): "Princess Theradras"})
+# Maraudon orange (20261024010100): its map and its six boss steps, names from the map-349 creature_template rows (all rank 1).
+# Meshlok the Harvester 12237 is a rare and not on the route; Celebras the Cursed 12225, Lord Vyletongue 12236 and the friendly
+# Celebras the Redeemed 13716 belong to the purple wing's plan: none is seeded.
+BOSS_PLANS["maraudon_orange"] = 349
+SEEDED_BOSSES.update({(349, 13282): "Noxxion", (349, 12258): "Razorlash", (349, 12203): "Landslide",
+                      (349, 13601): "Tinkerer Gizlock", (349, 13596): "Rotgrip", (349, 12201): "Princess Theradras"})
 
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
@@ -864,6 +870,51 @@ class DungeonPlanSql(unittest.TestCase):
             for x, y in bosses:
                 self.assertGreaterEqual(dist(r, x, y), 25.0, r["comment"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (802) AND `entry` IN (92107, 92109, 92108, 92111, 92110);", text)
+
+    def test_maraudon_orange_is_the_census_fixed_wing(self):
+        # 20261024010100 (turtle-agent d59b259, 2026-10-24): the orange wing's draft with the census fixes of
+        # PREP-MARAUDON-ORANGE-2026-10-24.md, no row hand-set, with the boss rows of map 349 scoped to its own six entries.
+        # 6 legs, 995 steps (28 + 10 + 45 + 22 + 7 + 8 pulls), bosses in leg order, no boss.first, no door or event step.
+        # The plan row carries cc_priority and kill_first; the 50 critter spawns (2914/13321/6145/4076) are out of every pull,
+        # every radius is the farthest member plus its wander (<= 19.5 yd, no draft's farthest + 10), and the two pulls that
+        # stood nearer another leg's packs are in leg 2 now.
+        name, text = newest_plan_text("maraudon_orange")
+        self.assertEqual(name, "20261024010100_world.sql")
+        self.assertIn("('maraudon_orange', 349, '11793,11794', '', '12217,12219,12222', 'turtle-agent d59b259 dungeons/maraudon_orange.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(leg_rows(text, "maraudon_orange"),
+                         {0: ("noxxion", ""), 1: ("razorlash", ""), 2: ("landslide", ""), 3: ("tinkerer_gizlock", ""),
+                          4: ("rotgrip", ""), 5: ("princess_theradras", "")})
+        rows = [r for r in self.step_rows(text) if r["plan"] == "maraudon_orange"]
+        self.assertEqual(len(rows), 995)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(6)}, {0: 36, 1: 28, 2: 427, 3: 215, 4: 176, 5: 113})
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)],
+                         [28, 10, 45, 22, 7, 8])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
+                         ["13282", "12258", "12203", "13601", "13596", "12201"])
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "", "", "", ""])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(6):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        # The critters are gone: not a pull lists 2914, 13321, 6145 or 4076.
+        self.assertFalse([r for r in pulls if set(r["entries"].split(",")) & {"2914", "13321", "6145", "4076"}])
+        # The radii are the pack's own spread: the three 8-Vile-Larva pulls (one linked creature_groups pack each) are the widest,
+        # and the pull that took a Spewed Larva with its eight larvae is one group.
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 19.5)
+        self.assertEqual([(r["entries"], r["radius"]) for r in pulls if float(r["radius"]) >= 17.0],
+                         [("12218", "19.5"), ("12218", "18.1"), ("12218", "19")])
+        self.assertEqual([(r["entries"], r["radius"]) for r in pulls if "13533" in r["entries"].split(",")],
+                         [("12218,13533", "16.6")])
+        # No pull row stands within the aggro range of a boss (its own detection is 18-20 yd; the nearest is 33.6 yd).
+        bosses = [(1130.4, -191.342), (978.887, -10.152), (356.681, -185.455), (134.902, -313.731),
+                  (42.0826, -65.9511), (27.8981, 83.1932)]
+        for r in pulls:
+            for x, y in bosses:
+                self.assertGreaterEqual(dist(r, x, y), 30.0, r["comment"])
+        # Leg 5's two stray groups (309.6 97.9 -131.8 and 351.2 205.0 -102.3) are leg 2's pulls now.
+        self.assertIn(("12207", "2", "5", "309.63", "97.9"),
+                      [(r["entries"], r["leg"], r["radius"], r["x"], r["y"]) for r in pulls])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (349) AND `entry` IN (13282, 12258, 12203, 13601, 13596, 12201);", text)
 
     def test_blackrock_depths_is_the_plan_with_the_lava_and_pack_fixes(self):
         # 20261023150000 (turtle-agent 6e12b2e, 2026-10-23): the Blackrock Depths draft with the fixes of PREP-BLACKROCK-DEPTHS-2026-10-23.md,
