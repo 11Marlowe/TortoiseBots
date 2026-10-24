@@ -1493,25 +1493,29 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (800) AND `entry` IN (91916, 91917, 91920, 91929, 91919, 92935);", text)
 
     def test_lower_blackrock_spire_is_the_plan_with_the_census_fixes(self):
-        # 20261024152200 (turtle-agent 8b44fd6, PREP-LOWER-BLACKROCK-SPIRE-2026-10-24 and RUN-LESSONS r33 slot5): the generator draft
-        # of map 229 after the census and the server-path route fix, no row hand-set, with the boss rows scoped to this plan's seven
-        # entries (map 229 is shared with the upper_blackrock_spire raid plan). 7 legs, 420 steps (115 pulls: 22 + 25 + 32 + 5 + 4 +
-        # 22 + 5; 298 moves; 7 bosses). The draft's 11 UBRS-level packs (z 106-111, x 8-29) are out, the four static rares are pack
-        # members, Mor Grayhoof and his trigger are out, no pull lists more than six units and every radius covers its own pack
-        # (<= 16 yd). Leg 0 now walks from the z 31 pit floor a refused or skipped pull leaves the party on (r33 steps 52-54 were
-        # refused from the z 50 shelf row): pull group 14's approach starts at -45.3 -404 31.5.
+        # 20261024153100 (turtle-agent ca779b3, RUN-LESSONS r35 slot5, steps 217/222/223 = leg 1): the r33 draft after the
+        # census and the server-path route fixes, no row hand-set, with the boss rows scoped to this plan's seven entries
+        # (map 229 is shared with the upper_blackrock_spire raid plan). 7 legs, 491 steps (113 pulls: 22 + 23 + 32 + 5 + 4
+        # + 22 + 5; 371 moves; 7 bosses). The draft's 11 UBRS-level packs (z 106-111, x 8-29) are out, the four static rares
+        # are pack members, Mor Grayhoof and his trigger are out, no pull lists more than six units and every radius covers
+        # its own pack (<= 16 yd). Leg 0 walks from the z 31 pit floor a refused or skipped pull leaves the party on (pull
+        # group 14's approach starts at -45.3 -404 31.5, pull group 20's at -35.2 -395.2 31.63). Leg 1's z 24 shelf is
+        # reached from the z -7 ledge, not from the z 11 spider floor: the z -7 pack (pull group 11) comes before the shelf
+        # pull (pull group 12, the 6-unit 9239/9240 pack at the shelf's east end -81.07 -482.4 24.4), Vosh'gajin's two
+        # linked 9240 guards are the boss row's entries (not pulls), and the 10374 patroller (pull group 8) is pulled from
+        # the east spur -104.8 -520.4 10.8, 60 yd from Mother Smolderweb (r35's step 217 wipe).
         name, text = newest_plan_text("lower_blackrock_spire")
-        self.assertEqual(name, "20261024152200_world.sql")
+        self.assertEqual(name, "20261024153100_world.sql")
         self.assertIn("('lower_blackrock_spire', 229, '9240,9257,9261,9262,9269', '', '9217,9045,9198,9239,9717,9266', "
-                      "'turtle-agent 8b44fd6 dungeons/lower_blackrock_spire.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+                      "'turtle-agent ca779b3 dungeons/lower_blackrock_spire.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "lower_blackrock_spire")
         self.assertEqual([legs[i][0] for i in range(7)],
                          ["highlord_omokk", "shadow_hunter_vosh'gajin", "war_master_voone", "mother_smolderweb",
                           "quartermaster_zigris", "halycon", "overlord_wyrmthalak"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "lower_blackrock_spire"]
-        self.assertEqual(len(rows), 420)
+        self.assertEqual(len(rows), 491)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)],
-                         [22, 25, 32, 5, 4, 22, 5])
+                         [22, 23, 32, 5, 4, 22, 5])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
                          ["9196", "9236", "9237", "10596", "9736", "10220", "9568"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -1525,6 +1529,48 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertEqual(len([r for r in pulls if rare in r["entries"].split(",")]), 1, rare)
         for out in ("16080", "16044"):
             self.assertFalse([r for r in pulls if out in r["entries"].split(",")], out)
+        # 20261024153100: leg 1's fixes. The two linked 9240 guards are the boss row's entries, not pulls (they stand 9-10 yd
+        # from Vosh'gajin and cannot be pulled without him); the 6-unit pack keeps its pull from the shelf's east end, and the
+        # 10374 patroller pulls from the east spur. Every approach chain ends within 50 yd of its pull and its hops are <= 60 yd
+        # (the exporter's cut threshold), so a re-export that drops a chain is caught here.
+        steps1 = leg_steps(rows, 1)
+        pos = {id(r): i for i, r in enumerate(steps1)}
+        boss1 = [r for r in steps1 if r["kind"] == "boss"][0]
+        self.assertEqual(boss1["entry"], "9236")
+        self.assertEqual(boss1["entries"], "9240")
+        self.assertFalse([r for r in pulls if r["leg"] == "1" and r["entries"] == "9240"])
+        z7 = [r for r in steps1 if r["kind"] == "pull" and r["comment"] == "pull group 11"][0]
+        six = [r for r in steps1 if r["kind"] == "pull" and r["comment"] == "pull group 12"][0]
+        self.assertLess(pos[id(z7)], pos[id(six)])
+        self.assertAlmostEqual(math.dist((-75.69, -517.37, -7.08), tuple(float(z7[k]) for k in "xyz")), 0.0, delta=0.2)
+        self.assertAlmostEqual(math.dist((-99.1, -481.68, 24.43), tuple(float(six[k]) for k in "xyz")), 0.0, delta=1)
+        six_approach = [r for r in steps1 if r["kind"] == "move" and r["comment"] == "pull group 12 approach"]
+        self.assertEqual([(float(r["x"]), float(r["y"]), float(r["z"])) for r in six_approach],
+                         [(-45.8, -512.9, 5.0), (-45.6, -494.13, 17.53), (-46.13, -491.73, 16.23), (-81.07, -482.4, 24.4)])
+        self.assertLess(pos[id(six_approach[-1])], pos[id(six)])
+        self.assertAlmostEqual(math.dist((-81.07, -482.4, 24.4), tuple(float(six[k]) for k in "xyz")), 17.8, delta=0.5)
+        patrol = [r for r in steps1 if r["kind"] == "pull" and r["comment"] == "pull group 8"][0]
+        patrol_approach = [r for r in steps1 if r["kind"] == "move" and r["comment"] == "pull group 8 approach"]
+        self.assertEqual([(float(r["x"]), float(r["y"]), float(r["z"])) for r in patrol_approach],
+                         [(-141.87, -510.13, -18.37), (-116.53, -535.73, -2.77), (-122.4, -560.0, 9.73), (-104.8, -520.4, 10.8)])
+        self.assertLess(pos[id(patrol_approach[-1])], pos[id(patrol)])
+        self.assertAlmostEqual(math.dist((-104.8, -520.4, 10.8), tuple(float(patrol[k]) for k in "xyz")), 22.5, delta=0.5)
+        z29 = [r for r in steps1 if r["kind"] == "pull" and r["comment"] == "pull group 13"][0]
+        z29_approach = [r for r in steps1 if r["kind"] == "move" and r["comment"] == "pull group 13 approach"]
+        self.assertEqual([(float(r["x"]), float(r["y"]), float(r["z"])) for r in z29_approach],
+                         [(-46.4, -479.2, 16.5), (-3.7, -492.3, 30.0), (-21.3, -500.3, 29.7), (-42.7, -512.0, 29.7)])
+        self.assertLess(pos[id(z29_approach[-1])], pos[id(z29)])
+        group7 = [r for r in steps1 if r["kind"] == "pull" and r["comment"] == "pull group 7"][0]
+        for anchor, pull, approach in ((group7, patrol, patrol_approach), (z7, six, six_approach),
+                                       (six, z29, z29_approach)):
+            prev = tuple(float(anchor[k]) for k in "xyz")
+            first = (float(approach[0]["x"]), float(approach[0]["y"]), float(approach[0]["z"]))
+            self.assertLessEqual(math.dist(prev, first), 60)
+            for a, b in zip(approach, approach[1:]):
+                self.assertLessEqual(math.dist((float(a["x"]), float(a["y"]), float(a["z"])),
+                                               (float(b["x"]), float(b["y"]), float(b["z"]))), 60)
+            last = (float(approach[-1]["x"]), float(approach[-1]["y"]), float(approach[-1]["z"]))
+            self.assertLessEqual(math.dist(last, (float(pull["x"]), float(pull["y"]), float(pull["z"]))), 50)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["lower_blackrock_spire"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (229) AND `entry` IN (9196, 9236, 9237, 10596, 9736, 10220, 9568);", text)
 
