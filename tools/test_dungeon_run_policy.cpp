@@ -4392,6 +4392,232 @@ static void TestTaskResendKeepsTheLootBot()
     CHECK(r.lootRefusal.empty());
 }
 
+// ---- open_proof (a use done by a spawned proof object/creature: DungeonRunPolicy.h OpenProofStep) ----
+//
+// The proof-creature flag is the next free bit (2048) on this line: 1024 is
+// kPlanFlagNoDefer (a pull only).
+// Other failures still pause at once.
+
+static PlanStep StatueRow(std::uint32_t flags = 0)
+{
+    PlanStep s = Step(PlanStepKind::Open, -515.553f, 95.2582f, -148.74f);
+    s.entry = 148830;
+    s.entries = {148883};
+    s.radius = 10.0f;
+    s.openProof = true;
+    s.flags = flags;
+    CHECK(ai::NormalizePlanStep(s) == ai::PlanStepRefusal::None);
+    return s;
+}
+static const char* const kNoChangeText = "failed: The object showed no change after the bot used it.";
+static void TestOpenProofDoneWhenTheProofShows()
+{
+    DungeonPlan plan;
+    plan.steps = {StatueRow(), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    std::string order = Tick(r, f);
+    CHECK(order == "open entry:148830@-515.6,95.3,-148.7 Tanky");
+    f.carrierBusy = false;
+    f.taskReply = 2;
+    f.taskText = kNoChangeText;
+    f.proofRead = true;
+    f.proofUp = true;
+    Tick(r, f);
+    CHECK(r.step == 1);
+    CHECK(r.note == "open 148830 done: object 148883 within 10 yd is up");
+}
+
+static void TestOpenProofWaitsForTheTaskToAnswer()
+{
+    DungeonPlan plan;
+    plan.steps = {StatueRow()};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    Tick(r, f);
+    // The task still holds the bot: the proof alone never ends the step.
+    f.carrierBusy = true;
+    f.taskReply = 0;
+    f.proofRead = true;
+    f.proofUp = true;
+    Tick(r, f);
+    CHECK(r.step == 0 && r.state == State::Running);
+}
+
+static void TestOpenProofAckWithoutProofPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {StatueRow()};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    Tick(r, f);
+    f.carrierBusy = false;
+    f.taskReply = 1;
+    f.taskText = "done";
+    f.proofRead = true;
+    f.proofUp = false;
+    Tick(r, f);
+    CHECK(r.step == 0 && r.state == State::Running);
+    CHECK(r.note.find("waiting for object 148883") != std::string::npos);
+    for (int i = 0; i < 10 && r.state == State::Running; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Paused && r.step == 0);
+    CHECK(r.note.find("object 148883 within 10 yd did not show in 5 s after the use (the task said done)") != std::string::npos);
+}
+
+static void TestOpenProofLateProofIsDone()
+{
+    DungeonPlan plan;
+    plan.steps = {StatueRow(), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    Tick(r, f);
+    f.carrierBusy = false;
+    f.taskReply = 1;
+    f.taskText = "done";
+    f.proofRead = true;
+    f.proofUp = false;
+    Tick(r, f);
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 0);
+    f.proofUp = true;
+    Tick(r, f);
+    CHECK(r.step == 1 && r.state == State::Running);
+}
+
+static void TestOpenProofNotReadIsNoProof()
+{
+    DungeonPlan plan;
+    plan.steps = {StatueRow()};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    Tick(r, f);
+    f.carrierBusy = false;
+    f.taskReply = 2;
+    f.taskText = kNoChangeText;
+    f.proofRead = false;
+    f.proofUp = true;
+    for (int i = 0; i < 10 && r.state == State::Running; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Paused && r.step == 0);
+}
+
+static void TestOpenProofAlreadyUpSkipsTheUse()
+{
+    DungeonPlan plan;
+    plan.steps = {StatueRow(), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.proofRead = true;
+    f.proofUp = true;
+    CHECK(Tick(r, f).empty());
+    CHECK(!r.orderSent);
+    CHECK(r.step == 1);
+    CHECK(r.note.size() >= std::string("done before the use (not used again)").size() &&
+        r.note.compare(r.note.size() - std::string("done before the use (not used again)").size(),
+        std::string("done before the use (not used again)").size(), "done before the use (not used again)") == 0);
+}
+
+static void TestOpenProofResendsAnInCombatAnswer()
+{
+    DungeonPlan plan;
+    plan.steps = {StatueRow(), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    Tick(r, f);
+    f.carrierBusy = false;
+    f.taskReply = 2;
+    f.taskText = "in-combat: the bot is fighting";
+    f.proofRead = true;
+    f.proofUp = false;
+    Tick(r, f);
+    CHECK(!r.orderSent && r.step == 0 && r.state == State::Running);
+    CHECK(r.note.find("sending it again (1 of") != std::string::npos);
+    // The order goes out again; the same answer with the proof up is done, not sent again.
+    f.taskReply = 0;
+    f.taskText.clear();
+    CHECK(!Tick(r, f).empty() && r.orderSent);
+    f.carrierBusy = false;
+    f.taskReply = 2;
+    f.taskText = "in-combat: the bot is fighting";
+    f.proofUp = true;
+    Tick(r, f);
+    CHECK(r.step == 1);
+}
+
+static void TestOpenProofCreatureName()
+{
+    DungeonPlan plan;
+    PlanStep s = StatueRow(ai::kPlanFlagProofCreature);
+    plan.steps = {s, Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    Tick(r, f);
+    f.carrierBusy = false;
+    f.taskReply = 1;
+    f.taskText = "done";
+    f.proofRead = true;
+    f.proofUp = true;
+    Tick(r, f);
+    CHECK(r.step == 1);
+    CHECK(r.note.find("creature 148883 within 10 yd") != std::string::npos);
+}
+
+static void TestProofStepIsTheCurrentOpenProofOnly()
+{
+    // The helper the glue reads the proof through: the actual current step when it is an
+    // open_proof (StatueRow), null for anything else and null on a walk back whose replayed
+    // point is that same open_proof (FactStep still replays it: movement facts are unchanged).
+    DungeonPlan plan;
+    plan.steps = {StatueRow(), Step(PlanStepKind::Pull, 60), PullStep(120, {4851})};
+    Run r = Start(&plan);
+    CHECK(ProofStep(r) == &plan.steps[0]);
+    r.step = 1;
+    CHECK(ProofStep(r) == nullptr);
+    r.step = 2;
+    r.walkBack = true;
+    r.walkBackIdx = 0;
+    CHECK(FactStep(r) == &plan.steps[0]);
+    CHECK(ProofStep(r) == nullptr);
+}
+
+static void TestOpenProofWalkBackStepDoesNotFinishIt()
+{
+    // Glue-side rule (BotCommands.cpp ReadRunFacts): the proof is read only for the actual current
+    // step, never for FactStep's walk-back replayed point. So a walk back whose replayed point is an
+    // old open_proof with its proof up must not finish the current (different) step: the glue leaves
+    // proofRead false and the policy waits instead of advancing.
+    DungeonPlan plan;
+    plan.steps = {StatueRow(), Step(PlanStepKind::Pull, 60), PullStep(120, {4851})};
+    Run r = Start(&plan);
+    r.step = 2; // current step: the pull, not either open_proof
+    r.walkBack = true;
+    r.walkBackIdx = 0; // replayed point: the old open_proof, its proof left up in the world
+    CHECK(FactStep(r) == &plan.steps[0]);
+    Facts f = Party(0);
+    f.proofRead = false; // the glue reads no proof: the current step is no open_proof
+    f.proofUp = true;
+    Tick(r, f);
+    CHECK(r.step == 2 && r.state == State::Running);
+}
+
+static void TestPlainOpenStillPausesWithoutChange()
+{
+    DungeonPlan plan;
+    PlanStep open = Step(PlanStepKind::Open, 4, 5, 6);
+    open.entry = 124371;
+    plan.steps = {open};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    Tick(r, f);
+    f.carrierBusy = false;
+    f.taskReply = 2;
+    f.taskText = kNoChangeText;
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.step == 0);
+    CHECK(r.note.find("open failed: ") != std::string::npos);
+}
+
 // Other failures still pause at once.
 static void TestTaskResendNotForOtherFailures()
 {
@@ -4407,6 +4633,7 @@ static void TestTaskResendNotForOtherFailures()
         CHECK(r.note.find("sending it again") == std::string::npos);
     }
 }
+
 
 // ---- gossip step (talk to an NPC: `cmd gossip <entry> <lead bot> <option>`) ----
 
@@ -17226,11 +17453,22 @@ int main()
     TestFightCeiling();
     TestTaskSteps();
     TestOpenWithoutKeyAndTaskError();
+    TestOpenProofDoneWhenTheProofShows();
+    TestOpenProofWaitsForTheTaskToAnswer();
+    TestOpenProofAckWithoutProofPauses();
+    TestOpenProofLateProofIsDone();
+    TestOpenProofNotReadIsNoProof();
+    TestOpenProofAlreadyUpSkipsTheUse();
+    TestOpenProofResendsAnInCombatAnswer();
+    TestProofStepIsTheCurrentOpenProofOnly();
+    TestOpenProofWalkBackStepDoesNotFinishIt();
+    TestOpenProofCreatureName();
+    TestPlainOpenStillPausesWithoutChange();
+    TestTaskResendNotForOtherFailures();
     TestTaskResendAfterInterruptedCast();
     TestTaskResendInCombatAndBusy();
     TestTaskResendCounterResetsPerStep();
     TestTaskResendKeepsTheLootBot();
-    TestTaskResendNotForOtherFailures();
     TestWaitObjectTimeoutIsBounded();
     TestUnsupportedPausesAndSkip();
     TestPlayerOrderAndRefusalPause();
