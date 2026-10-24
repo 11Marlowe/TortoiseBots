@@ -6876,30 +6876,20 @@ inline std::size_t FirstReplayPoint(const Run& r)
     return static_cast<std::size_t>(-1);
 }
 
-// The walk back first goes straight to its start point (in navmesh hops,
-// StartWalkBack); when that fails it replays every point from the one nearest
-// the lead bot (ReplayWalkBack), but only among the points the route allows:
-// not before the checkpoint when it is known, and not past the first direct
-// step not crossed yet (that direct step is then always replayed, even from a
-// lead bot nearer the step than any point). True when there is one.
-inline bool ReplayWalkBack(Run& r, const Facts& f)
+// The point a replay of the plan's points begins at (ReplayWalkBack's choice), npos for none.
+inline std::size_t ReplayStartPoint(const Run& r, const Facts& f)
 {
-    r.walkBackDirect = false;
-    r.shortcutWanted = r.shortcutFrom = static_cast<std::size_t>(-1);
-    r.walkBack = false;
-    r.approachHops = 0;
     const PlanStep* cur = Current(r);
     if (!cur)
-        return false;
+        return static_cast<std::size_t>(-1);
     std::size_t const hole = FirstUncrossedDirect(r);
     std::size_t const ceiling = hole != static_cast<std::size_t>(-1) ? hole : r.step;
     float best = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, cur->x, cur->y, cur->z);
-    bool found = false;
+    std::size_t idx = static_cast<std::size_t>(-1);
     if (hole != static_cast<std::size_t>(-1))
     {
-        r.walkBackIdx = LastPointBeforeDirect(r, hole);
+        idx = LastPointBeforeDirect(r, hole);
         best = -1.0f;
-        found = true;
     }
     for (std::size_t i = ReplayFloor(r); i < ceiling; ++i)
     {
@@ -6910,12 +6900,22 @@ inline bool ReplayWalkBack(Run& r, const Facts& f)
         if (best < 0.0f || d < best)
         {
             best = d;
-            r.walkBackIdx = i;
-            found = true;
+            idx = i;
         }
     }
-    if (!found)
+    return idx;
+}
+
+inline bool ReplayWalkBack(Run& r, const Facts& f)
+{
+    r.walkBackDirect = false;
+    r.shortcutWanted = r.shortcutFrom = static_cast<std::size_t>(-1);
+    r.walkBack = false;
+    r.approachHops = 0;
+    std::size_t const idx = ReplayStartPoint(r, f);
+    if (idx == static_cast<std::size_t>(-1))
         return false;
+    r.walkBackIdx = idx;
     r.walkBack = true;
     r.walkBackStart = r.walkBackIdx;
     EnterPhase(r, Phase::Begin);
@@ -6996,13 +6996,14 @@ inline std::size_t LastClearedFight(const Run& r, std::uint32_t team, std::size_
 //     points from there to the step are replayed.
 //   - A straight path that still passes an uncleared pack moves its target back to such a point at least
 //     kStraightBackoffYd before it, at most kStraightBackoffs times, before the replay of the plan's points.
-//   - The replay leaves out a stretch of the route that comes back within kRouteLinkYd (and kRouteLinkDzYd up or
-//     down) of the point just reached (RouteShortcut): an out-and-back side room's points are not walked twice.
-//     Only plain move points; never past a direct step, an exact point or its launch, or a pack left uncleared.
 //   - Steps before the run's start step count as uncleared for the path check (UnclearedForPath): a placed run
 //     never fought there.
+//   - A failed straight walk back whose replay would walk kReplayRescueYd or more before the safe point on the way it
+//     came is rescued instead (ReplayRescue: a bot-only party, the rescue's bounds; Stratholme r29 slot 4, Maraudon
+//     r28b slot B).
 constexpr std::uint32_t kStraightBackoffs = 2;
 constexpr float kStraightBackoffYd = 40.0f;
+constexpr float kReplayRescueYd = 300.0f;
 constexpr float kRouteLinkYd = 12.0f;
 constexpr float kRouteLinkDzYd = 3.0f;
 // A navmesh path that "reaches" a point (PathEndsShort false), and one that is no detour (PathFitsStraight). The path
@@ -7195,6 +7196,89 @@ inline bool PlacedRunRescue(Run& r, const Facts& f)
     r.note = "walk back: the lead bot is up behind the run's start step (step " + std::to_string(r.startStep + 1) +
         "; the plan point nearest it is step " + std::to_string(nearest + 1) + "): it is teleported to step " +
         std::to_string(target + 1) + " out of combat";
+    return true;
+}
+
+// The yards a replay of the plan's points (ReplayWalkBack) walks before it reaches plan point `target`: from the lead
+// bot to the replay's first point (ReplayStartPoint), then point to point (every move point) up to `target`. 0 when
+// the replay begins at or after `target`, or has no first point.
+inline float ReplayYardsTo(const Run& r, const Facts& f, std::size_t target)
+{
+    std::size_t const from = ReplayStartPoint(r, f);
+    if (from == static_cast<std::size_t>(-1) || from >= target || target >= r.plan->steps.size())
+        return 0.0f;
+    const PlanStep& a = r.plan->steps[from];
+    float yd = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, a.x, a.y, a.z);
+    float x = a.x, y = a.y, z = a.z;
+    for (std::size_t i = from + 1; i <= target; ++i)
+    {
+        const PlanStep& p = r.plan->steps[i];
+        if (!IsMovePoint(p))
+            continue;
+        yd += ai::PlanDistance(x, y, z, p.x, p.y, p.z);
+        x = p.x;
+        y = p.y;
+        z = p.z;
+    }
+    return yd;
+}
+
+// A straight walk back that failed (no complete path, no walkable path, its hops spent, or its way past an uncleared
+// pack after the backoffs) in a bot-only party, when the replay of the plan's points would walk at least
+// kReplayRescueYd before the safe point on the way it came: the rescue teleport to that point instead (the safe-point
+// rule of WalkBackStuckRescue: the last point reached, or the latest one before it out of every live pack's reach),
+// bounded as every rescue (RescueAllowed: AiPlayerbot.DungeonRunWalkBackRescue, out of combat, once a step, re-armed
+// by a self-regroup after a death). Never with a real player in the party (Facts::players): he walks back with the
+// party, the replay as before. Stratholme r29 slot 4 (wipes at steps 55-56: the replay from step 1, 685-780 yd,
+// re-fighting respawned packs, a second wipe on the way, about 12 min), Maraudon r28b slot B (step 565: the replay
+// from step 1, about 9,000 yd; still at step 25 after 20 min). True when the rescue is due.
+inline bool ReplayRescue(Run& r, const Facts& f, const std::string& why)
+{
+    if (!f.players.empty() || !r.walkBack || !RescueAllowed(r, f) || r.walkBackIdx >= r.step)
+        return false;
+    std::size_t const last = LastReachedBefore(r, r.step);
+    if (last == static_cast<std::size_t>(-1) || last >= r.plan->steps.size())
+        return false;
+    std::size_t const target = SafePointAtOrBefore(r, f.team, last);
+    if (target == static_cast<std::size_t>(-1))
+        return false; // never a teleport beside a live pack: the replay as before
+    const PlanStep& p = r.plan->steps[target];
+    if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) <= kArriveYd)
+        return false;
+    float const yd = ReplayYardsTo(r, f, target);
+    if (yd < kReplayRescueYd)
+        return false;
+    RescueDue(r, f, target);
+    r.note = "walk back: " + why + ": the replay of the plan's points would walk " + Num(yd) + " yd: the lead bot " +
+        "is teleported to a safe point on the way it came (step " + std::to_string(target + 1) + ") out of combat";
+    return true;
+}
+
+// A walk-back point with no walkable path from the spot where the hop off the navmesh island found no spot
+// (Run::noSpotKnown): the walk back and the island hop both failed (the owner's last resort, 2026-10-23), so the lead
+// bot is teleported to a safe point on the way it came (as WalkBackStuckRescue), not passed point after point. Dire
+// Maul North r31 slot 6: revived on the entrance island at 115.7 -181.6 -3.1, every point 4-114 passed ('no walkable
+// path toward the point of step N: on to the next'), then 'walked back to step 115' and four pauses with the party
+// never moved. Out of combat, once a step (RescueAllowed); with no safe point, the points are passed as before. True
+// when the rescue is due.
+inline bool IslandWalkBackRescue(Run& r, const Facts& f, const std::string& why)
+{
+    if (!r.noSpotKnown || ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.noSpotX, r.noSpotY, r.noSpotZ) > kArriveYd)
+        return false;
+    if (!r.walkBack || !RescueAllowed(r, f) || r.walkBackIdx >= r.step)
+        return false;
+    std::size_t const last = LastReachedBefore(r, r.step);
+    if (last == static_cast<std::size_t>(-1) || last >= r.plan->steps.size())
+        return false;
+    std::size_t const target = SafePointAtOrBefore(r, f.team, last);
+    if (target == static_cast<std::size_t>(-1))
+        return false;
+    const PlanStep& p = r.plan->steps[target];
+    if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) <= kArriveYd)
+        return false;
+    RescueDue(r, f, target);
+    r.note = "walk back: " + why + " from a navmesh island the hop could not leave: the lead bot is teleported to a " +
+        "safe point on the way it came (step " + std::to_string(target + 1) + ") out of combat";
     return true;
 }
 
@@ -7571,6 +7655,8 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         {
             // No complete navmesh path reaches the point from here: hops along it end on a ledge or a dead end
             // (Razorfen Kraul r27 slot 8). The plan's own points instead, the way the run came.
+            if (ReplayRescue(r, f, "no complete path to " + what + " from here"))
+                return true;
             if (ReplayWalkBack(r, f))
                 r.note = "walk back: no complete path to " + what + " from here: replaying the plan's points";
             else
@@ -7596,6 +7682,8 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
                     return true;
                 }
             }
+            if (ReplayRescue(r, f, "the straight way to " + what + " passes an uncleared pack"))
+                return true;
             if (ReplayWalkBack(r, f))
                 r.note = "walk back: the straight way to " + what + " passes an uncleared pack: replaying the plan's points";
             else
@@ -7620,6 +7708,8 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
             if (r.walkBackDirect)
             {
                 // Straight there failed: replay the plan's points instead.
+                if (ReplayRescue(r, f, why))
+                    return true;
                 if (ReplayWalkBack(r, f))
                     r.note = "walk back: " + why + ": replaying the plan's points";
                 else
@@ -7640,6 +7730,8 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
                 r.note = "walk back: " + why + ": replaying from the first point (step " + std::to_string(first + 1) + ")";
                 return true;
             }
+            if (noWay && IslandWalkBackRescue(r, f, why))
+                return true;
             if (DirectStillToCross(r, r.walkBackIdx))
             {
                 Pause(r, "walk back: " + why + ": a direct step over a navmesh hole is not passed; " +

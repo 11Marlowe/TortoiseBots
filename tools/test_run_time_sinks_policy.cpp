@@ -255,6 +255,7 @@ static void TestReplayLeavesOutTheFoldedSideLeg()
     Run r = Start(&plan, wipe);
     r.notCleared.insert(15);
     Facts f = Party(0.0f, 0.0f);
+    f.walkBackRescue = false; // the replay itself (ReplayRescue off)
     StartWalkBack(r, f);
     WalkBackSim const sim = SimulateWalkBack(r, f);
     CHECK(r.state == State::Running && !r.walkBack && r.step == wipe);
@@ -324,6 +325,7 @@ static void TestStraightTargetBacksOffBeforeTheReplay()
     Run r = Start(&plan, plan.steps.size() - 1);
     Facts f = Party(-300.0f, 0.0f);
     f.seen = false;
+    f.walkBackRescue = false; // the replay itself (ReplayRescue off)
     StartWalkBack(r, f);
     CHECK(r.walkBack && r.walkBackDirect && r.walkBackStart == 20);
     f.approachKnown = true;
@@ -387,6 +389,7 @@ static void TestIncompletePathToTheTargetReplaysThePlansPoints()
     {
         r = Start(&plan, step);
         Facts f = Party(-200, 0, 46); // revived at the entrance side
+        f.walkBackRescue = false; // the replay itself (ReplayRescue off)
         StartWalkBack(r, f);
         CHECK(r.walkBack && r.walkBackDirect && r.walkBackIdx == 3); // 110 40 is within 25 yd of the pack
         f.seen = false;
@@ -444,6 +447,128 @@ static void TestStuckWalkBackIsRescuedNotPaused()
     for (int i = 0; i < 60 && again.state == State::Running; ++i)
         Tick(again, g);
     CHECK(again.state == State::Paused && again.note.find("the lead bot is stuck") == 0);
+}
+
+// Stratholme r29 slot 4 / Maraudon r28b slot B: a full run's walk back after a wipe whose straight way failed (here it
+// passes a pack the run left uncleared, after both backoffs) would replay the plan's points from the entrance (1,205 yd
+// here). The rescue teleports the lead bot to the safe point on the way it came instead, once (ReplayRescue).
+static void TestLongReplayIsRescuedInAFullRun()
+{
+    std::size_t wipe = 0, side = 0;
+    DungeonPlan plan = GnomereganShape(wipe, side);
+    plan.steps.insert(plan.steps.begin() + 15, Pull(150.0f, 5.0f, 7300));
+    ++wipe;
+    Run r = Start(&plan, wipe);
+    r.notCleared.insert(15);
+    Facts f = Party(0.0f, 0.0f); // revived at the entrance
+    StartWalkBack(r, f);
+    CHECK(r.walkBack && r.walkBackDirect && !r.strandDue); // the straight walk first, as before
+    WalkBackSim const sim = SimulateWalkBack(r, f);
+    CHECK(r.state == State::Running && !r.walkBack && r.step == wipe);
+    CHECK(sim.teleports == 1);
+    CHECK(NoteSeen(sim, "passes an uncleared pack: the replay of the plan's points would walk"));
+    CHECK(NoteSeen(sim, "is teleported to a safe point on the way it came (step " +
+        std::to_string(IndexOf(plan, 590.0f, 0.0f) + 1) + ") out of combat"));
+    CHECK(!NoteSeen(sim, "replaying the plan's points"));
+    CHECK(sim.walked < 60.0f); // 590 0 to the step's own point, not the corridor
+    std::cout << "full-run replay rescue: walked " << sim.walked << " yd after the teleport (old replay "
+              << RouteYards(plan, 0, wipe, 0.0f, 0.0f) << " yd)\n";
+}
+
+// The bounds of ReplayRescue: a replay shorter than kReplayRescueYd is walked; a real player in the party, the rescue
+// already used on this step (a resume) or AiPlayerbot.DungeonRunWalkBackRescue 0 keep the replay.
+static void TestShortReplayAndPlayersKeepTheReplay()
+{
+    DungeonPlan plan;
+    for (int i = 0; i <= 5; ++i)
+        plan.steps.push_back(Move(20.0f * i, 0.0f)); // 0 .. 100
+    plan.steps.push_back(Pull(120.0f, 100.0f, 9));
+    std::size_t const step = plan.steps.size() - 1;
+    // Three ticks with the straight way past a pack: two backoffs, then the replay or the rescue.
+    auto run = [&](float leadX, Facts f, Run& r)
+    {
+        r = Start(&plan, step);
+        f.leadX = leadX;
+        f.seen = false;
+        StartWalkBack(r, f);
+        CHECK(r.walkBack && r.walkBackDirect && r.walkBackStart == 5);
+        f.approachKnown = true;
+        f.approachRead = true;
+        f.approachX = leadX + 40.0f;
+        f.directPathCrossesPack = true;
+        for (int i = 0; i < 3; ++i)
+            Tick(r, f);
+    };
+    Run a;
+    run(-150.0f, Party(0.0f), a); // 150 yd to point 0, then 100 yd of points: 250 yd
+    CHECK(!a.strandDue && a.walkBack && !a.walkBackDirect && a.walkBackIdx == 0);
+    CHECK(a.note == "walk back: the straight way to the point of step 2 passes an uncleared pack: replaying the plan's points");
+    Run b;
+    run(-210.0f, Party(0.0f), b); // 310 yd
+    CHECK(b.strandDue && b.strandIdx == 5 && b.walkBackIdx == 5);
+    CHECK(b.note == "walk back: the straight way to the point of step 2 passes an uncleared pack: the replay of the "
+        "plan's points would walk 310.0 yd: the lead bot is teleported to a safe point on the way it came (step 6) out of "
+        "combat");
+    // A real player in the party: he walks back with it, the replay as before.
+    Facts withPlayer = Party(0.0f);
+    PlayerFact p;
+    p.name = "Hypeer";
+    p.commander = true;
+    withPlayer.players.push_back(p);
+    Run c;
+    run(-210.0f, withPlayer, c);
+    CHECK(!c.strandDue && c.walkBack && !c.walkBackDirect && c.walkBackIdx == 0);
+    // The rescue off.
+    Facts off = Party(0.0f);
+    off.walkBackRescue = false;
+    Run d;
+    run(-210.0f, off, d);
+    CHECK(!d.strandDue && d.walkBack && d.walkBackIdx == 0);
+    // Used on this step already (a resume keeps the latch): the replay.
+    Run e = Start(&plan, step);
+    e.strandStep = step;
+    Facts g = Party(-210.0f);
+    g.seen = false;
+    StartWalkBack(e, g);
+    g.approachKnown = true;
+    g.approachRead = true;
+    g.approachX = -170.0f;
+    g.directPathCrossesPack = true;
+    for (int i = 0; i < 3; ++i)
+        Tick(e, g);
+    CHECK(!e.strandDue && e.walkBack && e.walkBackIdx == 0);
+}
+
+// The other two straight-walk failures take the rescue too: no complete path (Dire Maul North r31 slot 6 'no complete
+// path to the point of step 112') and no walkable path (Maraudon r28b slot B 'no walkable path toward the point of step
+// 564').
+static void TestReplayRescueAfterEveryStraightFailure()
+{
+    DungeonPlan plan;
+    for (int i = 0; i <= 5; ++i)
+        plan.steps.push_back(Move(20.0f * i, 0.0f));
+    plan.steps.push_back(Pull(120.0f, 100.0f, 9));
+    std::size_t const step = plan.steps.size() - 1;
+    Run r = Start(&plan, step);
+    Facts f = Party(-400.0f);
+    f.seen = false;
+    StartWalkBack(r, f);
+    f.approachRead = true;
+    f.approachKnown = true;
+    f.approachX = -360.0f;
+    f.approachIncomplete = true;
+    Tick(r, f);
+    CHECK(r.strandDue && r.strandIdx == 5);
+    CHECK(r.note.find("walk back: no complete path to the point of step 6 from here: the replay of the plan's points would walk") == 0);
+    Run q = Start(&plan, step);
+    Facts g = Party(-400.0f);
+    g.seen = false;
+    StartWalkBack(q, g);
+    g.approachRead = true;
+    g.approachKnown = false; // no walkable path at all
+    Tick(q, g);
+    CHECK(q.strandDue && q.strandIdx == 5);
+    CHECK(q.note.find("walk back: no walkable path toward the point of step 6: the replay of the plan's points would walk") == 0);
 }
 
 // The retreat at two dead (AiPlayerbot.DungeonRunRetreatAt2Dead): two dead, the lead bot alive, no engaged unit lost
@@ -1221,6 +1346,7 @@ static void TestRoundOneRestAndShortcutNotes()
     Run r = Start(&shape, wipe);
     r.notCleared.insert(15);
     Facts e = Party(0.0f, 0.0f);
+    e.walkBackRescue = false;
     StartWalkBack(r, e);
     WalkBackSim const walls = SimulateWalkBack(r, e, 8000, false);
     CHECK(r.step == wipe && NoteSeen(walls, "no direct way from step"));
@@ -1314,6 +1440,9 @@ int main()
     TestRouteShortcutRules();
     TestIncompletePathToTheTargetReplaysThePlansPoints();
     TestStuckWalkBackIsRescuedNotPaused();
+    TestLongReplayIsRescuedInAFullRun();
+    TestShortReplayAndPlayersKeepTheReplay();
+    TestReplayRescueAfterEveryStraightFailure();
     TestRetreatAtTwoDead();
     TestRestLinesFollowTheNextFight();
     TestMealWaitUnderTheLightLines();
