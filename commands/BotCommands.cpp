@@ -12528,8 +12528,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     {
         if (slot.run.state != TortoiseBots::DungeonRun::State::Done)
         {
-            slot.run.state = TortoiseBots::DungeonRun::State::Done;
-            slot.run.note = "stopped: player-led runs were switched off (AiPlayerbot.DungeonRunPlayerLed)";
+            TortoiseBots::DungeonRun::EndRunEarly(slot.run,
+                "stopped: player-led runs were switched off (AiPlayerbot.DungeonRunPlayerLed)");
         }
         SendRunLine(commander, slot, false);
         ReleaseRunHold(commander, binding->leadGuid, slot);
