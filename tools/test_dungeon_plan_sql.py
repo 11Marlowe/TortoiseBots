@@ -2172,22 +2172,28 @@ class DungeonPlanSql(unittest.TestCase):
         # unpulled unit's aggro + 5 yd, mesh-checked and server path-checked from the previous MOVE point; the joiner
         # is the z239 Behemoth (Stormhoof's boss.first add, not a pull); the plan CCs the Shaman (cc_always 62773).
         # 7 legs, 2906 steps. Pinned below.
+        # The ninth export (20261024153200, turtle-agent 11ddb77) drops Rotag 62785 from Narlgom's boss entries:
+        # the body is a feign-death spawn (unit_flags 33024 IMMUNE_TO_PLAYER, flags_extra 134217728 APPEAR_DEAD,
+        # aura 51187), Narlgom's idle channel and npc_champion_rotag keep it stand-state dead and passive, so it can
+        # be neither attacked nor killed; live r36 step 1177 waited on it 14+ min after Narlgom died. Narlgom summons
+        # the Spirit of Champion Rotag 61410 by spell 42004 at 50%, and that one fights; the boss row is 62780 alone.
+        # The rows are unchanged (2906 steps); only the boss row's entries cell is now empty.
         name, text = newest_plan_text("windhorn_canyon")
-        self.assertEqual(name, "20261024152400_world.sql")
+        self.assertEqual(name, "20261024153200_world.sql")
         rows = [r for r in self.step_rows(text) if r["plan"] == "windhorn_canyon"]
         # leg_rows() matches [A-Za-z0-9_] leg names only; ahgk'tos_the_pure is not a word, so the legs are
         # counted from the step rows (each leg's boss step proves its rows are there).
         self.assertEqual({r["leg"] for r in rows}, {"0", "1", "2", "3", "4", "5", "6"})
         self.assertEqual(len(rows), 2906)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [46, 32, 18, 14, 36, 9, 34])
-        self.assertIn("('windhorn_canyon', 820, '62773,62774', '62773', '', 'turtle-agent 9e28646 dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('windhorn_canyon', 820, '62773,62774', '62773', '', 'turtle-agent 11ddb77 dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["62784", "62783", "62780", "62781", "62779", "62782", "62778"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         # The last step of every leg is its boss; the boss rows' entries are the packs that stand with them
-        # (Walgan's Bloodguards, Narlgom's summoned Rotag, Stormhoof's Behemoth, Ahgk'tos's Cloudstalkers).
+        # (Walgan's Bloodguards, Stormhoof's Behemoth, Ahgk'tos's Cloudstalkers; Narlgom's is empty, see the ninth export).
         for leg in range(7):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
-        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["62771", "", "62785", "62985", "", "", "62762"])
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["62771", "", "", "62985", "", "", "62762"])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["windhorn_canyon"])
         # The terrace fix (third export): leg 0 pulls the plateau packs 23/24 first, then the terrace in one visit - the ramp-top trio (25),
         # the Behemoth (26), the Earthkeeper trio (27), the Avenger pair (28), the east pair and Avenger (29, 30) - then the floor packs at the
