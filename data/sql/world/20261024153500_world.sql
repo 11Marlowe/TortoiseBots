@@ -22,7 +22,7 @@
 --     from the shelf instead;
 --   * step 377 (leg 3, the old g3 8898/8898/8899 at 680.0 -7.9 -60.0): the 44.5 yd straight hop from the g2 point
 --     (635.8 30.3 -73.6) to the old g3 approach (676 17 -60) is a 555.7 yd server route through the z-45 hall; from the
---     step-373 point it is 634.5 yd. The run's 8 approach hops could not cross it, and each resume walked into the
+--     step-373 point it is 627.9 yd. The run's 8 approach hops could not cross it, and each resume walked into the
 --     hall's 8911/8898 packs and Angerforge (9033). Leg 3 now clears the z-45 hall (old g4-g11) before g3 and ends
 --     at Angerforge: the boss approach is 668 36 -59.4 (21.4 yd from 652.4 21.4 -60.0, same floor) and the hall's last
 --     pull g11 stands at 663.2 49.3 -59.5. g3 opens leg 4 at the boss's hall (to 676 30 -59, approach 682 12 -59.5)
