@@ -92,7 +92,7 @@ SEEDED_BOSSES = {
 # Grubbis 7361: no spawn row in the map 90 export and no boss step names him, Gnomeregan).
 # Shadowfang Keep's extras that are not legs (Sever 14682, Prelate Ironmane 61969, the intro Arugal 10000).
 # the BFD neutrals Argent Guard 4787 and Woji the Toad 62531 (both rank 0).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929, 12237, 14695, 16118, 14349, 14324, 11467, 14308}
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 1720, 4438, 4842, 4425, 7361, 4787, 62531, 14682, 61969, 10000, 7354, 8923, 9024, 9041, 9042, 8929, 12237, 14695, 16118, 14349, 14324, 11467, 14308, 10393, 10558, 11032, 14684, 16101, 16102}
 # Ragglesnout 7354 (rank 2, Razorfen Downs: he is in a pull group).
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
@@ -170,6 +170,12 @@ SEEDED_BOSSES.update({(269, 65125): "Antnormi", (269, 50105): "Medivh",
                       (269, 65116): "Time-Lord Epochronos", (269, 65113): "Chronar"})
 NOT_BOSSES |= {65122, 65124, 61575}  # Rotmaw, Mossheart and Epidamu: scripted mobs inside pull groups, not leg ends
 
+# Stratholme's live side (20261024020100): its map and its three boss steps, names from the core's creature_template (all rank 1).
+# Jarien 16101/Sothos 16102 are Dathrohan's first (an EventAI pair), Skul 10393, Hearthsinger Forresten 10558 and Malor the Zealous
+# 11032 are not boss steps, and Balzaphon 14684 is a never-started event spawn: none is seeded.
+BOSS_PLANS["stratholme_live"] = 329
+SEEDED_BOSSES.update({(329, 10811): "Archivist Galford", (329, 10812): "Grand Crusader Dathrohan",
+                      (329, 10997): "Cannon Master Willey"})
 
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
@@ -1010,6 +1016,43 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([r["kind"] for r in rev if r["kind"] != "move"], ["boss"])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["dire_maul_west"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (429) AND `entry` IN (11489, 14690, 11488, 11487, 11496, 11486);", text)
+
+    def test_stratholme_live_is_the_live_side_with_the_census_fixes(self):
+        # 20261024020100 (turtle-agent a5309ee, 2026-10-24, the census of PREP-STRATHOLME-LIVE-2026-10-24.md): the generator draft of
+        # map 329's live side, no row hand-set, with the boss rows of map 329 scoped to this plan's own three entries. 3 legs, 195
+        # steps (141 moves, 51 pulls: 42 + 0 + 9; 3 bosses), 199 rows. The 16 neutral citizens (faction 7) are out of every pull and the
+        # legs skip 10384/10385/10558, Balzaphon 14684 (event 81, never spawned) is gone, Skul 10393 is listed in the pack he stands in,
+        # every radius is the members' spread (<= 18.7 yd), Jarien/Sothos are Dathrohan's first (his leg is a move and the boss) and the
+        # Galford hall packs are leg 0's last pulls, before the boss.
+        name, text = newest_plan_text("stratholme_live")
+        self.assertEqual(name, "20261024020100_world.sql")
+        self.assertIn("('stratholme_live', 329, '10419,10425,10426,10422', '', '10423,10421,10420,11032', 'turtle-agent cd375ad dungeons/stratholme_live.json', 'plan v1, draft (census-fixed, not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "stratholme_live")
+        self.assertEqual([legs[i][0] for i in range(3)],
+                         ["archivist_galford", "grand_crusader_dathrohan", "cannon_master_willey"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "stratholme_live"]
+        self.assertEqual(len(rows), 195)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(3)], [42, 0, 9])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["10811", "10812", "10997"])
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "16101,16102", ""])
+        for leg in range(3):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual([r["kind"] for r in leg_steps(rows, 1)], ["move", "boss"])
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertFalse([r["entries"] for r in pulls
+                          if {"10384", "10385", "14684"} & set(r["entries"].split(","))])
+        self.assertEqual([r["entries"] for r in pulls if "10393" in r["entries"].split(",")],
+                         ["10382,10390,10391,10393"])
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 18.7)
+        self.assertEqual(len([r for r in pulls if r["entries"] == "10424,10425"]), 2)
+        last0 = leg_steps(rows, 0)[-2]
+        self.assertEqual((last0["kind"], round(dist(last0, 3439.0, -3090.0), 1)), ("pull", 0.4))
+        self.assertLessEqual(dist(leg_steps(rows, 0)[-1], 3455.96, -3103.41), 0.1)
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stratholme_live"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (329) AND `entry` IN (10811, 10812, 10997);", text)
+        self.assertIn("(329, 10811, 'Archivist Galford'),\n(329, 10812, 'Grand Crusader Dathrohan'),\n(329, 10997, 'Cannon Master Willey');", text)
+
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
         # 20261023210000 (turtle-agent cg-fix1 479dc0d) re-exports the 20261023130100 draft (prep/crescent_grove ba00e7c, the census

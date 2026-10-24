@@ -1,0 +1,252 @@
+-- Stratholme, live side (map 329): the plan of the 2026-10-24 census, exported with the options of the header of
+-- 20261022210900_world.sql:
+--   turtle-agent plan-export --mmaps <map 329 mmaps> --allow-draft --gm-cross-direct --approach-hops \
+--     --rev cd375ad --stamp 20261024020100 --out <dir> stratholme_live
+-- (dungeons/stratholme_live.json, status 'draft (census-fixed, not mapped, not live-checked)'; the plan is marked
+-- handwritten in tools/dungeongen/plans.json, so the generator no longer rewrites it). NO ROW IS HAND-SET.
+-- What the census changed in the generator draft (PREP-STRATHOLME-LIVE-2026-10-24.md, "Fixes applied"):
+--   * the 16 Spectral/Ghostly Citizens 10384/10385 are faction 7 = neutral: they left every pull (two groups were only
+--     citizens) and the three legs skip 10384, 10385 and the neutral rare Hearthsinger Forresten 10558;
+--   * Balzaphon 14684 was a pack member and never spawns (game_event_creature guid 2354 -> event 81, start and end
+--     0000-00-00, the Scorn case of 20261023060000): dropped;
+--   * Skul 10393 (rank 2, hostile, 2.6 yd from the pull at 3509.6 -3316.1) is listed in it instead of only skipped;
+--   * pull radii are the members' spread from the anchor plus 0.5 yd (plus 5 when a member wanders; floor 5): the
+--     exporter's farthest+10 reached the next pack of the same entries on 12 pulls (up to 28.5 yd);
+--   * the one-unit chains in the Bastion hall (-3104..-3109) and the Willey hall (-3063..-3069) are one group each;
+--   * Jarien 16101/Sothos 16102 stand 16.9 yd from Dathrohan (detection 20): their pull is gone (leg 1 is the boss's
+--     move and step) and Dathrohan lists them as first;
+--   * the Galford hall packs (11043/10425/10424 at 3483 -3081 and 3467 -3070, 3x 10424/10425 at 3439 -3090) are the
+--     last three pulls of leg 0, before the boss, instead of a mid-leg visit with a 302 yd walk back from the market;
+--   * the plan row carries fleers (the ten Scarlet fleers), cc_priority 10419/10425/10426/10422, kill_first
+--     10423/10421/10420/11032 and no_cc (the undead and the event pair; the loader has no column for those two).
+-- 3 legs (archivist_galford, grand_crusader_dathrohan, cannon_master_willey), 195 steps (141 moves, 51 pulls: 42 + 0 +
+-- 9; 3 bosses), 199 rows. Plan check (turtle-agent plan-check, map 329 mmaps): ok, 231 points on the navmesh, 4 detour
+-- warnings (leg 0 pull groups 19, 21, 24: the market's layers) and 48 run-leader-hop notices.
+-- The boss block at the end (ai_dungeon_boss, the pattern of 20261021114931_world.sql) is added by hand: the exporter
+-- does not write that table. Its DELETE is scoped to this plan's own three entries, so another map-329 plan's rows
+-- (stratholme_undead: Barthilas, Anastari, Nerub'enkan, Maleki, Rivendare) survive when it is applied.
+-- Untracked adds the rows cannot name (no spawn row): Willey's Crimson Riflemen 11054 (three every 10 s from nine fixed
+-- points) and his gate 175969 (closed on aggro, opened on death); Dathrohan turning into Balnazzar below 40 % and his
+-- 32 skeletons on death; the Eye of Naxxramas's gargoyles on aggro; an Initiate's Gallant 10424 at 3593.44 -3086.3 and a
+-- Gallant's/Battle Mage's Monk 11043 at 3434.52 -3064.54 on group death; the rat trap's thirty plagued critters; and the
+-- 21 movement-type-2 spawns the run leader meets where they stand (no patrol block in the plan).
+-- Dungeon plans for the run leader (.bot run), exported by turtle-agent (plan-export). Plan format v1; the mapping is
+-- docs/guides/dungeon-run-leader.md ("From plan v1 to rows"). The plan file in turtle-agent is the single source: edit it
+-- there and export again, never these rows by hand. The plan row carries the unit lists cc_priority, cc_always and kill_first
+-- (columns from 20261015200000_world.sql). Never edit this file once applied; export a new one.
+--
+-- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
+
+-- stratholme_live: map 329, 3 legs, 195 steps
+DELETE FROM `ai_dungeon_step` WHERE `plan` = 'stratholme_live';
+DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'stratholme_live';
+DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'stratholme_live';
+INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
+('stratholme_live', 329, '10419,10425,10426,10422', '', '10423,10421,10420,11032', 'turtle-agent cd375ad dungeons/stratholme_live.json', 'plan v1, draft (census-fixed, not mapped, not live-checked)');
+INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
+('stratholme_live', 0, 'archivist_galford', ''),
+('stratholme_live', 1, 'grand_crusader_dathrohan', ''),
+('stratholme_live', 2, 'cannon_master_willey', '');
+INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, `z`, `radius`, `item`, `param`, `flags`, `timeout_s`, `entries`, `comment`) VALUES
+('stratholme_live', 0, 0, 'move', 0, 3426.92, -3382.65, 141.453, 0, 0, 0, 0, 0, '', 'to'),
+('stratholme_live', 0, 1, 'pull', 0, 3431.06, -3379.66, 141.29, 11.8, 0, 0, 0, 0, '10391,10390', 'pull group 0'),
+('stratholme_live', 0, 2, 'pull', 0, 3455.21, -3387.99, 140.26, 12.9, 0, 0, 0, 0, '10391,10390,10382,10381', 'pull group 1'),
+('stratholme_live', 0, 3, 'pull', 0, 3483.26, -3374.35, 135.27, 14.3, 0, 0, 0, 0, '10391,10390,10382', 'pull group 2'),
+('stratholme_live', 0, 4, 'pull', 0, 3507.66, -3382.49, 134.5, 18, 0, 0, 0, 0, '10391,10405,10381,10382,10390', 'pull group 3'),
+('stratholme_live', 0, 5, 'pull', 0, 3549.51, -3378.7, 132.76, 15.5, 0, 0, 0, 0, '10382,10391,10381,10390', 'pull group 4'),
+('stratholme_live', 0, 6, 'pull', 0, 3539.46, -3348.3, 130.39, 14, 0, 0, 0, 0, '10391,10390,10382,10381', 'pull group 5'),
+('stratholme_live', 0, 7, 'pull', 0, 3573.84, -3345.83, 129.35, 16.7, 0, 0, 0, 0, '10390,10382,10391', 'pull group 6'),
+('stratholme_live', 0, 8, 'pull', 0, 3561.08, -3317.72, 130.12, 16, 0, 0, 0, 0, '10381,10382,10391,10390', 'pull group 7'),
+('stratholme_live', 0, 9, 'pull', 0, 3514.03, -3315.81, 131.43, 5, 0, 0, 0, 0, '10414', 'pull group 8'),
+('stratholme_live', 0, 10, 'pull', 0, 3509.56, -3319.69, 131.14, 15.3, 0, 0, 0, 0, '10382,10390,10391,10393', 'pull group 9'),
+('stratholme_live', 0, 11, 'pull', 0, 3503.71, -3314.55, 130.35, 5, 0, 0, 0, 0, '10405', 'pull group 10'),
+('stratholme_live', 0, 12, 'pull', 0, 3479.97, -3306.24, 130.48, 5, 0, 0, 0, 0, '10411', 'pull group 11'),
+('stratholme_live', 0, 13, 'pull', 0, 3481.09, -3299.09, 131.15, 15, 0, 0, 0, 0, '10381,10390,10391,11082', 'pull group 12'),
+('stratholme_live', 0, 14, 'move', 0, 3490.9333, -3294.9333, 130.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 15, 'move', 0, 3504, -3297.6, 131.07378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 16, 'move', 0, 3521.0667, -3301.0667, 132.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 17, 'move', 0, 3534.9333, -3303.7334, 131.27379, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 18, 'move', 0, 3537.8665, -3304.8, 130.97379, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 19, 'move', 0, 3553.5999, -3311.7334, 130.47379, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 20, 'move', 0, 3577.0667, -3326.4001, 130.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 21, 'move', 0, 3577.5999, -3326.6667, 130.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 22, 'move', 0, 3590.933, -3333.0667, 126.973785, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 23, 'move', 0, 3633.8665, -3336.8, 123.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 24, 'move', 0, 3647.9998, -3328, 123.973785, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 25, 'move', 0, 3653.8665, -3326.1333, 123.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 26, 'move', 0, 3655.2, -3325.6, 123.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 27, 'move', 0, 3673.3333, -3298.9333, 127.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 28, 'move', 0, 3686.1333, -3260.2666, 127.77378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 29, 'move', 0, 3686.6665, -3257.3335, 127.473785, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 30, 'move', 0, 3685.8665, -3252.2666, 127.573784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 31, 'move', 0, 3683.4666, -3242.6667, 129.07378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 32, 'move', 0, 3675.4666, -3213.0667, 128.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 33, 'move', 0, 3659.4666, -3198.6665, 126.973785, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 34, 'move', 0, 3647.9998, -3178.6665, 127.27378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 35, 'move', 0, 3645.0667, -3169.5999, 128.57378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 36, 'move', 0, 3643.2, -3167.4666, 128.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 37, 'move', 0, 3636.5332, -3164.2664, 130.07378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 38, 'pull', 0, 3613.03, -3176.76, 132.11, 5, 0, 0, 0, 0, '10391', 'pull group 13'),
+('stratholme_live', 0, 39, 'pull', 0, 3636.65, -3174.12, 128.62, 5.7, 0, 0, 0, 0, '10418,10390,10391', 'pull group 14'),
+('stratholme_live', 0, 40, 'pull', 0, 3662.3, -3175.7, 126.6, 5, 0, 0, 0, 0, '10418,10419', 'pull group 15'),
+('stratholme_live', 0, 41, 'pull', 0, 3666.35, -3183.32, 126.59, 18.7, 0, 0, 0, 0, '10424,10418,10420,10419', 'pull group 16'),
+('stratholme_live', 0, 42, 'pull', 0, 3677.51, -3209.72, 127.22, 5, 0, 0, 0, 0, '10419,10424', 'pull group 17'),
+('stratholme_live', 0, 43, 'pull', 0, 3698.47, -3197.32, 127.89, 5, 0, 0, 0, 0, '10391', 'pull group 18'),
+('stratholme_live', 0, 44, 'pull', 0, 3705.17, -3168.02, 127.73, 5, 0, 0, 0, 0, '10391', 'pull group 19'),
+('stratholme_live', 0, 45, 'pull', 0, 3684.84, -3152.17, 127.32, 6.1, 0, 0, 0, 0, '10390,10391,10418', 'pull group 20'),
+('stratholme_live', 0, 46, 'pull', 0, 3660.92, -3158.93, 128.55, 5.5, 0, 0, 0, 0, '10418,10420', 'pull group 21'),
+('stratholme_live', 0, 47, 'pull', 0, 3642.24, -3132.34, 134.86, 5, 0, 0, 0, 0, '10390,10391', 'pull group 22'),
+('stratholme_live', 0, 48, 'pull', 0, 3621.07, -3126.82, 135.75, 5, 0, 0, 0, 0, '11032', 'pull group 23'),
+('stratholme_live', 0, 49, 'pull', 0, 3602.04, -3107.92, 134.14, 5, 0, 0, 0, 0, '10419,10420,10418', 'pull group 24'),
+('stratholme_live', 0, 50, 'pull', 0, 3589.11, -3116.47, 151.76, 5, 0, 0, 0, 0, '10424', 'pull group 25'),
+('stratholme_live', 0, 51, 'pull', 0, 3579.45, -3088.35, 136.07, 5.1, 0, 0, 0, 0, '10418,10419,10420', 'pull group 26'),
+('stratholme_live', 0, 52, 'pull', 0, 3546.6, -3072.54, 135.19, 11.6, 0, 0, 0, 0, '10391,10390,10424,10426,10425', 'pull group 27'),
+('stratholme_live', 0, 53, 'pull', 0, 3539.37, -3064.11, 135.67, 5, 0, 0, 0, 0, '10424', 'pull group 28'),
+('stratholme_live', 0, 54, 'pull', 0, 3513.09, -3066.71, 135.06, 5.1, 0, 0, 0, 0, '10424,10422,11043,10425', 'pull group 29'),
+('stratholme_live', 0, 55, 'pull', 0, 3503.82, -3094.52, 135.75, 5, 0, 0, 0, 0, '10424,10426', 'pull group 30'),
+('stratholme_live', 0, 56, 'pull', 0, 3645.58, -3209.03, 129.12, 5, 0, 0, 0, 0, '10391', 'pull group 31'),
+('stratholme_live', 0, 57, 'pull', 0, 3672.06, -3264.63, 127.88, 5, 0, 0, 0, 0, '10405', 'pull group 32'),
+('stratholme_live', 0, 58, 'pull', 0, 3682.09, -3293.91, 127.79, 16.3, 0, 0, 0, 0, '10382,10391,10381,10405,10390', 'pull group 33'),
+('stratholme_live', 0, 59, 'pull', 0, 3662.99, -3324.82, 123.76, 12.4, 0, 0, 0, 0, '10382,10390,10391', 'pull group 34'),
+('stratholme_live', 0, 60, 'pull', 0, 3676.02, -3357.74, 126.56, 15.1, 0, 0, 0, 0, '10382,10390,10391,10381', 'pull group 35'),
+('stratholme_live', 0, 61, 'pull', 0, 3693.64, -3392.42, 131.89, 12.6, 0, 0, 0, 0, '10381,10390,10391', 'pull group 36'),
+('stratholme_live', 0, 62, 'move', 0, 3695.2, -3378.1333, 131.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 63, 'move', 0, 3695.2, -3372.8, 131.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 64, 'move', 0, 3689.5999, -3354.1333, 129.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 65, 'move', 0, 3689.3333, -3353.3333, 129.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 66, 'move', 0, 3685.5999, -3343.4668, 126.473785, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 67, 'move', 0, 3684.7998, -3339.2, 126.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 68, 'move', 0, 3683.4666, -3328, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 69, 'move', 0, 3683.2, -3322.6667, 125.573784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 70, 'move', 0, 3683.2, -3321.3333, 125.973785, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 71, 'move', 0, 3687.7332, -3312.5334, 126.973785, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 72, 'move', 0, 3690.6665, -3306.6667, 127.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 73, 'move', 0, 3693.8665, -3296, 129.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 74, 'move', 0, 3694.1333, -3293.6, 129.27379, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 75, 'move', 0, 3696.2666, -3288.5334, 129.47379, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 76, 'move', 0, 3708.5332, -3271.4668, 129.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 77, 'pull', 0, 3731.99, -3262.38, 128.62, 12.5, 0, 0, 0, 0, '10391,10382,10390,10381', 'pull group 37'),
+('stratholme_live', 0, 78, 'pull', 0, 3715.01, -3257.74, 127.51, 5, 0, 0, 0, 0, '10414', 'pull group 38'),
+('stratholme_live', 0, 79, 'move', 0, 3705.0664, -3245.6, 127.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 80, 'move', 0, 3701.0664, -3242.6667, 127.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 81, 'move', 0, 3675.4666, -3213.0667, 128.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 82, 'move', 0, 3659.4666, -3198.6665, 126.973785, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 83, 'move', 0, 3647.9998, -3178.6665, 127.27378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 84, 'move', 0, 3645.8665, -3169.5999, 128.47379, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 85, 'move', 0, 3653.5999, -3165.333, 129.07378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 86, 'move', 0, 3651.4666, -3153.0664, 135.97379, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 87, 'move', 0, 3651.2, -3151.9998, 134.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 88, 'move', 0, 3643.2, -3129.5999, 134.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 89, 'move', 0, 3643.4666, -3128.5332, 134.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 90, 'move', 0, 3649.0667, -3118.933, 134.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 91, 'move', 0, 3648.2666, -3111.1997, 134.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 92, 'move', 0, 3648.2666, -3110.133, 134.47379, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 93, 'move', 0, 3649.3333, -3094.933, 134.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 94, 'move', 0, 3649.0667, -3093.333, 134.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 95, 'move', 0, 3648.5332, -3090.933, 134.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 96, 'move', 0, 3647.9998, -3089.8665, 134.47379, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 97, 'move', 0, 3646.4, -3089.333, 134.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 98, 'move', 0, 3640.2666, -3088.2664, 134.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 99, 'move', 0, 3611.7332, -3095.7332, 134.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 100, 'move', 0, 3606.933, -3096.7998, 134.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 101, 'move', 0, 3600, -3095.4666, 135.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 102, 'move', 0, 3595.4666, -3092.2664, 135.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 103, 'move', 0, 3582.6665, -3085.0664, 136.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 104, 'move', 0, 3580.2666, -3081.5999, 136.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 105, 'move', 0, 3580, -3080.5332, 136.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 106, 'move', 0, 3577.3333, -3066.133, 135.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 107, 'move', 0, 3575.7332, -3063.9998, 135.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 108, 'move', 0, 3574.1333, -3062.933, 135.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 109, 'move', 0, 3545.3333, -3068.5332, 135.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 110, 'move', 0, 3544.2666, -3067.9998, 135.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 111, 'move', 0, 3533.3333, -3059.7332, 135.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 112, 'move', 0, 3531.7332, -3059.9998, 135.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 113, 'move', 0, 3528.2666, -3060.7998, 135.07378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 0, 114, 'pull', 0, 3482.7, -3080.55, 135.44, 16.9, 0, 0, 0, 0, '10424,10425,11043', 'pull group 39'),
+('stratholme_live', 0, 115, 'pull', 0, 3467.43, -3070.42, 135.06, 5.5, 0, 0, 0, 0, '10424,10425', 'pull group 40'),
+('stratholme_live', 0, 116, 'pull', 0, 3439, -3089.58, 135.09, 5, 0, 0, 0, 0, '10424,10425', 'pull group 41'),
+('stratholme_live', 0, 117, 'boss', 10811, 3455.96, -3103.41, 136.545, 0, 0, 0, 0, 0, '', 'boss'),
+('stratholme_live', 1, 0, 'move', 0, 3422.88, -3056.5, 136.498, 0, 0, 0, 0, 0, '', 'to'),
+('stratholme_live', 1, 1, 'boss', 10812, 3413.63, -3042.04, 136.534, 0, 0, 0, 0, 0, '16101,16102', 'boss'),
+('stratholme_live', 2, 0, 'move', 0, 3434.6665, -3071.9998, 136.57378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 1, 'move', 0, 3439.7332, -3076.7998, 136.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 2, 'move', 0, 3445.8667, -3078.133, 135.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 3, 'move', 0, 3450.1333, -3077.0664, 135.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 4, 'move', 0, 3475.7332, -3070.4, 135.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 5, 'move', 0, 3480.2666, -3069.5999, 135.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 6, 'move', 0, 3486.6665, -3069.8665, 135.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 7, 'move', 0, 3488.2666, -3070.4, 135.37378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 8, 'move', 0, 3491.7332, -3073.0664, 135.37378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 9, 'move', 0, 3493.0667, -3073.0664, 135.67378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 10, 'move', 0, 3528.2666, -3060.7998, 135.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 11, 'move', 0, 3531.7332, -3059.9998, 135.67378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 12, 'move', 0, 3533.3333, -3059.7332, 135.37378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 13, 'move', 0, 3544.2666, -3067.9998, 135.67378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 14, 'move', 0, 3545.3333, -3068.5332, 135.37378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 15, 'move', 0, 3549.3333, -3067.1997, 135.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 16, 'move', 0, 3550.6665, -3066.6665, 135.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 17, 'move', 0, 3551.4666, -3066.133, 135.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 18, 'move', 0, 3562.6665, -3057.5999, 135.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 19, 'move', 0, 3565.8665, -3054.4, 135.67378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 20, 'move', 0, 3565.8665, -3052.7998, 135.67378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 21, 'move', 0, 3564.5332, -3050.6665, 135.67378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 22, 'move', 0, 3562.6665, -3047.7332, 135.07378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 23, 'move', 0, 3554.9333, -3036.7998, 128.37378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 24, 'move', 0, 3552, -3032.7998, 125.87378, 0, 0, 0, 0, 0, '', 'path'),
+('stratholme_live', 2, 25, 'move', 0, 3542.63, -3020.91, 125.084, 0, 0, 0, 0, 0, '', 'to'),
+('stratholme_live', 2, 26, 'pull', 0, 3550.78, -3017.71, 125.07, 12.1, 0, 0, 0, 0, '10421,10423,10425,10390,10424,10391', 'pull group 0'),
+('stratholme_live', 2, 27, 'pull', 0, 3544.78, -2988.55, 125.06, 5.8, 0, 0, 0, 0, '10423,10421,10424', 'pull group 1'),
+('stratholme_live', 2, 28, 'pull', 0, 3530.35, -2963.97, 125.08, 6.4, 0, 0, 0, 0, '10421,10423', 'pull group 2'),
+('stratholme_live', 2, 29, 'pull', 0, 3569.18, -2967.86, 125.08, 5.1, 0, 0, 0, 0, '10421,10423', 'pull group 3'),
+('stratholme_live', 2, 30, 'pull', 0, 3578.34, -2997.96, 125.08, 5, 0, 0, 0, 0, '10422,10423,10421', 'pull group 4'),
+('stratholme_live', 2, 31, 'move', 0, 3575.2, -3000.5332, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 32, 'move', 0, 3556, -3017.8665, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 33, 'move', 0, 3554.6665, -3020.2664, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 34, 'move', 0, 3553.3333, -3022.6665, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 35, 'move', 0, 3553.3333, -3024.7998, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 36, 'move', 0, 3554.9333, -3029.3333, 125.473785, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 37, 'pull', 0, 3593.19, -3066.89, 136.03, 5.3, 0, 0, 0, 0, '10418,10419,10420', 'pull group 5'),
+('stratholme_live', 2, 38, 'pull', 0, 3620.47, -3094.97, 134.16, 6.5, 0, 0, 0, 0, '10419,10418', 'pull group 6'),
+('stratholme_live', 2, 39, 'pull', 0, 3643.98, -3074.87, 134.21, 5.5, 0, 0, 0, 0, '10418,10419,10420', 'pull group 7'),
+('stratholme_live', 2, 40, 'pull', 0, 3660.93, -3093.67, 134.2, 5, 0, 0, 0, 0, '10418,10420', 'pull group 8'),
+('stratholme_live', 2, 41, 'move', 0, 3653.0667, -3091.9998, 134.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 42, 'move', 0, 3647.9998, -3089.8665, 134.47379, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 43, 'move', 0, 3646.4, -3089.333, 134.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 44, 'move', 0, 3640.2666, -3088.2664, 134.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 45, 'move', 0, 3611.7332, -3095.7332, 134.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 46, 'move', 0, 3606.933, -3096.7998, 134.17378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 47, 'move', 0, 3600, -3095.4666, 135.37378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 48, 'move', 0, 3598.1333, -3093.333, 135.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 49, 'move', 0, 3597.0667, -3091.7332, 135.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 50, 'move', 0, 3594.4, -3077.0664, 136.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 51, 'move', 0, 3592.5332, -3073.5999, 136.07378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 52, 'move', 0, 3591.2, -3072.7998, 136.87378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 53, 'move', 0, 3578.933, -3065.5999, 135.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 54, 'move', 0, 3577.0667, -3062.933, 135.67378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 55, 'move', 0, 3554.9333, -3029.3333, 125.473785, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 56, 'move', 0, 3553.3333, -3024.7998, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 57, 'move', 0, 3553.3333, -3022.6665, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 58, 'move', 0, 3554.6665, -3020.2664, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 59, 'move', 0, 3556, -3017.8665, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 60, 'move', 0, 3562.6665, -3007.9998, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 61, 'move', 0, 3574.1333, -2996.2666, 126.77378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 62, 'move', 0, 3574.933, -2994.933, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 63, 'move', 0, 3573.8665, -2991.7332, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 64, 'move', 0, 3572.2666, -2988.5332, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 65, 'move', 0, 3570.9333, -2986.6665, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 66, 'move', 0, 3569.3333, -2984.5332, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 67, 'move', 0, 3567.7332, -2983.7332, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 68, 'move', 0, 3546.9333, -2975.7332, 126.77378, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 69, 'move', 0, 3545.3333, -2974.4, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 70, 'move', 0, 3544.2666, -2972.7998, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 71, 'move', 0, 3543.7332, -2969.3333, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 72, 'move', 0, 3543.7332, -2966.933, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 73, 'move', 0, 3545.5999, -2964.2666, 125.073784, 0, 0, 0, 0, 0, '', 'approach path'),
+('stratholme_live', 2, 74, 'boss', 10997, 3573.57, -2937.31, 125.085, 0, 0, 0, 0, 0, '', 'boss');
+
+-- ai_dungeon_boss for the plan's three bosses (map 329's live side; entry-scoped so stratholme_undead's five keep theirs).
+DELETE FROM `ai_dungeon_boss` WHERE `map` IN (329) AND `entry` IN (10811, 10812, 10997);
+REPLACE INTO `ai_dungeon_boss` (`map`, `entry`, `name`) VALUES
+(329, 10811, 'Archivist Galford'),
+(329, 10812, 'Grand Crusader Dathrohan'),
+(329, 10997, 'Cannon Master Willey');
