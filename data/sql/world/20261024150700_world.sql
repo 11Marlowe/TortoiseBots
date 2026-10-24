@@ -1,6 +1,6 @@
--- Stormwrought Ruins (map 818): SW-FIX2 over 20261024150100 (turtle-agent 7c6bf7c
+-- Stormwrought Ruins (map 818): SW-FIX2 over 20261024150100 (turtle-agent 839e703
 -- dungeons/stormwrought_ruins.json), exported with the options of the 021000 header:
---   turtle-agent plan-export --mmaps <map 818 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 7c6bf7c \
+--   turtle-agent plan-export --mmaps <map 818 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 839e703 \
 --     --stamp 20261024150700 --out <dir> stormwrought_ruins
 -- Stacks on 20261024150100. WORKER DATA FIX for TortoiseBots-audit/RUN-LESSONS.md r30 (see
 -- ~/TortoiseBots-audit/SW-FIX2-2026-10-24.md). NO ROW IS HAND-SET: the plan file is the source.
@@ -35,7 +35,7 @@
 -- stormwrought_ruins: map 818, 11 legs, 768 steps
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'stormwrought_ruins';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 7c6bf7c dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');
+('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 839e703 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('stormwrought_ruins', 0, 'dagar_the_glutton', ''),
 ('stormwrought_ruins', 1, 'oronok_torn-heart', ''),

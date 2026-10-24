@@ -751,7 +751,7 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
 
     def test_stormwrought_ruins_is_the_census_fixed_draft(self):
-        # 20261024150700 (turtle-agent 7c6bf7c, 2026-10-24): SW-FIX2 over 20261024150100 (see
+        # 20261024150700 (turtle-agent 839e703, 2026-10-24): SW-FIX2 over 20261024150100 (see
         # ~/TortoiseBots-audit/SW-FIX2-2026-10-24.md and RUN-LESSONS.md r30): no row hand-set, boss rows of map 818
         # scoped to its own eleven entries. 11 legs, 768 steps (224 pulls), bosses in leg order, no boss.first,
         # no door or event step. Leg 5 keeps the SW-FIX1 south-shore order; the lake ledge (steps 252-262) gets
@@ -763,7 +763,7 @@ class DungeonPlanSql(unittest.TestCase):
         # kill_first.
         name, text = newest_plan_text("stormwrought_ruins")
         self.assertEqual(name, "20261024150700_world.sql")
-        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 7c6bf7c dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 839e703 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "stormwrought_ruins"),
                          {0: ("dagar_the_glutton", ""), 1: ("oronok_torn-heart", ""),
                           2: ("librarian_theodorus", ""), 3: ("duke_balor_the_iv", ""),
