@@ -662,15 +662,27 @@ class DungeonPlanSql(unittest.TestCase):
         # be neither attacked nor killed; live r36 step 1177 waited on it 14+ min after Narlgom died. Narlgom summons
         # the Spirit of Champion Rotag 61410 by spell 42004 at 50%, and that one fights; the boss row is 62780 alone.
         # The rows are unchanged (2906 steps); only the boss row's entries cell is now empty.
+        # The tenth export (20261024154100, turtle-agent 0a33c0c) is the legs 4-6 strict server replay: live r36 slotG
+        # stopped at step 1854 (leg 4 old group 34, 62760 at -7374.29 -3641.85 z260.04, lead -7371.5 -3592.9 z242.7,
+        # 49 yd away and 17 yd below: "no firing stand found"/"firing stands used up (2)"), and step 1179 refused a
+        # 215.5 yd approach hop to -7617.3 -3650.0 282.9. Three terraces have no navmesh link (each server query ends
+        # 51.9-119.4 yd short and the nearest reachable point is outside the 25 yd firing range), so their pulls are
+        # dropped: leg 4 old groups 34/35 (two + one 62760 on z 260/261), leg 5 old groups 0-5 (six 62760 on z 259-288)
+        # and leg 6 old groups 6-10 (five 62761 on z 238-241); the old leg-6 group 33 (62761 at -7135.47 -3568.04
+        # z239.169) is an island too and is dropped, its descent chain moved to Ahgk'tos's boss approach. Leg-3 pull
+        # group 0 gets the live firing stand -7617.3 -3650.0 282.9 as its approach. The exporter now snaps every cut via
+        # point to the nearest floor (the z242 corner -7635.5576 -3477.8813 242.086 was 5.1 yd off the server mesh), so
+        # the cut rows pass. 7 legs, 2906 steps, 175 pulls (46 + 32 + 18 + 14 + 34 + 3 + 28); the strict replay over
+        # legs 4-6 has 0 refused hops (153 before). Pinned below.
         name, text = newest_plan_text("windhorn_canyon")
-        self.assertEqual(name, "20261024153200_world.sql")
+        self.assertEqual(name, "20261024154100_world.sql")
         rows = [r for r in self.step_rows(text) if r["plan"] == "windhorn_canyon"]
         # leg_rows() matches [A-Za-z0-9_] leg names only; ahgk'tos_the_pure is not a word, so the legs are
         # counted from the step rows (each leg's boss step proves its rows are there).
         self.assertEqual({r["leg"] for r in rows}, {"0", "1", "2", "3", "4", "5", "6"})
         self.assertEqual(len(rows), 2906)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [46, 32, 18, 14, 36, 9, 34])
-        self.assertIn("('windhorn_canyon', 820, '62773,62774', '62773', '', 'turtle-agent 11ddb77 dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [46, 32, 18, 14, 34, 3, 28])
+        self.assertIn("('windhorn_canyon', 820, '62773,62774', '62773', '', 'turtle-agent 0a33c0c dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["62784", "62783", "62780", "62781", "62779", "62782", "62778"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         # The last step of every leg is its boss; the boss rows' entries are the packs that stand with them
@@ -739,7 +751,8 @@ class DungeonPlanSql(unittest.TestCase):
         # leg 6 group 11 climbs from the z 244.29 `to`, and groups 32/33 descend from the z 286 shelf to Ahgk'tos at z 151.365.
         leg3 = leg_steps(rows, 3)
         self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg3 if r["comment"].endswith("approach")],
-                         [("pull group 4 approach", "-7635.2", "-3676", "282.59"), ("pull group 4 approach", "-7628.77", "-3750.06", "283.31"),
+                         [("pull group 0 approach", "-7617.3", "-3650", "282.9"),
+                          ("pull group 4 approach", "-7635.2", "-3676", "282.59"), ("pull group 4 approach", "-7628.77", "-3750.06", "283.31"),
                           ("boss approach", "-7489.33", "-3584", "214.09")])
         leg4 = leg_steps(rows, 4)
         self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg4 if r["comment"].endswith("approach")],
@@ -747,11 +760,10 @@ class DungeonPlanSql(unittest.TestCase):
                           ("boss approach", "-7569.07", "-3551.47", "149.39"), ("boss approach", "-7529", "-3583.34", "148.89")])
         leg6 = leg_steps(rows, 6)
         self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg6 if r["comment"].endswith("approach")],
-                         [("pull group 11 approach", "-7490.4", "-3675.2", "219.39"), ("pull group 11 approach", "-7688.8", "-3676", "198.29"),
-                          ("pull group 11 approach", "-7448.53", "-3536.8", "149.07"), ("pull group 11 approach", "-7239", "-3445.36", "149.95"),
-                          ("pull group 32 approach", "-7697.33", "-3602.93", "218.89"),
-                          ("pull group 33 approach", "-7652.53", "-3689.6", "199.29"), ("pull group 33 approach", "-7448.53", "-3536.8", "149.07"),
-                          ("pull group 33 approach", "-7232.41", "-3503.02", "150.87")])
+                         [("pull group 6 approach", "-7490.4", "-3675.2", "219.39"), ("pull group 6 approach", "-7688.8", "-3676", "198.29"),
+                          ("pull group 6 approach", "-7448.53", "-3536.8", "149.07"), ("pull group 6 approach", "-7239", "-3445.36", "149.95"),
+                          ("boss approach", "-7652.53", "-3689.6", "199.29"), ("boss approach", "-7448.53", "-3536.8", "149.07"),
+                          ("boss approach", "-7232.41", "-3503.02", "150.87")])
         # The map-820 boss DELETE is scoped to this plan's own entries (it shares no map with another plan); it stays in the first file.
         first = dict(migrations())["20261023150100_world.sql"]
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", first)
