@@ -267,8 +267,9 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("if (TortoiseBots::CcLeavesOut(totem, npcSummoned, inRun, runKillFirst))", cc)
         self.assertIn("inRun = TortoiseBots::BotCommands::IsInRunningDungeonRun(ai->GetBot());", cc)
         self.assertIn("if (inRun && !assignedTarget)\n            return;", cc)
-        query = body(COMMANDS, "RunningRunOf(Player* bot, bool activeOnly = false)", "\n}\n")
-        self.assertIn(": entry.second.run.state != TortoiseBots::DungeonRun::State::Running", query)
+        self.assertIn("RunSlotOf(bot, activeOnly)", body(COMMANDS, "RunningRunOf(Player* bot, bool activeOnly = false)", "\n}\n"))
+        query = body(COMMANDS, "static DungeonRunSlot* RunSlotOf(Player* bot, bool activeOnly)", "\n}\n")
+        self.assertIn(": it->second.run.state != TortoiseBots::DungeonRun::State::Running", query)
 
     def test_spells_at_a_totem_must_hit_it(self):
         spells = (ROOT / "ai/playerbot/strategy/actions/GenericSpellActions.cpp").read_text()
@@ -817,9 +818,10 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
     def test_the_query_counts_running_and_paused_runs_of_the_bound_party(self):
         query = body(COMMANDS, "static bool IsBoundToActiveDungeonRun(Player* bot)", "}")
         self.assertIn("return RunningRunOf(bot, true) != nullptr;", query)
-        finder = strip_comments(body(COMMANDS, "RunningRunOf(Player* bot, bool activeOnly = false)", "\n}\n"))
-        self.assertIn("activeOnly ? !TortoiseBots::DungeonRun::HoldsItsDead(entry.second.run)", finder)
-        self.assertIn("group && group->GetId() == binding->groupId && group->IsMember(bot->GetObjectGuid())", finder)
+        finder = strip_comments(body(COMMANDS, "static DungeonRunSlot* RunSlotOf(Player* bot, bool activeOnly)", "\n}\n"))
+        self.assertIn("activeOnly ? !TortoiseBots::DungeonRun::HoldsItsDead(it->second.run)", finder)
+        # The bound party: the bot's own group is the binding's, and the lead bot is still in it.
+        self.assertIn("if (!leadGroup || leadGroup->GetId() != binding->groupId || binding->groupId != groupId)", finder)
         # The kill-first and cc questions still ask about a running run only.
         self.assertIn("return RunningRunOf(bot) != nullptr;", body(COMMANDS, "bool IsInRunningDungeonRun(Player* bot)", "}"))
 

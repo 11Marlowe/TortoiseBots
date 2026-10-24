@@ -13,5 +13,7 @@ namespace ai
     // the qualifying triggers in one pass over the core's area-trigger store;
     // each check then tests the bot's position against its map's few entries,
     // with no grid or cell visit.
-    void UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state);
+    // runArmed: the triggers the bot's active run has armed (null = none), on top of the
+    // listed ones; read only before the first script runs.
+    void UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, std::vector<uint32_t> const* runArmed);
 }

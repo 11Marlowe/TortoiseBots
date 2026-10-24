@@ -60,6 +60,7 @@
 #include "../runtime/GossipOrderPolicy.h"
 #include "../runtime/CommanderTelemetry.h"
 #include "../runtime/DungeonRunPolicy.h"
+#include "../runtime/RunGroupIndex.h"
 #include "../ai/playerbot/DungeonPlanMgr.h"
 #include "../ai/playerbot/BossTacticsMgr.h"
 #include "../ai/playerbot/PullAggroEstimatePolicy.h"
@@ -4598,6 +4599,25 @@ std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
     return runs;
 }
 
+// The bound group's id -> its run (runtime/RunGroupIndex.h), so a bot's run is one
+// lookup (RunSlotOf), not a scan over every run per bot. RebuildRunGroups is its one
+// owner: the run leader's update calls it each world update, and a run's start
+// right after it is stored; RunSlotOf checks every hit against the live run and
+// binding, so a run erased or unbound in between is never returned.
+TortoiseBots::DungeonRun::RunGroupIndex& RunGroups()
+{
+    static TortoiseBots::DungeonRun::RunGroupIndex index;
+    return index;
+}
+
+void RebuildRunGroups()
+{
+    RunGroups().Clear();
+    for (auto const& entry : DungeonRuns())
+        if (RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(entry.first))
+            RunGroups().Add(binding->groupId, entry.first);
+}
+
 Player* FindCharacter(uint64 raw);
 void PointFollowerAtLead(uint64 commanderRaw, Player* bot, Player* lead);
 void ClearRunCcIcons(uint64 leadRaw, uint32 groupId, DungeonRunSlot& slot);
@@ -6652,6 +6672,10 @@ static bool CommanderSummon(ChatHandler* handler, CommanderOrder const& order, P
 // while no task exists.
 // ---------------------------------------------------------------------------
 
+// The gossip step of the bot's running or paused dungeon run (cmd gossip's gate,
+// BotMayGossipWith; defined beside RunningRunOf, outside this anonymous namespace).
+static GossipOrder::RunGossipStep RunGossipStepOfBot(Player* bot);
+
 namespace {
 
 struct CommanderTask
@@ -7564,10 +7588,18 @@ static_assert(GossipOrder::kIconVendor == GOSSIP_ICON_VENDOR && GossipOrder::kIc
     GossipOrder::kIconTrainer == GOSSIP_ICON_TRAINER && GossipOrder::kIconMoneyBag == GOSSIP_ICON_MONEY_BAG &&
     GossipOrder::kIconTabard == GOSSIP_ICON_TABARD, "GOSSIP_ICON_*");
 
+// The gate of both checks: the allowlist, or the NPC the current gossip step of the
+// bot's active run names (GossipOrder::MayTalkTo; SFK r27 was refused Deathstalker
+// Adamant, 3849, at its plan's own gossip step).
+static bool BotMayGossipWith(Player* bot, uint32 entry)
+{
+    return GossipOrder::MayTalkTo(sPlayerbotAIConfig.botGossipNpcs, RunGossipStepOfBot(bot), entry);
+}
+
 ActStart BeginGossipAct(CommanderTask& task, Player* bot, TaskTarget const& target)
 {
     Creature* npc = target.creature;
-    if (npc && !GossipOrder::IsAllowedNpc(sPlayerbotAIConfig.botGossipNpcs, npc->GetEntry()))
+    if (npc && !BotMayGossipWith(bot, npc->GetEntry()))
         return RefuseAct(task, ActStart::Failed, GossipOrder::kCodeNotAllowed,
             GossipOrder::NotAllowedText(sPlayerbotAIConfig.botGossipNpcs));
     if (!npc || !npc->IsAlive())
@@ -8485,7 +8517,7 @@ static bool CommanderOpen(ChatHandler* handler, CommanderOrder const& order, Pla
 static bool CommanderGossip(ChatHandler* handler, CommanderOrder const& order, Player* bot,
     GossipOrder::Request const& request, std::string const& intent)
 {
-    if (!GossipOrder::IsAllowedNpc(sPlayerbotAIConfig.botGossipNpcs, request.entry))
+    if (!BotMayGossipWith(bot, request.entry))
     {
         SendActionError(handler, intent, GossipOrder::kCodeNotAllowed,
             GossipOrder::NotAllowedText(sPlayerbotAIConfig.botGossipNpcs).c_str());
@@ -12464,6 +12496,7 @@ void SyncRunHealOnly()
 
 static void UpdateDungeonRuns(uint32 diff)
 {
+    RebuildRunGroups();
     if (DungeonRuns().empty() && !RunHealOnlyBots().empty())
         SyncRunHealOnly(); // the last run is gone: every listed healer is let go
     if (!RunBackPassive().empty())
@@ -12746,6 +12779,7 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         slot.run = Start(plan, startStep);
         slot.run.startStep = startStep; // a walk back never goes before it (DungeonRun::ReplayFloor)
         DungeonRunSlot& stored = DungeonRuns()[commanderRaw] = slot;
+        RebuildRunGroups();
         s_dungeonRunMs = 0;
         TB_LOG_DETAIL("TortoiseBots: run leader of %s started plan %s at step %u", commander->GetName(), plan->name.c_str(),
             static_cast<uint32>(startStep + 1));
@@ -13323,27 +13357,48 @@ void CommanderAutonomyMapChange(Player* bot, PlayerbotAI* ai)
 
 // The running run of the bot's bound party, or null. activeOnly: a paused run
 // counts too (DungeonRun::HoldsItsDead: running or paused, not done).
+// One lookup in RunGroups by the bot's own group (a bot outside a group returns
+// before any lookup), checked against the live run, its binding and the lead
+// bot's group: constant work per question, whatever the number of runs.
+static DungeonRunSlot* RunSlotOf(Player* bot, bool activeOnly)
+{
+    Group* group = bot ? bot->GetGroup() : nullptr;
+    if (!group)
+        return nullptr;
+    uint32 const groupId = group->GetId();
+    uint64 const commanderRaw = TortoiseBots::DungeonRun::RunOfGroup(RunGroups(), groupId);
+    if (!commanderRaw)
+        return nullptr;
+    auto const it = DungeonRuns().find(commanderRaw);
+    if (it == DungeonRuns().end())
+        return nullptr;
+    if (activeOnly ? !TortoiseBots::DungeonRun::HoldsItsDead(it->second.run)
+                   : it->second.run.state != TortoiseBots::DungeonRun::State::Running)
+        return nullptr;
+    RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(commanderRaw);
+    Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+    Group* leadGroup = lead ? lead->GetGroup() : nullptr;
+    if (!leadGroup || leadGroup->GetId() != binding->groupId || binding->groupId != groupId)
+        return nullptr;
+    return &it->second;
+}
+
 static TortoiseBots::DungeonRun::Run const* RunningRunOf(Player* bot, bool activeOnly = false)
 {
-    if (!bot || !bot->GetGroup() || DungeonRuns().empty())
-        return nullptr;
-    for (auto const& entry : DungeonRuns())
-    {
-        if (activeOnly ? !TortoiseBots::DungeonRun::HoldsItsDead(entry.second.run)
-                       : entry.second.run.state != TortoiseBots::DungeonRun::State::Running)
-            continue;
-        RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(entry.first);
-        Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
-        Group* group = lead ? lead->GetGroup() : nullptr;
-        if (group && group->GetId() == binding->groupId && group->IsMember(bot->GetObjectGuid()))
-            return &entry.second.run;
-    }
-    return nullptr;
+    DungeonRunSlot const* slot = RunSlotOf(bot, activeOnly);
+    return slot ? &slot->run : nullptr;
 }
 
 bool IsInRunningDungeonRun(Player* bot)
 {
     return RunningRunOf(bot) != nullptr;
+}
+
+// cmd gossip's run allowance (BotMayGossipWith): a running or paused run binds its
+// bots, and its current step, read from the loaded plan, names the NPC.
+static GossipOrder::RunGossipStep RunGossipStepOfBot(Player* bot)
+{
+    return TortoiseBots::DungeonRun::RunGossipStepOf(RunningRunOf(bot, true));
 }
 
 // SM-REVIVE-PATH-2026-10-23 fix 3: a dead hired bot of a bound party whose run is
@@ -13359,6 +13414,17 @@ static bool IsBoundToActiveDungeonRun(Player* bot)
 // run leader registers its question once, at static initialisation.
 static bool const s_runReleaseHoldRegistered =
     (TortoiseBots::RunReleaseHold::Register(&IsBoundToActiveDungeonRun), true);
+
+std::vector<uint32_t> const* RunArmedAreaTriggers(Player* bot)
+{
+    return TortoiseBots::DungeonRun::RunArmedTriggersOf(RunningRunOf(bot, true));
+}
+
+void NoteRunAreaTriggerFired(Player* bot, uint32_t id)
+{
+    if (DungeonRunSlot* slot = RunSlotOf(bot, true))
+        TortoiseBots::DungeonRun::NoteTriggerFired(slot->run, id);
+}
 
 bool IsRunKillFirst(Player* bot, uint32_t entry)
 {

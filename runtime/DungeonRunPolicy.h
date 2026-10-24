@@ -54,6 +54,7 @@
 
 #include "../ai/playerbot/DungeonPlanPolicy.h"
 #include "../ai/playerbot/RangedApproachPolicy.h"
+#include "GossipOrderPolicy.h"
 #include "RemoteCommanderTasks.h"
 #include "RezHoldPolicy.h"
 
@@ -915,6 +916,11 @@ struct Run
 {
     const DungeonPlan* plan = nullptr;
     std::size_t step = 0;
+    // Area triggers the plan's move steps name (ArmReachedTriggers): armed from the step on until one
+    // fired for the run (NoteTriggerFired), then never again. triggerScan: the next step index to look at.
+    std::size_t triggerScan = 0;
+    std::vector<std::uint32_t> armedTriggers;
+    std::vector<std::uint32_t> firedTriggers;
     State state = State::Running;
     Phase phase = Phase::Begin;
     std::string note;        // what it does now, or why it paused
@@ -3051,6 +3057,7 @@ inline Run Start(const DungeonPlan* plan, std::size_t fromStep = 0)
     Run r;
     r.plan = plan;
     r.step = fromStep;
+    r.triggerScan = fromStep; // a run started past a move never arms its trigger
     ResetStep(r);
     r.note = "started";
     if (!Current(r))
@@ -3086,6 +3093,64 @@ constexpr std::uint32_t kRunMaxMinutesDefault = 180; // the shipped template and
 inline bool HoldsItsDead(const Run& r)
 {
     return r.plan && r.state != State::Done;
+}
+
+// The gossip step a run-bound bot may talk at (GossipOrder::MayTalkTo): a running
+// or paused run (HoldsItsDead) binds its bots; its current step, read from the
+// loaded plan (no database read), names the NPC when it is a gossip step. Null
+// (the bot is in no such run), a done run, or a step that is not a gossip step
+// widens nothing.
+inline GossipOrder::RunGossipStep RunGossipStepOf(const Run* r)
+{
+    GossipOrder::RunGossipStep out;
+    if (!r || !HoldsItsDead(*r))
+        return out;
+    out.bound = true;
+    const PlanStep* s = Current(*r);
+    if (!s || s->kind != PlanStepKind::Gossip)
+        return out;
+    out.atGossip = true;
+    out.entry = s->entry;
+    return out;
+}
+
+// The area triggers a run-bound bot may fire beyond AiPlayerbot.BotAreaTriggers
+// (ai::IsBotAreaTriggerArmed): a move or move_direct step's `entry` is armed once the
+// run has reached that step (Tick calls ArmReachedTriggers before and after each
+// step), and it stays armed past the step (the run may go on to the boss before any
+// bot's twice-a-second check ran inside the sphere, or stand in for the point on a
+// detour) until it has fired once for this run (NoteTriggerFired). Read from the
+// loaded plan (no database read). Null for no run, a done run, or nothing armed.
+inline void ArmReachedTriggers(Run& r)
+{
+    if (!r.plan)
+        return;
+    for (; r.triggerScan <= r.step && r.triggerScan < r.plan->steps.size(); ++r.triggerScan)
+    {
+        const PlanStep& s = r.plan->steps[r.triggerScan];
+        if ((s.kind != PlanStepKind::Move && s.kind != PlanStepKind::MoveDirect) || s.entry == 0)
+            continue;
+        if (std::find(r.firedTriggers.begin(), r.firedTriggers.end(), s.entry) != r.firedTriggers.end() ||
+            std::find(r.armedTriggers.begin(), r.armedTriggers.end(), s.entry) != r.armedTriggers.end())
+            continue;
+        r.armedTriggers.push_back(s.entry);
+    }
+}
+
+inline void NoteTriggerFired(Run& r, std::uint32_t id)
+{
+    auto const it = std::find(r.armedTriggers.begin(), r.armedTriggers.end(), id);
+    if (it == r.armedTriggers.end())
+        return;
+    r.armedTriggers.erase(it);
+    r.firedTriggers.push_back(id);
+}
+
+inline const std::vector<std::uint32_t>* RunArmedTriggersOf(const Run* r)
+{
+    if (!r || !HoldsItsDead(*r) || r->armedTriggers.empty())
+        return nullptr;
+    return &r->armedTriggers;
 }
 
 // maxMinutes 0 = no limit.
@@ -8869,7 +8934,8 @@ inline void RitualStep(Run& r, const Facts& f, const PlanStep& s, std::string& o
 // sight, a plain walk in sight), so the NPC is within the order's search range.
 // ACK ends the step; an ERR pauses with the module's own words (an NPC that
 // AiPlayerbot.BotGossipNpcs does not list is the order's `not-allowed`, which
-// names that key); no answer within the step's timeout pauses too. A step
+// names that key; since fix/plan-gossip-allow the NPC of this step was let
+// through for the run's bots, RunGossipStepOf); no answer within the step's timeout pauses too. A step
 // right before a hold counts as that event's start step (EventHoldAhead).
 inline void GossipStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& order)
 {
@@ -10685,6 +10751,7 @@ inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, con
     r.unattackableFight = unattackable;
     r.shotGateRan = false;
     SyncCcIcons(r, f);
+    ArmReachedTriggers(r); // a step reached by a skip, a resume or a jump since the last tick
     std::string order;
     bool held = false;
     if (r.state == State::Running && !r.hold.empty())
@@ -10700,6 +10767,7 @@ inline std::string Tick(Run& r, const Facts& in, std::uint32_t dt = kTickMs, con
         order = TickBody(r, f, dt, lines);
     if (!r.shotGateRan)
         EndShotHold(r); // the pull stand's hold ends with any tick its gate did not run on
+    ArmReachedTriggers(r); // the steps this tick reached
     if (firstUnattackable && r.state == State::Running)
         r.note += (r.note.empty() ? "" : "; ") + std::string("in combat with units the group cannot attack only (") +
             EngagedUnitsNote(in) + "): not counted as a fight";

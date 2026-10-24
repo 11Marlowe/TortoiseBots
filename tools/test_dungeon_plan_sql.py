@@ -1091,6 +1091,30 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", first)
         self.assertNotIn("ai_dungeon_boss", text)
 
+    def test_zulfarrak_names_its_area_trigger_on_the_walk_in(self):
+        # The move into at_zumrah (962) names the trigger in `entry`, so the run's bots fire it without
+        # AiPlayerbot.BotAreaTriggers (ai::IsBotAreaTriggerArmed). The UPDATE sorts after the newest whole-plan
+        # export and touches exactly that one move row.
+        name, text, rows = newest_zulfarrak_rows()
+        walk_in = [r for r in rows if r["leg"] == "10" and r["seq"] == "101"]
+        self.assertEqual(len(walk_in), 1)
+        self.assertEqual(walk_in[0]["kind"], "move")
+        self.assertIn("area trigger 962", walk_in[0]["comment"])
+        update = dict(migrations())["20261024000000_world.sql"]
+        self.assertLess(name, "20261024000000_world.sql")
+        statements = [s.strip() for s in re.split(r";\s*$", re.sub(r"(?m)^--.*$", "", update), flags=re.M) if s.strip()]
+        self.assertEqual(len(statements), 1)
+        self.assertTrue(statements[0].startswith("UPDATE `ai_dungeon_step` SET `entry` = 962,\n`comment` = 'area trigger 962: "))
+        self.assertTrue(statements[0].endswith("\nWHERE `plan` = 'zulfarrak' AND `leg` = 10 AND `seq` = 101 AND `kind` = 'move'"))
+        # The row's comment no longer claims the allowlist is needed.
+        comment = re.search(r"`comment` = '((?:[^']|'')*)'", statements[0]).group(1)
+        self.assertNotIn("needs AiPlayerbot.BotAreaTriggers", comment)
+        self.assertIn("no AiPlayerbot.BotAreaTriggers needed", comment)
+        # Nothing newer re-inserts the zulfarrak steps (that would drop the entry again).
+        later = [n for n, body in migrations() if n > "20261024000000_world.sql" and
+                 re.search(r"INSERT INTO `ai_dungeon_step`.*?\('zulfarrak',", body, re.S)]
+        self.assertEqual(later, [])
+
     def test_zulfarrak_and_uldaman_final_counts(self):
         # Each plan's newest INSERT follows the DELETE of its old steps and legs, so its rows are the plan after all migrations.
         name, text = newest_plan_text("zulfarrak")

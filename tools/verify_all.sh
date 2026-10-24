@@ -275,6 +275,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_rpg_mixer_policy
         test_rpg_relevance_weight_policy
         test_run_healer_policy
+        test_run_group_index
         test_run_leader_live_policy
         test_run_leader_sentinel_policy
         test_run_loot_corpse_policy
