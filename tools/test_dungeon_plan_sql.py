@@ -120,6 +120,16 @@ SEEDED_BOSSES.update({(820, 62784): "Walgan Bloodcaller", (820, 62783): "Ambassa
                       (820, 62779): "Pathun Duskhide", (820, 62782): "Chieftain Shalk Blackwind",
                       (820, 62778): "Ahgk'tos the Pure"})
 
+# Lower Blackrock Spire (20261024020600): its map and its seven boss steps, names from the core's creature_template (rank 1,
+# except the rank-3 NPC bosses 9236 and 9568). The four static rares 9217, 9218, 9718 and 10376 are pack members, 9219 patrols,
+# and Mor Grayhoof 16080 is the brazier event at Voone's spot: none is seeded.
+BOSS_PLANS["lower_blackrock_spire"] = 229
+SEEDED_BOSSES.update({(229, 9196): "Highlord Omokk", (229, 9236): "Shadow Hunter Vosh'gajin",
+                      (229, 9237): "War Master Voone", (229, 10596): "Mother Smolderweb",
+                      (229, 9736): "Quartermaster Zigris", (229, 10220): "Halycon",
+                      (229, 9568): "Overlord Wyrmthalak"})
+NOT_BOSSES.update({9217, 9218, 9219, 9718, 10376, 16080, 16044})
+
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
         with open(path, encoding="utf-8") as handle:
@@ -740,6 +750,61 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertTrue(all(lo < i < hi for i in (pos[id(r)] for r in approach[c])), c)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["razorfen_downs"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
+
+    def test_lower_blackrock_spire_is_the_plan_with_the_census_fixes(self):
+        # 20261024020600 (turtle-agent f33b92e, PREP-LOWER-BLACKROCK-SPIRE-2026-10-24): the generator draft of map 229 after the
+        # census, no row hand-set, with the boss rows scoped to this plan's seven entries (map 229 is shared with the
+        # upper_blackrock_spire raid plan). 7 legs, 487 steps (115 pulls: 22 + 25 + 32 + 5 + 4 + 22 + 5; 365 moves; 7 bosses).
+        # The draft's 11 UBRS-level packs (z 106-111, x 8-29) are out, the four static rares are pack members, Mor Grayhoof and
+        # his trigger are out, no pull lists more than six units and every radius covers its own pack (<= 16 yd).
+        name, text = newest_plan_text("lower_blackrock_spire")
+        self.assertEqual(name, "20261024020600_world.sql")
+        self.assertIn("('lower_blackrock_spire', 229, '9240,9257,9261,9262,9269', '', '9217,9045,9198,9239,9717,9266', "
+                      "'turtle-agent f33b92e dungeons/lower_blackrock_spire.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "lower_blackrock_spire")
+        self.assertEqual([legs[i][0] for i in range(7)],
+                         ["highlord_omokk", "shadow_hunter_vosh'gajin", "war_master_voone", "mother_smolderweb",
+                          "quartermaster_zigris", "halycon", "overlord_wyrmthalak"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "lower_blackrock_spire"]
+        self.assertEqual(len(rows), 487)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)],
+                         [22, 25, 32, 5, 4, 22, 5])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
+                         ["9196", "9236", "9237", "10596", "9736", "10220", "9568"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(7):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        pulls = [r for r in rows if r["kind"] == "pull"]
+        self.assertLessEqual(max(len([e for e in r["entries"].split(",") if e]) for r in pulls), 6)
+        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 16.0)
+        self.assertLessEqual(max(float(r["z"]) for r in rows if r["kind"] == "pull"), 91.0)
+        for rare in ("9217", "9218", "9718", "10376"):
+            self.assertEqual(len([r for r in pulls if rare in r["entries"].split(",")]), 1, rare)
+        for out in ("16080", "16044"):
+            self.assertFalse([r for r in pulls if out in r["entries"].split(",")], out)
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["lower_blackrock_spire"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (229) AND `entry` IN (9196, 9236, 9237, 10596, 9736, 10220, 9568);", text)
+
+    def test_lower_blackrock_spire_rows_pass_the_loader_checks(self):
+        # Every step row goes through the loader's own code (DungeonPlanPolicy.h), compiled from tools/test_dungeon_plan_rows.cpp:
+        # a row the loader refuses would be skipped at startup and the run pauses before it.
+        compiler = shutil.which("g++")
+        if compiler is None:
+            self.skipTest("g++ is not installed")
+        _name, text = newest_plan_text("lower_blackrock_spire")
+        rows = [r for r in self.step_rows(text) if r["plan"] == "lower_blackrock_spire"]
+        lines = ["P\tlower_blackrock_spire\t%d" % BOSS_PLANS["lower_blackrock_spire"]]
+        for r in rows:
+            lines.append("\t".join(["S", r["plan"], r["leg"], r["seq"], r["kind"], r["entry"], r["x"], r["y"], r["z"], r["radius"], r["item"],
+                                    r["param"], r["flags"], r["timeout_s"], r["entries"]]))
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = os.path.join(tmp, "rows")
+            build = subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", os.path.join(ROOT, "tools/test_dungeon_plan_rows.cpp"), "-o", binary],
+                                   capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([binary], input="\n".join(lines) + "\n", capture_output=True, text=True)
+        self.assertEqual(run.stdout.strip().splitlines()[-1], "rows %d refused 0" % len(rows), run.stdout)
+        self.assertEqual(run.returncode, 0, run.stdout)
 
     def test_crescent_grove_is_the_census_fixed_draft(self):
         # 20261023210000 (turtle-agent cg-fix1 479dc0d) re-exports the 20261023130100 draft (prep/crescent_grove ba00e7c, the census
