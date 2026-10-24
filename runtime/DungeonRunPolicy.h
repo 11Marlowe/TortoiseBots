@@ -1019,6 +1019,9 @@ struct Run
     bool approachStandWanted = false;
     bool approachStandResumed = false; // a resume of this step's approach pause: no hops, the stand first
     bool approachStandResumedSearch = false; // the search under way is that resume's (none found: hops again)
+    // The step whose refused pullback (PullbackRefusedUnreachable: the tank could not start moving to a firing
+    // position) asked the approach stand: FightStep runs that stand's search and walk with the pack in sight.
+    std::size_t refusedPullStandStep = static_cast<std::size_t>(-1);
     std::string approachStandWhy;      // the hops' note the stand's pause starts with (empty after a resume)
     float approachStandX = 0.0f, approachStandY = 0.0f, approachStandZ = 0.0f;
     // A move whose point the navmesh cannot reach walks to the nearest
@@ -2922,6 +2925,7 @@ inline void ClearApproachStand(Run& r)
     r.approachStandResumedSearch = false;
     r.approachStandWhy.clear();
     r.approachPauseKnown = false;
+    r.refusedPullStandStep = static_cast<std::size_t>(-1);
 }
 
 // A rewind of the run to an earlier step (EventFailed, RearmEventOnWipe): the approach
@@ -4342,6 +4346,8 @@ inline void StrandFailed(Run& r, const std::string& why)
         "): the walk back goes on as before";
 }
 
+inline bool PullbackRefusedUnreachable(Run& r, const std::string& order, const std::string& answer);
+
 inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)
 {
     // The retreat at two dead (RetreatTick): a refused move ends it, the fight goes on as the bots' own; no pause.
@@ -4558,9 +4564,9 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
     }
     // A pull target the module refuses as such (invalid-target: not an enemy,
     // or the group cannot attack it; Zul'Farrak's Sul'lithuz Hatchlings 8130)
-    // is left out for the run; the step goes on with what is left. Other
-    // refusals of a pullback (a busy tank, no tank, the lead bot unavailable)
-    // pause as before.
+    // is left out for the run; the step goes on with what is left. An `unreachable` one of the step's own pull goes the
+    // approach's way (PullbackRefusedUnreachable); other refusals of a pullback (a busy tank, no tank, the lead bot
+    // unavailable) pause as before.
     if (order.compare(0, 9, "pullback ") == 0 && answer.compare(0, 14, "invalid-target") == 0)
     {
         std::uint64_t const guid = std::strtoull(order.c_str() + 9, nullptr, 10);
@@ -4571,6 +4577,11 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         r.note = "pull refused (" + answer + "): that unit is left out";
         return;
     }
+
+    // The step's own pull refused for the tank's firing position: the approach's way out, not the pause below.
+    if (PullbackRefusedUnreachable(r, order, answer))
+        return;
+
     if (r.walkBack && r.plan && r.walkBackIdx < r.step)
     {
         const PlanStep& p = r.plan->steps[r.walkBackIdx];
@@ -6308,6 +6319,46 @@ inline bool ApproachWalkStuck(Run& r, const Facts& f, float dist, float x, float
     ApproachNoWay(r, f, *s, why);
     return true;
 }
+// Stormwrought Ruins r36 slot J step 553, Windhorn Canyon r36 slot G step 1854, Hateforge Quarry r35 slot 4b steps
+// 264/265, Blackrock Depths r35 slot 6 step 91 (2026-10-24): the step's pull went out with the pack in sight but out of
+// the tank's shot, its firing stands spent (HoldForShot: none found, used up, unreachable, or where it stands); the
+// glue's reach pull could not launch the tank's move ('unreachable: The tank could not start moving to a firing
+// position for the pull.') and OrderRefused paused the run; each resume ordered the same pull from the same spot into
+// the same pause, and the stop rule ended four runs. Now such a refusal of the step's own pull (a pull or boss step in
+// AwaitPull for that unit; not a hop pull, a walk back's or an event's) counts no pull and takes the approach's way out
+// (ApproachNoWay): a retry given up; the stand search once a step; then the deferral (PullMayBeDeferred's gate); then
+// the approach pause. At most two such refusals a step (before and after the stand). True: handled.
+inline bool PullbackRefusedUnreachable(Run& r, const std::string& order, const std::string& answer)
+{
+    if (order.compare(0, 9, "pullback ") != 0 || answer.compare(0, 11, "unreachable") != 0)
+        return false;
+    std::uint64_t const guid = std::strtoull(order.c_str() + 9, nullptr, 10);
+    const PlanStep* s = Current(r);
+    if (!s || (s->kind != PlanStepKind::Pull && s->kind != PlanStepKind::Boss) || r.walkBack || r.pullHop ||
+        r.phase != Phase::AwaitPull || r.pullGuid != guid || InEvent(r))
+        return false;
+    // A refused order started no fight: not a pull of the step, nor of the unit (kMaxPullsPerTarget).
+    auto const tried = r.pullTries.find(guid);
+    if (tried != r.pullTries.end() && tried->second > 0)
+        --tried->second;
+    if (r.pulls > 0)
+        --r.pulls;
+    r.pullGuid = 0;
+    EnterPhase(r, Phase::Begin);
+    std::string text = answer;
+    if (!text.empty() && text.back() == '.')
+        text.pop_back();
+    std::string const why = "cmd " + order + " refused: " + text;
+    // Where the lead bot stood on the tick the order went out (the approach pause keeps it: ApproachResumeInPlace).
+    Facts here;
+    here.leadX = r.leadLastX;
+    here.leadY = r.leadLastY;
+    here.leadZ = r.leadLastZ;
+    ApproachNoWay(r, here, *s, why);
+    if (r.state == State::Running && r.approachStandWanted)
+        r.refusedPullStandStep = r.step;
+    return true;
+}
 
 // Gnomeregan r24 slot 4 step 412, Sunken Temple r25 slot 4 step 5, Razorfen Kraul
 // r24 slot 8 step 299: '8 approach hops did not bring the party within 60 yd of the
@@ -8033,6 +8084,15 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
             return;
         }
     }
+
+    // A pullback refused for the tank's firing position asked the approach stand with the pack in sight
+    // (PullbackRefusedUnreachable): its search (answered by the glue after this tick) and its walk run here, not a
+    // new pull of the same unit from the same spot.
+    if (r.refusedPullStandStep == r.step && r.approachStandStep == r.step &&
+        (r.approachStand == 1 || r.approachStand == 2) &&
+        ApproachStand(r, s, dt, f, order, s.kind == PlanStepKind::Boss ? "boss" : "pack"))
+        return;
+
     if (!f.seen)
     {
         ApproachHop(r, f, s, dt, order, s.kind == PlanStepKind::Boss ? "boss" : "pack");

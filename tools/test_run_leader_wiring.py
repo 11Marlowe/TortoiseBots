@@ -918,6 +918,28 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
         self.assertLess(noway.index("DeferRetryOn(r)"), noway.index("ApproachStandWanted(r, s)"))
         self.assertLess(noway.index("ApproachStandWanted(r, s)"), noway.index("DeferUnreachablePack(r, s, why))\n            return;"))
         # the glue still answers the stand search after the tick (unchanged): the existing pin covers it
+    def test_a_refused_firing_position_goes_through_the_stand_search(self):
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        refused = body(policy, "inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)", "\n}\n")
+        self.assertLess(refused.index('answer.compare(0, 14, "invalid-target") == 0'),
+                        refused.index("if (PullbackRefusedUnreachable(r, order, answer))"))
+        self.assertLess(refused.index("if (PullbackRefusedUnreachable(r, order, answer))"),
+                        refused.index('Pause(r, "cmd " + order + " refused: " + answer + MissingHint(r));'))
+        fn = body(policy, "inline bool PullbackRefusedUnreachable(Run& r, const std::string& order, const std::string& answer)\n{", "\n}\n")
+        self.assertIn("r.pullHop", fn)
+        self.assertIn("r.pullGuid != guid", fn)
+        self.assertIn("ApproachNoWay(r, here, *s, why);", fn)
+        fight = body(policy, "inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vector<std::uint32_t>& killOrder,", "\n}\n")
+        self.assertLess(fight.index("r.refusedPullStandStep == r.step"), fight.index("if (!f.seen)"))
+        clear = body(policy, "inline void ClearApproachStand(Run& r)", "\n}\n")
+        self.assertIn("r.refusedPullStandStep = static_cast<std::size_t>(-1);", clear)
+        # The FightStep hook exists because the glue answers the stand search before it issues the order and hands a refusal
+        # to OrderRefused (a stand asked by a refusal is answered on the next sync): pin that order.
+        tick = body(strip_comments(COMMANDS), "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);"),
+                        tick.index("bool const accepted = IssueRunOrder(commander, order, answer,"))
+        self.assertLess(tick.index("bool const accepted = IssueRunOrder(commander, order, answer,"),
+                        tick.index("TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer + legNote +"))
 
     def test_runs_ended_early_list_their_deferred_packs(self):
         # The Opus/Codex review of 6566f84d: a run stopped early (.bot run stop, the time limit, the key switched
