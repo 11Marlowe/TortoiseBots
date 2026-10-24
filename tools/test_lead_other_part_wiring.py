@@ -75,5 +75,27 @@ class LeadOtherPartWiringTest(unittest.TestCase):
         self.assertIn("r.otherPartPaused = false;", body(POLICY, "inline void Pause(Run& r, const std::string& why)", "\n}\n"))
         self.assertIn("r.otherPartPaused = false;", body(POLICY, "inline bool Resume(Run& r)", "\n}\n"))
 
+    def test_revived_in_another_part_is_rescued(self):
+        # Dire Maul West r36 slot D: the rescue teleport before the pause, at both places the pause was the only answer.
+        target = body(POLICY, "inline std::size_t OtherPartRescueTarget(const Run& r, const Facts& f)", "\n}\n")
+        self.assertIn("if (!f.players.empty() || f.dead > 0 || !f.leadAlive || !RescueAllowed(r, f))", target)
+        self.assertIn("std::size_t const last = LastReachedBefore(r, r.step);", target)
+        self.assertIn("return SafePointAtOrBefore(r, f.team, last);", target)
+        rescue = body(POLICY, "inline bool OtherPartRescue(Run& r, const Facts& f)", "\n}\n")
+        self.assertLess(rescue.index("RescueDue(r, f, target);"), rescue.index("r.strandBotOnly = true;"))
+        revived = body(POLICY, "inline bool LeadRevivedAway(Run& r, const Facts& f)", "\n}\n")
+        other = body(revived, "if (LeadInOtherPart(r, f))", "if (r.autoRegroups >= kAutoRegroupsPerStep)")
+        self.assertLess(other.index("RearmRescueAfterDeath(r);"), other.index("OtherPartRescueTarget(r, f)"))
+        self.assertIn("if (r.autoRegroups < kAutoRegroupsPerStep && OtherPartRescueTarget(r, f) != "
+                      "static_cast<std::size_t>(-1))", other)
+        self.assertLess(other.index("++r.autoRegroups;"), other.index("OtherPartRescue(r, f);"))
+        self.assertLess(other.index("ResetStep(r);"), other.index("OtherPartRescue(r, f);"))
+        self.assertLess(other.index("OtherPartRescue(r, f);"), other.index("PauseOtherPart(r, f);"))
+        regroup = body(POLICY, "if (r.regroup && !runBackWait && !f.anyInCombat)", "if (r.holdDue && f.leadAlive)")
+        site = body(regroup, "if (LeadInOtherPart(r, f))", "PauseOtherPart(r, f);")
+        self.assertIn("if (OtherPartRescue(r, f))", site)
+        for line in ("r.regroup = false;", "r.waitFor.clear();", "r.walkBackDue = false;", "r.hold.clear();"):
+            self.assertIn(line, site)
+
 if __name__ == "__main__":
     unittest.main()

@@ -15053,11 +15053,13 @@ static void TestLeadInOtherPartPausesWithTheTrueReason()
     CHECK(r.note.find("island") == std::string::npos);
     CHECK(r.hold.size() == 1 && r.hold[0] == "Fyran" && r.holdWhilePaused && HoldStandsNow(r));
     CHECK(Tick(r, f).empty()); // paused: no gather, no summon
-    // A resume with the lead bot still there pauses again (no walk back, no island hop).
+    // A resume with the lead bot still there and the rescue off (AiPlayerbot.DungeonRunWalkBackRescue) pauses again
+    // (no walk back, no island hop); with it on, the rescue teleport (TestLeadInOtherPartAfterAWipeIsRescued).
     CHECK(Resume(r));
     f.dead = 0;
     f.alive = 5;
     f.deadNames.clear();
+    f.walkBackRescue = false;
     for (int i = 0; i < 5; ++i)
         CHECK(Tick(r, f).find("summon") != 0);
     CHECK(r.state == State::Paused && r.note.find("the lead bot revived in another part of the instance") == 0);
@@ -15108,6 +15110,7 @@ static Run PausedForOtherPart(DungeonPlan& plan, Facts& f)
     f.members = {Mem("Tanky", 0), Mem("Fyran", 1785)};
     f.members[1].x = 215;
     f.maxMemberYd = 1785;
+    f.walkBackRescue = false; // the rescue off: the pause (with it on, TestLeadInOtherPartAfterAWipeIsRescued)
     Tick(r, f);
     return r;
 }
@@ -15272,8 +15275,9 @@ static void TestBackDoorNearThePlanIsNotAnotherPart()
     CHECK(kDoorSpotYd == 10.0f && kOtherPartYd == 300.0f);
 }
 
-// The lead bot died alone and came back at another wing's door (LeadRevivedAway):
-// the pause, not the regroup and walk back that end on an island.
+// The lead bot died alone and came back at another wing's door (LeadRevivedAway), the rescue off
+// (AiPlayerbot.DungeonRunWalkBackRescue): the pause, not the regroup and walk back that end on an island. With it on,
+// the rescue teleport (TestLeadRevivedAwayInOtherPartIsRescued).
 static void TestLeadRevivedAwayInOtherPartPauses()
 {
     DungeonPlan plan;
@@ -15297,10 +15301,156 @@ static void TestLeadRevivedAwayInOtherPartPauses()
     f.maxMemberYd = 1785;
     f.members = {Mem("Tanky", 0), Mem("Fyran", 1785)};
     f.members[1].x = 215;
+    f.walkBackRescue = false;
     CHECK(Tick(r, f).empty());
     CHECK(r.state == State::Paused && r.note.find("the lead bot revived in another part of the instance") == 0);
-    CHECK(!r.regroup && r.autoRegroups == 0);
+    CHECK(!r.regroup && r.autoRegroups == 0 && !r.strandDue);
     CHECK(r.hold.size() == 1 && r.hold[0] == "Fyran" && r.holdWhilePaused);
+    CHECK(r.strandStep == static_cast<std::size_t>(-1)); // a death: the latch armed for the resume
+}
+
+// Dire Maul West r36 slot D (a full bot-led run, 2026-10-24): after a wipe the whole party came back at another
+// wing's door, 350 yd from every point of the plan, and the run paused 'the lead bot revived in another part of the
+// instance' eight times; each was fixed by hand (the bots summoned to the party's way, then the walk back). In a
+// bot-only party with everyone up the rescue teleport instead (OtherPartRescue): to the safe point on the way it
+// came, then the bots left at the door are summoned to it and the walk back goes on.
+static Run WipedAtTheOtherDoor(DungeonPlan& plan, Facts& f)
+{
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+    Run r = Start(&plan, 2);
+    f = Party(210);
+    f.doors = TwoDoors();
+    f.anyInCombat = true;
+    Tick(r, f);
+    f.leadAlive = false;
+    f.dead = 5;
+    f.alive = 0;
+    f.deadNames = {"Tanky", "Healy", "Magey", "Fyran", "Stabby"};
+    f.members.clear();
+    Tick(r, f);
+    f.anyInCombat = false;
+    Tick(r, f);
+    CHECK(r.regroup && r.note.find("5 dead") == 0);
+    CHECK(Tick(r, f) == "revive party");
+    // All five up together at the other wing's door (2000 0 0).
+    f.leadAlive = true;
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.leadX = 2000;
+    f.members = {Mem("Tanky", 0), Mem("Healy", 1), Mem("Magey", 1), Mem("Fyran", 1), Mem("Stabby", 1)};
+    for (MemberFact& m : f.members)
+        m.x = 2000 + m.yd;
+    f.maxMemberYd = 1;
+    return r;
+}
+
+static void TestLeadInOtherPartAfterAWipeIsRescued()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = WipedAtTheOtherDoor(plan, f);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && !r.regroup && !r.otherPartPaused && r.leadOtherPart);
+    CHECK(r.strandDue && r.strandBotOnly && r.walkBack && r.strandIdx == 0 && r.walkBackIdx == 0);
+    CHECK(r.note == "the lead bot revived in another part of the instance (2000.0 0.0 0.0), 1780.0 yd from the run: it "
+        "is teleported to a safe point on the way it came (step 1) out of combat");
+    CHECK(Tick(r, f) == "rescue from 2000.0 0.0 0.0 to 10.0 0.0 0.0");
+    // Landed: the four left at the door are summoned to it, one a tick, then the walk back goes on.
+    f.leadX = 10;
+    for (MemberFact& m : f.members)
+        if (m.name != "Tanky")
+            m.yd = 1990;
+    f.maxMemberYd = 1990;
+    std::string order;
+    for (int i = 0; i < 3 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "summon Healy");
+    CHECK(Tick(r, f) == "summon Magey");
+    CHECK(Tick(r, f) == "summon Fyran");
+    CHECK(Tick(r, f) == "summon Stabby");
+    CHECK(r.state == State::Running && r.strandStep == r.step && !LeadInOtherPart(r, f));
+}
+
+// The pause stays where the rescue does not fit: a real player in the party (he walks back with it), the rescue off,
+// or once a step (the latch used): each the pause as before, with nothing teleported.
+static void TestLeadInOtherPartRescueBounds()
+{
+    {
+        DungeonPlan plan;
+        Facts f;
+        Run r = WipedAtTheOtherDoor(plan, f);
+        PlayerFact pl;
+        pl.name = "Hypeer";
+        pl.yd = 1;
+        f.players.push_back(pl);
+        Tick(r, f);
+        CHECK(r.state == State::Paused && r.otherPartPaused && !r.strandDue);
+    }
+    {
+        DungeonPlan plan;
+        Facts f;
+        Run r = WipedAtTheOtherDoor(plan, f);
+        f.walkBackRescue = false;
+        Tick(r, f);
+        CHECK(r.state == State::Paused && r.otherPartPaused && !r.strandDue);
+    }
+    {
+        DungeonPlan plan;
+        Facts f;
+        Run r = WipedAtTheOtherDoor(plan, f);
+        r.strandStep = r.step; // the step's rescue used since the wipe
+        Tick(r, f);
+        CHECK(r.state == State::Paused && r.otherPartPaused && !r.strandDue);
+    }
+}
+
+// The lead bot died alone and came back at another wing's door (LeadRevivedAway) in a bot-only party: the rescue
+// teleport, counted as one of the step's regroups by itself; past them the pause as before.
+static void TestLeadRevivedAwayInOtherPartIsRescued()
+{
+    for (std::uint32_t used : {0u, kAutoRegroupsPerStep})
+    {
+        DungeonPlan plan;
+        plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+        Run r = Start(&plan, 2);
+        Facts f = Party(210);
+        f.doors = TwoDoors();
+        f.anyInCombat = true;
+        Tick(r, f);
+        f.leadAlive = false;
+        f.dead = 1;
+        f.alive = 4;
+        f.deadNames = {"Tanky"};
+        Tick(r, f);
+        r.autoRegroups = used;
+        r.strandStep = r.step; // used before the death: the death arms it again
+        r.islandEscapes = 1;   // the step's state before the death: started over (ResetStep), as the regroup's
+        f.leadAlive = true;
+        f.dead = 0;
+        f.alive = 5;
+        f.deadNames.clear();
+        f.anyInCombat = false;
+        f.leadX = 2000;
+        f.maxMemberYd = 1785;
+        f.members = {Mem("Tanky", 0), Mem("Fyran", 1785)};
+        f.members[1].x = 215;
+        CHECK(Tick(r, f).empty());
+        if (used == 0)
+        {
+            CHECK(r.state == State::Running && r.strandDue && r.strandBotOnly && r.autoRegroups == 1 && !r.regroup);
+            CHECK(r.islandEscapes == 0);
+            CHECK(r.note.find("the lead bot revived in another part of the instance (2000.0 0.0 0.0), ") == 0 &&
+                r.note.find("it is teleported to a safe point on the way it came (step 1) out of combat") !=
+                    std::string::npos);
+            CHECK(Tick(r, f) == "rescue from 2000.0 0.0 0.0 to 10.0 0.0 0.0");
+        }
+        else
+        {
+            CHECK(r.state == State::Paused && r.otherPartPaused && !r.strandDue);
+            CHECK(r.autoRegroups == kAutoRegroupsPerStep);
+        }
+    }
 }
 
 // The regroup's summons never pull a bot toward a lead bot in another part:
@@ -15906,6 +16056,109 @@ static void TestCombatDropNeverWhileHeldByAPlanBossOrHoldUnit()
         CHECK(r.combatDrops == std::vector<std::string>{"Varcus"});
         CHECK(notes.find("Varcus dropped combat with entry 7897 (cannot be attacked)") != std::string::npos);
     }
+}
+
+// Dire Maul West r36 slot D step 421 (wipe 4): the party came back at the other wing's door in combat with six
+// Residual Monstrosities (11484, attackable, 100 %) that had chased it from the wipe and stood 305 yd away for over
+// 3 min; the fight ceiling paused the run twice and `.combatstop` by hand ended it. With the lead bot far from the plan
+// (LeadFarFromPlan), a bot near it held only by units farther than kFarHoldYd drops its combat after kFarHoldGraceMs
+// (CombatDropTick), on any step kind.
+static Facts FarHeldParty(float unitYd)
+{
+    Facts f = Party(2000); // the other wing's door: 1780 yd from the plan's nearest point
+    f.anyInCombat = true;
+    f.leadInCombat = true;
+    f.engagedRead = true;
+    UnitFact far = Engaged(Unit(0xF130002CDC0564C3ull, 11484, unitYd));
+    far.attackable = true;
+    f.engagedUnits = {far};
+    MemberFact lead = Mem("Tanky", 0);
+    MemberFact priest = Mem("Healy", 1);
+    for (MemberFact* m : {&lead, &priest})
+    {
+        m->inCombat = true;
+        m->engagedRead = true;
+        m->engaged = {far};
+    }
+    f.members = {lead, priest};
+    f.maxMemberYd = 1;
+    return f;
+}
+
+static void TestFarHoldIsDroppedAwayFromThePlan()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), Step(PlanStepKind::Boss, 220)};
+    plan.steps.back().entry = 9999;
+    std::uint32_t const graceTicks = kFarHoldGraceMs / kTickMs;
+    Facts const f = FarHeldParty(305.0f);
+    Run r = Start(&plan, 2); // a boss step: the far kind is not bound to UnattackableLetGoStep
+    CHECK(HeldByFarUnitsOnly(f.members[0]) && LeadFarFromPlan(r, f));
+    for (std::uint32_t i = 0; i + 1 < graceTicks; ++i)
+    {
+        CHECK(CombatDropTick(r, f, kTickMs).empty());
+        CHECK(r.combatDrops.empty());
+    }
+    std::string const note = CombatDropTick(r, f, kTickMs);
+    CHECK((r.combatDrops == std::vector<std::string>{"Tanky", "Healy"}));
+    CHECK(note == "Tanky dropped combat with entry 11484 (305.0 yd away); Healy dropped combat with entry 11484 (305.0 yd "
+        "away)");
+    // Not far enough (kFarHoldYd), the lead bot near the plan, or the bot itself away from the lead bot: never.
+    Facts near = FarHeldParty(kFarHoldYd);
+    Facts onPlan = FarHeldParty(305.0f);
+    onPlan.leadX = 214;
+    Facts strayed = FarHeldParty(305.0f);
+    strayed.members[1].yd = kGatherYd + 1;
+    for (Facts* g : {&near, &onPlan, &strayed})
+    {
+        Run q = Start(&plan, 2);
+        for (std::uint32_t i = 0; i < 2 * graceTicks; ++i)
+            CombatDropTick(q, *g, kTickMs);
+        CHECK(q.combatDroppedAt.count("Healy") == 0);
+        CHECK(q.combatDroppedAt.count("Tanky") == (g == &strayed ? 1u : 0u)); // the lead bot itself stays far-held
+    }
+    CHECK(kFarHoldYd == 100.0f && kFarHoldGraceMs == 15000);
+}
+
+// The r36 slot D wipe 4 end to end: up at the other wing's door in combat with units 305 yd away. Their combat is
+// dropped after kFarHoldGraceMs (no fight-ceiling pause), and out of combat the regroup's rescue teleport follows.
+static void TestDireMaulWestR36FarCombatThenRescue()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = WipedAtTheOtherDoor(plan, f);
+    UnitFact far = Engaged(Unit(0xF130002CDC0564C3ull, 11484, 305.0f));
+    far.attackable = true;
+    f.anyInCombat = true;
+    f.leadInCombat = true;
+    f.engagedRead = true;
+    f.engagedUnits = {far};
+    for (MemberFact& m : f.members)
+    {
+        m.inCombat = true;
+        m.engagedRead = true;
+        m.engaged = {far};
+    }
+    std::uint32_t ticks = 0;
+    while (ticks < 60 && r.combatDrops.empty())
+    {
+        Tick(r, f);
+        ++ticks;
+    }
+    CHECK(ticks == kFarHoldGraceMs / kTickMs && r.combatDrops.size() == 5 && r.state == State::Running);
+    CHECK(r.note.find("Tanky dropped combat with entry 11484 (305.0 yd away)") != std::string::npos);
+    // The glue dropped it (DropUnattackableCombat): out of combat, the rescue.
+    f.anyInCombat = false;
+    f.leadInCombat = false;
+    f.engagedUnits.clear();
+    for (MemberFact& m : f.members)
+    {
+        m.inCombat = false;
+        m.engaged.clear();
+    }
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.strandDue && !r.regroup);
+    CHECK(Tick(r, f) == "rescue from 2000.0 0.0 0.0 to 10.0 0.0 0.0");
 }
 
 // A gather's ceiling does not pause on bots held only by units the group cannot attack (their combat is being
@@ -18298,6 +18551,9 @@ int main()
     TestOtherPartResumeRefusalOnlyForThatPause();
     TestBackDoorNearThePlanIsNotAnotherPart();
     TestLeadRevivedAwayInOtherPartPauses();
+    TestLeadInOtherPartAfterAWipeIsRescued();
+    TestLeadInOtherPartRescueBounds();
+    TestLeadRevivedAwayInOtherPartIsRescued();
     TestNoSummonTowardALeadInAnotherPart();
     TestNoIslandHopForALeadInAnotherPart();
     TestScarletLibraryR20Replay();
@@ -18415,6 +18671,8 @@ int main()
     TestUnattackableUnitIsNeverPulledOrPickedUp();
     TestBotHeldByUnattackableDropsCombat();
     TestCombatDropNeverWhileHeldByAPlanBossOrHoldUnit();
+    TestFarHoldIsDroppedAwayFromThePlan();
+    TestDireMaulWestR36FarCombatThenRescue();
     TestGatherWaitsForABotHeldByUnattackable();
     TestPetHeldByUnattackableKeepsTheBotInTheFight();
     TestUnattackableGraceNeverLetsAPlanBossOrHoldUnitGo();

@@ -2347,8 +2347,10 @@ inline bool LeadInOtherPart(Run& r, const Facts& f)
 // The pause for a lead bot in another part, with that reason (not "navmesh
 // island"): the living bots away from it (more than kGatherYd: at the fight
 // spot) hold where they are while the run is paused (Run::holdWhilePaused),
-// the ones already held too. Moving the lead bot to the party is left to the
-// player (a module summon of the lead bot is an owner decision).
+// the ones already held too. Asked only where the rescue teleport does not
+// fit (OtherPartRescue: a real player in the party, a bot still dead, the
+// rescue off or used this step, no safe point); then moving the lead bot to
+// the party is left to the player.
 inline void PauseOtherPart(Run& r, const Facts& f)
 {
     std::vector<std::string> keep = r.hold; // held already (HoldView leaves them out of f)
@@ -5019,6 +5021,41 @@ inline void RescueDue(Run& r, const Facts& f, std::size_t target)
     r.strandBotOnly = false; // the two bot-only kinds set it again below
     r.approachHops = 0;
     EnterPhase(r, Phase::Begin);
+}
+
+// The rescue's point for a lead bot revived in another part of the instance (LeadInOtherPart, which the caller has
+// asked): the safe point on the way it came (SafePointAtOrBefore of LastReachedBefore, as every other rescue), in a
+// bot-only party (Facts::players: a real player walks back with the party; the pause as before) with nobody dead (a
+// wipe: the whole party came back at that door together), bounded as every rescue (RescueAllowed). npos when it is
+// not allowed or there is no such point.
+inline std::size_t OtherPartRescueTarget(const Run& r, const Facts& f)
+{
+    if (!f.players.empty() || f.dead > 0 || !f.leadAlive || !RescueAllowed(r, f))
+        return static_cast<std::size_t>(-1);
+    std::size_t const last = LastReachedBefore(r, r.step);
+    if (last == static_cast<std::size_t>(-1) || last >= r.plan->steps.size())
+        return static_cast<std::size_t>(-1);
+    return SafePointAtOrBefore(r, f.team, last);
+}
+
+// Dire Maul West r36 slot D (a full bot-led run, 2026-10-24): after each of eight wipes the party came back at the
+// door at 47.5 -153.7 -2.7, 350 yd from every point of the plan, and the run paused 'the lead bot revived in another
+// part of the instance' (PauseOtherPart); each time it was fixed by hand (the commander there, the bots summoned to
+// him, then the walk back from the last reached point: 40 s to 4 min). The rescue teleport to the rescue's point
+// (OtherPartRescueTarget) instead, armed bot-only (StrandedTeleportTick rechecks for a joined player before the
+// send); its summons bring the party left at the door (out of combat). True when the rescue is due.
+inline bool OtherPartRescue(Run& r, const Facts& f)
+{
+    std::size_t const target = OtherPartRescueTarget(r, f);
+    if (target == static_cast<std::size_t>(-1))
+        return false;
+    float const yd = PlanNearestYd(r, f.leadX, f.leadY, f.leadZ);
+    RescueDue(r, f, target);
+    r.strandBotOnly = true; // armed bot-only: StrandedTeleportTick rechecks for a joined player before the send
+    r.note = "the lead bot revived in another part of the instance (" + Num(f.leadX) + " " + Num(f.leadY) + " " +
+        Num(f.leadZ) + "), " + Num(yd) + " yd from the run: it is teleported to a safe point on the way it came (step " +
+        std::to_string(target + 1) + ") out of combat";
+    return true;
 }
 
 // A walk back whose lead bot is stuck short of its point (the walk's tries spent) is not paused: the lead bot is
@@ -10819,9 +10856,20 @@ inline bool LeadRevivedAway(Run& r, const Facts& f)
     if (r.regroup || (InEvent(r) && !lostInHold) ||
         ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.leadDeathX, r.leadDeathY, r.leadDeathZ) <= kSeeYd)
         return false;
-    // Up in another wing: no walk back reaches the party from there.
+    // Up in another wing: no walk back reaches the party from there. A death: the rescue's latch is armed again (as
+    // the regroup's below), and in a bot-only party the rescue teleport (OtherPartRescue) is one of the step's
+    // regroups by itself; past them, or refused, the pause as before.
     if (LeadInOtherPart(r, f))
     {
+        RearmRescueAfterDeath(r); // a death: the rescue may teleport once more
+        if (r.autoRegroups < kAutoRegroupsPerStep && OtherPartRescueTarget(r, f) != static_cast<std::size_t>(-1))
+        {
+            ++r.autoRegroups;
+            r.fighting = false;
+            ResetStep(r);
+            OtherPartRescue(r, f);
+            return true;
+        }
         PauseOtherPart(r, f);
         return true;
     }
@@ -11038,6 +11086,31 @@ inline bool HeldByUnattackable(const MemberFact& m)
     return true;
 }
 
+// Dire Maul West r36 slot D step 421 (wipe 4, 2026-10-24): the party came back at the door at 47.5 -153.7 -2.7, 350
+// yd from every point of the plan, and went into combat at once: six Residual Monstrosities (11484, attackable, 100 %)
+// chased it from the wipe and stood at 47 151.7, 305 yd away, for over 3 min. Nothing could reach either side, and
+// the fight ceiling paused the run twice; `.combatstop` on each bot by hand ended it. With the lead bot that far from
+// the plan (LeadFarFromPlan: no fight of the plan is there), a bot near it (kGatherYd) held in combat only by units
+// farther than kFarHoldYd from the lead bot (HeldByFarUnitsOnly) for kFarHoldGraceMs drops it as one held by units
+// the group cannot attack does (CombatDropTick, the glue's DropUnattackableCombat).
+constexpr float kFarHoldYd = 100.0f;
+constexpr std::uint32_t kFarHoldGraceMs = 15000;
+
+inline bool LeadFarFromPlan(const Run& r, const Facts& f)
+{
+    return f.leadAlive && PlanNearestYd(r, f.leadX, f.leadY, f.leadZ) > kOtherPartYd;
+}
+
+inline bool HeldByFarUnitsOnly(const MemberFact& m)
+{
+    if (!m.engagedRead || m.engaged.empty() || m.yd > kGatherYd)
+        return false;
+    for (const UnitFact& u : m.engaged)
+        if (u.distLead <= kFarHoldYd)
+            return false;
+    return true;
+}
+
 // How long apart two combat drops of one bot are at least (a re-aggro starts the grace over anyway).
 constexpr std::uint32_t kCombatDropRepeatMs = 10000;
 
@@ -11050,10 +11123,14 @@ constexpr std::uint32_t kCombatDropRepeatMs = 10000;
 // Run::combatDrops for the glue (CombatStop on the bot and its pet, off the units' threat lists), at most once
 // per kCombatDropRepeatMs per bot. An attackable unit, a changed set or another step kind starts it over.
 // Returns the note for the drops of this tick ("Varcus dropped combat with entry 7897 (cannot be attacked)").
+// The same for a bot held by far units only (HeldByFarUnitsOnly) while the lead bot is far from the plan
+// (LeadFarFromPlan), on any step, after kFarHoldGraceMs ("Unjin dropped combat with entry 11484 (305.2 yd away)").
 inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
 {
     r.combatDrops.clear();
-    if (r.state != State::Running || !UnattackableLetGoStep(r))
+    bool const letGo = r.state == State::Running && UnattackableLetGoStep(r);
+    bool const farOff = r.state == State::Running && LeadFarFromPlan(r, f);
+    if (!letGo && !farOff)
     {
         r.combatDrop.clear();
         return std::string();
@@ -11062,7 +11139,7 @@ inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
     std::unordered_map<std::string, Run::CombatDropState> next;
     for (const MemberFact& m : f.members)
     {
-        if (m.name.empty() || !HeldByUnattackable(m))
+        if (m.name.empty())
             continue;
         // Never while a held-on unit is a boss or an event unit of the plan, whatever the step (the same guard as
         // UnattackableFightLetGo: Scarlet Cathedral r23 slot 5, Mograine's fake death).
@@ -11070,7 +11147,9 @@ inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
         for (const UnitFact& u : m.engaged)
             if (PlanBossOrHoldEntry(r, u.entry))
                 planUnit = true;
-        if (planUnit)
+        bool const unattackable = letGo && !planUnit && HeldByUnattackable(m);
+        bool const far = !unattackable && farOff && HeldByFarUnitsOnly(m);
+        if (!unattackable && !far)
             continue;
         std::vector<std::uint64_t> set;
         for (const UnitFact& u : m.engaged)
@@ -11085,13 +11164,14 @@ inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
         st.ms += dt;
         auto const last = r.combatDroppedAt.find(m.name);
         bool const spaced = last == r.combatDroppedAt.end() || r.runMs >= last->second + kCombatDropRepeatMs;
-        if (st.ms >= kUnattackableGraceMs && spaced)
+        if (st.ms >= (far ? kFarHoldGraceMs : kUnattackableGraceMs) && spaced)
         {
             r.combatDrops.push_back(m.name);
             r.combatDroppedAt[m.name] = r.runMs;
             std::string units;
             for (const UnitFact& u : m.engaged)
-                units += (units.empty() ? "entry " : ", entry ") + std::to_string(u.entry) + " (cannot be attacked)";
+                units += (units.empty() ? "entry " : ", entry ") + std::to_string(u.entry) +
+                    (far ? " (" + Num(u.distLead) + " yd away)" : std::string(" (cannot be attacked)"));
             note += (note.empty() ? "" : "; ") + m.name + " dropped combat with " + units;
         }
         next[m.name] = std::move(st);
@@ -11847,9 +11927,25 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         // The lead bot up in another part of the instance (another wing's
         // door, far from every point of the plan): no gather, summon or walk
         // back joins it to the party, so the run pauses with that reason and
-        // the living party holds where it is (r20-19z39 slot 7).
+        // the living party holds where it is (r20-19z39 slot 7). In a bot-only
+        // party with everyone up (a wipe: they all came back at that door), the
+        // rescue teleport instead (OtherPartRescue): the regroup ends here, its
+        // summons bring the party (Dire Maul West r36 slot D).
         if (LeadInOtherPart(r, f))
         {
+            if (OtherPartRescue(r, f))
+            {
+                r.regroup = false;
+                r.reviveSummons.clear();
+                r.gatherWaived = false;
+                r.gatherRefusals = 0;
+                r.waitFor.clear();
+                r.leadDied = false;
+                r.holdDue = false;
+                r.hold.clear();
+                r.walkBackDue = false; // the rescue's walk back is set (RescueDue)
+                return order;
+            }
             PauseOtherPart(r, f);
             return order;
         }
