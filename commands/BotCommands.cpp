@@ -10540,7 +10540,9 @@ void ReadMemberEngaged(Player* lead, Player* judge, Player* bot, TortoiseBots::D
 // (never the commander: `bots` are the group's headless bots) whose engaged units, read again now, are all units
 // the group cannot attack leaves combat, its pet too (CombatStop), and is taken off those units' threat lists
 // (HostileRefManager::deleteReferences), so its own AI follows the lead bot again. Gnomeregan r23 step 181: the
-// Alarm-a-bomb 2600 held the priest in combat 35 yd from the lead bot for 8 min.
+// Alarm-a-bomb 2600 held the priest in combat 35 yd from the lead bot for 8 min. The same for a bot near the lead
+// bot held by far units only (DungeonRun::HeldByFarUnitsOnly; Dire Maul West r36 slot D: six Residual Monstrosities
+// 305 yd away held the party in combat at the door it came back at after a wipe).
 void DropUnattackableCombat(Player* lead, std::vector<Player*> const& bots, std::vector<std::string> const& names)
 {
     if (names.empty())
@@ -10553,7 +10555,9 @@ void DropUnattackableCombat(Player* lead, std::vector<Player*> const& bots, std:
             continue;
         TortoiseBots::DungeonRun::MemberFact now;
         ReadMemberEngaged(lead, judge, bot, now);
-        if (!TortoiseBots::DungeonRun::HeldByUnattackable(now))
+        // ... or by far units only, with the bot near the lead bot (DungeonRun::HeldByFarUnitsOnly: r36 slot D).
+        now.yd = bot == lead ? 0.0f : bot->GetMap() == lead->GetMap() ? bot->GetDistance(lead) : 1000.0f;
+        if (!TortoiseBots::DungeonRun::HeldByUnattackable(now) && !TortoiseBots::DungeonRun::HeldByFarUnitsOnly(now))
             continue;
         Pet* const pet = bot->GetPet();
         if (pet && pet->IsAlive() && pet->IsInWorld())

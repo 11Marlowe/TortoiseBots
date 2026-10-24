@@ -106,10 +106,11 @@ class TimeSinksWiringTest(unittest.TestCase):
 
     def test_self_regroups_rearm_the_rescue(self):
         revived = body(POLICY, "inline bool LeadRevivedAway(Run& r, const Facts& f)", "\n}\n")
-        # Two calls: the pause past kAutoRegroupsPerStep (test_death_pauses_rearm_the_rescue), then the regroup's.
-        self.assertEqual(revived.count("RearmRescueAfterDeath(r);"), 2)
-        rearm = revived.index("RearmRescueAfterDeath(r);", revived.index("ResetStep(r);"))
-        self.assertLess(rearm, revived.index("BeginRegroup(r);"))
+        # Three calls: the other part's (test_revived_in_another_part_is_rescued), the pause past kAutoRegroupsPerStep
+        # (test_death_pauses_rearm_the_rescue), then the regroup's.
+        self.assertEqual(revived.count("RearmRescueAfterDeath(r);"), 3)
+        rearm = revived.index("ResetStep(r);\n    RearmRescueAfterDeath(r);\n    BeginRegroup(r);")
+        self.assertGreater(rearm, revived.index('Pause(r, "the lead bot died and came back "'))
         wipe = body(POLICY, "if (autoRegroup && !f.anyInCombat)", "return order;")
         self.assertLess(wipe.index("ResetStep(r);"), wipe.index("RearmRescueAfterDeath(r);"))
         self.assertLess(wipe.index("RearmRescueAfterDeath(r);"), wipe.index("BeginRegroup(r);"))

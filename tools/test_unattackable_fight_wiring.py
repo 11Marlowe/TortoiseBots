@@ -99,7 +99,12 @@ class UnattackableFightWiringTest(unittest.TestCase):
         drop = body(CODE, "void DropUnattackableCombat(Player* lead, std::vector<Player*> const& bots,")
         self.assertIn("if (!bot->IsAlive() || !bot->IsInWorld() ||", drop)
         self.assertIn("ReadMemberEngaged(lead, judge, bot, now);", drop)
-        self.assertIn("if (!TortoiseBots::DungeonRun::HeldByUnattackable(now))\n            continue;", drop)
+        # ... or held by far units only, with the bot's distance to the lead bot read for it (r36 slot D).
+        self.assertIn("now.yd = bot == lead ? 0.0f : bot->GetMap() == lead->GetMap() ? bot->GetDistance(lead) : 1000.0f;",
+                      drop)
+        self.assertIn("if (!TortoiseBots::DungeonRun::HeldByUnattackable(now) && "
+                      "!TortoiseBots::DungeonRun::HeldByFarUnitsOnly(now))\n            continue;", drop)
+        self.assertLess(drop.index("ReadMemberEngaged(lead, judge, bot, now);"), drop.index("now.yd = "))
         self.assertIn("sServerFacade.GetHostileRefManager(pet).deleteReferences();\n            pet->CombatStop();", drop)
         self.assertIn("sServerFacade.GetHostileRefManager(bot).deleteReferences();\n        bot->CombatStop();", drop)
         # `bots` are the group's headless bots (never the commander).

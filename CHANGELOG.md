@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed the run leader pausing after a wipe that brought the bot-only party back in another part of the instance: the lead is now teleported back to the run's way.
 - Fixed the run leader dropping a focus skull with no retry and keeping a stale skull across pauses.
 
 ## v1.4.0 (2026-10-17)
