@@ -1165,32 +1165,51 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (329) AND `entry` IN (10811, 10813, 10997);", text)
         self.assertIn("(329, 10811, 'Archivist Galford'),\n(329, 10813, 'Balnazzar'),\n(329, 10997, 'Cannon Master Willey');", text)
 
-    def test_stratholme_undead_is_the_undead_side_with_the_census_fixes(self):
-        # 20261024020200 (turtle-agent prep/stratholme_undead 58edf6e, 2026-10-24): the generator draft of map 329's undead side with
-        # the census fixes of PREP-STRATHOLME-UNDEAD-2026-10-24.md, no row hand-set. 5 legs, 253 steps (15 + 20 + 22 + 13 + 13
-        # pulls; 165 moves; the 5 bosses, each the leg's last row), 259 rows. The plan row carries kill_first 10393,10411,10400,10398
-        # and no cc_priority; the neutral citizens 10384/10385 and the neutral rare 10558 are out of every pull; the hostile rares
-        # Skul 10393 (leg 0) and Stonespine 10809 (leg 2) are members of the packs they stand in; the three Ash'ari Crystals 10415 are
-        # not pulls (no navmesh at their z, and each suicides when its acolytes die); Maleki's 3-unit caster pack is his first row;
-        # every radius stays short of the next pack (<= 15.6 yd).
+    def test_stratholme_undead_has_the_slaughter_square_hold_and_the_rivendare_tactic(self):
+        # 20261024150200 (turtle-agent prep/stratholme_undead ff1fe4d, 2026-10-24): 20261024020200 again with the
+        # Slaughter Square fix for RUN-LESSONS r28d slotD (abomination pulls 228-242 said 'pack cleared' while members
+        # had wandered out of the radius; Bile Spewer 10416 and Venom Belcher 10417 still alive, Ramstein never began;
+        # Rivendare walked to 7 yd at 100 % and was never engaged). Leg 4's 13 abomination pulls go 5 -> 18 yd (one
+        # spawn each, wander_distance 8: census spread 0 + 10, loader max 100); the leg's last row is the whole-square
+        # units hold instead of the boss row (kind hold, entry 0, param 0, flags 0, spot the square centre 4040.01
+        # -3413.15 117.77, radius 68, timeout 300, entries 10440,10416,10417), same shape as the ST Atal'alarion hold
+        # (f5d5f20f 20261024140000). Legs 0-3 byte-identical to 20261024020200. 5 legs, 243 steps (15 + 20 + 22 + 13 +
+        # 13 pulls; 155 moves; 4 boss rows + 1 hold); 249 rows. Boss table unchanged (all five); new ai_boss_tactic row
+        # (329, 10440, kill_first 10440) so DPS engage Rivendare the moment he is in combat with the party.
         name, text = newest_plan_text("stratholme_undead")
-        self.assertEqual(name, "20261024020200_world.sql")
-        self.assertIn("('stratholme_undead', 329, '', '', '10393,10411,10400,10398', 'turtle-agent 8dd1fa7 dungeons/stratholme_undead.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024150200_world.sql")
+        self.assertIn("('stratholme_undead', 329, '', '', '10393,10411,10400,10398', 'turtle-agent ff1fe4d dungeons/stratholme_undead.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "stratholme_undead")
         self.assertEqual([legs[i][0] for i in range(5)],
                          ["magistrate_barthilas", "nerub'enkan", "maleki_the_pallid",
                           "baroness_anastari", "baron_rivendare"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "stratholme_undead"]
-        self.assertEqual(len(rows), 253)
-        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
-        self.assertEqual(len([r for r in rows if r["kind"] == "move"]), 165)
+        self.assertEqual(len(rows), 243)
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss", "hold"})
+        self.assertEqual(len([r for r in rows if r["kind"] == "move"]), 155)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)],
                          [15, 20, 22, 13, 13])
         bosses = [r for r in rows if r["kind"] == "boss"]
-        self.assertEqual([r["entry"] for r in bosses], ["10435", "10437", "10438", "10436", "10440"])
-        self.assertEqual([r["entries"] for r in bosses], ["", "", "10398,10400", "", ""])
-        for leg in range(5):
+        self.assertEqual([r["entry"] for r in bosses], ["10435", "10437", "10438", "10436"])
+        self.assertEqual([r["entries"] for r in bosses], ["", "", "10398,10400", ""])
+        for leg in range(4):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        # leg 4 ends in the units hold, not a boss row: entry 0, no param/flags, 300 s, boss first (counts friendly)
+        leg4 = leg_steps(rows, 4)
+        self.assertEqual(leg4[-1]["kind"], "hold")
+        hold = [r for r in leg4 if r["kind"] == "hold"]
+        self.assertEqual(len(hold), 1)
+        self.assertEqual((hold[0]["entry"], hold[0]["x"], hold[0]["y"], hold[0]["z"]), ("0", "4040.01", "-3413.15", "117.77"))
+        self.assertEqual((hold[0]["radius"], hold[0]["param"], hold[0]["flags"], hold[0]["timeout_s"], hold[0]["entries"]),
+                         ("68", "0", "0", "300", "10440,10416,10417"))
+        self.assertIn("10440 counts while still friendly", hold[0]["comment"])
+        self.assertEqual(leg4[-1]["seq"], hold[0]["seq"])
+        # the 13 Slaughter Square pulls cover their wander area (radius 18 = spread 0 + 10 over wander 8)
+        pulls4 = [r for r in leg4 if r["kind"] == "pull"]
+        self.assertEqual(len(pulls4), 13)
+        self.assertEqual({r["entries"] for r in pulls4}, {"10416", "10417"})
+        for r in pulls4:
+            self.assertEqual(float(r["radius"]), 18.0, r["comment"])
         pulls = [r for r in rows if r["kind"] == "pull"]
         # the neutral units of faction 7 and the crystals are in no pull
         listed = {e for r in pulls for e in r["entries"].split(",") if e}
@@ -1204,7 +1223,6 @@ class DungeonPlanSql(unittest.TestCase):
         pulls2 = [r for r in leg_steps(rows, 2) if r["kind"] == "pull"]
         self.assertEqual([(r["entries"], round(dist(r, 3954.9, -3565.8))) for r in pulls2[:1]], [("10398,10400", 0)])
         self.assertLessEqual(dist(pulls2[1], 3970.6, -3546.6), 0.1)
-        self.assertLessEqual(max(float(r["radius"]) for r in pulls), 15.6)
         # the spec's bbox cut this formation in half: the pull at 3543 -3421 is the whole formation plus the two ghouls in it
         cadaver = [r for r in pulls if abs(float(r["x"]) - 3542.65) < 0.1 and abs(float(r["y"]) + 3420.89) < 0.1]
         self.assertEqual([(r["entries"], float(r["radius"])) for r in cadaver],
@@ -1213,6 +1231,8 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (329) AND `entry` IN (10435, 10437, 10438, 10436, 10440);", text)
         self.assertEqual([(m, e) for m, e, _n in self.boss_rows(text)],
                          [(329, 10435), (329, 10437), (329, 10438), (329, 10436), (329, 10440)])
+        # Rivendare's tactic: DPS take him before anything else while he attacks the party
+        self.assertIn("(329, 10440, 'kill_first', 0, 0, 1, 0, 'Rivendare: engage him the moment he is in combat with the party (r28d slotD)');", text)
 
     def test_stormwrought_ruins_is_the_census_fixed_draft(self):
         # 20261024021000 (turtle-agent e16271e, 2026-10-24): the generated Stormwrought Ruins draft with the pack census of
