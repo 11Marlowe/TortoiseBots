@@ -20,12 +20,12 @@
 --     tw_world_creature_linking_template.sql has no row on map 429: nothing of this wing is linked to a master.
 --   * 11442 (the unit r38 reported as "cannot be attacked") is the Gordok Mauler, creature_template faction 45,
 --     unit_flags 0, level 53-54, 7359-7599 hp, rank 1, detection 20, movement type 1; faction_template 45 has
---     our_mask 8 (monster), friendly_mask 0, hostile_mask 1 (any player: DBCEnums.h:81-84, DBCStructure.h:369), so it
+--     our_mask 8 (monster), friendly_mask 0, hostile_mask 1 (any player: src/game/Database/DBCEnums.h:81-84, src/game/Database/DBCStructure.h:369), so it
 --     is hostile, not friendly. Its 38 spawns (tw_world_creature.sql guids 51047-51127) are ALL on map 1, the Dire Maul
 --     exterior around the West portal (plan portal map 1 -3837.79 1250.23 160.223; the live unit stood at -3828.7 1041),
 --     and none on map 429 in the creature table or the map-429 export; no instance script summons it, and it has no
 --     creature_groups row. r38 carried a bot's combat reference to that exterior Mauler through `cmd enter 3186`, so the
---     run leader saw an engaged unit 3700 yd away it could not attack. It is not part of the wing and no row, kill_first
+--     run leader saw an engaged unit ~3800 yd away it could not attack. It is not part of the wing and no row, kill_first
 --     or cc list carries it (no step row names it). The run-leader fix for an unattackable engaged unit is separate.
 --
 -- CHANGES over 20261024153600 (the plan file is the source; no row is hand-set):
@@ -39,8 +39,8 @@
 --     lower route. The 13 units are no longer pull members (the plan note says so).
 --   * The lower-hall walk is now the route. The old cut points after the upper packs (leg 0 seq 26-28, z 28.68) are
 --     gone with them. The two 11473 patrols of the old groups 17/18 and the lower-hall packs r38 wiped on (leg 2's
---     groups 6, 5, 4 and 0) are now four leg-0 pulls, each its own step (so its own rest gate):
---       group 13 (W1, plan step 41): entries 11475,11472,11471,11473,11473, centre -91.99 469.83 -4.4, radius 23,
+--     groups 0, 3, 4, 5 and 6) are now four leg-0 pulls, each its own step (so its own rest gate):
+--       group 13 (W1, plan step 41): entries 11475,11472,11471,11473 (two 11473 spawns), centre -91.99 469.83 -4.4, radius 23,
 --         approach -50 455 -3, -50 470 -3, stand -65 480 -3.8 (28.8 yd from the centre);
 --       group 14 (W2, step 43): 11471,11472,11475,11473, centre -83.76 521.43 -4.4, radius 19, stand -114 520 -3.8
 --         (30.3 yd);
@@ -56,14 +56,14 @@
 --     (the exporter's cut of the lower route from old group 12; the old points are on the balcony, 32 yd above the
 --     floor the party walks). Path-check from step 26 (-76.80011 370.93323 -3.4181242): 2.2 yd and 21.1 yd, type 0x1;
 --     from step 19, the rescue's landing spot (-31.20012 299.9999 -7.7181244): 85.9 yd and 75.0 yd, type 0x1.
---   * Path checks (server-exact, turtle-agent 56de96ff = origin/dev f38e184 + the object-hold export, built for this
---     export): all 475 consecutive MOVE hops of the 563 rows with the pulls moving nobody pass type 0x1 except three
+--   * Path checks (server-exact: a local build of 56de96ff with origin/dev f38e184 merged, for plan-check/path-check
+--     plus the object-hold export): all 475 consecutive MOVE hops of the 563 rows with the pulls moving nobody pass type 0x1 except three
 --     pre-existing route artifacts: leg 0 seq 5 (-64 213.3 -> 22.8 226.3), leg 2 seq 0 (67 522 -> 0 533.3) and leg 2
 --     seq 27 (a duplicate 5.07 371.47 self-hop). Before: 5 (the same three plus the old step-27 hop, 35.0 yd short,
 --     and a duplicate leg-0 self-hop). The new chain -50 455 -> -50 470 -> -65 480 -> W1 centre -> -114 520 -> W2
 --     centre -> -56 524 -> W3 centre -> -48 490 -> W4 centre -> 6.2 504.8 (group 17) passes every hop type 0x1. Each
 --     stand is 25.9-30.3 yd from its pack centre and outside every other pack's detection (the nearest other pack is
---     ~40 yd). plan-check: 13 of 279 points fail, the same 13 as the unmodified 20261024153600 plan on the same build
+--     at least 30 yd away). plan-check: 13 of 279 points fail, the same 13 as the unmodified 20261024153600 plan on the same build
 --     (the leg-4 leg-transition queries and its known off-mesh boss approach); no new failing point.
 -- 6 legs, 563 steps (34 + 2 + 18 + 13 + 5 + 4 pulls, 5 holds, 6 bosses; leg rows 133 + 22 + 162 + 93 + 71 + 82),
 -- bosses in leg order. The census fixes of round 1 and the notes of rounds 2-3 are otherwise unchanged.
