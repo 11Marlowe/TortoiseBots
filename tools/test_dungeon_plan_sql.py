@@ -473,40 +473,56 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwind_stockade"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
-    def test_sunken_temple_is_the_plan_with_the_pull_8_stand(self):
-        # 20261024030000 (turtle-agent st-fix3 4d6206c, 2026-10-24): 20261023170100 again, with leg 0 pull group 8
-        # (5226x2 + 5228, pack -471.95 95.83 -189.73 on the z -189.7 floor) given one approach stand on the pack's
-        # own floor (-455 95.8 -189.55, 17 yd from the pack, sight clear, no edge). Run 2 (r26 slot6) fought this
-        # pull from the z -172.9 walkway corner (-422.9 85.3), chased the 5228's summoned 8257 Oozeling adds, and fell
-        # 13 yd to the lower island with no route back (steps 234-237 'no walkable path'). The party now fights on
-        # the pack floor. 8257 stays out of fleers/kill_first (census: a summoned add, not a fleer; only 5259 and 5273
-        # flee at 15 % HP). Census unit lists, radii, pulls and boss rows are unchanged. 6 legs, 2236 steps
-        # (16 + 37 + 25 + 8 + 2 + 1 pulls), bosses in leg order, no door or event step.
+    def test_sunken_temple_is_the_plan_with_the_statue_steps(self):
+        # 20261024060100 (turtle-agent st-statues 20c8f17, 2026-10-24): 20261024030000 again, with leg 0
+        # (atal'alarion) gaining the six statue steps in the verified order plus the Atal'alarion wait, before the
+        # boss row. Run 4 (r28 slot6) reached the leg-0 boss row (step 606) and waited 300 s there: Atal'alarion 8580
+        # stands at home faction 37 friendly and no statue was used (the plan had no statue steps). The six Atal'ai
+        # statues 148830-148835 (guids 27898, 27899, 28111-28114) must be used in that exact entry order
+        # (instance_sunken_temple.cpp ProcessStatueEvent: a wrong statue triggers a trap and does not advance the
+        # counter); only then does TYPE_ATALARION (instance data 4) read DONE and the boss turn selectable.
+        # Census unit lists, radii, pulls and boss rows are unchanged. 6 legs, 2404 steps
+        # (16 + 37 + 25 + 8 + 2 + 1 pulls), bosses in leg order; 6 open rows and 1 hold row in leg 0.
         name, text = newest_plan_text("sunken_temple")
-        self.assertEqual(name, "20261024030000_world.sql")
-        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent 4d6206c dungeons/sunken_temple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261024060100_world.sql")
+        self.assertIn("('sunken_temple', 109, '5259,5273,5269,5226', '5259', '5271,5280,5291', 'turtle-agent 20c8f17 dungeons/sunken_temple.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(re.findall(r"(?m)^\('sunken_temple', \d+, '(?:[^']|'')*', '(?:[^']|'')*'\)[,;]$", text)), 6)
         self.assertEqual([n.replace("''", "'") for n in re.findall(r"(?m)^\('sunken_temple', \d+, '((?:[^']|'')*)', '(?:[^']|'')*'\)[,;]$", text)],
                          ["atal'alarion", "weaver", "dreamscythe", "jammal'an_the_prophet", "morphaz", "shade_of_eranikus"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "sunken_temple"]
-        self.assertEqual(len(rows), 2236)
+        self.assertEqual(len(rows), 2404)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [16, 37, 25, 8, 2, 1])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["8580", "5720", "5721", "5710", "5719", "5709"])
-        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss", "open", "hold"})
         for leg in range(6):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
-        # The floor points of 20261023170100 stay: leg 0's boss approach runs along the walkway (z -172.9) and down
-        # the ramp to the boss floor (-189.6); leg 1 walks the same points back (via rows) after the boss.
+        # The hold comes after the last open and before the boss approach walks back down to the boss floor.
+        leg0 = leg_steps(rows, 0)
+        opens = [r for r in leg0 if r["kind"] == "open"]
+        self.assertEqual([(r["entry"], r["x"], r["y"], r["z"]) for r in opens],
+                         [("148830", "-515.553", "95.2582", "-148.74"),
+                          ("148831", "-419.849", "94.4837", "-148.74"),
+                          ("148832", "-491.4", "135.97", "-148.74"),
+                          ("148833", "-491.491", "53.4818", "-148.74"),
+                          ("148834", "-443.855", "136.101", "-148.74"),
+                          ("148835", "-443.417", "53.8312", "-148.74")])
+        hold = [r for r in leg0 if r["kind"] == "hold"]
+        self.assertEqual(len(hold), 1)
+        self.assertEqual((hold[0]["entry"], hold[0]["x"], hold[0]["y"], hold[0]["z"]), ("4", "-460", "96.8", "-189.58"))
+        self.assertEqual((hold[0]["radius"], hold[0]["param"], hold[0]["flags"], hold[0]["timeout_s"], hold[0]["entries"]),
+                         ("30", "3", "40", "30", "8580"))
+        # The boss approach still runs along the walkway (z -172.9) and down the ramp to the boss floor (-189.6):
+        # it now follows the hold, and the boss row is the leg's last row. Leg 1 walks the same points back.
         floor_points = [(-349.6, 99.4, -172.86), (-400.0, 98.2, -172.93), (-435.0, 97.4, -181.49), (-460.0, 96.8, -189.58)]
-        approach = [r for r in leg_steps(rows, 0) if r["comment"] == "boss approach"]
+        approach = [r for r in leg0 if r["comment"] == "boss approach"]
         self.assertEqual([(float(r["x"]), float(r["y"]), float(r["z"])) for r in approach], floor_points)
+        self.assertLess(leg0.index(hold[0]), leg0.index(approach[0]))
         via = [r for r in leg_steps(rows, 1) if r["comment"] == "via"]
         self.assertEqual([(float(r["x"]), float(r["y"]), float(r["z"])) for r in via],
                          list(reversed(floor_points)) + [(-300.0, 100.5333, -172.13)])
         self.assertLessEqual(math.dist((float(approach[-1]["x"]), float(approach[-1]["y"]), float(approach[-1]["z"])),
-                                       (float(leg_steps(rows, 0)[-1]["x"]), float(leg_steps(rows, 0)[-1]["y"]), float(leg_steps(rows, 0)[-1]["z"]))), 50.0)
-        # Pull group 8's new stand: on the pack floor, 15-25 yd from the pack, same z band.
-        leg0 = leg_steps(rows, 0)
+                                       (float(leg0[-1]["x"]), float(leg0[-1]["y"]), float(leg0[-1]["z"]))), 50.0)
+        # Pull group 8's stand is unchanged: on the pack floor, 15-25 yd from the pack, same z band.
         pg8 = [r for r in leg0 if r["kind"] == "pull" and r["comment"] == "pull group 8"][0]
         stand8 = [r for r in leg0 if r["kind"] == "move" and r["comment"] == "pull group 8 approach"]
         self.assertEqual(len(stand8), 1)
@@ -526,7 +542,8 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([float(r["radius"]) for r in pulls if r["entries"] == "5291"], [17.0] * 7)
         # The 23 detour pulls have two approach moves each, plus the new single-stand pull group 8; the last stands on
         # the pack's own floor, 30 yd or less from the pull row (a cut path's move rows may lie between the two
-        # approach points and the pull, so find the last approach move before each pull row).
+        # approach points and the pull, and the statue walks put open/hold rows between, so find the last approach
+        # move scanning back over those kinds).
         approaches = [r for r in rows if r["kind"] == "move" and r["comment"].startswith("pull group ") and r["comment"].endswith(" approach")]
         self.assertEqual(len(approaches), 47)
         self.assertEqual(len({(r["leg"], r["comment"].split()[2]) for r in approaches}), 24)
@@ -537,9 +554,9 @@ class DungeonPlanSql(unittest.TestCase):
                     continue
                 stand = None
                 for j in range(i - 1, -1, -1):
-                    if steps[j]["kind"] != "move":
+                    if steps[j]["kind"] not in ("move", "stand"):
                         break
-                    if steps[j]["comment"].endswith(" approach"):
+                    if steps[j]["kind"] == "move" and steps[j]["comment"].endswith(" approach"):
                         stand = steps[j]
                         break
                 if stand is None:
@@ -550,8 +567,6 @@ class DungeonPlanSql(unittest.TestCase):
                 self.assertLessEqual(abs(float(stand["z"]) - float(pull["z"])), 4.0, (leg, pull["comment"]))
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["sunken_temple"])
         # Entry-scoped on the shared map: only this plan's six bosses are deleted and replaced (the SM-wing rule on map 189).
-        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (109) AND `entry` IN (8580, 5720, 5721, 5710, 5719, 5709);", text)
-
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
         # 20261023120000 (turtle-agent rfk-fix5 32d3b491, 2026-10-23, after live run r24 slot8 stopped at step 15): the plan of
         # 20261023100000 again, with pull group 17's two approach moves reverted (r24: they led the lead bot onto the navmesh island
