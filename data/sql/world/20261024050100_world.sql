@@ -8,27 +8,32 @@
 -- wolf_master_nandos, archmage_arugal; status 'draft (not mapped, not live-checked)'), exported with the options of the
 -- newest sfk migration's header (20261023200000_world.sql):
 --   turtle-agent plan-export --mmaps <map 33 mmaps> --allow-draft --gm-cross-direct --approach-hops \
---     --rev c64f2d1 --stamp 20261024050100 --out <dir> shadowfang_keep
+--     --rev d1f521a --stamp 20261024050100 --out <dir> shadowfang_keep
 -- This migration supersedes 20261023200000_world.sql (it stays as applied and is not edited). Data fix from the
 -- interaction audit of 2026-10-24 (INTERACTIONS-VERIFIED-2026-10-24.md, shadowfang_keep), two legs:
+--   * NEEDS THE MODULE CHANGE: load this migration only on a build that contains TortoiseBots fix/wait-object-gone
+--     (kPlanFlagGoneIsDone accepted on a wait_object row, DungeonRunPolicy.h WaitObjectGoneIsDone). A module without it
+--     refuses flag 256 on a wait_object row (BadParam) and skips that row, so the plan it loads has 313 of the 314 steps
+--     the plan row announces, which the run client refuses.
 --   * leg 4 (courtyard_door), the wait for the Courtyard Door 18895 (row 47) now carries flag 256 (gone is done). The
 --     door is set active by Deathstalker Adamant's escort (instance_shadowfang_keep.cpp:193-201, creature_movement_scripts
 --     384911/385012) and removed about five waypoints later (point 11, cmd 41 on spawn 20835), so a plain wait for state
 --     active read -1 (not found) and paused to its timeout. With the flag the run leader counts the door gone as done
---     once a wait step read it found (ready or active) earlier in the run; a door never seen still pauses at the
---     timeout (60 s). The flag on a wait_object row needs the run leader of fix/wait-object-gone (TortoiseBots
---     DungeonPlanPolicy.h kPlanFlagGoneIsDone on wait_object, DungeonRunPolicy.h WaitObjectGoneIsDone); a module without it
---     refuses the row (BadParam) and the loader skips it with a log line.
---   * leg 7 (fenrus_the_devourer) grows two rows after the boss: a wait_clear (radius 35 round -148 2171 128.6, 90 s)
---     for the four Arugal's Voidwalkers (4627) that Fenrus' death summons 14 s later (generic_scripts 9536), and a wait_object
---     for the Sorcerer's Gate 18972 (-129.034 2166.16 129.187) to be active (90 s), which the fourth voidwalker death opens
---     (instance_shadowfang_keep.cpp:176-184). The plan steps 313 -> 315, the rows 324 -> 326 (seq 15 and 16 of leg 7).
+--     once a wait step read that target (entry and point) found, ready or active, earlier in the run, and the not-found
+--     is authoritative (the lead bot alive on the map, the point within ReactDistance of it, its grid loaded) and has
+--     held 3 s without a break; a door never seen still pauses at the timeout (60 s).
+--   * leg 7 (fenrus_the_devourer) grows one row after the boss: a wait_object for the Sorcerer's Gate 18972 (-129.034
+--     2166.16 129.187) to be active (90 s). Fenrus' death summons four Arugal's Voidwalkers (4627) 14 s later
+--     (generic_scripts 9536) and the fourth voidwalker death opens the gate (instance_shadowfang_keep.cpp:176-184); the
+--     party fights them as they come, and the wait covers the summon and the fight. A wait_clear round the boss room
+--     before it was left out: it passes before the 14 s summon, so it waited for nothing. The plan steps 313 -> 314,
+--     the rows 324 -> 325 (seq 15 of leg 7).
 --   * not in the rows: the Alliance gossip with Ashcrombe 3850 (the schema has no team-specific step form), Arugal's
 --     Lair 18971 (opens by itself when Nandos dies) and the config entry AiPlayerbot.BotGossipNpcs += 3849 (3850 for an
 --     Alliance party), which the module needs for the Adamant gossip at all.
 --   * every other row is byte-identical to 20261023200000_world.sql (diffed: the plan row's source and the 'steps' comment,
---     the flag and comment of leg 4 row 47, the two new leg-7 rows, nothing else).
--- Plan check (turtle-agent plan-check, map 33 mmaps, 2026-10-24, turtle-agent c64f2d1): ok, 185 points, 1 hop exempted by
+--     the flag and comment of leg 4 row 47, the new leg-7 row, nothing else).
+-- Plan check (turtle-agent plan-check, map 33 mmaps, 2026-10-24, turtle-agent d1f521a): ok, 185 points, 1 hop exempted by
 -- the plan (the seam move_direct), the same 9 detour warnings and 38 run-leader-hop notices as the plan of c77e8cf, no
 -- failures.
 -- The boss section at the end (ai_dungeon_boss, the pattern of 20261021114931_world.sql) is added by hand: the
@@ -36,12 +41,12 @@
 
 -- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
 
--- shadowfang_keep: map 33, 10 legs, 315 steps
+-- shadowfang_keep: map 33, 10 legs, 314 steps
 DELETE FROM `ai_dungeon_step` WHERE `plan` = 'shadowfang_keep';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'shadowfang_keep';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'shadowfang_keep';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent c64f2d1 dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');
+('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent d1f521a dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('shadowfang_keep', 0, 'rethilgore', ''),
 ('shadowfang_keep', 1, 'razorclaw_the_butcher', ''),
@@ -358,8 +363,7 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('shadowfang_keep', 7, 12, 'pull', 0, -125.62, 2182.95, 113.07, 14.9, 0, 0, 0, 0, '2529,3863', 'pull group 11'),
 ('shadowfang_keep', 7, 13, 'pull', 0, -115.73, 2157.04, 101.59, 20.5, 0, 0, 0, 0, '3859,3863,2110,2529', 'pull group 12'),
 ('shadowfang_keep', 7, 14, 'boss', 4274, -135.609, 2168.66, 128.779, 0, 0, 0, 0, 0, '', 'boss'),
-('shadowfang_keep', 7, 15, 'wait_clear', 0, -148, 2171, 128.6, 35, 0, 0, 0, 90, '', 'wait until no hostile: Fenrus'' death summons 4 Arugal''s Voidwalkers (4627) 14 s later (generic_scripts 9536); the 4th death opens the Sorcerer''s Gate 18972. Kill all four.'),
-('shadowfang_keep', 7, 16, 'wait_object', 18972, -129.034, 2166.16, 129.187, 0, 0, 1, 0, 90, '', 'wait for object 18972 active: The Sorcerer''s Gate opens on the 4th voidwalker death (instance_shadowfang_keep.cpp:176-184); a voidwalker left alive keeps it shut.'),
+('shadowfang_keep', 7, 15, 'wait_object', 18972, -129.034, 2166.16, 129.187, 0, 0, 1, 0, 90, '', 'wait for object 18972 active: Fenrus'' death summons 4 Arugal''s Voidwalkers (4627) 14 s later (generic_scripts 9536); the Sorcerer''s Gate opens on the 4th voidwalker death (instance_shadowfang_keep.cpp:176-184): kill all four, a voidwalker left alive keeps'),
 ('shadowfang_keep', 8, 0, 'move', 0, -121.846, 2162.59, 138.697, 0, 0, 0, 0, 0, '', 'to'),
 ('shadowfang_keep', 8, 1, 'pull', 0, -121.85, 2162.59, 138.7, 10, 0, 0, 0, 0, '2529', 'pull group 0'),
 ('shadowfang_keep', 8, 2, 'pull', 0, -132.29, 2165.33, 155.75, 29, 0, 0, 0, 0, '2110,3861,3863,3862,5058', 'pull group 1'),
