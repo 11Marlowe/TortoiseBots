@@ -1068,9 +1068,9 @@ class DungeonPlanSql(unittest.TestCase):
         # 20261024060300 (turtle-agent 665ba80, 2026-10-24): the hfq-fix1 re-export for the r28c slotE terrace block
         # (step 83 stopped 4 times at boss Bargul with no firing stand, the party 21-23 yd below his terrace).
         # Offline navmesh probes found no walkable route (the ramp seam has no link), so option (b): a move_direct
-        # pair (launch + land) over the 1.5 yd seam, the plan form of WC's serpentis hop and Uldaman's descent.
         # 6 legs, 467 steps (302 moves, 2 move_hop_exact, 158 pulls: 54 + 0 + 29 + 5 + 63 + 7, the 5 bosses), bosses in
-        # leg order, every leg ends on its boss. The plan row carries the census unit lists; Broody 60715 is Engineer
+        # leg order; every leg with a boss ends on it (leg 0 is the trash clear, its boss moved to the terrace leg).
+        # The plan row carries the census unit lists; Broody 60715 is Engineer
         # Figgles' boss.first (his lone pull is gone); the boss room is one 7-entry pull, the leg's last, and every pull
         # radius is 2.5 yd off the group's own spawns. The ramp-patrolling Overseer 60722 is pulled at group 22 of leg 0,
         # before the walk up; the terrace leg walks to the exact launch, hops to the terrace mesh, then to the stand
