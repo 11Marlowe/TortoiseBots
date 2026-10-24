@@ -1524,6 +1524,13 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("(329, 10440, 'kill_first', 0, 0, 1, 0, 'Rivendare: engage him the moment he is in combat with the party (r28d slotD)');", old)
 
     def test_stormwrought_ruins_is_the_census_fixed_draft(self):
+        # 20261025000100 (turtle-agent 6cf1575, 2026-10-25): SW-FIX4 re-exports the 20261024154300 plan with leg 5
+        # group 14's authored approach. RUN-LESSONS r37 stormwrought_ruins slot6 had stopped at the lake shore: the
+        # exporter's cut from group 13 (pull -6389.38 -3947.89 218.72) to group 14 walked y -3947 across the 8 yd
+        # mesh hole at x -6341..-6333 (no floor at any height; the lake below 3.4 yd) and put a cut point in it
+        # (-6333.07 -3947.2). The lead fell to -6339.4 -3947.3 215.8, steps 264-266 were "no walkable path", and the
+        # rescue teleported it back onto the water. Four authored rows now follow the solid shore at y -3950 and the
+        # ramp up to the live hand-move point (-6324.5 -3882 222.69), replacing five cut rows: 770 steps.
         # 20261024154300 (turtle-agent bd6ecb2, 2026-10-24): SW-FIX3, the back-half seam bridged after
         # RUN-LESSONS r36 stormwrought_ruins slotJ stopped at step 553. The party stood on the z215 island at
         # -6045.1 -3784.5 215.2-215.9 and the pack 62650/62645 (at -5990.5 -3783.86 219.37) is on the east
@@ -1531,15 +1538,16 @@ class DungeonPlanSql(unittest.TestCase):
         # 54.7 yd short), the floors are there (215.43 launch, 215.88 mid-gap, 216.88 landing). Leg 7 is split:
         # mycellakos_west keeps the route and pull groups 0-9; leg 8 mycellakos starts with the exact move to
         # the island edge and the 6.3 yd move_hop_exact to the east shelf, then the packs 10-18 (its groups 0-8)
-        # and the boss. 12 legs, 771 steps (224 pulls; three rows added), bosses in leg order, no boss.first, no
+        # and the boss. 12 legs, 770 steps (224 pulls; the seam's three rows, then SW-FIX4's four approach rows in
+        # place of five cut rows), bosses in leg order, no boss.first, no
         # door or event step. Every other row is 20261024151200's, shifted (legs 8-10 are 9-11). Leg 5 keeps the
         # SW-FIX1 south-shore order and the SW-FIX2 ledge approach rows (groups 10-11); the 12 water-only
         # z207.06 Razormaw singles, leg 6's 62660 single, leg 7's eight 62655 singles and leg 8's six 62648
         # groups are gone. The nine packs inside a boss's 18 yd detection are still their leg's last pull, and
         # Remains of the Innocent 62670 (boss-grade trash) is still in leg 11 and in kill_first.
         name, text = newest_plan_text("stormwrought_ruins")
-        self.assertEqual(name, "20261024154300_world.sql")
-        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent bd6ecb2 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025000100_world.sql")
+        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 6cf1575 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "stormwrought_ruins"),
                          {0: ("dagar_the_glutton", ""), 1: ("oronok_torn-heart", ""),
                           2: ("librarian_theodorus", ""), 3: ("duke_balor_the_iv", ""),
@@ -1548,7 +1556,7 @@ class DungeonPlanSql(unittest.TestCase):
                           8: ("mycellakos", ""), 9: ("eldermaw_the_primordial", ""),
                           10: ("lady_drazare", ""), 11: ("ighal'for", "")})
         rows = [r for r in self.step_rows(text) if r["plan"] == "stormwrought_ruins"]
-        self.assertEqual(len(rows), 771)
+        self.assertEqual(len(rows), 770)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(12)],
                          [11, 28, 18, 19, 19, 31, 27, 10, 9, 10, 30, 12])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
@@ -1585,16 +1593,17 @@ class DungeonPlanSql(unittest.TestCase):
         for r in steps5:
             if r["kind"] == "move" and r["comment"].endswith(" approach"):
                 approach.setdefault(r["comment"], []).append(r)
-        self.assertEqual(sorted(approach), ["pull group 10 approach", "pull group 11 approach"])
+        self.assertEqual(sorted(approach), ["pull group 10 approach", "pull group 11 approach", "pull group 14 approach"])
         order = sorted(approach, key=lambda c: int(c.split()[2]))
-        self.assertEqual([len(approach[c]) for c in order], [3, 4])
+        self.assertEqual([len(approach[c]) for c in order], [3, 4, 4])
         stands = {c: (float(approach[c][-1]["x"]), float(approach[c][-1]["y"]), float(approach[c][-1]["z"])) for c in order}
         self.assertEqual(stands, {
             "pull group 10 approach": (-6325.5, -3920.0, 222.5),
             "pull group 11 approach": (-6340.0, -3950.0, 218.6),
+            "pull group 14 approach": (-6324.5, -3882.0, 222.689),
         })
         pulls5 = [r for r in steps5 if r["kind"] == "pull"]
-        for c in order:
+        for c in order[:2]:  # groups 10/11 stand within 30 yd of their pack; group 14's is 49.7 (SW-FIX4)
             n = int(c.split()[2])
             pull = pulls5[n]
             self.assertEqual(steps5[pos[id(pull)] - 1], approach[c][-1], c)
@@ -1602,6 +1611,19 @@ class DungeonPlanSql(unittest.TestCase):
             lo = pos[id(pulls5[n - 1])] if n else -1
             hi = pos[id(pull)]
             self.assertTrue(all(lo < i < hi for i in (pos[id(r)] for r in approach[c])), c)
+        # SW-FIX4: group 14's approach keeps to the solid shore strip at y -3950 and the ramp (2-6 yd south of the
+        # 8 yd mesh hole at x -6341..-6333, y -3947), ending on the ledge at the point the r37 hand move used.
+        a14 = approach["pull group 14 approach"]
+        self.assertEqual([(r["kind"], r["x"], r["y"], r["z"]) for r in a14],
+                         [("move", "-6344", "-3950", "218.289"),
+                          ("move", "-6331", "-3950", "218.34"),
+                          ("move", "-6328", "-3928", "221.717"),
+                          ("move", "-6324.5", "-3882", "222.689")])
+        self.assertEqual(steps5[pos[id(pulls5[14])] - 1], a14[-1])
+        self.assertLessEqual(math.dist(stands["pull group 14 approach"],
+                                       (float(pulls5[14]["x"]), float(pulls5[14]["y"]), float(pulls5[14]["z"]))), 50.0)
+        self.assertFalse([r for r in rows if -6341 < float(r["x"]) < -6333 and abs(float(r["y"]) + 3947.2) < 2.0],
+                         "a step stands in the lake mesh hole (r37's cut point -6333.07 -3947.2)")
         # SW-FIX3: the seam hop. Leg 7 (mycellakos_west) ends with its group-9 pull on the z215 island; leg 8
         # starts with the exact move to the island edge (flags 64), its move_hop_exact 6.3 yd east (the seam),
         # and the move to the east shelf, then the step-553 pack and its neighbour. The exact/hop pair is the
