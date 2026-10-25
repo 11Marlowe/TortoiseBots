@@ -129,9 +129,16 @@ class SystemCommandWiringTest(unittest.TestCase):
         cmd = body(COMMANDS, "static bool HandleSystemRun(", "\n}\n")
         self.assertLess(cmd.index("State::Running"), cmd.index("IssueRunOrder("))
 
-    def test_system_unbind_releases_quietly(self):
+    def test_system_orders_share_the_player_gate(self):
         cmd = body(COMMANDS, "static bool HandleSystemRun(", "\n}\n")
-        self.assertIn("ReleaseBinding(key, RemoteCommander::ReleaseReason::Unbound, false)", cmd)
+        gate = "RefuseSystemOrder(lead, key, gateCode, gateMessage)"
+        self.assertEqual(cmd.count(gate), 2)
+        self.assertLess(cmd.index(gate), cmd.index("IssueRunOrder("))
+        self.assertLess(cmd.index("ServerLogChatHandler echo(lead, handler);"),
+                        cmd.rindex(gate) + len(gate) + 400)
+        helper = body(COMMANDS, "bool RefuseSystemOrder(", "\n}\n")
+        self.assertIn("TortoiseBots::SystemRun::DecideSystemOrder(realPlayer, pausedForPlayer)", helper)
+        self.assertIn("TortoiseBots::SystemRun::SystemOrderCode(", helper)
 
 if __name__ == "__main__":
     unittest.main()

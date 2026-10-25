@@ -193,6 +193,32 @@ inline bool JoinFlagAfterScan(bool running, bool realPlayerInGroup, bool pausedF
     return pausedForPlayer;
 }
 
+enum class SystemOrder : uint8_t
+{
+    Allow,
+    RefusePlayerInGroup,
+};
+
+// Every system-order entry point (.bot run system cmd, a forwarded resume,
+// any other forwarded order) shares one gate: a real player in the bound
+// group, or a run still flagged as paused for one, refuses the order.
+inline SystemOrder DecideSystemOrder(bool realPlayerInGroup, bool pausedForPlayer)
+{
+    if (realPlayerInGroup || pausedForPlayer)
+        return SystemOrder::RefusePlayerInGroup;
+    return SystemOrder::Allow;
+}
+
+inline char const* SystemOrderCode(SystemOrder order)
+{
+    switch (order)
+    {
+        case SystemOrder::Allow: return "ok";
+        case SystemOrder::RefusePlayerInGroup: return "player-in-group";
+    }
+    return "rejected";
+}
+
 enum class Verb : uint8_t
 {
     Invalid,

@@ -439,6 +439,30 @@ bool IsSystemBinding(uint64 commanderRaw)
     return binding && binding->system;
 }
 
+// One gate for every system-order entry point (.bot run system cmd, resume, a
+// forwarded order): a real player in the bound group, or a run still flagged
+// as paused for one, refuses the order with player-in-group.
+bool RefuseSystemOrder(Player* lead, uint64 key, std::string& code, std::string& message)
+{
+    bool realPlayer = false;
+    if (lead && lead->GetGroup())
+        for (Group::MemberSlot const& slot : lead->GetGroup()->GetMemberSlots())
+            if (!BotManager::Instance().IsBot(slot.guid))
+            {
+                realPlayer = true;
+                break;
+            }
+    bool pausedForPlayer = false;
+    if (auto run = DungeonRuns().find(key); run != DungeonRuns().end())
+        pausedForPlayer = run->second.systemPausedForPlayer;
+    if (TortoiseBots::SystemRun::DecideSystemOrder(realPlayer, pausedForPlayer) ==
+        TortoiseBots::SystemRun::SystemOrder::Allow)
+        return false;
+    code = TortoiseBots::SystemRun::SystemOrderCode(TortoiseBots::SystemRun::SystemOrder::RefusePlayerInGroup);
+    message = "A player is in the server-owned party: orders wait until the group is bots only again.";
+    return true;
+}
+
 // Every reply that would go to a system run's stand-in commander goes to the
 // server log instead (L2): status lines at Basic, order ACK/ERR lines at Detail.
 class ServerLogChatHandler final : public ChatHandler
@@ -9649,6 +9673,11 @@ static bool HandleSystemRun(ChatHandler* handler, std::string const& args, std::
             SendActionError(handler, intent, "not-bound", "That bot leads no server-owned party.");
             return true;
         }
+        if (std::string gateCode, gateMessage; RefuseSystemOrder(lead, key, gateCode, gateMessage))
+        {
+            SendActionError(handler, intent, gateCode.c_str(), gateMessage.c_str());
+            return true;
+        }
         auto run = DungeonRuns().find(key);
         if (run != DungeonRuns().end() &&
             run->second.run.state == TortoiseBots::DungeonRun::State::Running)
@@ -9690,6 +9719,11 @@ static bool HandleSystemRun(ChatHandler* handler, std::string const& args, std::
     if (!IsSystemBinding(key))
     {
         SendActionError(handler, intent, "not-bound", "That bot leads no server-owned party.");
+        return true;
+    }
+    if (std::string gateCode, gateMessage; RefuseSystemOrder(lead, key, gateCode, gateMessage))
+    {
+        SendActionError(handler, intent, gateCode.c_str(), gateMessage.c_str());
         return true;
     }
     ServerLogChatHandler echo(lead, handler);

@@ -87,6 +87,19 @@ static void TestStaleJoinFlag()
     CHECK(DecideJoinStep(false, true, true, false) == JoinStep::Resume); // without the clear it would resume
 }
 
+static void TestSystemOrderGate()
+{
+    // A system order is refused with player-in-group whenever the bound group
+    // has a real player OR the run is still flagged as paused for one: a
+    // resume after the joined player left must not let an order through
+    // before the tick clears the stale flag.
+    CHECK(DecideSystemOrder(false, false) == SystemOrder::Allow);
+    CHECK(DecideSystemOrder(true, false) == SystemOrder::RefusePlayerInGroup);
+    CHECK(DecideSystemOrder(false, true) == SystemOrder::RefusePlayerInGroup);
+    CHECK(DecideSystemOrder(true, true) == SystemOrder::RefusePlayerInGroup);
+    CHECK(std::string(SystemOrderCode(SystemOrder::RefusePlayerInGroup)) == "player-in-group");
+}
+
 static void TestParseArgs()
 {
     CHECK(ParseArgs("bind").verb == Verb::Bind && ParseArgs("bind").rest.empty());
@@ -114,6 +127,7 @@ int main()
     TestSystemBindGate();
     TestJoinStep();
     TestStaleJoinFlag();
+    TestSystemOrderGate();
     TestParseArgs();
     TestLogLine();
     std::printf("system run policy: %d checks passed\n", checks);
