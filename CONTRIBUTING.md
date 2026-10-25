@@ -63,6 +63,10 @@ feature branch, see above), never `main`.
   `m_bot` into normal core gameplay code.
 - Keep SQL migrations in the appropriate `data/sql/world` or `data/sql/character`
   directory, use a timestamped filename, and comment non-obvious statements.
+- Migrations must run on both MySQL 8 and MariaDB: no MariaDB-only syntax like
+  `ADD COLUMN IF NOT EXISTS`. Use the `information_schema` + `PREPARE` pattern for
+  idempotent column changes. The updater re-runs a migration whose content changed
+  and has no `DELIMITER` support.
 - If behavior is adapted from another project, name the source repository and
   commit in the pull request description.
 - Comment the code only where it cannot explain itself: a non-obvious reason,

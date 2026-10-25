@@ -6,13 +6,33 @@
 --   source_flags TINYINT bitmask: 1 REP (reputation-gated), 2 PVP
 --   world_epic   TINYINT 0/1 loot-attested BoE world-drop epic (§6, 62 items)
 --
--- Idempotent: re-applying is a no-op once the columns exist. Existing values
+-- Re-applying is a no-op once the columns exist. Existing values
 -- are kept; new columns default to base/unflagged until
 -- AiPlayerbot.GenerateItemCaches rebuilds them on next startup.
 -- After apply: restart mangosd with AiPlayerbot.GenerateItemCaches=1 (or run
 -- with empty ai_playerbot_item_info_cache) to backfill.
 
-ALTER TABLE `ai_playerbot_item_info_cache`
-    ADD COLUMN IF NOT EXISTS `source_tier` TINYINT UNSIGNED NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS `source_flags` TINYINT UNSIGNED NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS `world_epic` TINYINT UNSIGNED NOT NULL DEFAULT 0;
+SET @s := (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `ai_playerbot_item_info_cache` ADD COLUMN `source_tier` TINYINT UNSIGNED NOT NULL DEFAULT 0',
+  'DO 0')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_playerbot_item_info_cache' AND COLUMN_NAME = 'source_tier');
+PREPARE stmt FROM @s;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+SET @s := (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `ai_playerbot_item_info_cache` ADD COLUMN `source_flags` TINYINT UNSIGNED NOT NULL DEFAULT 0',
+  'DO 0')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_playerbot_item_info_cache' AND COLUMN_NAME = 'source_flags');
+PREPARE stmt FROM @s;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+SET @s := (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `ai_playerbot_item_info_cache` ADD COLUMN `world_epic` TINYINT UNSIGNED NOT NULL DEFAULT 0',
+  'DO 0')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_playerbot_item_info_cache' AND COLUMN_NAME = 'world_epic');
+PREPARE stmt FROM @s;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
