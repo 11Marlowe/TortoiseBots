@@ -38,6 +38,11 @@ using namespace ai;
 // subterranean terrain fallback is not.
 static constexpr float kMaxWaypointDrop = 4.0f;
 
+// Thin floor over magma (round 1): collision (vmap) floor confirmation
+// window, in yards — probe from navmeshZ + 1.0, accept within 1.0.
+static constexpr float kMagmaFloorProbeAboveZ = 1.0f;
+static constexpr float kMagmaFloorWindowZ = 1.0f;
+
 // MagmaHazardPolicy.h mirrors the core's liquid values (it has no core
 // includes); these pin the copies to GridMapDefines.h.
 static_assert(ai::kMagmaLiquidTypeFlag == MAP_LIQUID_TYPE_MAGMA, "magma type flag differs from the core");
@@ -1017,16 +1022,35 @@ bool MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bo
             // floor. Keep the navmesh elevation when the rewrite is a big drop.
             if (p.z < navmeshZ && navmeshZ - p.z > kMaxWaypointDrop)
                 p.z = navmeshZ;
-            // Thin floor over magma (specs/dmr-step453.md Fix B): over a WMO
-            // magma bed under a floor the core's GetWaterOrGroundLevel answers
-            // liquid level - 2 (swim=true, LIQUID_MAP_ABOVE_WATER), inside the
-            // magma; the 2.35 yd drop there is under the stair limit above.
-            // Keep the navmesh floor when the clamp landed in magma and the
-            // navmesh point is dry.
-            if (!bot->GetTransport() && p.z < navmeshZ &&
-                ai::KeepNavmeshZOverMagma(dispatchMagmaGuard, true,
-                    WorldPosition(bot->GetMapId(), p.x, p.y, p.z).isInMagma(dispatchTerrain),
-                    WorldPosition(bot->GetMapId(), p.x, p.y, navmeshZ).isInMagma(dispatchTerrain)))
+            // Thin floor over magma (specs/dmr-step453.md Fix B, round 1): over
+            // a WMO magma bed under a floor the core's GetWaterOrGroundLevel
+            // answers liquid level - 2 (swim=true, LIQUID_MAP_ABOVE_WATER),
+            // inside the magma; the 2.35 yd drop there is under the stair
+            // limit above. Keep the navmesh floor only when the core's
+            // COLLISION (vmap) height confirms a real floor at the navmesh
+            // point: a dry navmesh z alone is no proof (bridged/eroded point
+            // over a hole, or a polygon a little above open lava). The clamped
+            // point's magma status is checked first (cheap: usually dry), then
+            // the navmesh point's, and only then the collision query — which
+            // runs only on the guard path that would otherwise restore.
+            bool const magmaFloorLowered = p.z < navmeshZ;
+            bool magmaFloorGuardFire = false;
+            bool magmaFloorConfirmed = false;
+            if (!bot->GetTransport() && magmaFloorLowered && dispatchMagmaGuard &&
+                WorldPosition(bot->GetMapId(), p.x, p.y, p.z).isInMagma(dispatchTerrain) &&
+                !WorldPosition(bot->GetMapId(), p.x, p.y, navmeshZ).isInMagma(dispatchTerrain))
+            {
+                // Map::GetHeight (Map.h) returns the collision (vmap) height
+                // from z + 2 down maxSearchDist; starting at navmeshZ + ~1.0
+                // reaches a thin floor at the navmesh point but not the lava
+                // bed or a deck far below/above.
+                float const collisionFloor = bot->GetMap()->GetHeight(p.x, p.y, navmeshZ + kMagmaFloorProbeAboveZ);
+                magmaFloorConfirmed = collisionFloor > INVALID_HEIGHT &&
+                    fabs(collisionFloor - navmeshZ) <= kMagmaFloorWindowZ;
+                magmaFloorGuardFire = ai::KeepNavmeshZOverMagma(dispatchMagmaGuard, magmaFloorLowered,
+                    true, false, magmaFloorConfirmed);
+            }
+            if (magmaFloorGuardFire)
             {
                 float const clampedZ = p.z;
                 p.z = navmeshZ;

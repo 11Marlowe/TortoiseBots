@@ -93,18 +93,36 @@ class MagmaGuardWiringTest(unittest.TestCase):
         self.assertEqual(f.count("MovePoint("), 1)  # the guarded walk is the only one
         self.assertRegex(f[blocked:walk], r"isInMagma\(\s*bot->GetMap\(\)->GetTerrain\(\)\)\)\)\s*return;")
 
-    def test_dispatch_keeps_the_dry_navmesh_floor(self):
+    def test_dispatch_keeps_the_confirmed_floor_only(self):
         f = body(MOVES, "bool MovementAction::DispatchMovement(", "\n}\n")
         drop = at(f, "if (p.z < navmeshZ && navmeshZ - p.z > kMaxWaypointDrop)")
-        keep = at(f, "ai::KeepNavmeshZOverMagma(dispatchMagmaGuard, true,")
+        keep = at(f, "ai::KeepNavmeshZOverMagma(dispatchMagmaGuard, magmaFloorLowered,")
         self.assertLess(drop, keep)
         self.assertIn("TerrainInfo const* dispatchTerrain = bot->GetMap()->GetTerrain();", f[:keep])
         self.assertIn("bool const dispatchMagmaGuard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());", f[:keep])
-        self.assertIn("WorldPosition(bot->GetMapId(), p.x, p.y, p.z).isInMagma(dispatchTerrain),", f[keep:])
-        self.assertIn("WorldPosition(bot->GetMapId(), p.x, p.y, navmeshZ).isInMagma(dispatchTerrain)))", f[keep:])
-        self.assertIn("p.z = navmeshZ;", f[keep:])
+        # `lowered` is the live comparison, not a literal: passing true again
+        # would fire the guard on an unclamped point.
+        self.assertIn("bool const magmaFloorLowered = p.z < navmeshZ;", f[drop:keep])
+        # Cheap first: the clamped point's magma status is checked before the
+        # navmesh point's, and the collision query only on the guard path,
+        # before the restore.
+        clamped = at(f, "WorldPosition(bot->GetMapId(), p.x, p.y, p.z).isInMagma(dispatchTerrain)")
+        navmesh = at(f, "WorldPosition(bot->GetMapId(), p.x, p.y, navmeshZ).isInMagma(dispatchTerrain)")
+        collision = at(f, "bot->GetMap()->GetHeight(p.x, p.y, navmeshZ + kMagmaFloorProbeAboveZ)")
+        restore = at(f[keep:], "p.z = navmeshZ;") + keep
+        self.assertLess(drop, clamped)
+        self.assertLess(clamped, navmesh)
+        self.assertLess(navmesh, collision)
+        self.assertLess(collision, keep)
+        self.assertLess(keep, restore)
+        # The collision query runs only on the guard path: inside the
+        # transport+lowered+guard+clamped-dry/navmesh-dry `if`, before the restore.
+        self.assertIn("if (!bot->GetTransport() && magmaFloorLowered && dispatchMagmaGuard &&", f[drop:collision])
         self.assertIn('"TortoiseBots: %s: waypoint kept on the floor over magma at %.1f %.1f %.1f (clamp %.2f)"',
-                      f[keep:])
+                      f[restore:])
+        # The transport term: no restore while riding (passenger z is not a
+        # floor height). Dropping it would restore over a transport ride.
+        self.assertIn("!bot->GetTransport()", f[drop:keep])
         # (void) casts only in mutation scratch, never in shipped tests.
         self.assertNotIn("(void)", f[drop:at(f, "CalculatePassengerOffset(p.x, p.y, p.z);")])
     def test_route_check_never_edits_the_route(self):

@@ -250,9 +250,13 @@ namespace ai
     // DispatchMovement rewrites each path point with UpdateAllowedPositionZ; over a thin floor above WMO
     // magma the core answers liquid level - 2 (GetWaterOrGroundLevel, swim=true, on LIQUID_MAP_ABOVE_WATER),
     // which is inside the magma (Dragonmaw Retreat r39s2/r41s2, specs/dmr-step453.md). Keep the navmesh
-    // floor then.
-    inline bool KeepNavmeshZOverMagma(bool guardApplies, bool lowered, bool clampedInMagma, bool navmeshInMagma)
+    // floor then — but only when the core's COLLISION (vmap) height query confirms a real floor at the
+    // navmesh point (round 1): a bridged/eroded navmesh point over an open hole reads dry but has no
+    // floor, so restoring its z would float the bot; a polygon a little above open lava reads dry but
+    // the bot would walk on the lava surface.
+    inline bool KeepNavmeshZOverMagma(bool guardApplies, bool lowered, bool clampedInMagma, bool navmeshInMagma,
+        bool floorConfirmed)
     {
-        return guardApplies && lowered && clampedInMagma && !navmeshInMagma;
+        return guardApplies && lowered && clampedInMagma && !navmeshInMagma && floorConfirmed;
     }
 }
