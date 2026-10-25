@@ -1160,5 +1160,100 @@ class BossTacticsJoinWiringTest(unittest.TestCase):
         self.assertIn("for (std::uint32_t e : n.tacticEntries)", gate)
 
 
+class RunTestSpeedWiringTest(unittest.TestCase):
+    """Owner request 2026-10-25: `.bot run start ... speed=<1.0-3.0>` (DungeonRun::TakeSpeed, SpeedRateNow, tested in
+    tools/test_dungeon_run_policy.cpp). The glue's parts: the start's guards, the apply before the tick's order, and the
+    sync that sends every listed bot back."""
+
+    def test_the_start_takes_and_guards_the_speed(self):
+        code = strip_comments(COMMANDS)
+        run = body(code, "static bool HandleDungeonRun(ChatHandler* handler, char const* args)", "\n}\n")
+        start = run[run.index('if (verb == "start")\n'):]
+        self.assertLess(start.index("SpeedArgs const speedArgs = TakeSpeed(arg);"),
+                        start.index("StartArgs const startArgs = ParseStartArgs(arg);"))
+        self.assertLess(start.index("arg = speedArgs.rest;"), start.index("StartArgs const startArgs = ParseStartArgs(arg);"))
+        guard = start[start.index("if (speedArgs.rate > 1.0f)"):start.index("arg = speedArgs.rest;")]
+        self.assertIn("IsBotAdministrator(commander)", guard)
+        self.assertIn("playerLedStart.playerLed", guard)
+        self.assertIn("!BotManager::Instance().IsBot(member.guid)", guard)
+        self.assertLess(start.index("slot.run.testSpeed = speedArgs.rate;"),
+                        start.index("DungeonRunSlot& stored = DungeonRuns()[commanderRaw] = slot;"))
+
+    def test_the_tick_applies_before_its_order(self):
+        code = strip_comments(COMMANDS)
+        tick = body(code, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"),
+                        tick.index("TortoiseBots::DungeonRun::SpeedRateNow(slot.run, facts, dt);"))
+        self.assertLess(tick.index("ApplyRunSpeed(commanderRaw, lead, bots, speedRate);"),
+                        tick.index("bool const accepted = IssueRunOrder(commander, order, answer,"))
+        # Round 1: the tick that advances onto a pull or boss step never starts fast (f.seen was read on the
+        # step before). The cap sits between the rate read and the apply, before the order goes out.
+        self.assertLess(tick.index("stepBeforeTick"), tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"))
+        self.assertLess(tick.index("SpeedCapAfterTick(slot.run, stepBeforeTick)"),
+                        tick.index("ApplyRunSpeed(commanderRaw, lead, bots, speedRate);"))
+        self.assertLess(tick.index("ApplyRunSpeed(commanderRaw, lead, bots, speedRate);"),
+                        tick.index("DropUnattackableCombat(lead, bots, slot.run.combatDrops);"))
+
+    def test_the_rate_is_forced_and_goes_back(self):
+        code = strip_comments(COMMANDS)
+        apply = body(code, "void ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
+        self.assertIn("bot->UpdateSpeed(MOVE_RUN, true, rate);", apply)
+        self.assertIn("bot->UpdateSpeed(MOVE_WALK, true, rate);", apply)
+        self.assertNotIn("MOVE_SWIM", apply)
+        restore = body(code, "void RestoreBotSpeed(Player* bot)", "\n}\n")
+        self.assertIn("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);", restore)
+        self.assertIn("pet->UpdateSpeed(MOVE_RUN, true, 1.0f);", restore)
+        each = body(code, "void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)\n{", "\n}\n")
+        self.assertIn("!MemberInCombat(bot)", each)
+        self.assertIn("bot->GetSpeedRate(MOVE_RUN) != entry->second.appliedRun", each)
+        self.assertIn("CatchUpPet(bot, rate);", each)
+        # Round 1: a slowed bot (Frostbolt, Crippling Poison) is never sped up; a bot in another instance of the
+        # map stays 1.0; a bot with the movespeed cheat is left alone.
+        self.assertIn("HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED)", COMMANDS)
+        self.assertIn("!SpeedSlowed(bot)", each)
+        self.assertIn("SpeedSameInstance(bot, lead)", each)
+        self.assertNotIn("bot->GetMapId() == lead->GetMapId()", each)
+        self.assertIn("!SpeedCheatOn(bot)", each)
+        self.assertIn("BotCheatMask::movespeed", COMMANDS)
+        catchup = body(code, "void CatchUpPet(Player* bot, float rate)", "\n}\n")
+        self.assertIn("IsFollowing()", catchup)
+        self.assertIn("SpeedSlowed(pet)", catchup)
+        sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
+        self.assertIn("run->second.run.speedNow > 1.0f", sync)
+        self.assertIn("MemberInCombat(bot)", sync)
+        self.assertIn("TortoiseBots::DungeonRun::SpeedFightSeen(run->second.run);", sync)
+        self.assertIn("SpeedSameInstance(bot, lead)", sync)
+        self.assertIn("!SpeedSlowed(bot)", sync)
+        # Round 1: a real player joining mid-run latches the run blocked and sends the party back in the same update.
+        self.assertIn("speedPlayerBlocked = true;", sync)
+        self.assertIn("playerBlocked.insert(it->second.commanderRaw)", sync)
+        # Round 2 (Codex finding): a bot that turns the movespeed cheat on AFTER it was raised goes through the shared
+        # cleanup, and the cheat owns the rate (10x, every AI update) — so both places erase its entry WITHOUT
+        # RestoreBotSpeed (its pet is only restored when it does not follow the cheated bot). Mutation: calling
+        # RestoreBotSpeed on the cheat branch fails a pin.
+        self.assertIn("RestoreNonFollowingPet(bot);", each)
+        self.assertIn("RestoreNonFollowingPet(bot);", sync)
+        cheat_each = each[each.index("if (SpeedCheatOn(bot))"):each.index("CatchUpPet(bot, rate);")]
+        self.assertNotIn("RestoreBotSpeed(bot);", cheat_each.split("else")[0])
+        self.assertIn("RestoreNonFollowingPet(bot);", cheat_each.split("else")[0])
+        self.assertLess(cheat_each.index("listed.erase(entry);"), cheat_each.index("RestoreBotSpeed(bot);"))
+        cheat_at = sync.index("if (bot && SpeedCheatOn(bot))")
+        cheat_sync = sync[cheat_at:sync.index("continue;", cheat_at)]
+        self.assertNotIn("RestoreBotSpeed(bot);", cheat_sync)
+        self.assertIn("RestoreNonFollowingPet(bot);", cheat_sync)
+        self.assertNotIn("SetSpeedRatePersistance", code)
+        self.assertNotIn("UpdateSpeed(MOVE_RUN, false", apply + restore + each)
+
+    def test_every_clear_of_the_runs_syncs_the_speed(self):
+        code = strip_comments(COMMANDS)
+        update = body(code, "static void UpdateDungeonRuns(uint32 diff)", "\n}\n")
+        self.assertLess(update.index("SyncRunSpeed();"), update.index("if (DungeonRuns().empty())\n"))
+        remote = body(code, "void UpdateRemoteCommanders(uint32_t diff)", "\n}\n")
+        empty = remote[remote.index("if (CommanderBindings().Empty())"):remote.index("s_commanderSweepMs += diff;")]
+        self.assertLess(empty.index("DungeonRuns().clear();"), empty.index("SyncRunSpeed();"))
+        clear = body(code, "void ClearRemoteCommanders()", "\n}\n")
+        self.assertLess(clear.index("DungeonRuns().clear();"), clear.index("SyncRunSpeed();"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- New: GameMasters can start bot-only dungeon test runs at up to 3x walking speed (`.bot run start ... speed=2`); fights stay at normal speed and the status line marks the run as a test.
 - Fixed the run leader pausing after a wipe that brought the bot-only party back in another part of the instance: the lead is now teleported back to the run's way.
 - Fixed the run leader dropping a focus skull with no retry and keeping a stale skull across pauses.
 
