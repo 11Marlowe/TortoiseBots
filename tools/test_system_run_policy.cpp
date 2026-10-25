@@ -89,14 +89,31 @@ static void TestStaleJoinFlag()
 
 static void TestSystemOrderGate()
 {
-    // A system order is refused with player-in-group whenever the bound group
-    // has a real player OR the run is still flagged as paused for one: a
-    // resume after the joined player left must not let an order through
-    // before the tick clears the stale flag.
-    CHECK(DecideSystemOrder(false, false) == SystemOrder::Allow);
-    CHECK(DecideSystemOrder(true, false) == SystemOrder::RefusePlayerInGroup);
-    CHECK(DecideSystemOrder(false, true) == SystemOrder::RefusePlayerInGroup);
-    CHECK(DecideSystemOrder(true, true) == SystemOrder::RefusePlayerInGroup);
+    // No player and no stale flag: every order is allowed.
+    CHECK(DecideSystemOrder("cmd", false, false) == SystemOrder::Allow);
+    CHECK(DecideSystemOrder("stop", false, false) == SystemOrder::Allow);
+    CHECK(DecideSystemOrder("start rfc", false, false) == SystemOrder::Allow);
+    CHECK(DecideSystemOrder("", false, false) == SystemOrder::Allow);
+    // A halt or release verb stays allowed with a player in the group or a
+    // stale joined-player flag: stop, status, pause and unbind never order or
+    // move the player, so a GM always has a way out. A stale flag alone still
+    // counts: a resume after the joined player left must not let an order
+    // through before the tick clears the stale flag.
+    for (char const* verb : {"stop", "status", "pause", "unbind", " STOP ", "Status"})
+    {
+        CHECK(DecideSystemOrder(verb, true, false) == SystemOrder::Allow);
+        CHECK(DecideSystemOrder(verb, false, true) == SystemOrder::Allow);
+        CHECK(DecideSystemOrder(verb, true, true) == SystemOrder::Allow);
+    }
+    // Cmd, resume and every other forwarded order make the bots act: refused
+    // while a real player is in the group or the flag is set. An unknown verb
+    // (a future addition not classified yet) fails closed.
+    for (char const* verb : {"cmd", "start", "start rfc", "resume", "skip", "", "dance", "bind"})
+    {
+        CHECK(DecideSystemOrder(verb, true, false) == SystemOrder::RefusePlayerInGroup);
+        CHECK(DecideSystemOrder(verb, false, true) == SystemOrder::RefusePlayerInGroup);
+        CHECK(DecideSystemOrder(verb, true, true) == SystemOrder::RefusePlayerInGroup);
+    }
     CHECK(std::string(SystemOrderCode(SystemOrder::RefusePlayerInGroup)) == "player-in-group");
 }
 

@@ -440,9 +440,13 @@ bool IsSystemBinding(uint64 commanderRaw)
 }
 
 // One gate for every system-order entry point (.bot run system cmd, resume, a
-// forwarded order): a real player in the bound group, or a run still flagged
-// as paused for one, refuses the order with player-in-group.
-bool RefuseSystemOrder(Player* lead, uint64 key, std::string& code, std::string& message)
+// forwarded order): its run verb names the order (cmd passes its order word).
+// A GM must always have a way out with a real player in the group, so stop,
+// status, pause and unbind are always allowed: they never order or move
+// the player. Cmd, resume and every other forwarded order make the bots act:
+// refused while a real player is in the bound group or systemPausedForPlayer
+// is set, with player-in-group.
+bool RefuseSystemOrder(Player* lead, uint64 key, char const* verb, std::string const& order, std::string& code, std::string& message)
 {
     bool realPlayer = false;
     if (lead && lead->GetGroup())
@@ -455,11 +459,12 @@ bool RefuseSystemOrder(Player* lead, uint64 key, std::string& code, std::string&
     bool pausedForPlayer = false;
     if (auto run = DungeonRuns().find(key); run != DungeonRuns().end())
         pausedForPlayer = run->second.systemPausedForPlayer;
-    if (TortoiseBots::SystemRun::DecideSystemOrder(realPlayer, pausedForPlayer) ==
+    std::string const text = verb ? verb : order;
+    if (TortoiseBots::SystemRun::DecideSystemOrder(text, realPlayer, pausedForPlayer) ==
         TortoiseBots::SystemRun::SystemOrder::Allow)
         return false;
     code = TortoiseBots::SystemRun::SystemOrderCode(TortoiseBots::SystemRun::SystemOrder::RefusePlayerInGroup);
-    message = "A player is in the server-owned party: orders wait until the group is bots only again.";
+    message = "A player is in the server-owned party: this order waits until the group is bots only again (stop, status, pause and unbind still work).";
     return true;
 }
 
@@ -1659,6 +1664,12 @@ uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::s
         message = TortoiseBots::SystemRun::RefusalText(refusal);
         return 0;
     }
+    // A failed bind rolls every moved bot back to the group and leader it had
+    // before it joined the lead bot's group (or out of the new group when it
+    // stood alone). Known limit: a rollback cannot restore a bot whose old
+    // group broke up meanwhile, or that led its old group — FindPlayer misses
+    // the gone leader and a handed-back leadership has no taker — so such a
+    // bot ends ungrouped and the GM regroups it by hand.
     std::vector<Player*> moved;
     std::vector<TortoiseBots::SystemRun::MovedBot> prior;
     auto recordPrior = [&](Player* bot)
@@ -1714,15 +1725,24 @@ uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::s
     }
     Group* priorLeadGroup = lead->GetGroup();
     uint64 priorLeadLeader = priorLeadGroup ? priorLeadGroup->GetLeaderGuid().GetRawValue() : 0;
+    // The lead's old leader goes back before the moved bots do: both failure
+    // branches below run this first (a bot the rollback cannot restore — its
+    // old group broke up, or it led its old group — ends ungrouped; see the
+    // note at the capture).
+    auto restoreLead = [&]
+    {
+        if (Group* now = lead->GetGroup())
+            if (priorLeadGroup && now->GetId() == priorLeadGroup->GetId() && priorLeadLeader &&
+                !now->IsLeader(ObjectGuid(priorLeadLeader)))
+                now->ChangeLeader(ObjectGuid(priorLeadLeader));
+    };
     Group* group = lead->GetGroup();
     if (group && !group->IsLeader(lead->GetObjectGuid()))
         group->ChangeLeader(lead->GetObjectGuid());
     group = lead->GetGroup();
     if (!group || !group->IsLeader(lead->GetObjectGuid()) || group->GetMembersCount() < 2)
     {
-        if (group && priorLeadGroup && group->GetId() == priorLeadGroup->GetId() &&
-            priorLeadLeader && !group->IsLeader(ObjectGuid(priorLeadLeader)))
-            group->ChangeLeader(ObjectGuid(priorLeadLeader));
+        restoreLead();
         restoreMoved();
         code = "invite-failed";
         message = "The lead bot could not form a group.";
@@ -1735,6 +1755,7 @@ uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::s
     binding.system = true;
     if (CommanderBindings().Bind(binding) != RemoteCommander::BindResult::Bound)
     {
+        restoreLead();
         restoreMoved();
         code = "group-bound";
         message = "Another commander already commands that group.";
@@ -8731,8 +8752,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                         realPlayer = true;
                         break;
                     }
-        if (slot.run.state == TortoiseBots::DungeonRun::State::Running && !realPlayer)
-            slot.systemPausedForPlayer = false;
+        slot.systemPausedForPlayer = TortoiseBots::SystemRun::JoinFlagAfterScan(
+            slot.run.state == TortoiseBots::DungeonRun::State::Running, realPlayer, slot.systemPausedForPlayer);
         switch (TortoiseBots::SystemRun::DecideJoinStep(slot.run.state == TortoiseBots::DungeonRun::State::Running,
             slot.run.state == TortoiseBots::DungeonRun::State::Paused, slot.systemPausedForPlayer, realPlayer))
         {
@@ -9722,7 +9743,7 @@ static bool HandleSystemRun(ChatHandler* handler, std::string const& args, std::
             SendActionError(handler, intent, "not-bound", "That bot leads no server-owned party.");
             return true;
         }
-        if (std::string gateCode, gateMessage; RefuseSystemOrder(lead, key, gateCode, gateMessage))
+        if (std::string gateCode, gateMessage; RefuseSystemOrder(lead, key, "cmd", parsed.rest, gateCode, gateMessage))
         {
             SendActionError(handler, intent, gateCode.c_str(), gateMessage.c_str());
             return true;
@@ -9770,7 +9791,7 @@ static bool HandleSystemRun(ChatHandler* handler, std::string const& args, std::
         SendActionError(handler, intent, "not-bound", "That bot leads no server-owned party.");
         return true;
     }
-    if (std::string gateCode, gateMessage; RefuseSystemOrder(lead, key, gateCode, gateMessage))
+    if (std::string gateCode, gateMessage; RefuseSystemOrder(lead, key, nullptr, parsed.rest, gateCode, gateMessage))
     {
         SendActionError(handler, intent, gateCode.c_str(), gateMessage.c_str());
         return true;

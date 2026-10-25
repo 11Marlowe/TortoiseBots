@@ -72,7 +72,10 @@ class SystemBindingWiringTest(unittest.TestCase):
     def test_world_bot_gate(self):
         gate = body(COMMANDS, "bool IsWorldBot(Player* bot)\n{", "\n}\n")
         self.assertIn("ownerAccountId", gate)
-
+        self.assertIn("HireLifecycle::Instance().IsHired(", gate)
+        self.assertIn("ClaimLifecycle::Instance().IsClaimed(", gate)
+        self.assertIn("AltBotService::Instance().IsAutonomous(", gate)
+        self.assertIn("HasNetworkTransport()", gate)
     def test_owner_checks_follow_the_binding(self):
         self.assertEqual(COMMANDS.count("CanControlBot(order.commander"), 1)
 
@@ -82,9 +85,9 @@ class SystemBindingWiringTest(unittest.TestCase):
                         tick.index("if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)"))
         self.assertIn("TortoiseBots::SystemRun::kPlayerJoinedNote", tick)
         self.assertIn("slot.systemPausedForPlayer", tick)
-        guard = "if (slot.run.state == TortoiseBots::DungeonRun::State::Running && !realPlayer)\n            slot.systemPausedForPlayer = false;"
-        self.assertIn(guard, tick)
-        self.assertLess(tick.index(guard), tick.index("TortoiseBots::SystemRun::DecideJoinStep("))
+        flag = "slot.systemPausedForPlayer = TortoiseBots::SystemRun::JoinFlagAfterScan("
+        self.assertIn(flag, tick)
+        self.assertLess(tick.index(flag), tick.index("TortoiseBots::SystemRun::DecideJoinStep("))
         scan = "bool realPlayer = false;\n        if (Player* systemLead = FindCharacter(binding->leadGuid))"
         self.assertIn(scan, tick)
         self.assertIn("if (!BotManager::Instance().IsBot(slotMember.guid))", tick)
@@ -102,7 +105,11 @@ class SystemBindingWiringTest(unittest.TestCase):
         self.assertIn("TortoiseBots::SystemRun::RestorePlan(prior)", bind)
         self.assertIn("priorLeader", bind)
         self.assertEqual(bind.count("restoreMoved();"), 3)
+        self.assertEqual(bind.count("restoreLead();"), 2)
         self.assertLess(bind.index("recordPrior(joiner)"), bind.index("JoinLeadGroup(lead, joiner)"))
+        self.assertIn("auto restoreLead = [&]", bind)
+        self.assertLess(bind.index("auto restoreLead = [&]"), bind.index("restoreLead();"))
+        self.assertIn("restoreLead();\n        restoreMoved();", bind)
 
     def test_trace_follows_the_anchor_binding(self):
         trace = body(COMMANDS, "static bool TraceContext(", "\n}\n")
@@ -135,20 +142,35 @@ class SystemCommandWiringTest(unittest.TestCase):
         self.assertIn("BindSystemParty(", cmd)
         self.assertIn("RemoteCommander::IsKnownOrder(", cmd)
 
+    def test_system_unbind_releases_quietly(self):
+        cmd = body(COMMANDS, "static bool HandleSystemRun(", "\n}\n")
+        self.assertIn("ReleaseBinding(key, RemoteCommander::ReleaseReason::Unbound, false)", cmd)
+
     def test_system_cmd_needs_no_running_run(self):
         cmd = body(COMMANDS, "static bool HandleSystemRun(", "\n}\n")
         self.assertLess(cmd.index("State::Running"), cmd.index("IssueRunOrder("))
 
     def test_system_orders_share_the_player_gate(self):
         cmd = body(COMMANDS, "static bool HandleSystemRun(", "\n}\n")
-        gate = "RefuseSystemOrder(lead, key, gateCode, gateMessage)"
-        self.assertEqual(cmd.count(gate), 2)
-        self.assertLess(cmd.index(gate), cmd.index("IssueRunOrder("))
+        self.assertIn('RefuseSystemOrder(lead, key, "cmd", parsed.rest, gateCode, gateMessage)', cmd)
+        self.assertIn('RefuseSystemOrder(lead, key, nullptr, parsed.rest, gateCode, gateMessage)', cmd)
+        self.assertLess(cmd.index('"cmd", parsed.rest'), cmd.index("IssueRunOrder("))
         self.assertLess(cmd.index("ServerLogChatHandler echo(lead, handler);"),
-                        cmd.rindex(gate) + len(gate) + 400)
+                        cmd.index("nullptr, parsed.rest") + 400)
         helper = body(COMMANDS, "bool RefuseSystemOrder(", "\n}\n")
-        self.assertIn("TortoiseBots::SystemRun::DecideSystemOrder(realPlayer, pausedForPlayer)", helper)
+        self.assertIn("TortoiseBots::SystemRun::DecideSystemOrder(text, realPlayer, pausedForPlayer)", helper)
         self.assertIn("TortoiseBots::SystemRun::SystemOrderCode(", helper)
+
+    def test_player_gate_allows_the_way_out(self):
+        helper = body(COMMANDS, "bool RefuseSystemOrder(", "\n}\n")
+        self.assertIn('std::string const text = verb ? verb : order;', helper)
+        self.assertIn('TortoiseBots::SystemRun::DecideSystemOrder(text, realPlayer, pausedForPlayer)', helper)
+        policy = (pathlib.Path(__file__).resolve().parents[1] / "runtime" / "SystemRunPolicy.h").read_text()
+        allow = 'if (verb == "stop" || verb == "status" || verb == "pause" || verb == "unbind")'
+        self.assertIn(allow, policy)
+        self.assertLess(policy.index(allow), policy.index("return SystemOrder::RefusePlayerInGroup;"))
+        cmd = body(COMMANDS, "static bool HandleSystemRun(", "\n}\n")
+        self.assertLess(cmd.index('"cmd", parsed.rest'), cmd.index("RemoteCommander::IsKnownOrder("))
 
 if __name__ == "__main__":
     unittest.main()

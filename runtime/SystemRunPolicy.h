@@ -193,20 +193,41 @@ inline bool JoinFlagAfterScan(bool running, bool realPlayerInGroup, bool pausedF
     return pausedForPlayer;
 }
 
+inline std::string Trimmed(std::string value)
+{
+    size_t first = value.find_first_not_of(" \t");
+    if (first == std::string::npos)
+        return {};
+    size_t last = value.find_last_not_of(" \t");
+    return value.substr(first, last - first + 1);
+}
+
 enum class SystemOrder : uint8_t
 {
     Allow,
     RefusePlayerInGroup,
 };
 
-// Every system-order entry point (.bot run system cmd, a forwarded resume,
-// any other forwarded order) shares one gate: a real player in the bound
-// group, or a run still flagged as paused for one, refuses the order.
-inline SystemOrder DecideSystemOrder(bool realPlayerInGroup, bool pausedForPlayer)
+// The gate's verbs: run verb first (cmd falls back to its order word). A GM
+// must always have a way out with a real player in the group, so the halt and
+// release verbs (stop, status, pause, unbind) are always allowed: they never
+// order or move the player. Cmd, resume and every other forwarded order make
+// the bots act: refused while a real player is in the bound group or
+// systemPausedForPlayer is set. One table: a new verb must be classified here
+// (it defaults to refused).
+inline SystemOrder DecideSystemOrder(std::string const& order, bool realPlayerInGroup, bool pausedForPlayer)
 {
-    if (realPlayerInGroup || pausedForPlayer)
-        return SystemOrder::RefusePlayerInGroup;
-    return SystemOrder::Allow;
+    if (!realPlayerInGroup && !pausedForPlayer)
+        return SystemOrder::Allow;
+    std::string verb = Trimmed(order);
+    size_t split = verb.find_first_of(" \t");
+    if (split != std::string::npos)
+        verb = verb.substr(0, split);
+    for (char& c : verb)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (verb == "stop" || verb == "status" || verb == "pause" || verb == "unbind")
+        return SystemOrder::Allow;
+    return SystemOrder::RefusePlayerInGroup;
 }
 
 inline char const* SystemOrderCode(SystemOrder order)
@@ -268,15 +289,6 @@ struct Args
     Verb verb = Verb::Invalid;
     std::string rest;
 };
-
-inline std::string Trimmed(std::string value)
-{
-    size_t first = value.find_first_not_of(" \t");
-    if (first == std::string::npos)
-        return {};
-    size_t last = value.find_last_not_of(" \t");
-    return value.substr(first, last - first + 1);
-}
 
 inline bool HasPlayerOrSpeedWord(std::string const& rest)
 {
