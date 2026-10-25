@@ -673,16 +673,33 @@ class DungeonPlanSql(unittest.TestCase):
         # group 0 gets the live firing stand -7617.3 -3650.0 282.9 as its approach. The exporter now snaps every cut via
         # point to the nearest floor (the z242 corner -7635.5576 -3477.8813 242.086 was 5.1 yd off the server mesh), so
         # the cut rows pass. 7 legs, 2906 steps, 175 pulls (46 + 32 + 18 + 14 + 34 + 3 + 28); the strict replay over
-        # legs 4-6 has 0 refused hops (153 before). Pinned below.
+        # legs 4-6 has 0 refused hops (153 before).
+        # The eleventh export (20261025000400, turtle-agent d8edf74) is the r38 slotE wasted-time audit (WHC-WASTE-2026-10-25.md):
+        # the live run walked 41,994 yd (24 miles) over 2065 steps and two stretches were plan order - steps 1645-1854 (12.6 min,
+        # 3156 yd) climbed back up the leg-4 ramps it had come down (the whole z 149 floor, then the z 221 groups 21-23, then the
+        # z 286 terrace 24-33), and leg 6 descended to the z 148 floor, climbed 3170 yd to the z 286 terrace and descended again.
+        # Legs 4 and 6 now pull their floors in one descending pass - leg 4: to/group 0 (z 220), the z 243 pair 4-5, the z 286
+        # terrace 24-33, the z 213-222 groups 1-3/6/21-23, the z 149 floor 13-20/7-12, boss; leg 6: the z 244 floor 0-5, the 415-yd
+        # ramp to the z 286 terrace 24-27/16-23, one descent to the z 148 floor 6-15, boss. Leg 4 group 19 (62763 at -7546.11
+        # -3441.46 z 222.195) gets the stand -7531.44 -3449.56 221.49, so the hop after its pull is 68 yd and not the 175.6 yd the
+        # party's stand left (over the 150 yd ReactDistance). The two boss approach chains that were those descents (leg 4's
+        # z 230.69/z 197.59 and leg 6's z 199.29) are trimmed to the last stand on the boss's floor: with the low floor last they
+        # walked the party back up and down for nothing. 7 legs, 2396 steps, 175 pulls (46 + 32 + 18 + 14 + 34 + 3 + 28); row
+        # chains 8957 + 3817 + 7364 + 4910 + 6209 + 3498 + 5635 = 40,390 yd against 49,225 (leg 4 9659 -> 6209, leg 6 11,021 ->
+        # 5635: 8835 yd less, ~35 min of walking at the run's 250 yd/min). Legs 0, 1, 2, 3 and 5 are unchanged. The walk-past
+        # check (each hop's offline polyline against every pack still unpulled, 20 yd) goes 27 -> 19 close passes in leg 4 and
+        # 24 -> 22 in leg 6; the strict replay over legs 4 and 6 has 0 refused hops, farthest 128.3 yd. The zig-zag of live steps
+        # 1885-2033 is terrain, not plan order: -7257.07 -3560.53 244.47 to the boss is 200 yd in a line and 3007.3 yd walkable
+        # (the plan's rows 3016.3 yd). Pinned below.
         name, text = newest_plan_text("windhorn_canyon")
-        self.assertEqual(name, "20261024154100_world.sql")
+        self.assertEqual(name, "20261025000400_world.sql")
         rows = [r for r in self.step_rows(text) if r["plan"] == "windhorn_canyon"]
         # leg_rows() matches [A-Za-z0-9_] leg names only; ahgk'tos_the_pure is not a word, so the legs are
         # counted from the step rows (each leg's boss step proves its rows are there).
         self.assertEqual({r["leg"] for r in rows}, {"0", "1", "2", "3", "4", "5", "6"})
-        self.assertEqual(len(rows), 2906)
+        self.assertEqual(len(rows), 2396)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(7)], [46, 32, 18, 14, 34, 3, 28])
-        self.assertIn("('windhorn_canyon', 820, '62773,62774', '62773', '', 'turtle-agent 0a33c0c dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('windhorn_canyon', 820, '62773,62774', '62773', '', 'turtle-agent d8edf74 dungeons/windhorn_canyon.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["62784", "62783", "62780", "62781", "62779", "62782", "62778"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         # The last step of every leg is its boss; the boss rows' entries are the packs that stand with them
@@ -754,16 +771,21 @@ class DungeonPlanSql(unittest.TestCase):
                          [("pull group 0 approach", "-7617.3", "-3650", "282.9"),
                           ("pull group 4 approach", "-7635.2", "-3676", "282.59"), ("pull group 4 approach", "-7628.77", "-3750.06", "283.31"),
                           ("boss approach", "-7489.33", "-3584", "214.09")])
+        # The eleventh export: the z 286 terrace comes first (on the one ascent) and the z 149 floor last, so the boss approach
+        # chain that used to BE the descent from the shelf is one stand on the boss's floor; group 19's stand keeps the hop after
+        # the three z 213-222 pulls under the run leader's 150 yd ReactDistance.
         leg4 = leg_steps(rows, 4)
         self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg4 if r["comment"].endswith("approach")],
-                         [("boss approach", "-7760.8", "-3521.33", "230.69"), ("boss approach", "-7618.93", "-3660.8", "197.59"),
-                          ("boss approach", "-7569.07", "-3551.47", "149.39"), ("boss approach", "-7529", "-3583.34", "148.89")])
+                         [("pull group 19 approach", "-7531.44", "-3449.56", "221.49"),
+                          ("boss approach", "-7569.07", "-3551.47", "149.39")])
+        # The eleventh export: leg 6 climbs to the z 286 terrace by the 415-yd ramp right after the z 244 floor and descends once
+        # to the boss's own z 148 floor; the group that carried the z 199.29 -> z 149.07 descent chain is now group 18, and the
+        # boss keeps only that last stand (its z 199.29 point walked the party 50 yd back up after the low floor).
         leg6 = leg_steps(rows, 6)
         self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg6 if r["comment"].endswith("approach")],
-                         [("pull group 6 approach", "-7490.4", "-3675.2", "219.39"), ("pull group 6 approach", "-7688.8", "-3676", "198.29"),
-                          ("pull group 6 approach", "-7448.53", "-3536.8", "149.07"), ("pull group 6 approach", "-7239", "-3445.36", "149.95"),
-                          ("boss approach", "-7652.53", "-3689.6", "199.29"), ("boss approach", "-7448.53", "-3536.8", "149.07"),
-                          ("boss approach", "-7232.41", "-3503.02", "150.87")])
+                         [("pull group 18 approach", "-7490.4", "-3675.2", "219.39"), ("pull group 18 approach", "-7688.8", "-3676", "198.29"),
+                          ("pull group 18 approach", "-7448.53", "-3536.8", "149.07"), ("pull group 18 approach", "-7239", "-3445.36", "149.95"),
+                          ("boss approach", "-7448.53", "-3536.8", "149.07")])
         # The map-820 boss DELETE is scoped to this plan's own entries (it shares no map with another plan); it stays in the first file.
         first = dict(migrations())["20261023150100_world.sql"]
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (820) AND `entry` IN (62778, 62779, 62780, 62781, 62782, 62783, 62784);", first)
