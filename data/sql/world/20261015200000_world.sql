@@ -8,9 +8,30 @@
 -- Each is a comma list as in `ai_dungeon_step`.`entries` ('' none). Read once at startup
 -- (ai/playerbot/DungeonPlanMgr.cpp).
 --
--- Idempotent: ADD COLUMN IF NOT EXISTS only. Never edit this file once applied; add a newer migration.
+-- Idempotent per column (information_schema + PREPARE runs on MySQL 8 and MariaDB).
+-- Never edit this file once applied; add a newer migration.
 
-ALTER TABLE `ai_dungeon_plan`
-  ADD COLUMN IF NOT EXISTS `cc_priority` varchar(255) NOT NULL DEFAULT '' AFTER `map`,
-  ADD COLUMN IF NOT EXISTS `cc_always` varchar(255) NOT NULL DEFAULT '' AFTER `cc_priority`,
-  ADD COLUMN IF NOT EXISTS `kill_first` varchar(255) NOT NULL DEFAULT '' AFTER `cc_always`;
+SET @s := (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `ai_dungeon_plan` ADD COLUMN `cc_priority` varchar(255) NOT NULL DEFAULT '''' AFTER `map`',
+  'DO 0')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_dungeon_plan' AND COLUMN_NAME = 'cc_priority');
+PREPARE stmt FROM @s;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+SET @s := (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `ai_dungeon_plan` ADD COLUMN `cc_always` varchar(255) NOT NULL DEFAULT '''' AFTER `cc_priority`',
+  'DO 0')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_dungeon_plan' AND COLUMN_NAME = 'cc_always');
+PREPARE stmt FROM @s;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+SET @s := (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE `ai_dungeon_plan` ADD COLUMN `kill_first` varchar(255) NOT NULL DEFAULT '''' AFTER `cc_always`',
+  'DO 0')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_dungeon_plan' AND COLUMN_NAME = 'kill_first');
+PREPARE stmt FROM @s;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
