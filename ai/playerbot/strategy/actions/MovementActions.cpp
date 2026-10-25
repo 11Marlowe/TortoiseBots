@@ -25,6 +25,7 @@
 #include "playerbot/CastKeepsRunningPolicy.h"
 #include "playerbot/JumpPolicy.h"
 #include "playerbot/MagmaHazardPolicy.h"
+#include "playerbot/SwimPathPolicy.h"
 #include "playerbot/MoveFailNotePolicy.h"
 #include "host/ModuleLog.h"
 #include "playerbot/BotActionLog.h"
@@ -1051,7 +1052,115 @@ Unit* MovementAction::GetMover(Player* bot)
     return bot;
 }
 
-bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react, bool noPath, bool ignoreEnemyTargets, PackHoldResult* packHold)
+static constexpr time_t kSwimHandoffLogSeconds = 10;
+
+static void LogSwimHandoff(Player* bot, LastMovement& lastMove, const char* kind, const WorldPosition& endPos, float yd,
+    uint32 coreType, size_t routePoints, float routeYd, const std::string& line)
+{
+    time_t const now = time(nullptr);
+    if (lastMove.swimHandoffLogAt && now - lastMove.swimHandoffLogAt < kSwimHandoffLogSeconds)
+        return;
+    lastMove.swimHandoffLogAt = now;
+    TB_LOG_DETAIL("TortoiseBots: %s: swim hand-off (%s) to %.1f %.1f %.1f, %.1f yd (core path 0x%x; own route %u points, "
+        "%.1f yd; swim line: %s)", bot->GetName(), kind, endPos.getX(), endPos.getY(), endPos.getZ(), yd, coreType,
+        static_cast<uint32>(routePoints), routeYd, line.c_str());
+}
+
+// SwimPathPolicy.h ChooseSwimHandoff: a bot in water whose own route makes no progress hands the move to the
+// core (its swim line or its complete path, walked by MovePoint with pathfinding as its follow walks it), or
+// swims up and out to a shore point at the waterline. The cheap gates come first: a route that walks never
+// costs a path query.
+MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPosition& startPos, const WorldPosition& endPos,
+    TravelPath& movePath, LastMovement& lastMove)
+{
+    if (!(bot->IsInWater() || bot->IsUnderwater() || bot->HasMovementFlag(MOVEFLAG_SWIMMING)))
+        return SwimHandoffResult::NotTaken;
+    std::vector<WorldPosition> const route = movePath.GetPointPath();
+    ai::SwimHandoffFacts f;
+    f.inWater = true;
+    f.excluded = ai->IsRealPlayer() || bot->GetTransport() || bot->IsFlying() || bot->IsTaxiFlying() ||
+        endPos.GetMapId() != bot->GetMapId();
+    f.routeEndFromBot = route.size() < 2 ? 0.0f : route.back().distance(startPos);
+    f.endFromBot = startPos.distance(endPos);
+    if (f.excluded || !(f.endFromBot > ai::kSwimNoProgressYd) || f.routeEndFromBot > ai::kSwimNoProgressYd)
+        return SwimHandoffResult::NotTaken;
+
+    PathFinder path(bot);
+    path.calculate(endPos.getX(), endPos.getY(), endPos.getZ(), false);
+    f.coreType = static_cast<uint32>(path.getPathType());
+    Vector3 const coreEnd = path.getActualEndPosition();
+    Map* const map = bot->GetMap();
+    f.coreLineHitsModel = map->FindCollisionModel(startPos.getX(), startPos.getY(), startPos.getZ(),
+        coreEnd.x, coreEnd.y, coreEnd.z) != nullptr;
+    TerrainInfo const* const terrain = map->GetTerrain();
+    GridMapLiquidData here{};
+    f.swimmableHere = terrain->IsSwimmable(startPos.getX(), startPos.getY(), startPos.getZ(), 1.5f, &here);
+    f.endSwimmable = terrain->IsSwimmable(endPos.getX(), endPos.getY(), endPos.getZ());
+    f.endGroundYd = std::sqrt(startPos.sqDistance2d(endPos));
+    float const surfaceZ = here.level - ai::kSwimOutSurfaceDepthYd;
+    f.endFromSurfaceYd = f.swimmableHere ? endPos.getZ() - here.level : 1000.0f;
+    f.surfaceLineClear = f.swimmableHere &&
+        map->isInLineOfSight(startPos.getX(), startPos.getY(), startPos.getZ() + 0.5f,
+            startPos.getX(), startPos.getY(), surfaceZ, true) &&
+        map->isInLineOfSight(startPos.getX(), startPos.getY(), surfaceZ,
+            endPos.getX(), endPos.getY(), endPos.getZ() + 0.5f, true);
+    ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);
+    if (kind == ai::SwimHandoff::None)
+        return SwimHandoffResult::NotTaken;
+
+    // The line the bot will take, for the magma guard and the swim-out's spline.
+    std::vector<WorldPosition> linePoints{ startPos };
+    if (kind == ai::SwimHandoff::CoreLine)
+        linePoints.push_back(WorldPosition(bot->GetMapId(), coreEnd.x, coreEnd.y, coreEnd.z));
+    else
+    {
+        if (ai::SwimOutNeedsRise(startPos.getZ(), here.level))
+            linePoints.push_back(WorldPosition(bot->GetMapId(), startPos.getX(), startPos.getY(), surfaceZ));
+        linePoints.push_back(endPos);
+    }
+    TravelPath line;
+    line.addPath(linePoints);
+    WorldPosition magmaAt;
+    if (ai::MagmaGuardApplies(map->IsDungeon()) && RouteEntersMagma(bot, startPos, line, magmaAt))
+    {
+        lastMove.setPath(TravelPath());
+        RefuseMagmaMove(bot, lastMove, endPos, magmaAt, &startPos, "swim");
+        return SwimHandoffResult::Refused;
+    }
+
+    std::string const why = f.coreType == (ai::kPathTypeNormal | ai::kPathTypeUnderwater)
+        ? WorldPosition::SwimLineWhy({ startPos, linePoints.back() }, bot) : std::string("-");
+    MotionMaster& mm = *bot->GetMotionMaster();
+    mm.Clear();
+    float length = 0.0f;
+    if (kind == ai::SwimHandoff::CoreLine)
+    {
+        mm.MovePoint(endPos.GetMapId(), endPos.getX(), endPos.getY(), endPos.getZ(), MOVE_RUN_MODE | MOVE_PATHFINDING);
+        length = path.Length() > 0.0f ? path.Length() : f.endFromBot;
+    }
+    else
+    {
+        Movement::PointsArray points;
+        for (WorldPosition& p : linePoints)
+            points.push_back(p.getVector3());
+        for (size_t i = 1; i < points.size(); ++i)
+            length += (points[i] - points[i - 1]).length();
+        Movement::MoveSplineInit init(*bot, "SwimOut");
+        init.MovebyPath(points);
+        init.SetWalk(false);
+        init.Launch();
+    }
+    lastMove.setPath(TravelPath()); // not reused: the next try asks again
+    lastMove.movePathType = f.coreType;
+    lastMove.moveFailReason = MOVE_FAIL_NONE;
+    WaitForReach(length);
+    LogSwimHandoff(bot, lastMove, kind == ai::SwimHandoff::CoreLine ? "core line" : "swim out", endPos, length,
+        f.coreType, route.size(), f.routeEndFromBot, why);
+    return SwimHandoffResult::Moving;
+}
+
+ 
+ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react, bool noPath, bool ignoreEnemyTargets, PackHoldResult* packHold)
 {
     LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
     // A new try: its own fail reason and path type only (the FAILED line's note).
@@ -1142,6 +1251,14 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
 
     lastMove.setPath(movePath);
 
+    // A bot in water whose own route goes nowhere: the core's swim (SwimHandoff).
+    switch (SwimHandoff(startPos, endPos, movePath, lastMove))
+    {
+        case SwimHandoffResult::Moving: return true;
+        case SwimHandoffResult::Refused: return false;
+        case SwimHandoffResult::NotTaken: break;
+    }
+
     if (movePath.empty())
     {
         lastMove.moveFailReason = MOVE_FAIL_EMPTY_ROUTE;
@@ -1155,6 +1272,13 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     if (movePath.empty())
     {
         lastMove.setPath(movePath);
+        // The collapsed route goes nowhere: in water the core's swim may (SwimHandoff).
+        switch (SwimHandoff(startPos, endPos, movePath, lastMove))
+        {
+            case SwimHandoffResult::Moving: return true;
+            case SwimHandoffResult::Refused: return false;
+            case SwimHandoffResult::NotTaken: break;
+        }
         return true; // Path collapsed — will rebuild next tick.
     }
 

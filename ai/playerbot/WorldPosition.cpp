@@ -1286,6 +1286,47 @@ bool WorldPosition::IsSwimLine(const std::vector<WorldPosition>& path, const Uni
     return SwimPathFits(path, bot);
 }
 
+std::string WorldPosition::SwimLineWhy(const std::vector<WorldPosition>& path, const Unit* bot)
+{
+    if (!bot || bot->GetTransport() || path.size() < 2)
+        return "no line";
+    Map* const map = bot->FindMap();
+    TerrainInfo const* const terrain = map ? map->GetTerrain() : nullptr;
+    if (!terrain)
+        return "no terrain";
+    auto const liquidAt = [terrain](float x, float y, float z, uint32 request, uint32& typeFlags)
+    {
+        GridMapLiquidData data{};
+        uint32 const status = static_cast<uint32>(terrain->getLiquidStatus(x, y, z, static_cast<uint8>(request), &data));
+        typeFlags = status != LIQUID_MAP_NO_WATER ? data.type_flags : 0;
+        return status;
+    };
+    for (size_t i = 1; i < path.size(); ++i)
+    {
+        WorldPosition const& a = path[i - 1];
+        WorldPosition const& b = path[i];
+        if (a.GetMapId() != map->GetId() || b.GetMapId() != map->GetId())
+            return "other map";
+        uint32 status = 0, flags = 0;
+        float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+        int const failing = ai::SwimLineFirstFailing(a.getX(), a.getY(), a.getZ(), b.getX(), b.getY(), b.getZ(),
+            liquidAt, status, flags, sx, sy, sz);
+        if (failing == -2)
+            return "longer than 80 yd";
+        if (failing >= 0)
+        {
+            std::ostringstream out;
+            out << std::fixed << std::setprecision(1) << "sample " << failing << " of "
+                << ai::SwimSampleCount(a.distance(b)) << " at " << sx << " " << sy << " " << sz
+                << ": liquid status " << status << ", type flags " << flags;
+            return out.str();
+        }
+        if (!map->isInLineOfSight(a.getX(), a.getY(), a.getZ() + 0.5f, b.getX(), b.getY(), b.getZ() + 0.5f, true))
+            return "out of sight at +0.5 yd";
+    }
+    return "ok";
+}
+
 //A single pathfinding attempt from one position to another. Returns pathfinding status and path.
 std::vector<WorldPosition> WorldPosition::getPathStepFrom(const WorldPosition& startPos, std::unique_ptr<PathFinder>& pathfinder, const Unit* bot, bool forceNormalPath) const
 {

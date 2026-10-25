@@ -348,6 +348,9 @@ namespace ai
         // (SwimPathPolicy.h): every leg in water or ocean at 2 yd samples, at most 80 yd,
         // and in `bot`'s sight. The run leader asks it before a stall's direct move.
         static bool IsSwimLine(const std::vector<WorldPosition>& path, const Unit* bot);
+        // Why IsSwimLine refuses `path` for `bot` ("ok", or the first failing check of the first leg that
+        // fails): the swim hand-off's log line (MovementActions.cpp).
+        static std::string SwimLineWhy(const std::vector<WorldPosition>& path, const Unit* bot);
         std::vector<WorldPosition> getPathStepFrom(const WorldPosition& startPos, std::unique_ptr<PathFinder>& pathfinder, const Unit* bot, bool forceNormalPath = false) const;
         std::vector<WorldPosition> getPathStepFrom(const WorldPosition& startPos, const Unit* bot, bool forceNormalPath = false) const;
         std::vector<WorldPosition> GetPathStepFrom(const WorldPosition& startPos, const Unit* bot, bool forceNormalPath = false) const { return getPathStepFrom(startPos, bot, forceNormalPath); }

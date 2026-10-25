@@ -305,6 +305,112 @@ static void TestRawLiquidIdsAreNotFiltered()
     }
 }
 
+// Blackfathom Deeps r26 step 82: the lead bot on the pool bed, the core's swim line to a pool point
+// 15.9 yd off, the bot's own route only its own spot.
+static SwimHandoffFacts PoolStall()
+{
+    SwimHandoffFacts f;
+    f.inWater = true;
+    f.routeEndFromBot = 0.0f;
+    f.endFromBot = 15.9f;
+    f.coreType = 0x81;
+    f.coreLineHitsModel = false;
+    f.swimmableHere = true;
+    f.endSwimmable = true;
+    f.endGroundYd = 15.9f;
+    f.endFromSurfaceYd = -20.9f;
+    f.surfaceLineClear = true;
+    return f;
+}
+
+static void TestPoolStallHandsTheCoreLine()
+{
+    SwimHandoffFacts f = PoolStall();
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine);   // fails on the stub
+    f.endFromBot = 41.8f;                                    // r29 step 580
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine);
+    f.endFromBot = 62.4f;                                   // Karazhan Crypt link 2 across the shaft
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine);
+    f.routeEndFromBot = 0.4f;                                // a route of a few inches is no progress either
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine);
+}
+
+static void TestHandoffGuards()
+{
+    SwimHandoffFacts f = PoolStall();
+    f.routeEndFromBot = 10.0f;  CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);   // (a) the route walks
+    f = PoolStall(); f.endFromBot = 1.5f;  CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);   // (b) there already
+    f = PoolStall(); f.inWater = false;    CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);   // (c) on land
+    f = PoolStall(); f.excluded = true;    CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);   // (d) a real player, transport, flight
+    for (std::uint32_t type : {0x11u, 0x91u, 0x83u, 0x85u, 0x89u, 0x08u, 0x04u, 0xC1u, 0xA1u})
+    {
+        f = PoolStall();
+        f.coreType = type;
+        f.endSwimmable = true;  // the swim-out never takes a swimmable end
+        CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);                              // (e) never 0x11, a shortcut, partial, failed, fly, forced
+    }
+    f = PoolStall(); f.coreLineHitsModel = true;  CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);   // (f) a wall on the line
+    f = PoolStall(); f.endFromBot = 120.0f;       CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);   // (g) a swim line over 100 yd
+    f.coreType = 0x01;                            CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine); // a mesh path has no cap
+}
+
+static void TestKarazhanFloorToDryRampHandsTheCorePath()
+{
+    SwimHandoffFacts f = PoolStall();
+    f.coreType = 0x01;
+    f.endFromBot = 56.7f;          // -11221.3 -1560.0 -45.9 -> -11220.0 -1586.8 4.1
+    f.endSwimmable = false;
+    f.endFromSurfaceYd = 1.1f;     // surface 3.0
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine);
+    f.coreLineHitsModel = true;    // the model test is for the straight line only
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine);
+}
+
+static void TestPoolBedSwimsOutToTheApron()
+{
+    SwimHandoffFacts f = PoolStall();
+    f.coreType = 0x04;
+    f.routeEndFromBot = 0.4f;
+    f.endFromBot = 13.2f;
+    f.endSwimmable = false;
+    f.endGroundYd = 8.2f;
+    f.endFromSurfaceYd = 0.1f;
+    f.surfaceLineClear = true;
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::SwimOut);       // fails on the stub
+    f.coreType = 0x08;                                          // no polygon at all: the same
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::SwimOut);
+    SwimHandoffFacts g = f; g.endFromSurfaceYd = 10.0f;    CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);   // a ledge above the water
+    g = f; g.endFromSurfaceYd = -8.0f;                     CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);   // a point down on the bed
+    g = f; g.endGroundYd = 45.0f;                          CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);   // too far out
+    g = f; g.surfaceLineClear = false;                     CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);   // a wall in the way
+    g = f; g.endSwimmable = true;                          CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);   // a swimmable end is the core's
+    g = f; g.swimmableHere = false;                        CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);   // shallow: wade, not swim
+}
+
+static void TestFirstFailingSampleIsNamed()
+{
+    std::uint32_t status = 99, flags = 99;
+    float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+    // The ridge at x 18-20 (Pool): 15 samples 2 yd apart from x 2, the first dry one is x 18, index 8.
+    CHECK(SwimLineFirstFailing(2.0f, 0.0f, -5.0f, 30.0f, 0.0f, -5.0f, Water(Pool), status, flags, sx, sy, sz) == 8);
+    CHECK(status == kLiquidNoWater && std::fabs(sx - 18.0f) < 0.01f);
+    // A dry start is sample 0.
+    CHECK(SwimLineFirstFailing(-5.0f, 0.0f, -5.0f, 10.0f, 0.0f, -5.0f, Water(Pool), status, flags, sx, sy, sz) == 0);
+    // All in water, and too long.
+    CHECK(SwimLineFirstFailing(2.0f, 0.0f, -9.5f, 15.9f, 0.0f, -9.6f, Water(OpenPool), status, flags, sx, sy, sz) == -1);
+    CHECK(SwimLineFirstFailing(0.0f, 0.0f, -5.0f, 90.0f, 0.0f, -5.0f, Water(OpenPool), status, flags, sx, sy, sz) == -2);
+    // SwimLineInWater is the same verdict.
+    CHECK(!SwimLineInWater(2.0f, 0.0f, -5.0f, 30.0f, 0.0f, -5.0f, Water(Pool)));
+    CHECK(SwimLineInWater(2.0f, 0.0f, -9.5f, 15.9f, 0.0f, -9.6f, Water(OpenPool)));
+}
+
+static void TestSwimOutRises()
+{
+    CHECK(SwimOutNeedsRise(191.9f, 202.2f));      // the bed: up first
+    CHECK(!SwimOutNeedsRise(201.5f, 202.2f));     // already at 0.7 yd under the surface
+    CHECK(!SwimOutNeedsRise(200.8f, 202.2f));     // 0.9 yd below the rise point: no rise
+}
+
 int main()
 {
     TestSwimAnswersInWaterAreKept();
@@ -315,6 +421,12 @@ int main()
     TestLongLinesAreNeverSampledSparsely();
     TestBlackfathomPoolLineIsKept();
     TestRawLiquidIdsAreNotFiltered();
+    TestPoolStallHandsTheCoreLine();
+    TestHandoffGuards();
+    TestKarazhanFloorToDryRampHandsTheCorePath();
+    TestPoolBedSwimsOutToTheApron();
+    TestFirstFailingSampleIsNamed();
+    TestSwimOutRises();
     std::cout << "swim path policy: all tests passed\n";
     return 0;
 }

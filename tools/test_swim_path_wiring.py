@@ -80,5 +80,60 @@ class SwimPathWiringTest(unittest.TestCase):
         self.assertNotRegex(MOVES, r"getPathType\(\)\s*==\s*PATHFIND_NORMAL\s*\)\s*\n\s*return")
 
 
+POLICY = (ROOT / "ai/playerbot/SwimPathPolicy.h").read_text()
+LASTMOVE = (ROOT / "ai/playerbot/strategy/values/LastMovementValue.h").read_text()
+
+
+class SwimHandoffWiringTest(unittest.TestCase):
+    def setUp(self):
+        self.move2 = body(MOVES, "bool MovementAction::MoveTo2(const WorldPosition& endPos,", "\n}\n")
+        self.hand = body(MOVES, "MovementAction::SwimHandoffResult MovementAction::SwimHandoff(", "\n}\n")
+
+    def test_moveto2_asks_after_the_route_and_in_the_collapse(self):
+        resolve = self.move2.index("TravelPath movePath = ResolveMovePath(startPos, endPos, mover, lastMove);")
+        first = self.move2.index("switch (SwimHandoff(startPos, endPos, movePath, lastMove))")
+        empty = self.move2.index("lastMove.moveFailReason = MOVE_FAIL_EMPTY_ROUTE;")
+        self.assertLess(resolve, first)
+        self.assertLess(first, empty)
+        second = self.move2.index("switch (SwimHandoff(startPos, endPos, movePath, lastMove))", first + 1)
+        self.assertLess(self.move2.index("movePath.makeShortCut(startPos, sPlayerbotAIConfig.reactDistance, bot);"), second)
+        self.assertLess(second, self.move2.index("return true; // Path collapsed"))
+        self.assertLess(second, self.move2.index("movePath.ClipPath(ai, mover, ignoreEnemyTargets, packHold);"))
+        self.assertEqual(self.move2.count("case SwimHandoffResult::Moving: return true;"), 2)
+        self.assertEqual(self.move2.count("case SwimHandoffResult::Refused: return false;"), 2)
+
+    def test_handoff_guards_and_dispatch(self):
+        h = self.hand
+        self.assertIn("ai->IsRealPlayer() || bot->GetTransport() || bot->IsFlying() || bot->IsTaxiFlying()", h)
+        self.assertIn("bot->IsInWater() || bot->IsUnderwater() || bot->HasMovementFlag(MOVEFLAG_SWIMMING)", h)
+        # The cheap gates before any path query.
+        self.assertLess(h.index("f.routeEndFromBot > ai::kSwimNoProgressYd"), h.index("PathFinder path(bot);"))
+        self.assertIn("map->FindCollisionModel(", h)
+        self.assertIn("terrain->IsSwimmable(startPos.getX(), startPos.getY(), startPos.getZ(), 1.5f, &here)", h)
+        self.assertIn("ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);", h)
+        self.assertLess(h.index("RouteEntersMagma(bot, startPos, line, magmaAt)"), h.index("mm.Clear();"))
+        self.assertIn("MOVE_RUN_MODE | MOVE_PATHFINDING", h)
+        self.assertIn("lastMove.setPath(TravelPath()); // not reused", h)
+        self.assertIn("WorldPosition::SwimLineWhy(", h)
+        self.assertIn("swim hand-off (%s)", MOVES)
+
+    def test_policy_has_no_land_line(self):
+        choose = body(POLICY, "inline SwimHandoff ChooseSwimHandoff(SwimHandoffFacts const& f)", "\n    }\n")
+        self.assertIn("f.coreType == (kPathTypeNormal | kPathTypeUnderwater)", choose)
+        self.assertNotIn("kPathTypeNotUsingPath", choose)
+        inwater = body(POLICY, "inline bool SwimLineInWater(", "\n    }\n")
+        self.assertIn("return SwimLineFirstFailing(", inwater)
+
+    def test_log_stamp_survives_a_clear(self):
+        self.assertIn("swimHandoffLogAt = other.swimHandoffLogAt;", LASTMOVE)
+        clear = body(LASTMOVE, "void clear()", "\n        }\n")
+        self.assertNotIn("swimHandoffLogAt", clear)
+
+    def test_why_mirrors_the_fits_test(self):
+        why = body(WORLDPOS, "std::string WorldPosition::SwimLineWhy(", "\n}\n")
+        self.assertIn("ai::SwimLineFirstFailing(", why)
+        self.assertIn("map->isInLineOfSight(a.getX(), a.getY(), a.getZ() + 0.5f, b.getX(), b.getY(), b.getZ() + 0.5f, true)", why)
+
+
 if __name__ == "__main__":
     unittest.main()

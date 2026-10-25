@@ -70,6 +70,11 @@ namespace ai
 
         // False when the path leads nowhere (fewer than two points): nothing was launched.
         bool DispatchMovement(TravelPath movePath, bool generatePath, bool masterWalking);
+        // MoveTo2's swim hand-off (SwimPathPolicy.h ChooseSwimHandoff). Moving (MoveTo2 returns true),
+        // Refused (the magma guard refused its line: MoveTo2 returns false), NotTaken (MoveTo2 goes on).
+        enum class SwimHandoffResult { NotTaken, Moving, Refused };
+        SwimHandoffResult SwimHandoff(const WorldPosition& startPos, const WorldPosition& endPos,
+            TravelPath& movePath, LastMovement& lastMove);
 
         Unit* GetMover(Player* bot);
 
