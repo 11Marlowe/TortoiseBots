@@ -271,6 +271,8 @@ constexpr std::uint32_t kOpenProofWaitMs = 5000; // open_proof: after the task a
 constexpr float kUseOnSummonYd = 150.0f;          // use_on: how far around the lead bot the glue looks for the summoned boss
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
+constexpr std::uint32_t kStandPullWaitMs = 600000;
+constexpr float kStandPullMarginYd = 1.0f;
 // A unit a party member has as its victim that stays at 1 hp (or at 1 % or less, unchanged) this long cannot die
 // now (HpHeldTick; Scarlet Cathedral r23 slot 5: Whitemane sat at 1 hp of 5284 under her script's invincibility,
 // and the fight ceiling paused four times on the same unkillable fight).
@@ -1137,6 +1139,8 @@ struct Run
     // A boss step past kBossSearchMs with the boss neither alive nor dead in sight asked the glue for the
     // instance-wide search (Facts::bossSearchRead, next tick); one per window (ResetStep clears it).
     bool bossSearchWanted = false;
+    std::uint32_t standPullMs = 0;
+    bool standPullShot = false;
     std::uint32_t patrolWaitMs = 0; // a pull step: time spent waiting for a patroller outside the radius (WaitForPatroller)
     std::unordered_set<std::uint64_t> patrolSeen; // ... the patrollers this step saw (a pass of one is remembered run-wide)
     // A big pack's stand walk (BigPackWalkGate): the walk's unit, stand and
@@ -1969,6 +1973,8 @@ inline void ResetStep(Run& r)
     r.bossWaitMs = 0;
     r.bossSeenAlive = false;
     r.bossSearchWanted = false;
+    r.standPullMs = 0;
+    r.standPullShot = false;
     r.hpWatch.clear();
     ClearFightProgress(r);
     r.patrolWaitMs = 0;
@@ -8379,6 +8385,20 @@ inline std::size_t UnitsOutOfReach(const Run& r, const Facts& f)
         if (u.hostile && r.unreachable.count(u.guid))
             ++n;
     return n;
+}
+
+// The stand of a stand-pull boss step: the move row right before it in the same leg, or null (then the flag acts as
+// off: the step pulls as before).
+inline const PlanStep* StandPullStand(const Run& r, const PlanStep& s)
+{
+    return nullptr;
+}
+
+inline void StandPullGiveUp(Run& r, const PlanStep& s, const std::string& why)
+{
+    (void)r;
+    (void)s;
+    (void)why;
 }
 
 inline FightEnd FightStepEnd(const Run& r, const Facts& f, const PlanStep& s)

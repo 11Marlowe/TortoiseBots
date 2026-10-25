@@ -627,6 +627,22 @@ static void TestProofCreatureFlagOnlyOnOpenProof()
     CHECK(NormalizePlanStep(keepPull) == PlanStepRefusal::None);
 }
 
+static void TestStandPullFlagOnlyOnBoss()
+{
+    CHECK(kPlanFlagStandPull == 8192);
+    PlanStep boss = Step(0, 30, PlanStepKind::Boss);
+    boss.entry = 62661;
+    boss.flags = kPlanFlagStandPull;
+    CHECK(NormalizePlanStep(boss) == PlanStepRefusal::None && (boss.flags & kPlanFlagStandPull));
+    PlanStep pull = Step(0, 31, PlanStepKind::Pull);
+    pull.entries = {62648};
+    pull.flags = kPlanFlagStandPull;
+    CHECK(NormalizePlanStep(pull) == PlanStepRefusal::BadParam);
+    PlanStep move = Step(0, 32, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    move.flags = kPlanFlagStandPull;
+    CHECK(NormalizePlanStep(move) == PlanStepRefusal::BadParam);
+}
+
 static void TestPlainOpenUnchanged()
 {
     // A plain open with a radius, extra entries and no param still loads: none
@@ -645,6 +661,7 @@ int main()
     TestOpenProofNormalize();
     TestProofCreatureFlagOnlyOnOpenProof();
     TestPlainOpenUnchanged();
+    TestStandPullFlagOnlyOnBoss();
     TestBossStepsJoinTheirTacticSubjects();
     TestPlanUnits();
     TestKinds();

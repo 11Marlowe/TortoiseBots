@@ -16777,6 +16777,142 @@ static void TestSkipUnreachableBossPassedBySpotEndsNotCleared()
     CHECK(a.note.find("and 3 pulls drew no fight with him") != std::string::npos);
 }
 
+// Spec B: a boss row with StandPull holds at the move row right before it (the stand) and pulls from there once the
+// boss is in the tank's shot. Setup shared by the tests below.
+static DungeonPlan StandPullPlan(bool skip)
+{
+    DungeonPlan plan;
+    PlanStep stand = Step(PlanStepKind::Move, -5842.0f, -3807.0f, 200.7f);
+    stand.leg = 0;
+    PlanStep boss = Step(PlanStepKind::Boss, -5820.0f, -3797.19f, 201.241f);
+    boss.leg = 0;
+    boss.entry = 3976;
+    boss.radius = 95.0f;
+    boss.flags = ai::kPlanFlagStandPull | (skip ? ai::kPlanFlagSkipUnreachable : 0);
+    ai::NormalizePlanStep(boss);
+    plan.steps = {stand, boss};
+    return plan;
+}
+
+static Facts StandPullFacts(float dist, bool los = true, float shot = 30.0f)
+{
+    Facts f = Party(0);
+    f.leadX = -5842.0f;
+    f.leadY = -3807.0f;
+    f.leadZ = 200.7f;
+    f.seen = true;
+    f.pullStand = true;
+    f.leadShotYd = shot;
+    UnitFact u = Unit(9, 3976, dist);
+    u.hostile = true;
+    u.losLead = los;
+    f.units = {u};
+    return f;
+}
+
+// Out of shot (50 yd): the step waits at the stand, no order, no firing-stand read.
+static void TestStandPullWaitsAtTheStandOutOfShot()
+{
+    DungeonPlan plan = StandPullPlan(false);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(50.0f);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(r.note == "boss 3976 patrols: waiting at the stand for him to come within 29.0 yd (now 50.0 yd)");
+    CHECK(r.shotStandFor == 0);
+}
+
+// In shot (28 yd): the pullback goes out on the first tick.
+static void TestStandPullPullsFromTheStandInShot()
+{
+    DungeonPlan plan = StandPullPlan(false);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(28.0f);
+    CHECK(Tick(r, f) == "pullback 9");
+}
+
+// In range but out of sight: wait, saying so.
+static void TestStandPullWaitsWhileOutOfSight()
+{
+    DungeonPlan plan = StandPullPlan(false);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(20.0f, false);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.note == "boss 3976 patrols: waiting at the stand for him to come within 29.0 yd (now 20.0 yd, out of sight)");
+}
+
+// Out of combat 12 yd from the stand: the order walks back to the stand.
+static void TestStandPullWalksBackToTheStand()
+{
+    DungeonPlan plan = StandPullPlan(false);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(50.0f);
+    f.leadX = -5830.0f;
+    f.leadY = -3807.0f;
+    f.leadZ = 200.7f;
+    CHECK(Tick(r, f) == "move -5842.0 -3807.0 200.7");
+}
+
+// 600 s out of shot: with the skip flag the step is not cleared and the run goes on; without it the run pauses.
+static void TestStandPullCeilingSkipsWithTheSkipFlag()
+{
+    DungeonPlan plan = StandPullPlan(true);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(50.0f);
+    std::string order;
+    for (std::uint32_t i = 0; i < kStandPullWaitMs / kTickMs && r.step == 1 && r.state == State::Running; ++i)
+        order = Tick(r, f);
+    CHECK(r.state == State::Running);
+    CHECK(r.step == 2);
+    CHECK(r.notCleared.count(1));
+    CHECK(r.note == "boss 3976 did not come within 29.0 yd of the stand in 600 s: skipped, not cleared (the plan marks him out of reach)");
+    DungeonPlan plain = StandPullPlan(false);
+    Run p = Start(&plain, 1);
+    for (std::uint32_t i = 0; i < kStandPullWaitMs / kTickMs && p.step == 1 && p.state == State::Running; ++i)
+        Tick(p, f);
+    CHECK(p.state == State::Paused);
+    CHECK(p.note == "boss 3976 did not come within 29.0 yd of the stand in 600 s: bring him to the party, then .bot run resume, or .bot run skip");
+}
+
+// No ranged pull (leadShotYd 0): the give-up comes at once, skip and pause variants.
+static void TestStandPullNoRangedPull()
+{
+    DungeonPlan plan = StandPullPlan(true);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(50.0f, true, 0.0f);
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 2 && r.notCleared.count(1));
+    CHECK(r.note == "the tank has no ranged pull for a stand pull: skipped, not cleared (the plan marks him out of reach)");
+    DungeonPlan plain = StandPullPlan(false);
+    Run p = Start(&plain, 1);
+    Tick(p, f);
+    CHECK(p.state == State::Paused);
+    CHECK(p.note == "the tank has no ranged pull for a stand pull: bring him to the party, then .bot run resume, or .bot run skip");
+}
+
+// Without a stand (boss as step 0): the step pulls as before (the stand read is asked).
+static void TestStandPullWithoutStandPullsAsBefore()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, -5820.0f, -3797.19f, 201.241f);
+    boss.entry = 3976;
+    boss.radius = 95.0f;
+    boss.flags = ai::kPlanFlagStandPull;
+    ai::NormalizePlanStep(boss);
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.seen = true;
+    f.pullStand = true;
+    f.leadShotYd = 30.0f;
+    UnitFact u = Unit(9, 3976, 28.0f);
+    u.hostile = true;
+    u.losLead = true;
+    f.units = {u};
+    CHECK(Tick(r, f).empty());
+    CHECK(r.shotStandFor == 9);
+}
+
 // The final line must not hide a skipped boss: the flagged boss's step ends
 // "not cleared", the run finishes the rest of the plan, and the done note
 // names him. (Stormwrought Ruins leg 9: Eldermaw swims out of reach; the run
@@ -19408,6 +19544,13 @@ int main()
     TestAliveSearchPauseSaysWhereTheLeadBotIs();
     TestSkipUnreachableBossAliveElsewhereEndsNotCleared();
     TestSkipUnreachableBossPassedBySpotEndsNotCleared();
+    TestStandPullWaitsAtTheStandOutOfShot();
+    TestStandPullPullsFromTheStandInShot();
+    TestStandPullWaitsWhileOutOfSight();
+    TestStandPullWalksBackToTheStand();
+    TestStandPullCeilingSkipsWithTheSkipFlag();
+    TestStandPullNoRangedPull();
+    TestStandPullWithoutStandPullsAsBefore();
     TestSkippedBossNamedInDoneNoteAliveElsewhere();
     TestSkippedBossNamedInDoneNotePassedBySpot();
     TestDoneNoteUnchangedWithNoSkippedBoss();
