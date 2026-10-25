@@ -113,7 +113,7 @@ class StrandedLeadTeleportWiringTest(unittest.TestCase):
     def test_issue_run_order_hands_the_rescue_to_the_glue(self):
         f = body(COMMANDS, "bool IssueRunOrder(")
         route = at(f, 'if (text.compare(0, 7, "rescue ") == 0)\n        return RunStrandedTeleport(commander, text, answer);')
-        self.assertLess(route, at(f, "HandleCommanderOrder(&handler, text.c_str());"))
+        self.assertLess(route, at(f, "HandleCommanderOrder(handler.get(), text.c_str());"))
 
     def test_order_text_matches_the_policy(self):
         at(self.glue, '"rescue from %f %f %f to %f %f %f"')

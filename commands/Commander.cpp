@@ -61,6 +61,7 @@
 #include "../runtime/GossipOrderPolicy.h"
 #include "../runtime/CommanderTelemetry.h"
 #include "../runtime/DungeonRunPolicy.h"
+#include "../runtime/SystemRunPolicy.h"
 #include "../runtime/RunTrace.h"
 #include "../runtime/RunGroupIndex.h"
 #include "../runtime/PlayerLedPolicy.h"
@@ -230,6 +231,8 @@ struct DungeonRunSlot
     mutable TortoiseBots::DungeonRun::MoveProbeCache moveProbe;
     // A player-led run (`.bot run start ... player`, PlayerLedPolicy.h): its own state beside the run.
     TortoiseBots::PlayerLed::State playerLed;
+    // A system run paused by L6 (SystemRun::DecideJoinStep).
+    bool systemPausedForPlayer = false;
 };
 
 std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
@@ -426,6 +429,71 @@ Player* FindCharacter(uint64 raw)
     return raw ? ObjectAccessor::FindPlayerNotInWorld(ObjectGuid(raw)) : nullptr;
 }
 
+// A world bot (L7): unowned, not hired, claimed or an autonomous alt, with no
+// live real player as master.
+bool IsWorldBot(Player* bot);
+
+bool IsSystemBinding(uint64 commanderRaw)
+{
+    RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(commanderRaw);
+    return binding && binding->system;
+}
+
+// Every reply that would go to a system run's stand-in commander goes to the
+// server log instead (L2): status lines at Basic, order ACK/ERR lines at Detail.
+class ServerLogChatHandler final : public ChatHandler
+{
+public:
+    explicit ServerLogChatHandler(Player* lead, ChatHandler* echo = nullptr)
+        : ChatHandler(lead), m_lead(lead ? lead->GetName() : "?"), m_echo(echo)
+    {
+    }
+    using ChatHandler::SendSysMessage;
+    void SendSysMessage(char const* str) override
+    {
+        TB_LOG_DETAIL("%s", TortoiseBots::SystemRun::LogLine(m_lead, str ? str : "").c_str());
+        if (m_echo)
+            m_echo->SendSysMessage(str);
+    }
+private:
+    std::string m_lead;
+    ChatHandler* m_echo;
+};
+
+// The reply channel for a commander's answer: null when it must go nowhere
+// (a bot's session never gets a system run's late reply).
+std::unique_ptr<ChatHandler> CommanderReplyHandler(uint64 commanderRaw, bool system)
+{
+    Player* commander = FindCharacter(commanderRaw);
+    if (!commander || !commander->IsInWorld() || !commander->GetSession())
+        return nullptr;
+    if (system)
+        return std::unique_ptr<ChatHandler>(new ServerLogChatHandler(commander));
+    if (BotManager::Instance().IsBot(commander->GetObjectGuid()))
+        return nullptr;
+    return std::unique_ptr<ChatHandler>(new ChatHandler(commander));
+}
+
+bool IsWorldBot(Player* bot)
+{
+    if (!bot)
+        return false;
+    BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
+    if (!record || record->ownerAccountId != 0)
+        return false;
+    if (HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
+        return false;
+    if (ClaimLifecycle::Instance().IsClaimed(bot->GetGUIDLow()))
+        return false;
+    if (AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+        return false;
+    if (!record->masterGuid.IsEmpty())
+        if (Player* master = ObjectAccessor::FindPlayer(record->masterGuid))
+            if (master->GetSession() && master->GetSession()->HasNetworkTransport())
+                return false;
+    return true;
+}
+
 Player* FindOnlineByName(std::string name)
 {
     name = Trim(name);
@@ -449,9 +517,12 @@ void FillCommandedBots(Group* group, Player* lead, std::vector<Player*>& bots)
     // that is another player's is left alone, as a real player is.
     RemoteCommander::Binding const* binding = CommanderBindings().FindByGroup(group->GetId());
     bool const playerLed = binding && binding->playerLed;
+    bool const system = binding && binding->system;
     Player* const owner = playerLed ? FindCharacter(binding->commanderGuid) : nullptr;
     auto const commanded = [&](Player* bot)
     {
+        if (system)
+            return IsWorldBot(bot);
         if (!playerLed)
             return true;
         BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
@@ -768,15 +839,15 @@ uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason
     // After the follow targets and the threat back-off above were restored,
     // while the hires are still in the bound party.
     HireLifecycle::Instance().EndCommand(::ObjectGuid(commanderRaw));
-    TB_LOG_DETAIL("TortoiseBots: remote commander %s released group of %s: %s",
+    TB_LOG_DETAIL("TortoiseBots: %s %s released group of %s: %s",
+        removed.system ? "system run" : "remote commander",
         commander ? commander->GetName() : "(offline)", lead ? lead->GetName() : "(offline)",
         RemoteCommander::ReleaseReasonText(reason));
-    if (notify && commander && commander->IsInWorld() && commander->GetSession())
-    {
-        ChatHandler(commander).PSendSysMessage("TBM:ACTION_ACK|commander unbind|party|%u|%s",
-            static_cast<uint32>(removed.followers.size()),
-            ProtocolSafe(RemoteCommander::ReleaseReasonText(reason)).c_str());
-    }
+    if (notify)
+        if (std::unique_ptr<ChatHandler> const chat = CommanderReplyHandler(commanderRaw, removed.system))
+            chat->PSendSysMessage("TBM:ACTION_ACK|commander unbind|party|%u|%s",
+                static_cast<uint32>(removed.followers.size()),
+                ProtocolSafe(RemoteCommander::ReleaseReasonText(reason)).c_str());
     return static_cast<uint32>(removed.followers.size());
 }
 
@@ -1498,6 +1569,119 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
     return true;
 }
 
+namespace {
+
+TortoiseBots::SystemRun::Member SystemMember(Player* bot, bool inOtherGroup)
+{
+    TortoiseBots::SystemRun::Member member;
+    member.liveBot = IsLiveHeadlessBot(bot);
+    member.worldBot = bot && IsWorldBot(bot);
+    member.hired = bot && HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
+    member.inOtherBinding = bot && CommanderBindings().FindByBot(bot->GetObjectGuid().GetRawValue()) != nullptr;
+    member.inOtherGroup = inOtherGroup;
+    return member;
+}
+
+} // namespace
+
+// A server-owned binding of a bot-only party (SystemRunPolicy.h): the lead bot
+// is its own commander key. The key (or 0 with code/message set).
+uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::string& code, std::string& message)
+{
+    if (!lead)
+    {
+        code = "no-bot";
+        message = "Target the lead bot of the party.";
+        return 0;
+    }
+    uint64 const raw = lead->GetObjectGuid().GetRawValue();
+    for (uint64 other : CommanderBindings().Commanders())
+        StandingBinding(other);
+    TortoiseBots::SystemRun::BindFacts facts;
+    facts.enabled = RemoteCommander::BindingKindEnabled(RemoteCommander::BindingKind::System, CurrentCommanderGates());
+    facts.lead = SystemMember(lead, false);
+    Group* leadGroup = lead->GetGroup();
+    facts.leadGrouped = leadGroup != nullptr;
+    facts.leadLeads = leadGroup && leadGroup->IsLeader(lead->GetObjectGuid());
+    if (leadGroup)
+    {
+        facts.raidOrBg = leadGroup->isRaidGroup() || leadGroup->isBGGroup();
+        for (Group::MemberSlot const& slot : leadGroup->GetMemberSlots())
+            if (!BotManager::Instance().IsBot(slot.guid))
+            {
+                facts.realPlayerInGroup = true;
+                break;
+            }
+        facts.groupBound = CommanderBindings().FindByGroup(leadGroup->GetId()) != nullptr;
+        for (Group::MemberSlot const& slot : leadGroup->GetMemberSlots())
+        {
+            if (slot.guid == lead->GetObjectGuid())
+                continue;
+            facts.members.push_back(SystemMember(ObjectAccessor::FindPlayer(slot.guid), false));
+        }
+    }
+    for (Player* joiner : joiners)
+    {
+        if (!joiner || (leadGroup && joiner->GetGroup() == leadGroup))
+            continue;
+        Group* joinerGroup = joiner->GetGroup();
+        facts.members.push_back(SystemMember(joiner, joinerGroup && joinerGroup != leadGroup));
+    }
+    if (TortoiseBots::SystemRun::Refusal refusal = TortoiseBots::SystemRun::CheckBind(facts);
+        refusal != TortoiseBots::SystemRun::Refusal::None)
+    {
+        code = TortoiseBots::SystemRun::RefusalCode(refusal);
+        message = TortoiseBots::SystemRun::RefusalText(refusal);
+        return 0;
+    }
+    for (Player* joiner : joiners)
+    {
+        if (!joiner || (lead->GetGroup() && joiner->GetGroup() == lead->GetGroup()))
+            continue;
+        if (!JoinLeadGroup(lead, joiner))
+        {
+            code = "invite-failed";
+            message = std::string("The group invitation for ") + joiner->GetName() + " was refused.";
+            return 0;
+        }
+    }
+    Group* group = lead->GetGroup();
+    if (group && !group->IsLeader(lead->GetObjectGuid()))
+        group->ChangeLeader(lead->GetObjectGuid());
+    group = lead->GetGroup();
+    if (!group || !group->IsLeader(lead->GetObjectGuid()) || group->GetMembersCount() < 2)
+    {
+        code = "invite-failed";
+        message = "The lead bot could not form a group.";
+        return 0;
+    }
+    RemoteCommander::Binding binding;
+    binding.leadGuid = raw;
+    binding.commanderGuid = binding.leadGuid;
+    binding.groupId = group->GetId();
+    binding.system = true;
+    if (CommanderBindings().Bind(binding) != RemoteCommander::BindResult::Bound)
+    {
+        code = "group-bound";
+        message = "Another commander already commands that group.";
+        return 0;
+    }
+    std::vector<Player*> bots = CommandedBots(group, lead);
+    FormUpOnLead(lead, lead, bots, true);
+    for (Player* bot : bots)
+    {
+        GiveCommanderThreatBackoff(bot);
+        HoldCommanderAutonomy(bot, PlayerbotAIStorage::Instance().GetAI(bot), false);
+    }
+    std::string roster;
+    for (Player* bot : bots)
+        roster += (roster.empty() ? "" : ", ") + std::string(bot->GetName());
+    TB_LOG_BASIC("%s", TortoiseBots::SystemRun::LogLine(lead->GetName(), "bound: " + roster).c_str());
+    code.clear();
+    message.clear();
+    return raw;
+}
+
 bool HandleCommander(ChatHandler* handler, char const* args)
 {
     Player* commander = Requester(handler);
@@ -1608,7 +1792,18 @@ struct CommanderOrder
     // A player-led binding (PlayerLedPolicy.h): the commander leads the party; he is the pull anchor and the
     // summon point (CommanderPullAnchor).
     bool playerLed = false;
+    // A system binding (SystemRunPolicy.h): the lead bot stands in for the commander; owner checks follow the bots.
+    bool system = false;
 };
+
+bool OrderControlsBot(CommanderOrder const& order, BotRecord* record)
+{
+    if (!record)
+        return false;
+    if (order.system)
+        return IsWorldBot(ObjectAccessor::FindPlayer(record->characterGuid));
+    return CanControlBot(order.commander, record);
+}
 
 // The pull anchor and summon point of a commander order: the lead bot, or in a player-led run the commander
 // himself while he is alive, in the world and on the lead bot's map (the design: the tank pulls back to where the
@@ -2621,14 +2816,13 @@ void NoteEnterResult(CommanderTask const& task, bool ok, std::string const& code
     if (!RemoteCommander::EnterComplete(order.tally))
         return;
     RemoteCommander::EnterAnswer const answer = RemoteCommander::FinalEnterAnswer(order.tally);
-    Player* commander = FindCharacter(order.commanderRaw);
-    if (commander && commander->IsInWorld() && commander->GetSession())
+    std::unique_ptr<ChatHandler> const chat = CommanderReplyHandler(order.commanderRaw, IsSystemBinding(order.commanderRaw));
+    if (chat)
     {
-        ChatHandler handler(commander);
         if (answer.ok)
-            SendActionAck(&handler, order.intent, order.scope, answer.count, answer.detail);
+            SendActionAck(chat.get(), order.intent, order.scope, answer.count, answer.detail);
         else
-            SendActionError(&handler, order.intent, answer.code.c_str(), answer.message.c_str());
+            SendActionError(chat.get(), order.intent, answer.code.c_str(), answer.message.c_str());
     }
     orders.erase(it);
 }
@@ -3025,21 +3219,19 @@ void NoteRunTaskReply(CommanderTask const& task, bool ok, std::string const& tex
 void TaskReplyAck(CommanderTask const& task, uint32 count, std::string const& payload)
 {
     NoteRunTaskReply(task, true, payload);
-    Player* commander = FindCharacter(task.commanderRaw);
-    if (!commander || !commander->IsInWorld() || !commander->GetSession())
+    std::unique_ptr<ChatHandler> const chat = CommanderReplyHandler(task.commanderRaw, IsSystemBinding(task.commanderRaw));
+    if (!chat)
         return;
-    ChatHandler handler(commander);
-    SendActionAck(&handler, task.intent, "bot:" + task.botName, count, payload);
+    SendActionAck(chat.get(), task.intent, "bot:" + task.botName, count, payload);
 }
 
 void TaskReplyErr(CommanderTask const& task, std::string const& code, std::string const& message)
 {
     NoteRunTaskReply(task, false, code + ": " + message);
-    Player* commander = FindCharacter(task.commanderRaw);
-    if (!commander || !commander->IsInWorld() || !commander->GetSession())
+    std::unique_ptr<ChatHandler> const chat = CommanderReplyHandler(task.commanderRaw, IsSystemBinding(task.commanderRaw));
+    if (!chat)
         return;
-    ChatHandler handler(commander);
-    SendActionError(&handler, task.intent, code.c_str(), message.c_str());
+    SendActionError(chat.get(), task.intent, code.c_str(), message.c_str());
 }
 
 // The walk is over: a bot that followed goes back to following the lead bot;
@@ -3935,14 +4127,13 @@ void RitualReply(RitualGroup const& group, bool ok, uint32 count, std::string co
         run->second.taskReply = ok ? 1 : 2;
         run->second.taskText = ok ? std::string("done") : code + ": " + message;
     }
-    Player* commander = FindCharacter(group.commanderRaw);
-    if (!commander || !commander->IsInWorld() || !commander->GetSession())
+    std::unique_ptr<ChatHandler> const chat = CommanderReplyHandler(group.commanderRaw, IsSystemBinding(group.commanderRaw));
+    if (!chat)
         return;
-    ChatHandler handler(commander);
     if (ok)
-        SendActionAck(&handler, group.intent, "party", count, "done");
+        SendActionAck(chat.get(), group.intent, "party", count, "done");
     else
-        SendActionError(&handler, group.intent, code.c_str(), message.c_str());
+        SendActionError(chat.get(), group.intent, code.c_str(), message.c_str());
 }
 
 void FailRitualGroup(uint32 id, uint64 exceptBot, std::string const& code, std::string const& message)
@@ -4496,7 +4687,7 @@ static bool CommanderRitual(ChatHandler* handler, CommanderOrder const& order,
         }
         BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
         if (!RemoteCommander::MayIssueOrder(true, true,
-            RemoteCommander::OrderTier::OwnerOrGm, record && CanControlBot(order.commander, record)))
+            RemoteCommander::OrderTier::OwnerOrGm, OrderControlsBot(order, record)))
         {
             SendActionError(handler, intent, "denied", "Only each bot's owner (or a GameMaster) may do that.");
             return true;
@@ -4613,7 +4804,7 @@ static bool CommanderEnter(ChatHandler* handler, CommanderOrder const& order,
     {
         BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
         if (!RemoteCommander::MayIssueOrder(true, true,
-            RemoteCommander::OrderTier::OwnerOrGm, record && CanControlBot(order.commander, record)))
+            RemoteCommander::OrderTier::OwnerOrGm, OrderControlsBot(order, record)))
         {
             std::string const message = std::string("Only the owner of ") + bot->GetName() + " (or a GameMaster) may do that.";
             SendActionError(handler, intent, "denied", message.c_str());
@@ -4870,6 +5061,7 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args)
     order.lead = FindCharacter(binding->leadGuid);
     order.group = order.lead ? order.lead->GetGroup() : nullptr;
     order.playerLed = binding->playerLed;
+    order.system = binding->system;
     if (!order.lead || !order.group || !order.lead->IsInWorld())
     {
         SendActionError(handler, intent, "lead-unavailable", "The lead bot is between maps. Try again in a moment.");
@@ -4963,7 +5155,7 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args)
                     BotRecord* memberRecord = BotManager::Instance().FindBot(member->GetObjectGuid());
                     PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
                     if (!memberAi || !RemoteCommander::MayIssueOrder(true, true, tier,
-                            memberRecord && CanControlBot(order.commander, memberRecord)))
+                            OrderControlsBot(order, memberRecord)))
                     {
                         ++denied;
                         continue;
@@ -4997,7 +5189,7 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args)
         }
         BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
         if (!RemoteCommander::MayIssueOrder(true, true, tier,
-            record && CanControlBot(order.commander, record)))
+            OrderControlsBot(order, record)))
         {
             SendActionError(handler, intent, "denied", "Only this bot's owner (or a GameMaster) may do that.");
             return true;
@@ -5239,6 +5431,11 @@ void SendRunLine(Player* commander, DungeonRunSlot& slot, bool force)
     if (!force && line == slot.lastLine)
         return;
     slot.lastLine = line;
+    if (commander && IsSystemBinding(commander->GetObjectGuid().GetRawValue()))
+    {
+        TB_LOG_BASIC("%s", TortoiseBots::SystemRun::LogLine(commander->GetName(), line).c_str());
+        return;
+    }
     if (commander && commander->IsInWorld() && commander->GetSession())
         ChatHandler(commander).PSendSysMessage("%s", line.c_str());
 }
@@ -5262,12 +5459,15 @@ bool IssueRunOrder(Player* commander, std::string const& text, std::string& answ
         return RunStrandedTeleport(commander, text, answer);
     if (text.compare(0, 7, "return ") == 0)
         return RunOffMapReturn(commander, text, answer);
-    ChatHandler handler(commander);
+    uint64 const raw = commander ? commander->GetObjectGuid().GetRawValue() : 0;
+    std::unique_ptr<ChatHandler> handler = IsSystemBinding(raw)
+        ? std::unique_ptr<ChatHandler>(new ServerLogChatHandler(commander))
+        : std::unique_ptr<ChatHandler>(new ChatHandler(commander));
     s_runOrderCapture = RunOrderCapture();
     s_runOrderCapture.active = true;
     s_runIssuing = true;
     s_runGather = gather;
-    HandleCommanderOrder(&handler, text.c_str());
+    HandleCommanderOrder(handler.get(), text.c_str());
     s_runIssuing = false;
     s_runGather = false;
     RunOrderCapture const got = s_runOrderCapture;
@@ -8444,6 +8644,35 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Unbound, false);
         return;
     }
+    // A system run with a real player in its group pauses until the group is
+    // bots only again (L6); the binding stands meanwhile.
+    if (binding->system)
+    {
+        bool realPlayer = false;
+        if (Player* systemLead = FindCharacter(binding->leadGuid))
+            if (Group* systemGroup = systemLead->GetGroup())
+                for (Group::MemberSlot const& slotMember : systemGroup->GetMemberSlots())
+                    if (!BotManager::Instance().IsBot(slotMember.guid))
+                    {
+                        realPlayer = true;
+                        break;
+                    }
+        switch (TortoiseBots::SystemRun::DecideJoinStep(slot.run.state == TortoiseBots::DungeonRun::State::Running,
+            slot.run.state == TortoiseBots::DungeonRun::State::Paused, slot.systemPausedForPlayer, realPlayer))
+        {
+            case TortoiseBots::SystemRun::JoinStep::Pause:
+                TortoiseBots::DungeonRun::PausePlayer(slot.run, TortoiseBots::SystemRun::kPlayerJoinedNote);
+                slot.systemPausedForPlayer = true;
+                SendRunLine(commander, slot, false);
+                break;
+            case TortoiseBots::SystemRun::JoinStep::Resume:
+                slot.systemPausedForPlayer = false;
+                TortoiseBots::DungeonRun::Resume(slot.run);
+                SendRunLine(commander, slot, false);
+                break;
+            case TortoiseBots::SystemRun::JoinStep::None: break;
+        }
+    }
     // A paused run whose hold is done (DungeonRun::HoldDoneWhilePaused): the
     // step ends and the run resumes by itself (a player's pause stays paused).
     if (slot.run.state == TortoiseBots::DungeonRun::State::Paused && commander)
@@ -10098,13 +10327,22 @@ void CollectCommanderTelemetry(std::vector<CommanderTelemetry::BindingRef>& out)
             continue;
         CommanderTelemetry::BindingRef ref;
         Player* commander = FindCharacter(commanderRaw);
-        ref.commander = commander ? commander->GetName() : "offline #" + std::to_string(::ObjectGuid(commanderRaw).GetCounter());
-        ref.commanderGuid = ::ObjectGuid(commanderRaw).GetCounter();
-        ref.commanderOnline = commander && commander->GetSession() && commander->GetSession()->HasNetworkTransport();
+        Player* lead = FindCharacter(binding->leadGuid);
+        if (binding->system)
+        {
+            ref.commander = "system";
+            ref.commanderGuid = ::ObjectGuid(commanderRaw).GetCounter();
+            ref.commanderOnline = lead != nullptr;
+        }
+        else
+        {
+            ref.commander = commander ? commander->GetName() : "offline #" + std::to_string(::ObjectGuid(commanderRaw).GetCounter());
+            ref.commanderGuid = ::ObjectGuid(commanderRaw).GetCounter();
+            ref.commanderOnline = commander && commander->GetSession() && commander->GetSession()->HasNetworkTransport();
+        }
         ref.groupId = binding->groupId;
         auto const view = CommanderViews().find(commanderRaw);
         ref.viewOn = view != CommanderViews().end() && view->second.enabled;
-        Player* lead = FindCharacter(binding->leadGuid);
         Group* group = lead ? lead->GetGroup() : nullptr;
         ref.lead = lead;
         if (group && group->GetId() == binding->groupId)
@@ -10397,7 +10635,7 @@ bool NoteHumanChatOrder(Player* bot, Player& from, std::string const& text, bool
             case RemoteCommander::RunOrderVerdict::Refuse:
             {
                 Player* commander = FindCharacter(commanderRaw);
-                std::string const reply = RemoteCommander::RunBoundRefusalText(commander ? commander->GetName() : "its commander");
+                std::string const reply = RemoteCommander::RunBoundRefusalText(binding->system ? std::string("the server's dungeon run") : (commander ? commander->GetName() : "its commander"));
                 from.SendAddonMessage("TBM", "ACTION_ERR|" + ProtocolSafe(word.empty() ? std::string("chat") : word.substr(0, 32)) +
                     "|run-bound|" + ProtocolSafe(reply));
                 ChatHandler(&from).SendSysMessage(reply.c_str());
@@ -10491,10 +10729,15 @@ static bool TraceContext(uint64_t requesterGuid, Player* anchor, bool wantPlan, 
     out.mode = RunTrace::RunMode::Observe;
     ai::DungeonPlan const* plan = nullptr;
     std::uint32_t const team = anchor->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde;
-    if (CommanderBindings().FindByCommander(requesterGuid))
+    uint64_t key = requesterGuid;
+    if (!CommanderBindings().FindByCommander(key))
+        if (RemoteCommander::Binding const* own = CommanderBindings().FindByBot(anchor->GetObjectGuid().GetRawValue()))
+            if (own->system)
+                key = own->commanderGuid;
+    if (CommanderBindings().FindByCommander(key))
     {
         out.mode = RunTrace::RunMode::Commander;
-        auto it = DungeonRuns().find(requesterGuid);
+        auto it = DungeonRuns().find(key);
         if (it != DungeonRuns().end())
         {
             out.mode = RunTrace::RunMode::RunLeader;

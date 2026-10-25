@@ -26,7 +26,7 @@ def body(text, start, end):
 
 class StragglerWalkWiringTest(unittest.TestCase):
     def test_issue_run_order_routes_walk_to_the_glue(self):
-        issue = body(COMMANDS, "bool IssueRunOrder(Player* commander", "HandleCommanderOrder(&handler, text.c_str());")
+        issue = body(COMMANDS, "bool IssueRunOrder(Player* commander", "HandleCommanderOrder(handler.get(), text.c_str());")
         self.assertIn('if (text.compare(0, 5, "walk ") == 0)\n        return RunBotWalk(commander, text, answer);', issue)
 
     def test_policy_order_spelling_matches_the_parser(self):
