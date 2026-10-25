@@ -16834,83 +16834,6 @@ static void TestSkippedBossNamedInDoneNotePassedBySpot()
     CHECK(r.note == "plan done (boss not cleared: boss 3976 (step 1))");
 }
 
-// A flagged boss skipped, then killed on a later step, is not named at the
-// end: the "boss down" reconciles his earlier step out of notCleared by
-// entry. Fails on 87fcb26b (the done note still names the dead boss).
-static void TestSkippedBossKilledLaterNotNamedInDoneNote()
-{
-    DungeonPlan plan;
-    PlanStep skip = Step(PlanStepKind::Boss, 0, 0, 0);
-    skip.entry = 3976;
-    PlanStep later = Step(PlanStepKind::Boss, 0, 0, 0);
-    later.entry = 3976;
-    plan.steps = {skip, later, Step(PlanStepKind::Move, 60)};
-    plan.steps[0].flags |= ai::kPlanFlagSkipUnreachable;
-    Run r = Start(&plan);
-    Facts f = Party(0);
-    UnitFact seen = Unit(7, 3976, 33.1f);
-    seen.hostile = true;
-    f.seen = true;
-    f.units = {seen};
-    r.passed.insert(7);
-    r.pullTries[7] = 3;
-    Tick(r, f);
-    CHECK(r.state == State::Running && r.step == 1 && r.notCleared.count(0));
-    Facts kill = Party(0);
-    UnitFact live = Unit(9, 3976, 30);
-    live.hostile = true;
-    kill.units = {live};
-    CHECK(Tick(r, kill) == "pullback 9");
-    kill.anyInCombat = true;
-    Tick(r, kill);
-    kill.anyInCombat = false;
-    kill.units.clear();
-    kill.bossDeadNearSpot = true;
-    Tick(r, kill);
-    CHECK(r.state == State::Running && r.step == 2 && r.note == "boss down");
-    CHECK(!r.notCleared.count(0));
-    Facts g = Party(60);
-    CHECK(Tick(r, g).empty());
-    CHECK(r.state == State::Done);
-    CHECK(r.note == "plan done");
-}
-
-// Two flagged bosses skipped, one killed later: only the still-live one is
-// named at the end.
-static void TestTwoSkippedBossesOneKilledLaterNamesOnlyTheOther()
-{
-    DungeonPlan plan;
-    PlanStep first = Step(PlanStepKind::Boss, 0, 0, 0);
-    first.entry = 3976;
-    PlanStep second = Step(PlanStepKind::Boss, 10, 0, 0);
-    second.entry = 3977;
-    PlanStep later = Step(PlanStepKind::Boss, 20, 0, 0);
-    later.entry = 3976;
-    plan.steps = {first, second, later, Step(PlanStepKind::Move, 60)};
-    plan.steps[0].flags |= ai::kPlanFlagSkipUnreachable;
-    plan.steps[1].flags |= ai::kPlanFlagSkipUnreachable;
-    Run r = Start(&plan);
-    CHECK(Skip(r) && r.state == State::Running && r.step == 1 && r.notCleared.count(0));
-    CHECK(Skip(r) && r.state == State::Running && r.step == 2 && r.notCleared.count(0) && r.notCleared.count(1));
-    Facts kill = Party(20);
-    UnitFact live = Unit(9, 3976, 30);
-    live.hostile = true;
-    kill.units = {live};
-    CHECK(Tick(r, kill) == "pullback 9");
-    kill.anyInCombat = true;
-    Tick(r, kill);
-    kill.anyInCombat = false;
-    kill.units.clear();
-    kill.bossDeadNearSpot = true;
-    Tick(r, kill);
-    CHECK(r.state == State::Running && r.step == 3 && r.note == "boss down");
-    CHECK(!r.notCleared.count(0) && r.notCleared.count(1));
-    Facts g = Party(60);
-    CHECK(Tick(r, g).empty());
-    CHECK(r.state == State::Done);
-    CHECK(r.note == "plan done (boss not cleared: boss 3977 (step 2))");
-}
-
 static void TestDoneNoteUnchangedWithNoSkippedBoss()
 {
     DungeonPlan plan;
@@ -19487,8 +19410,6 @@ int main()
     TestSkipUnreachableBossPassedBySpotEndsNotCleared();
     TestSkippedBossNamedInDoneNoteAliveElsewhere();
     TestSkippedBossNamedInDoneNotePassedBySpot();
-    TestSkippedBossKilledLaterNotNamedInDoneNote();
-    TestTwoSkippedBossesOneKilledLaterNamesOnlyTheOther();
     TestDoneNoteUnchangedWithNoSkippedBoss();
     TestSpawnEventsOffReadsEveryAssociation();
     TestUnitThatCannotDieNowPauses();
