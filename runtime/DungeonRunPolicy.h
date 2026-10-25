@@ -10422,6 +10422,23 @@ inline bool RearmEventOnWipe(Run& r, const Facts& f)
     return true;
 }
 
+// What a hold done by its object read this tick (the run leader reads the
+// object's GO state near the hold spot: RemoteCommanderPolicy.h
+// kEntryPointRadius, 30 yd). Only for a DoneObject hold; the done test itself
+// is unchanged.
+inline std::string HoldObjectRead(const Facts& f, const PlanStep& s)
+{
+    // 30: RemoteCommanderPolicy.h kEntryPointRadius (not visible here), the
+    // by-entry object search radius around the hold spot.
+    if (f.objectState < 0)
+        return "object " + std::to_string(s.entry) + " not found within 30 yd of the spot";
+    auto word = [](int state)
+    {
+        return state == 0 ? "ready" : state == 1 ? "active" : "active_alt";
+    };
+    return "object " + std::to_string(s.entry) + " reads " + std::to_string(f.objectState) + " " + word(f.objectState) +
+        ", waits for " + std::to_string(s.param) + " " + word(static_cast<int>(s.param));
+}
 // The hold's done condition from what the glue reads on every tick, with the
 // spot in sight or not, in a fight, a regroup or a pause too (instance data is
 // map-wide; the object counts when it is within the lead bot's reach). Uldaman
@@ -10692,7 +10709,8 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
     }
     if (r.eventMs >= s.timeoutS * 1000u)
     {
-        Pause(r, "event not done after " + std::to_string(s.timeoutS) + " s" + tail +
+        std::string const read = (s.flags & ai::kPlanFlagDoneObject) ? "; " + HoldObjectRead(f, s) : std::string();
+        Pause(r, "event not done after " + std::to_string(s.timeoutS) + " s" + tail + read +
             ": .bot run resume waits again, .bot run skip goes on");
         return;
     }
@@ -10745,7 +10763,8 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         PullUnit(r, f, *idle, order);
         return;
     }
-    r.note = "event: holding the spot" + tail;
+    std::string const read = (s.flags & ai::kPlanFlagDoneObject) ? "; " + HoldObjectRead(f, s) : std::string();
+    r.note = "event: holding the spot" + tail + read;
 }
 
 // Guarding the party from a stand point. The run leader's moves put the tank

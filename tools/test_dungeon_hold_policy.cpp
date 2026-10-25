@@ -988,6 +988,104 @@ static void TestMograineWhitemaneHoldWaitsForValueFour()
     CHECK(x.state == State::Paused && Has(x.note, "event failed"));
 }
 
+// The Dire Maul West crystal holds (spec dmw-crystal-done 5b): a hold done by its
+// object reads the object's state in its waiting notes. Entry 177259, done when
+// ACTIVE (1).
+static PlanStep CrystalHold(std::uint32_t timeoutS = 2)
+{
+    PlanStep s;
+    s.kind = PlanStepKind::Hold;
+    s.entry = 177259;
+    s.param = 1;
+    s.flags = ai::kPlanFlagDoneObject;
+    s.timeoutS = timeoutS;
+    s.radius = 25.0f;
+    s.entries = {11483, 11480};
+    CHECK(ai::NormalizePlanStep(s) == PlanStepRefusal::None);
+    return s;
+}
+
+// T1 (the r39s2 case): the crystal still reads READY (0) while the hold waits
+// for ACTIVE (1). The hold runs to its timeout and its pause note shows the
+// read beside the wait.
+static void TestCrystalHoldWaitsForActive()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(-30), CrystalHold(), Move(30)};
+    Run r = Start(&plan, 1);
+    Facts f = Party();
+    f.units = {Unit(11483, 11, 0, true)};
+    f.objectState = 0;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && r.phase == Phase::Hold);
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(Has(r.note, "event: holding the spot"));
+    CHECK(Has(r.note, "object 177259 reads 0 ready, waits for 1 active"));
+    Tick(r, f);
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.step == 1);
+    CHECK(Has(r.note, "event not done after 2 s"));
+    CHECK(Has(r.note, "object 177259 reads 0 ready, waits for 1 active"));
+}
+
+// T2 (the r39 step-491 case): the crystal is not found within 30 yd of the
+// spot. The notes say so instead of a read.
+static void TestCrystalHoldMissingObject()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(-30), CrystalHold(), Move(30)};
+    Run r = Start(&plan, 1);
+    Facts f = Party();
+    f.units = {Unit(11483, 11, 0, true)};
+    f.objectState = -1;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && r.phase == Phase::Hold);
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(Has(r.note, "object 177259 not found within 30 yd of the spot"));
+    Tick(r, f);
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.step == 1);
+    CHECK(Has(r.note, "object 177259 not found within 30 yd of the spot"));
+}
+
+// T3: the crystal reads ACTIVE (1): the hold ends, with the existing note.
+static void TestCrystalHoldDoneWhenActive()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(-30), CrystalHold(), Move(30)};
+    Run r = Start(&plan, 1);
+    Facts f = Party();
+    f.units = {Unit(11483, 11, 0, true)};
+    f.objectState = 1;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 2);
+    CHECK(HoldDoneNote(CrystalHold(), f) == "event done: object 177259 is in state 1");
+}
+
+// The mutation guard for the spec's "append for non-object holds" mutation: a
+// units hold's exact notes carry no object read. If the read ever leaked into
+// a non-object hold, this exact-note check fails.
+static void TestUnitsHoldNotesCarryNoObjectRead()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(-30), BlyHold(), Move(30)};
+    Run r = Start(&plan, 1);
+    Facts f = Party();
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    f.units = {Unit(7604, 11, 0, true)};
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && r.phase == Phase::Hold);
+    CHECK(r.note == "event: holding the spot (0 of 1 down, 1 awake)");
+    f.units.clear();
+    f.eventDown = 1;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 2);
+    CHECK(r.note == "event done: every unit of it is dead (1 of 1 down)");
+}
+
 int main()
 {
     TestHoldDoneSeenFromAway();
@@ -1006,6 +1104,10 @@ int main()
     TestFightDoesNotStartADataHold();
     TestBlyHoldFoughtOnItsFirstTickEnds();
     TestMograineWhitemaneHoldWaitsForValueFour();
+    TestCrystalHoldWaitsForActive();
+    TestCrystalHoldMissingObject();
+    TestCrystalHoldDoneWhenActive();
+    TestUnitsHoldNotesCarryNoObjectRead();
     std::cout << "test_dungeon_hold_policy: ok\n";
     return 0;
 }
