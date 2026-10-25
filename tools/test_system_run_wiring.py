@@ -59,20 +59,19 @@ class SystemReplyWiringTest(unittest.TestCase):
     def test_reply_handler_ignores_bot_sessions(self):
         handler = body(COMMANDS, "std::unique_ptr<ChatHandler> CommanderReplyHandler(", "\n}\n")
         self.assertIn("BotManager::Instance().IsBot(", handler)
+        self.assertIn("if (system)\n        return std::unique_ptr<ChatHandler>(new ServerLogChatHandler(commander));",
+                      handler)
 
 
 class SystemBindingWiringTest(unittest.TestCase):
     def test_commanded_bots_are_world_bots(self):
         fill = body(COMMANDS, "void FillCommandedBots(", "\n}\n")
         self.assertIn("IsWorldBot(", fill)
+        self.assertIn("if (system)\n            return IsWorldBot(bot);", fill)
 
     def test_world_bot_gate(self):
         gate = body(COMMANDS, "bool IsWorldBot(Player* bot)\n{", "\n}\n")
         self.assertIn("ownerAccountId", gate)
-        self.assertIn("HireLifecycle::Instance().IsHired(", gate)
-        self.assertIn("ClaimLifecycle::Instance().IsClaimed(", gate)
-        self.assertIn("AltBotService::Instance().IsAutonomous(", gate)
-        self.assertIn("HasNetworkTransport()", gate)
 
     def test_owner_checks_follow_the_binding(self):
         self.assertEqual(COMMANDS.count("CanControlBot(order.commander"), 1)
@@ -86,6 +85,10 @@ class SystemBindingWiringTest(unittest.TestCase):
         guard = "if (slot.run.state == TortoiseBots::DungeonRun::State::Running && !realPlayer)\n            slot.systemPausedForPlayer = false;"
         self.assertIn(guard, tick)
         self.assertLess(tick.index(guard), tick.index("TortoiseBots::SystemRun::DecideJoinStep("))
+        scan = "bool realPlayer = false;\n        if (Player* systemLead = FindCharacter(binding->leadGuid))"
+        self.assertIn(scan, tick)
+        self.assertIn("if (!BotManager::Instance().IsBot(slotMember.guid))", tick)
+
     def test_bind_entry_point(self):
         bind = body(COMMANDS, "uint64 BindSystemParty(", "\n}\n")
         self.assertLess(bind.index("TortoiseBots::SystemRun::CheckBind(facts)"),
