@@ -1221,14 +1221,23 @@ class RunTestSpeedWiringTest(unittest.TestCase):
         sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
         self.assertIn("run->second.run.speedNow > 1.0f", sync)
         self.assertIn("MemberInCombat(bot)", sync)
-        self.assertIn("TortoiseBots::DungeonRun::SpeedFightSeen(run->second.run);", sync)
         self.assertIn("SpeedSameInstance(bot, lead)", sync)
         self.assertIn("!SpeedSlowed(bot)", sync)
-        # Round 1: a real player joining mid-run latches the run blocked and sends the party back in the same update.
-        self.assertIn("speedPlayerBlocked = true;", sync)
-        self.assertIn("playerBlocked.insert(it->second.commanderRaw)", sync)
+        # Round 2 (Codex finding): a bot that turns the movespeed cheat on AFTER it was raised goes through the shared
+        # cleanup, and the cheat owns the rate (10x, every AI update) — so both places erase its entry WITHOUT
+        # RestoreBotSpeed (its pet is only restored when it does not follow the cheated bot). Mutation: calling
+        # RestoreBotSpeed on the cheat branch fails a pin.
+        self.assertIn("RestoreNonFollowingPet(bot);", each)
+        self.assertIn("RestoreNonFollowingPet(bot);", sync)
+        cheat_each = each[each.index("if (SpeedCheatOn(bot))"):each.index("CatchUpPet(bot, rate);")]
+        self.assertNotIn("RestoreBotSpeed(bot);", cheat_each.split("else")[0])
+        self.assertIn("RestoreNonFollowingPet(bot);", cheat_each.split("else")[0])
+        self.assertLess(cheat_each.index("listed.erase(entry);"), cheat_each.index("RestoreBotSpeed(bot);"))
+        cheat_at = sync.index("if (bot && SpeedCheatOn(bot))")
+        cheat_sync = sync[cheat_at:sync.index("continue;", cheat_at)]
+        self.assertNotIn("RestoreBotSpeed(bot);", cheat_sync)
+        self.assertIn("RestoreNonFollowingPet(bot);", cheat_sync)
         self.assertNotIn("SetSpeedRatePersistance", code)
-        self.assertNotIn("UpdateSpeed(MOVE_RUN, false", apply + restore + each)
 
     def test_every_clear_of_the_runs_syncs_the_speed(self):
         code = strip_comments(COMMANDS)

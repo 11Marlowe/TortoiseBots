@@ -13265,10 +13265,23 @@ static bool SpeedSameInstance(Player* bot, Player* lead)
     return bot && lead && bot->GetMap() && bot->GetMap() == lead->GetMap();
 }
 
+// A pet on stay (not following its owner) back to its own rate: a following one took its bot's rate with it
+// (Unit::SetSpeedRateReal) and is left alone. Used when the bot's movespeed cheat went on (round 2, Codex).
+void RestoreNonFollowingPet(Player* bot)
+{
+    Pet* const pet = bot->GetPet();
+    if (pet && (!pet->GetCharmInfo() || !pet->GetCharmInfo()->IsFollowing()))
+    {
+        pet->UpdateSpeed(MOVE_RUN, true, 1.0f);
+        pet->UpdateSpeed(MOVE_WALK, true, 1.0f);
+    }
+}
+
 // In the run's tick, after DungeonRun::Tick and before its order goes out (a walk launches at the rate, a pull at 1.0):
-// rate above 1.0 for every commanded bot alive, in the world, on the lead bot's map instance, unslowed and out of
-// combat (applied on a change of rate or a reset seen); every other listed bot of the run goes back. A slowed bot is
-// never eligible: it is restored to 1.0 and not raised until the aura is gone. Nothing at all on a 1.0 run.
+// rate above 1.0 for every commanded bot alive, in the world, on the lead bot's map instance, unslowed, cheatless and
+// out of combat (applied on a change of rate or a reset seen); every other listed bot of the run goes back. A slowed
+// bot is never eligible: it is restored to 1.0 and not raised until the aura is gone. A bot whose movespeed cheat
+// went on is erased without restoring (round 2, Codex): the cheat owns the rate. Nothing at all on a 1.0 run.
 void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)
 {
     auto& listed = RunSpeedBots();
@@ -13284,8 +13297,19 @@ void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const
         {
             if (entry != listed.end())
             {
-                RestoreBotSpeed(bot);
-                listed.erase(entry);
+                // The movespeed cheat went on (round 2, Codex): the cheat owns the rate, so erase the entry
+                // without restoring; its pet only when it does not follow the cheated bot. Every other reason
+                // keeps restoring as before.
+                if (SpeedCheatOn(bot))
+                {
+                    RestoreNonFollowingPet(bot);
+                    listed.erase(entry);
+                }
+                else
+                {
+                    RestoreBotSpeed(bot);
+                    listed.erase(entry);
+                }
             }
             continue;
         }
@@ -13300,11 +13324,12 @@ void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const
 }
 
 // Every world update: a listed bot keeps the rate only while its run is running at a rate above 1.0 and not blocked
-// by a real player, its binding's lead bot is in the world, and it is alive, on that map instance, unslowed and one
-// of the lead bot's commanded bots; else it goes back. A listed bot (or its pet) in a fight sends every listed bot
-// of its run back at once (DungeonRun::SpeedFightSeen: the settle starts again), not on the next tick. A real player
-// in the bound group latches the run blocked and sends every listed bot of the run back in the same update
-// (round 1, Codex): no fast tick leaks between his join and the next run tick.
+// by a real player, its binding's lead bot is in the world, and it is alive, on that map instance, unslowed,
+// cheatless and one of the lead bot's commanded bots; else it goes back (on the movespeed-cheat branch it is
+// erased without restoring: the cheat owns the rate; round 2, Codex). A listed bot (or its pet) in a fight sends
+// every listed bot of its run back at once (DungeonRun::SpeedFightSeen: the settle starts again), not on the next
+// tick. A real player in the bound group latches the run blocked and sends every listed bot of the run back in the
+// same update (round 1, Codex): no fast tick leaks between his join and the next run tick.
 void SyncRunSpeed()
 {
     auto& listed = RunSpeedBots();
@@ -13347,6 +13372,14 @@ void SyncRunSpeed()
         if (keep && !fight)
         {
             ++it;
+            continue;
+        }
+        // The movespeed cheat went on (round 2, Codex): the cheat owns the rate, so erase the entry without
+        // restoring; its pet only when it does not follow the cheated bot. Every other reason keeps restoring.
+        if (bot && SpeedCheatOn(bot))
+        {
+            RestoreNonFollowingPet(bot);
+            it = listed.erase(it);
             continue;
         }
         if (bot)
