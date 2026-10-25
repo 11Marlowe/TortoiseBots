@@ -1196,6 +1196,7 @@ struct Run
     std::uint32_t goneMissMs = 0;
     std::size_t goneMissStep = static_cast<std::size_t>(-1);
     std::unordered_map<std::uint32_t, CorpseMark> corpses; // boss entry -> the corpse seen when that boss step ended "boss down"
+    std::unordered_set<std::uint32_t> bossDown; // boss entries seen dead ("boss down") on any step: the kill record UnclearedBosses reconciles by
     std::uint32_t pendingMissing = 0;                 // the item a paused step failed to get (missing on skip)
     std::size_t skippedOpenStep = static_cast<std::size_t>(-1); // an `open` left out: the wait after it goes too
     // Regroup after a resume (revive the dead, gather), before the step.
@@ -2101,13 +2102,32 @@ inline std::string DeferredReport(const Run& r)
     return out;
 }
 
+// When the run sees a boss die on some later step — the witnessed kill on
+// his own step (FightStep: "boss down") or the instance search after he
+// walked in elsewhere (bossSearchOwnDead / bossSearchDead) — the entry is
+// recorded (Run::bossDown, line 1198). A boss so killed is reconciled out of
+// notCleared wherever his step stands: UnclearedBosses then names only
+// bosses still not killed at the end. Steps store the boss's entry, not a
+// spawn guid, so the reconcile matches on entry.
+inline void ReconcileBossDown(Run& r)
+{
+    if (!r.plan || r.bossDown.empty())
+        return;
+    for (std::size_t i = 0; i < r.plan->steps.size() && !r.notCleared.empty(); ++i)
+    {
+        if (!r.notCleared.count(i) || r.plan->steps[i].kind != PlanStepKind::Boss)
+            continue;
+        if (r.bossDown.count(r.plan->steps[i].entry))
+            r.notCleared.erase(i);
+    }
+}
+
 // The boss steps the run ended without clearing: still in notCleared (their
 // pull or boss end or a `.bot run skip` put them there), never deferred (a
-// deferral is a pull, listed by DeferredReport instead). A hidden live boss
-// is never fine, so the plan's end line names every one of them — even one
-// the party killed later elsewhere, while his own step stayed not cleared.
-// "" when there are none. A boss the run comes back to on his own step and
-// clears is out of notCleared again, so he is not named.
+// deferral is a pull, listed by DeferredReport instead), and never seen dead
+// later elsewhere (a later "boss down" reconciles such a step out of
+// notCleared again by entry). A hidden live boss is never fine, so the
+// plan's end line names every step left here. "" when there are none.
 inline std::string UnclearedBosses(const Run& r)
 {
     if (!r.plan)
@@ -8632,6 +8652,8 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         // corpse by its guid (TaskStep), not to the plan's spawn point.
         if (f.bossCorpseGuid)
             r.corpses[s.entry] = CorpseMark{f.bossCorpseGuid, f.bossCorpseX, f.bossCorpseY, f.bossCorpseZ};
+        r.bossDown.insert(s.entry); // the kill record UnclearedBosses reconciles by
+        ReconcileBossDown(r); // the kill may clear an earlier skipped step of this entry
         bool const fought = r.pulls > 0;
         NextStep(r, "boss down");
         r.fightForwardDue = fought; // FightForwardTick
@@ -8678,6 +8700,8 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         {
             r.corpses[s.entry] = CorpseMark{f.bossSearchCorpseGuid, f.bossSearchCorpseX, f.bossSearchCorpseY,
                 f.bossSearchCorpseZ};
+            r.bossDown.insert(s.entry); // the kill record UnclearedBosses reconciles by
+            ReconcileBossDown(r); // the kill may clear an earlier skipped step of this entry
             NextStep(r, "boss down: his corpse lies at " + Num(f.bossSearchCorpseX) + " " + Num(f.bossSearchCorpseY) + " " +
                 Num(f.bossSearchCorpseZ) + ", " +
                 Num(ai::PlanDistance(f.bossSearchCorpseX, f.bossSearchCorpseY, f.bossSearchCorpseZ, s.x, s.y, s.z)) +
@@ -8706,6 +8730,8 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         {
             r.corpses[s.entry] = CorpseMark{f.bossSearchCorpseGuid, f.bossSearchCorpseX, f.bossSearchCorpseY,
                 f.bossSearchCorpseZ};
+            r.bossDown.insert(s.entry); // the kill record UnclearedBosses reconciles by
+            ReconcileBossDown(r); // the kill may clear an earlier skipped step of this entry
             NextStep(r, "boss down: his corpse lies at " + Num(f.bossSearchCorpseX) + " " + Num(f.bossSearchCorpseY) + " " +
                 Num(f.bossSearchCorpseZ) + ", " +
                 Num(ai::PlanDistance(f.bossSearchCorpseX, f.bossSearchCorpseY, f.bossSearchCorpseZ, s.x, s.y, s.z)) +
