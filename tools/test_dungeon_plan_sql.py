@@ -474,6 +474,17 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
     def test_dragonmaw_retreat_is_the_plan_with_the_census_fixes(self):
+        # 20261025001900 (turtle-agent 1116b84, 2026-10-25, after live run r41s2 slotA stopped at step 755 with 4 pauses): the
+        # pull of 62073 at -6100.5 -3971.4 (leg zuluhed_floor group 10) had no approach, so the run leader walked the lead from
+        # the group-9 pull (-6103 -4004.5) over the thin floor at -6122.6..-6129 -4000.5..-3988.7, where the core's
+        # GetWaterOrGroundLevel answers the lava level 72.25 - 2 = 70.25; the lead sank into the pocket under the sheet (z 70.3,
+        # dry but 3 yd under the floor) and its own stay walk failed ('stay walk resting after 3 failed walks'). Group 10 now
+        # has three approach rows -6130 -4005, -6135 -3990 and the stand -6119 -3966 72.6: the stand is 19.2 yd from the pull
+        # (inside the 24.5 yd shot rule), class S, the clamp keeps 72.6, it sees the pull, and every hop is a complete server
+        # path with no sinking point (sinkgate.py/standpath.py over specs/dmr-step453-tools). The same scan found one sinking
+        # point at -6275.9 -3967.4 on the group-16 -> group-17 walk (62035 at -6290.9 -4016.7); group 17's two approach rows
+        # -6284 -3968, -6290 -3996 72.6 (20.7 yd, in sight) route round it. The 5 exporter cut rows those replace were on the
+        # sinking line. sinkgate.py over all 10 legs: 0 rows sink below their floor.
         # 20261025001800 (turtle-agent 5779343, 2026-10-25, after r39s2/r41s2 lost 34 bots in the halgan hall with no mob in
         # combat, 33 of them on a thin floor over WMO magma): 20261025001600 again, with every stand of the hall on a solid column.
         # The core's GetWaterOrGroundLevel answers the lava level 72.25 - 2 = 70.25 for a point on the 72.6 floor (its liquid
@@ -516,8 +527,8 @@ class DungeonPlanSql(unittest.TestCase):
         # walked the same move_direct live at step 200 (from -6191.8 -3954.9 221.6 to -6186.7 -3964.3 215.2, no death).
         # 10 legs, 827 steps (28+6+12+60+23+17+25+10+22+3 pulls), bosses in leg order, no door or event step.
         name, text = newest_plan_text("dragonmaw_retreat")
-        self.assertEqual(name, "20261025001800_world.sql")
-        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 5779343 dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025001900_world.sql")
+        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 1116b84 dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "dragonmaw_retreat")
         self.assertEqual(sorted(legs), list(range(10)))
         self.assertEqual([legs[i][0] for i in range(10)],
@@ -642,6 +653,21 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertFalse([r for r in leg_steps(rows, 8)
                           if (r["x"], r["y"], r["z"]) == ("-6261.17", "-3932.36", "72.6")],
                          "the 62035/62036/62046 pack is still pulled in leg 8")
+        # r41s2 slotA step 755: the group-10 pull of 62073 has its own approach now, and the group-17 pull's approach replaces
+        # the exporter's 5 cut rows (they lay on the sinking line over the thin floor). Each stand is on solid floor, 19-21 yd
+        # from the pack (inside the 24.5 yd shot rule), and every hop of both chains is a complete server path with no sinking
+        # point (sinkgate.py, standpath.py). Remove a row and this fails: it pins the only stands that keep the lead out of
+        # the pocket.
+        floor = leg_steps(rows, 8)
+        for pack, group, chain in (
+                (("-6100.52", "-3971.36", "73.22"), "10",
+                 [("-6130", "-4005", "72.6"), ("-6135", "-3990", "72.6"), ("-6119", "-3966", "72.6")]),
+                (("-6290.9", "-4016.66", "73.19"), "17",
+                 [("-6284", "-3968", "72.6"), ("-6290", "-3996", "72.6")])):
+            i = next(j for j, r in enumerate(floor) if r["kind"] == "pull" and (r["x"], r["y"], r["z"]) == pack)
+            self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in floor[i - len(chain):i]],
+                             [(x, y, z, "pull group %s approach" % group) for x, y, z in chain],
+                             "the solid-floor approach of the pull at %s is missing" % (pack,))
         self.assertFalse([r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6360.97) < 0.01],
                          "the 62035 that stands in the lava sheet is still a pull")
         self.assertFalse([r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6357.21) < 0.01
