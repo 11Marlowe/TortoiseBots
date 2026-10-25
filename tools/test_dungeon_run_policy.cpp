@@ -16790,7 +16790,7 @@ static DungeonPlan StandPullPlan(bool skip)
     boss.radius = 95.0f;
     boss.flags = ai::kPlanFlagStandPull | (skip ? ai::kPlanFlagSkipUnreachable : 0);
     ai::NormalizePlanStep(boss);
-    plan.steps = {stand, boss};
+    plan.steps = {stand, boss, Step(PlanStepKind::Move, 60)};
     return plan;
 }
 

@@ -6290,7 +6290,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     }
     // The pull stand (off: false at once, nothing changed): before the gather
     // waiver is spent, so a stand walk from a hop in sight keeps it.
-    if (f.pullStand)
+    if (f.pullStand && !r.standPullShot)
     {
         auto const done = r.pullTries.find(u.guid);
         if ((done == r.pullTries.end() || done->second < kMaxPullsPerTarget) && HoldForShot(r, f, u, dt, order))
@@ -6343,6 +6343,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         r.shotStillMs = 0;
         r.shotHow.clear();
     }
+    r.standPullShot = false;
     // The aggro estimate (Facts::joinerCeiling): the note says how many joiners
     // the estimate expects with this pull, or that the facts carried no count
     // this step (the glue reads it only for units it judged; a unit held or out
@@ -8391,14 +8392,23 @@ inline std::size_t UnitsOutOfReach(const Run& r, const Facts& f)
 // off: the step pulls as before).
 inline const PlanStep* StandPullStand(const Run& r, const PlanStep& s)
 {
-    return nullptr;
+    if (!(s.flags & ai::kPlanFlagStandPull) || r.step == 0 || !r.plan)
+        return nullptr;
+    const PlanStep& prev = r.plan->steps[r.step - 1];
+    if (prev.kind != PlanStepKind::Move || prev.leg != s.leg)
+        return nullptr;
+    return &prev;
 }
 
 inline void StandPullGiveUp(Run& r, const PlanStep& s, const std::string& why)
 {
-    (void)r;
-    (void)s;
-    (void)why;
+    if (s.flags & ai::kPlanFlagSkipUnreachable)
+    {
+        r.notCleared.insert(r.step);
+        NextStep(r, why + ": skipped, not cleared (the plan marks him out of reach)");
+        return;
+    }
+    Pause(r, why + ": bring him to the party, then .bot run resume, or .bot run skip");
 }
 
 inline FightEnd FightStepEnd(const Run& r, const Facts& f, const PlanStep& s)
@@ -8544,6 +8554,42 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
     if (pick)
     {
         r.bossWaitMs = 0;
+        if (s.kind == PlanStepKind::Boss && !f.anyInCombat && pick->entry == s.entry)
+            if (const PlanStep* st = StandPullStand(r, s))
+            {
+                float const fromStand = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, st->x, st->y, st->z);
+                if (fromStand > kHoldReturnYd)
+                {
+                    if (!WalkTo(r, f, st->x, st->y, st->z, false, dt, order))
+                    {
+                        if (r.state == State::Running)
+                            r.note = "back to the stand for boss " + std::to_string(s.entry);
+                        return;
+                    }
+                }
+                if (f.leadShotYd <= kShotMarginYd)
+                {
+                    StandPullGiveUp(r, s, "the tank has no ranged pull for a stand pull");
+                    return;
+                }
+                float const inShot = f.leadShotYd - kStandPullMarginYd;
+                if (pick->losLead && pick->distLead <= inShot)
+                    r.standPullShot = true;
+                else
+                {
+                    r.standPullMs += dt;
+                    if (r.standPullMs >= kStandPullWaitMs)
+                    {
+                        StandPullGiveUp(r, s, "boss " + std::to_string(s.entry) + " did not come within " + Num(inShot) +
+                            " yd of the stand in 600 s");
+                        return;
+                    }
+                    r.note = "boss " + std::to_string(s.entry) + " patrols: waiting at the stand for him to come within " +
+                        Num(inShot) + " yd (now " + Num(pick->distLead) + " yd" + (pick->losLead ? std::string() : ", out of sight") + ")";
+                    r.stepIdleMs = dt > r.stepIdleMs ? 0 : r.stepIdleMs - dt;
+                    return;
+                }
+            }
         // The way back to the anchor not known yet: read it first (one tick),
         // before this pull counts as one.
         // (A hold for another unit than the pick is caught by PullUnit's own check of the way back.)
