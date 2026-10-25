@@ -51,6 +51,7 @@ class PriestFadeFlashWiringTest(unittest.TestCase):
         policy = (ROOT / "runtime/policy/class/PriestFadePolicy.h").read_text()
         self.assertIn("tankHoldsMob", policy)
         self.assertNotIn(("fade ready and medium threat", "fade", "ACTION_HIGH"), rows("PriestStrategy.cpp"))
+        self.assertNotIn(("fade ready and medium threat", "fade", "ACTION_DISPEL"), rows("PriestStrategy.cpp"))
 
     def test_flash_heal_rows(self):
         self.assertIn(("low health loose pack", "flash heal", "ACTION_MEDIUM_HEAL + 0.5f"), rows("PriestStrategy.cpp"))

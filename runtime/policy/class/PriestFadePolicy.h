@@ -1,6 +1,6 @@
 #pragma once
 
-// Holy/discipline Fade on climbing threat. Pure decision rule with no core
+// Priest Fade on climbing threat (every spec). Pure decision rule with no core
 // types: the trigger in ai/playerbot/strategy/priest/PriestTriggers.{h,cpp}
 // translates game state into these plain inputs, so the gating is
 // unit-tested on its own (tools/test_priest_fade_policy.cpp).
