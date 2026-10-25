@@ -102,6 +102,7 @@ constexpr float kOtherPartYd = 300.0f;            // ... and farther than this f
                                                   // Uldaman and Gnomeregan back doors lie 50-60 yd from their
                                                   // plans' points, the Scarlet Monastery wings' doors 1300+ yd
                                                   // from the Library's)
+constexpr std::uint32_t kOtherPartRescuesPerStep = 3; // ... rescue teleports for it a step (a resume gives fresh ones)
 constexpr float kApproachYd = 30.0f;              // an unseen pack is approached to this far from its centre
 constexpr float kApproachHopYd = 40.0f;           // ... in navmesh path hops of at most this length
 constexpr std::uint32_t kMaxApproachHops = 8;     // ... and at most this many without getting nearer, then pause
@@ -1344,6 +1345,12 @@ struct Run
     // The run is paused for it (PauseOtherPart; Pause clears it): `.bot run
     // resume` with the lead bot still that far is refused (ResumeChecked).
     bool otherPartPaused = false;
+    // ... unless the pause's reason lets a resume run the rescue teleport (OtherPartResumeRescues; Pause clears it).
+    bool otherPartResumeRescue = false;
+    // The rescue teleports for a lead bot in another part at step otherPartRescueStep (OtherPartRescue counts them,
+    // kOtherPartRescuesPerStep; Resume starts them over).
+    std::uint32_t otherPartRescues = 0;
+    std::size_t otherPartRescueStep = static_cast<std::size_t>(-1);
     // Crowd control and kill-first (the plan's cc_priority / cc_always / kill_first).
     std::unordered_set<std::uint64_t> ccSent; // units this step put a `cc <mark>` on (once each)
     // Who holds which unit (issue #1159): one unit per bot and per mark while
@@ -1535,14 +1542,25 @@ struct Run
     // teleport is used), by any other rescue, when the replay starts, and by ResetStep; a send keeps it (the
     // outcome is not known yet).
     bool strandReplay = false;
-    // A pending teleport is a bot-only kind's (set by ReplayRescue and IslandWalkBackRescue beside RescueDue):
-    // a real player who joined the party since it was armed walks back with the party, so StrandedTeleportTick
-    // drops it before the send (no try spent) and falls back as a refused rescue of that kind does. Cleared with
-    // the due flag (ResetStep, ReplayWalkBack, the cancel), by any other rescue (RescueDue drops it; the two
-    // bot-only kinds set it again after it), when the lead bot arrives (its step's teleport is used) and when
-    // StrandFailed gives it up; a send keeps it (a refused send is tried again, and the recheck runs before
+    // A pending teleport is a bot-only kind's (set by ReplayRescue, IslandWalkBackRescue and OtherPartRescue beside
+    // RescueDue): a real player who joined the party since it was armed walks back with the party, so
+    // StrandedTeleportTick drops it before the send (no try spent) and falls back as a refused rescue of that kind
+    // does (an other-part rescue pauses for the other part instead). Cleared with
+    // the due flag (ResetStep, ReplayWalkBack, the cancel), by any other rescue (RescueDue drops it; the three
+    // bot-only kinds set their flag again after it), when the lead bot arrives (its step's teleport is used) and
+    // when StrandFailed gives it up; a send keeps it (a refused send is tried again, and the recheck runs before
     // every send).
     bool strandBotOnly = false;
+    // The pending teleport was armed by OtherPartRescue (set beside RescueDue there, with strandBotOnly): a real
+    // player who joined the party since it was armed does not walk back with the party alone (the lead bot is in
+    // another part), so StrandedTeleportTick drops it before the send (no try spent) and pauses for the other part
+    // (PauseOtherPart with OtherPartBlock::Player: the old player-present pause and hold, no walk-back advance)
+    // instead of passing the walk-back point. The island rescue keeps its behaviour (it passes the point).
+    // Cleared with the due flag (ResetStep, ReplayWalkBack, the cancel), by any other rescue (RescueDue drops it;
+    // OtherPartRescue sets it again after it), when the lead bot arrives (its step's teleport is used) and when
+    // StrandFailed gives it up; a send keeps it (a refused send is tried again, and the recheck runs before
+    // every send).
+    bool strandFromOtherPart = false;
     // The return of a bot outside the instance (OffMapReturnTick, Dire Maul West r38 slot B): the run clock (runMs)
     // of each bot's last return, and each bot's returns at the step offMapReturnStep (kOffMapReturnTries a step and
     // bot; the pause names the bot that needed a fourth return; Resume starts every bot's count over).
@@ -1902,6 +1920,7 @@ inline void Pause(Run& r, const std::string& why)
     r.holdDue = false;
     r.holdWhilePaused = false;
     r.otherPartPaused = false; // PauseOtherPart sets it after
+    r.otherPartResumeRescue = false; // ... and this one
     r.holdStands.clear();
     r.holdPlaced = false;
     r.holdFarTicks = 0;
@@ -2094,6 +2113,7 @@ inline void ResetStep(Run& r)
     r.strandOn = false;
     r.strandReplay = false;
     r.strandBotOnly = false;
+    r.strandFromOtherPart = false;
     r.strandMs = 0;
     r.strandSummon = false;
     r.strandSummoned.clear();
@@ -2455,27 +2475,66 @@ inline bool LeadInOtherPart(Run& r, const Facts& f)
     return r.leadOtherPart;
 }
 
+// Why the rescue teleport for a lead bot in another part does not go now (OtherPartRescueWhy; None: it goes).
+// Player: a real player in the party (he walks back with it). Off: AiPlayerbot.DungeonRunWalkBackRescue off. Cap:
+// kOtherPartRescuesPerStep rescues at this step. Used: the step's rescue latch used (Run::strandStep). Tries: the
+// step's kStrandTries failed teleports spent. Busy: a fight, a rescue already due or on, the run not running, the
+// lead bot dead. NoPoint: no safe point on the way it came. Dead: a party bot still dead, everything else fits.
+enum class OtherPartBlock : std::uint8_t { None, Player, Off, Cap, Used, Tries, Busy, NoPoint, Dead };
+
+// The pauses whose `.bot run resume` runs the rescue instead of being refused (ResumeChecked): the reason passes
+// (the dead come back, a resume gives fresh rescues, arms the latch again, a fight ends). Not with a real player, the
+// rescue off, the teleport's tries spent or no safe point: nothing the run can do then (the refusal as before).
+inline bool OtherPartResumeRescues(OtherPartBlock why)
+{
+    return why == OtherPartBlock::Dead || why == OtherPartBlock::Cap || why == OtherPartBlock::Used ||
+        why == OtherPartBlock::Busy;
+}
+
+// The dead party bots' names for a note (Facts::deadNames, else their count).
+inline std::string OtherPartDeadNames(const Facts& f)
+{
+    std::string out;
+    for (const std::string& name : f.deadNames)
+        out += (out.empty() ? "" : ", ") + name;
+    return out.empty() ? std::to_string(f.dead) + " dead" : out;
+}
+
 // The pause for a lead bot in another part, with that reason (not "navmesh
 // island"): the living bots away from it (more than kGatherYd: at the fight
 // spot) hold where they are while the run is paused (Run::holdWhilePaused),
 // the ones already held too. Asked only where the rescue teleport does not
-// fit (OtherPartRescue: a real player in the party, a bot still dead, the
-// rescue off or used this step, no safe point); then moving the lead bot to
-// the party is left to the player.
-inline void PauseOtherPart(Run& r, const Facts& f)
+// go (OtherPartRescueWhy, `why`). Where a resume can run it (OtherPartResumeRescues) the note says why it did not
+// go and that `.bot run resume` runs it; otherwise (a real player, the rescue off, its tries spent, no safe point)
+// moving the lead bot to the party is left to the player, with the note as before.
+inline void PauseOtherPart(Run& r, const Facts& f, OtherPartBlock why)
 {
     std::vector<std::string> keep = r.hold; // held already (HoldView leaves them out of f)
     for (const MemberFact& m : f.members)
         if (!m.name.empty() && m.name != f.carrier && m.yd > kGatherYd &&
             std::find(keep.begin(), keep.end(), m.name) == keep.end())
             keep.push_back(m.name);
-    Pause(r, "the lead bot revived in another part of the instance (" + Num(f.leadX) + " " + Num(f.leadY) + " " +
-        Num(f.leadZ) + "), " + Num(PlanNearestYd(r, f.leadX, f.leadY, f.leadZ)) +
-        " yd from the run: it cannot walk back; bring it to the party, then .bot run resume" +
+    bool const resumeRescues = OtherPartResumeRescues(why);
+    std::string reason;
+    if (why == OtherPartBlock::Dead)
+        reason = "the rescue teleport waits for the dead (" + OtherPartDeadNames(f) + ")";
+    else if (why == OtherPartBlock::Cap)
+        reason = std::to_string(kOtherPartRescuesPerStep) + " rescue teleports at this step did not hold";
+    else if (why == OtherPartBlock::Used)
+        reason = "the rescue teleport of this step is used";
+    else
+        reason = "the rescue teleport cannot go now";
+    std::string const where = "the lead bot revived in another part of the instance (" + Num(f.leadX) + " " +
+        Num(f.leadY) + " " + Num(f.leadZ) + "), " + Num(PlanNearestYd(r, f.leadX, f.leadY, f.leadZ)) +
+        " yd from the run: ";
+    Pause(r, where +
+        (resumeRescues ? reason + "; .bot run resume teleports it to the run's way"
+                       : std::string("it cannot walk back; bring it to the party, then .bot run resume")) +
         (keep.empty() ? std::string() : std::string(" (the party holds where it is)")));
     r.hold = keep;
     r.holdWhilePaused = !keep.empty();
     r.otherPartPaused = true;
+    r.otherPartResumeRescue = resumeRescues;
 }
 
 // A gather's ceiling: the farthest straggler, a bot more than kSummonYd from
@@ -3812,6 +3871,7 @@ inline bool Resume(Run& r)
     r.otherPartPaused = false;
     r.fighting = false;
     r.autoRegroups = 0;
+    r.otherPartRescues = 0; // a resume gives the lead bot in another part fresh rescue teleports
     r.offMapReturnTries.clear();
     r.offMapNoted.clear();
     ResetStep(r);
@@ -3845,15 +3905,19 @@ struct LeadSpot
     float x = 0.0f, y = 0.0f, z = 0.0f;
 };
 
+inline void RearmRescueAfterDeath(Run& r);
+
 // `.bot run resume` from the glue (SM-REVIVE-PATH-2026-10-23 fix 5): a pause for
 // a lead bot in another part of the instance (PauseOtherPart) whose lead bot is
 // still alive on the plan's map and more than kOtherPartYd from every point of
 // the plan is not resumed: Resume would regroup and the next tick would pause
-// again (r21-19z40e slot 7: three times, the same note, no step progress). No
-// recovery exists for it (moving the lead bot by a module summon is an owner
-// decision), so the resume is refused with a plain answer and the pause, its
-// note and its hold stay. Every other case resumes as Resume does. True when
-// the run resumed; refusal is set only when it was refused for this reason.
+// again (r21-19z40e slot 7: three times, the same note, no step progress). Refused
+// with a plain answer (the pause, its note and its hold stay) unless the pause's reason lets the rescue teleport run
+// (Run::otherPartResumeRescue, OtherPartResumeRescues; Dire Maul West r39/r40 slot 6, 2026-10-25: the pause waited
+// for a bot still dead and every resume was refused until a GM moved the party by hand): then the run resumes, the
+// rescue's latch armed again (the pause came after a death) and its rescues fresh (Resume), and the regroup's next
+// tick runs the rescue (OtherPartRescue) with the facts it reads then (a joined player still pauses). Every other case
+// resumes as Resume does. True when the run resumed; refusal is set only when it was refused for this reason.
 inline bool ResumeChecked(Run& r, const LeadSpot& lead, std::string& refusal)
 {
     refusal.clear();
@@ -3862,6 +3926,15 @@ inline bool ResumeChecked(Run& r, const LeadSpot& lead, std::string& refusal)
         float const planYd = PlanNearestYd(r, lead.x, lead.y, lead.z);
         if (planYd > kOtherPartYd)
         {
+            if (r.otherPartResumeRescue)
+            {
+                RearmRescueAfterDeath(r);
+                if (!Resume(r))
+                    return false;
+                r.note = "resumed: the lead bot is in another part of the instance (" + Num(planYd) +
+                    " yd from the run): regrouping, then the rescue teleport";
+                return true;
+            }
             refusal = "the lead bot is still in another part of the instance (" + Num(lead.x) + " " + Num(lead.y) +
                 " " + Num(lead.z) + "), " + Num(planYd) +
                 " yd away from the run: bring it to the party first, then .bot run resume";
@@ -4296,6 +4369,9 @@ inline bool IslandConfirmed(Run& r, const Facts& f, float tx, float ty, float tz
     return (f.goodSpotCut && goodSpotCounts) || second || r.islandSuspect;
 }
 
+inline OtherPartBlock OtherPartRescueWhy(const Run& r, const Facts& f);
+inline bool OtherPartRescue(Run& r, const Facts& f);
+
 // The lead bot stands on a navmesh island (IslandConfirmed)
 // on its way to (tx,ty,tz): before any point is passed or a hop counted, it is
 // moved alone in a straight line off it. The order "escape from lx ly lz [to x y
@@ -4312,10 +4388,14 @@ inline void IslandEscape(Run& r, const Facts& f, float tx, float ty, float tz, c
     r.islandSuspect = false;
     r.escapeFromMove = false;
     // No path because the lead bot stands in another wing, not on an island:
-    // no hop, the pause with the true reason (r20: "navmesh island at 1617.6 1002.7").
+    // no hop: the rescue teleport where it goes (OtherPartRescue), else the pause with the true reason
+    // (r20: "navmesh island at 1617.6 1002.7").
     if (LeadInOtherPart(r, f))
     {
-        PauseOtherPart(r, f);
+        OtherPartBlock const why = OtherPartRescueWhy(r, f);
+        if (why == OtherPartBlock::None && OtherPartRescue(r, f))
+            return;
+        PauseOtherPart(r, f, why);
         return;
     }
     std::string const spot = Num(f.leadX) + " " + Num(f.leadY) + " " + Num(f.leadZ);
@@ -4634,6 +4714,7 @@ inline void StrandFailed(Run& r, const std::string& why)
     bool const replay = r.strandReplay;
     r.strandReplay = false;
     r.strandBotOnly = false;
+    r.strandFromOtherPart = false;
     if (replay && r.walkBack && r.plan)
     {
         // The lead bot's spot is unknown here (StrandFailed has no Facts), so replay from the rescue's spot
@@ -4923,6 +5004,7 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
                 StrandCountsForStep(r);
                 r.strandDue = true;
                 r.strandBotOnly = false; // an older rescue: never a bot-only kind
+                r.strandFromOtherPart = false; // ... nor an other-part rescue
                 r.strandIdx = r.walkBackIdx;
                 r.strandX = r.leadLastX;
                 r.strandY = r.leadLastY;
@@ -5298,23 +5380,57 @@ inline void RescueDue(Run& r, const Facts& f, std::size_t target)
     r.walkBackDirect = false;
     r.strandReplay = false;
     r.strandBotOnly = false; // the two bot-only kinds set it again below
+    r.strandFromOtherPart = false; // OtherPartRescue sets it again below
     r.approachHops = 0;
     EnterPhase(r, Phase::Begin);
 }
 
-// The rescue's point for a lead bot revived in another part of the instance (LeadInOtherPart, which the caller has
-// asked): the safe point on the way it came (SafePointAtOrBefore of LastReachedBefore, as every other rescue), in a
-// bot-only party (Facts::players: a real player walks back with the party; the pause as before) with nobody dead (a
-// wipe: the whole party came back at that door together), bounded as every rescue (RescueAllowed). npos when it is
-// not allowed or there is no such point.
-inline std::size_t OtherPartRescueTarget(const Run& r, const Facts& f)
+// The rescue's point for a lead bot revived in another part of the instance: the safe point on the way it came
+// (SafePointAtOrBefore of LastReachedBefore, as every other rescue). npos when there is none.
+inline std::size_t OtherPartSafePoint(const Run& r, const Facts& f)
 {
-    if (!f.players.empty() || f.dead > 0 || !f.leadAlive || !RescueAllowed(r, f))
-        return static_cast<std::size_t>(-1);
     std::size_t const last = LastReachedBefore(r, r.step);
-    if (last == static_cast<std::size_t>(-1) || last >= r.plan->steps.size())
+    if (!r.plan || last == static_cast<std::size_t>(-1) || last >= r.plan->steps.size())
         return static_cast<std::size_t>(-1);
     return SafePointAtOrBefore(r, f.team, last);
+}
+
+// Why the rescue teleport for a lead bot in another part (LeadInOtherPart, which the caller has asked) does not go
+// now (OtherPartBlock), checked in that order, so Dead means a bot still dead is the only thing missing: a bot-only
+// party (Facts::players), the rescue on, fewer than kOtherPartRescuesPerStep rescues at this step, bounded as every
+// rescue (RescueAllowed: the latch, the tries, out of combat), a safe point, and nobody dead (the summons that follow
+// cannot bring a dead bot; it comes up at the same door seconds later: Dire Maul West r39/r40 slot 6).
+inline OtherPartBlock OtherPartRescueWhy(const Run& r, const Facts& f)
+{
+    if (!f.players.empty())
+        return OtherPartBlock::Player;
+    if (!f.walkBackRescue)
+        return OtherPartBlock::Off;
+    if (r.otherPartRescueStep == r.step && r.otherPartRescues >= kOtherPartRescuesPerStep)
+        return OtherPartBlock::Cap;
+    if (!RescueAllowed(r, f))
+    {
+        if (r.strandStep == r.step)
+            return OtherPartBlock::Used;
+        if (r.strandCountStep == r.step && r.strandTries >= kStrandTries)
+            return OtherPartBlock::Tries;
+        return OtherPartBlock::Busy;
+    }
+    if (!f.leadAlive)
+        return OtherPartBlock::Busy;
+    if (OtherPartSafePoint(r, f) == static_cast<std::size_t>(-1))
+        return OtherPartBlock::NoPoint;
+    if (f.dead > 0)
+        return OtherPartBlock::Dead;
+    return OtherPartBlock::None;
+}
+
+// The rescue's point when the rescue goes (OtherPartRescueWhy is None), else npos.
+inline std::size_t OtherPartRescueTarget(const Run& r, const Facts& f)
+{
+    if (OtherPartRescueWhy(r, f) != OtherPartBlock::None)
+        return static_cast<std::size_t>(-1);
+    return OtherPartSafePoint(r, f);
 }
 
 // Dire Maul West r36 slot D (a full bot-led run, 2026-10-24): after each of eight wipes the party came back at the
@@ -5322,7 +5438,8 @@ inline std::size_t OtherPartRescueTarget(const Run& r, const Facts& f)
 // part of the instance' (PauseOtherPart); each time it was fixed by hand (the commander there, the bots summoned to
 // him, then the walk back from the last reached point: 40 s to 4 min). The rescue teleport to the rescue's point
 // (OtherPartRescueTarget) instead, armed bot-only (StrandedTeleportTick rechecks for a joined player before the
-// send); its summons bring the party left at the door (out of combat). True when the rescue is due.
+// send); its summons bring the party left at the door (out of combat). Counted for the step
+// (kOtherPartRescuesPerStep). True when the rescue is due.
 inline bool OtherPartRescue(Run& r, const Facts& f)
 {
     std::size_t const target = OtherPartRescueTarget(r, f);
@@ -5331,6 +5448,13 @@ inline bool OtherPartRescue(Run& r, const Facts& f)
     float const yd = PlanNearestYd(r, f.leadX, f.leadY, f.leadZ);
     RescueDue(r, f, target);
     r.strandBotOnly = true; // armed bot-only: StrandedTeleportTick rechecks for a joined player before the send
+    r.strandFromOtherPart = true; // armed by the other-part rescue: a joined player pauses instead of passing
+    if (r.otherPartRescueStep != r.step)
+    {
+        r.otherPartRescueStep = r.step;
+        r.otherPartRescues = 0;
+    }
+    ++r.otherPartRescues;
     r.note = "the lead bot revived in another part of the instance (" + Num(f.leadX) + " " + Num(f.leadY) + " " +
         Num(f.leadZ) + "), " + Num(yd) + " yd from the run: it is teleported to a safe point on the way it came (step " +
         std::to_string(target + 1) + ") out of combat";
@@ -7394,6 +7518,7 @@ inline bool ReplayWalkBack(Run& r, const Facts& f)
 {
     r.strandReplay = false;
     r.strandBotOnly = false;
+    r.strandFromOtherPart = false;
     r.strandDue = false; // a refused teleport's replay answers the same failure, not a second send
     r.walkBackDirect = false;
     r.shortcutWanted = r.shortcutFrom = static_cast<std::size_t>(-1);
@@ -8075,6 +8200,7 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
         r.strandStep = r.step;
         r.strandReplay = false; // used: no replay after it
         r.strandBotOnly = false; // used: no player recheck after it
+        r.strandFromOtherPart = false; // used: no player pause after it
         r.strandSummon = true;
         r.strandSummoned.clear();
         r.strandSummonMs = 0;
@@ -8135,11 +8261,20 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
     // A bot-only rescue armed, then a real player joined before the send: he walks back with the party, so drop
     // the teleport (no try spent) and fall back as a refused rescue of that kind does (a refused ReplayRescue
     // replays the plan's points, a refused island rescue passes the point as before). Older rescues never set
-    // the flag and send as before.
+    // the flag and send as before. An other-part rescue's teleport is different: the lead bot is in another part,
+    // so the party alone cannot walk back to it; the run pauses for the other part instead (PauseOtherPart of
+    // OtherPartBlock::Player: the old player-present pause and hold, no walk-back advance).
     if (r.strandBotOnly && !f.players.empty())
     {
+        bool const fromOtherPart = r.strandFromOtherPart;
         r.strandDue = false;
         r.strandBotOnly = false;
+        r.strandFromOtherPart = false;
+        if (fromOtherPart)
+        {
+            PauseOtherPart(r, f, OtherPartBlock::Player);
+            return true;
+        }
         if (r.strandReplay)
         {
             std::string const why = "a real player joined after the rescue was armed: replaying the plan's points";
@@ -8157,7 +8292,8 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
     }
 
     // The spot as the facts read it now (the lead bot may have moved on the island); a send keeps strandReplay
-    // (it says what the teleport was, cleared when StrandFailed gives it up).
+    // and strandFromOtherPart (they say what the teleport was, cleared when StrandFailed gives it up or the lead
+    // bot arrives).
     r.strandX = f.leadX;
     r.strandY = f.leadY;
     r.strandZ = f.leadZ;
@@ -11279,20 +11415,27 @@ inline bool LeadRevivedAway(Run& r, const Facts& f)
         ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.leadDeathX, r.leadDeathY, r.leadDeathZ) <= kSeeYd)
         return false;
     // Up in another wing: no walk back reaches the party from there. A death: the rescue's latch is armed again (as
-    // the regroup's below), and in a bot-only party the rescue teleport (OtherPartRescue) is one of the step's
-    // regroups by itself; past them, or refused, the pause as before.
+    // the regroup's below), and in a bot-only party the rescue teleport (OtherPartRescue), bounded by its own
+    // kOtherPartRescuesPerStep (not the step's regroups: Dire Maul West r39/r40 slot 6); a bot still dead: the
+    // regroup, which waits for it and then runs the rescue (the regroup's other-part site); otherwise the pause.
     if (LeadInOtherPart(r, f))
     {
         RearmRescueAfterDeath(r); // a death: the rescue may teleport once more
-        if (r.autoRegroups < kAutoRegroupsPerStep && OtherPartRescueTarget(r, f) != static_cast<std::size_t>(-1))
+        OtherPartBlock const why = OtherPartRescueWhy(r, f);
+        if (why == OtherPartBlock::None || why == OtherPartBlock::Dead)
         {
             ++r.autoRegroups;
             r.fighting = false;
             ResetStep(r);
-            OtherPartRescue(r, f);
+            if (why == OtherPartBlock::None && OtherPartRescue(r, f))
+                return true;
+            BeginRegroup(r);
+            r.walkBackDue = true;
+            r.note = "the lead bot revived in another part of the instance: regrouping by itself, the rescue teleport "
+                "after the dead (" + OtherPartDeadNames(f) + ") are up";
             return true;
         }
-        PauseOtherPart(r, f);
+        PauseOtherPart(r, f, why);
         return true;
     }
     if (r.autoRegroups >= kAutoRegroupsPerStep)
@@ -12522,9 +12665,13 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         // party with everyone up (a wipe: they all came back at that door), the
         // rescue teleport instead (OtherPartRescue): the regroup ends here, its
         // summons bring the party (Dire Maul West r36 slot D).
+        // A bot still dead with everything else fitting (OtherPartBlock::Dead; Dire Maul West r39/r40 slot 6: the
+        // lead bot up at the door, one bot still a ghost for 1-8 s): the regroup waits for it, `revive party` again
+        // each minute, bounded as the revive (kRegroupReviveMs), then the pause that a resume rescues from.
         if (LeadInOtherPart(r, f))
         {
-            if (OtherPartRescue(r, f))
+            OtherPartBlock const why = OtherPartRescueWhy(r, f);
+            if (why == OtherPartBlock::None && OtherPartRescue(r, f))
             {
                 r.regroup = false;
                 r.reviveSummons.clear();
@@ -12537,7 +12684,18 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                 r.walkBackDue = false; // the rescue's walk back is set (RescueDue)
                 return order;
             }
-            PauseOtherPart(r, f);
+            if (why == OtherPartBlock::Dead && r.regroupMs <= kRegroupReviveMs + r.reviveBaseMs)
+            {
+                r.note = "regroup: the lead bot revived in another part of the instance: waiting for " +
+                    OtherPartDeadNames(f) + " (dead) before the rescue teleport";
+                if (!r.reviveSent || r.regroupMs % 60000 < dt)
+                {
+                    r.reviveSent = true;
+                    order = "revive party";
+                }
+                return order;
+            }
+            PauseOtherPart(r, f, why);
             return order;
         }
         // A regroup for a dead lead bot: once it is up away from where it fell

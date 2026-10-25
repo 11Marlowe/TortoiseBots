@@ -13977,7 +13977,8 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
     else if (verb == "resume")
     {
         // A pause for a lead bot in another part of the instance is not resumed while it is still there
-        // (DungeonRun::ResumeChecked): the regroup would pause again on the next tick.
+        // (DungeonRun::ResumeChecked): the regroup would pause again on the next tick; a pause whose reason passes
+        // (a bot that was still dead, the step's rescues spent or used) resumes into the rescue teleport instead.
         LeadSpot spot;
         if (Player* lead = FindCharacter(binding->leadGuid))
             if (lead->IsInWorld())
