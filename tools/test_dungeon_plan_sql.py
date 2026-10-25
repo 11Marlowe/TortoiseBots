@@ -2156,43 +2156,98 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (230) AND `entry` IN (9018, 9319, 9016, 9033, 8983, 9017, 9056, 9156, 9938, 9019);", text)
 
     def test_dragonmaw_retreat_is_the_plan_with_the_census_fixes(self):
-        # 20261024154400 (turtle-agent 46a23862, 2026-10-24, after live run r35 slot6b stopped at step 475): 20261024151500 again, with the
-        # plan's one `avoid` box over the magma pool under the leg-3 low walkway (x -6416..-6378, y -3970..-3946, z 70.7..72.6,
-        # the pool floor at z 70.8-70.9 under a surface just below the 72.64 walkway). The old step 475 (leg 3 seq 118,
-        # -6404.53 -3950.93 70.94, the exporter's cut of the climb to pull group 24) sent the party down the shore slope into the
-        # lava: 605-610 a hit (EnvironmentalDamage.Min/Max, Player::OnMirrorTimerExpirationPulse DAMAGE_LAVA) with no hostile and no
-        # combat flag, 11 deaths at step 475 (trace t8572-t9017), while the lead refused its own walk on the rim. The avoid-aware cutter
-        # now walks the east rim (-6378.6665 -3968.0 and -6378.6665 -3946.6665, z 72.689). 5 legs, 884 steps (28 + 6 + 60 + 41 + 78
-        # pulls), bosses in leg order, no door or event step. The plan row has the unit lists; the 74 critter spawns (4075, 14881) are out
-        # of every pull; leg 2 enters the main network over the one-way 6 yd drop as the plan's one move_direct; the single Bruiser inside
-        # the twin bosses' detection and the single whelp inside Searistrasz's detection are gone; the boss rows and the entry-scoped
-        # boss DELETE are pinned.
+        # 20261025001000 (turtle-agent be41b1c, 2026-10-25, after live run r39s2 slotA stopped at step 453): 20261025000700 again,
+        # with the corridor camp pulled BEFORE the walk crosses it and the halgan rest stand off the magma sheet.
+        # (1) The corridor camp the leg-2 walk crossed (r27 slot5 step 388: 21 units in one fight, 2 wipes; r39s2 steps 226-243: 8
+        # deaths, three tries on step 228 and four more at 236) is leg 2 now, hall_clear: its `to` is the corridor bottom
+        # (-6314.6665 -4074.6665 215.089), the 12 waves climb the corridor in walk order (reversed from the descent, each group's
+        # approach list reversed too, 1-6 units a wave), and searistrasz follows with the z 322 hall and the boss. The walk back
+        # down the cleared corridor is halgan_approach's own route. (2) r39s2 step 453 (the rest/gather stand -6332.93 -3863.11):
+        # no unit attacked the party (the addon view held 0 hostiles, every trace mob had Target=0 and cb=false, and the two
+        # suspects - the 62035 at -6360.97 -3838.82 73.17 and the ledge 62036 at -6357.21 -3867.19 106.973 - never engaged it);
+        # the hp fell 605-610 a second, the core's lava tick, while the party stood in the magma sheet under the bridge that the
+        # navmesh calls ground. The stand moved to -6328.0 -3861.5 73.2 (dry in the trace), reached by a 4-point approach chain
+        # along the south shore (-6400 -3880, -6370 -3890, -6341.7 -3892.5); the two packs that stand in the lava are left out; a
+        # second avoid box covers the sheet. (3) The four walks that no single hop could carry keep their `via` chains of the
+        # server path's own points (halgan_redbrand's climb starts on the east rim at -6387.4668 -3977.3333 72.689), the plan's
+        # needs_walk pack (62046 at -6190.56 -3919.91) stays `leave`d, and plan-check is ok on all 538 points.
+        # 10 legs, 818 steps (28+6+12+60+22+17+25+10+23+3 pulls), bosses in leg order, no door or event step.
         name, text = newest_plan_text("dragonmaw_retreat")
-        self.assertEqual(name, "20261024154400_world.sql")
-        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 46a23862 dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
-        self.assertEqual(len(leg_rows(text, "dragonmaw_retreat")), 5)
+        self.assertEqual(name, "20261025001000_world.sql")
+        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 90ee5d0 dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        legs = leg_rows(text, "dragonmaw_retreat")
+        self.assertEqual(sorted(legs), list(range(10)))
+        self.assertEqual([legs[i][0] for i in range(10)],
+                         ["bogpaw_truthsay", "gowlfang", "hall_clear", "searistrasz", "halgan_approach", "halgan_redbrand",
+                          "zuluhed_approach", "zuluhed_mid", "zuluhed_floor", "zuluhed_the_whacked"])
+        self.assertIn("leave (not read by the run leader yet): 62046 at -6190.56 -3919.91", legs[7][1])
         rows = [r for r in self.step_rows(text) if r["plan"] == "dragonmaw_retreat"]
-        self.assertEqual(len(rows), 884)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [28, 6, 60, 41, 78])
+        self.assertEqual(len(rows), 818)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
+                         [28, 6, 12, 60, 22, 17, 25, 10, 23, 3])
+        self.assertEqual([(int(r["leg"]), int(r["entry"])) for r in rows if r["kind"] == "boss"],
+                         [(0, 62056), (1, 62057), (3, 62072), (5, 62069), (9, 62037)])
         # The gm_cross landing of leg 2, exported as the one straight walk (the run leader has no GM move),
-        # and the server-path `via` after it (a plain move row the server walk judges like any other).
+        # and the server-path `via` of leg 3 (after the corridor camp is clear).
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in rows if r["kind"] == "move_direct"], [("-6190.1", "-3962.4", "215.8")])
-        leg2 = leg_steps(rows, 2)
-        self.assertIn(("move", "-6293.33", "-4373.33", "294.49", "via"),
-                      [(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg2])
-        # The magma pool of the leg-3 low walkway (r35 slot6b step 475): no row stands in the plan's avoid box, the old dip
-        # (-6404.53 -3950.93 70.94) is gone, and the leg-3 rows of the walk round the pool keep the walkway's z (72.636-72.689).
         leg3 = leg_steps(rows, 3)
-        self.assertFalse([r for r in leg3
+        self.assertIn(("move", "-6293.33", "-4373.33", "294.49", "via"),
+                      [(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg3])
+        # The hall camp: leg 2, walked up: 12 waves, each a pull with 1-4 approach rows ending in a stand 21-30 yd from the wave;
+        # no boss; the first pull is the z 239.7 pack by the corridor's north ramp, the last the z 278 pack at the top.
+        hall = leg_steps(rows, 2)
+        self.assertEqual([r["kind"] for r in hall if r["kind"] not in ("move", "move_direct")], ["pull"] * 12)
+        self.assertFalse([r for r in hall if r["kind"] == "boss"], "hall_clear must not carry a boss")
+        waves = [r for r in hall if r["kind"] == "pull"]
+        self.assertEqual((waves[0]["x"], waves[0]["y"], waves[0]["z"]), ("-6258.83", "-4069.58", "239.74"))
+        self.assertEqual((waves[-1]["x"], waves[-1]["y"], waves[-1]["z"]), ("-6338.42", "-4336.78", "278.16"))
+        self.assertEqual([float(w["radius"]) for w in waves][:3], [4.7, 9.7, 3.2])
+        self.assertTrue(all(len(r["entries"].split(",")) <= 6 for r in waves), "a wave is over 6 units")
+        # One stand per wave, on its north side (the walk's own direction): the party stops before each pack, never past it.
+        approach = [r for r in hall if r["comment"].endswith("approach")]
+        self.assertEqual(len(approach), 12, "the waves' approach rows")
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in approach][:3],
+                         [("-6258.138", "-4093.273", "247.18"), ("-6270.069", "-4096.311", "248.96"),
+                          ("-6269.621", "-4114.897", "260.37")])
+        self.assertEqual((approach[-1]["x"], approach[-1]["y"], approach[-1]["z"]), ("-6312.194", "-4330.296", "278.76"))
+        # Each stand is 21-45 yd from its wave's pull row (the plan check holds the 21-30 yd to the nearest member; a row names
+        # one member only). The exact stands are pinned above.
+        import math as _math
+        for i, a in enumerate(approach):
+            p = waves[i]
+            d = _math.dist((float(a["x"]), float(a["y"]), float(a["z"])),
+                           (float(p["x"]), float(p["y"]), float(p["z"])))
+            self.assertTrue(21.0 <= d <= 45.0, "wave %d stand is %.1f yd from the pull row's pack" % (i, d))
+        # The walk round the magma pool (r35 slot6b step 475, 11 deaths at the old dip -6404.53 -3950.93 70.94): no row of the
+        # plan stands in the avoid box, and halgan_redbrand's climb starts on the east rim at the fix2 line.
+        self.assertFalse([r for r in rows
                           if -6416 <= float(r["x"]) <= -6378 and -3970 <= float(r["y"]) <= -3946
                           and 70.7 <= float(r["z"]) <= 72.6], "a row stands in the avoid box (the magma pool)")
-        self.assertFalse([r for r in leg3 if abs(float(r["x"]) + 6404.5337) < 0.01 and abs(float(r["y"]) + 3950.9333) < 0.01],
+        # The r39s2 step-453 sheet under the hall bridge: no row stands in it either, the rest stand is the trace's dry point
+        # (-6328.0 -3861.5 73.2), and the two packs that stand in the lava are not pulled.
+        self.assertFalse([r for r in rows
+                          if -6385 <= float(r["x"]) <= -6330.5 and -3870 <= float(r["y"]) <= -3830
+                          and 69.9 <= float(r["z"]) <= 73.3], "a row stands in the avoid box (the hall lava sheet)")
+        halgan = leg_steps(rows, 4)
+        stand = [r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6308.27) < 0.01]
+        self.assertEqual(len(stand), 1, "the group-18 62035 pull is missing")
+        i = halgan.index(stand[0])
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in halgan[i - 4:i]],
+                         [("-6400", "-3880", "73.2"), ("-6370", "-3890", "73.2"), ("-6341.7", "-3892.5", "72.7"),
+                          ("-6328", "-3861.5", "73.2")], "the south-shore approach chain or the dry rest stand is missing")
+        self.assertFalse([r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6360.97) < 0.01],
+                         "the 62035 that stands in the lava sheet is still a pull")
+        self.assertFalse([r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6357.21) < 0.01
+                          and 106.9 < float(r["z"]) < 107.1], "the ledge 62036 with no dry stand is still a pull")
+        self.assertFalse([r for r in rows if abs(float(r["x"]) + 6404.5337) < 0.01 and abs(float(r["y"]) + 3950.9333) < 0.01],
                          "the old step 475 dip point is still exported")
-        low = [r for r in leg3 if 110 <= int(r["seq"]) <= 130]
-        self.assertTrue(low, "leg 3 has no rows around the pool")
-        self.assertEqual(min(float(r["z"]) for r in low), 72.6, "a leg-3 row round the pool left the walkway")
-        self.assertIn(("move", "-6378.6665", "-3968", "72.689"),
-                      [(r["kind"], r["x"], r["y"], r["z"]) for r in leg3], "the east-rim row round the pool is missing")
+        self.assertIn(("move", "-6387.47", "-3977.33", "72.69"),
+                      [(r["kind"], r["x"], r["y"], r["z"]) for r in leg_steps(rows, 5)],
+                      "the east-rim row of the halgan climb is missing")
+        # The long walks are `via` chains, one row per ~45 yd of the server's own path (the refused-hop fix).
+        self.assertGreaterEqual(len([r for r in leg_steps(rows, 5) if r["comment"] == "via"]), 19)
+        self.assertGreaterEqual(len([r for r in leg_steps(rows, 9) if r["comment"] == "via"]), 44)
+        self.assertEqual([r["kind"] for r in leg_steps(rows, 9)][-1], "boss")
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertFalse({e for r in pulls for e in r["entries"].split(",")} & {"4075", "14881"}, "a critter is still a pull member")
         self.assertEqual((pulls[0]["entries"], float(pulls[0]["radius"])), ("62052", 5.0))
