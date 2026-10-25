@@ -47,6 +47,7 @@ struct PlayerbotAI {
  bool IsHeal(Player* b,bool group){return group && b->heal;}
  bool IsRanged(Player* b,bool){return b->ranged;}
  void ChangeStrategy(std::string s,int state){if(state!=BotState::BOT_STATE_ALL)std::abort();changes.push_back(s);}
+ void ResetStrategies(){changes.push_back("reset");}
 };
 struct PlayerbotAIStorage {static PlayerbotAIStorage& Instance(){static PlayerbotAIStorage s;return s;}PlayerbotAI* GetAI(Player* p){return p?p->ai:nullptr;}};
 struct Store{void Save(PlayerbotAI* ai){++ai->saves;}} sPlayerbotDbStore;
@@ -83,6 +84,9 @@ int main(){
  current.partyBots={&tank,&dps};HandleStrategy(&h,"+bear @dps");check(b.saves==0&&h.reply.find("Unknown strategy change")!=h.reply.npos,"role scope validates against role-matching bots only");clear();
  current.partyBots={&tank,&dps,&mage,&heal};
  HandleStrategy(&h,"+loot");check(changed(a,"+loot")&&b.saves==0,"legacy selected bot");clear();
+ current.selectedBot=nullptr;HandleStrategy(&h,"reset");check(a.changes==std::vector<std::string>{"reset"}&&b.saves==1&&c.saves==1&&d.saves==1,"bare reset applies to dynamic scope");clear();
+ current.selectedBot=&tank;HandleStrategy(&h,"reset");check(a.changes==std::vector<std::string>{"reset"}&&a.saves==1&&b.saves==0,"bare reset honors selected bot");clear();
+ current.selectedBot=nullptr;HandleStrategy(&h,"Reset");check(a.saves==1&&b.saves==1,"bare reset is case-insensitive");clear();
  HandleStrategy(&h,"-passive Mage");check(changed(c,"-passive")&&a.saves==0,"legacy named bot");clear();
  HandleStrategy(&h,"  +aoe fear   Mage \t");check(changed(c,"+aoe fear")&&a.saves==0,"multiword named bot and whitespace");clear();
  current.selectedBot=nullptr;HandleStrategy(&h,"+dps assist");check(a.saves==1&&b.saves==1&&c.saves==1&&d.saves==1,"complete strategy wins over bot named assist");clear();
