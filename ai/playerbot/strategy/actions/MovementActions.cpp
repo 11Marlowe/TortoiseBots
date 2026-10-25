@@ -1082,21 +1082,26 @@ static void LogSwimHandoffRefused(Player* bot, LastMovement& lastMove, const cha
         static_cast<uint32>(routePoints), routeYd);
 }
 
-// A hand-off leg (a 2-point straight line) run through the SAME ClipPath (hostile/hazard) as an
-// ordinary route (round 1: the hand-off used to run before ClipPath and swim through packs, enemies
-// and hazards). The leg is NOT clipped by the window start (a line from the bot has no travelled tail
-// to cut); it IS clipped by an enemy or a hazard on it. Returns false (the hand-off is refused) when
-// anything on the leg clips it. packHold always reaches the hand-off as null (a hold never hands off).
+// A hand-off leg run through the SAME ClipPath (hostile/hazard + packHold) as an ordinary route (round
+// 1: the hand-off used to run before ClipPath and swim through packs, enemies and hazards). Each 2-point
+// segment is clipped on its own: the brief's "2-point line" has no travelled tail, so the window start
+// cannot cut it, but an enemy ("ClipPath" melee clip), a hazard or a pack hold on the segment shortens
+// it and the hand-off is refused. Returns false when any segment clips.
 static bool SwimHandoffLegClear(PlayerbotAI* ai, Unit* mover, bool ignoreEnemyTargets, PackHoldResult* packHold,
     const std::vector<WorldPosition>& leg)
 {
     if (leg.size() < 2)
         return false;
-    TravelPath clipped;
-    clipped.addPath(leg);
-    clipped.ClipPath(ai, mover, ignoreEnemyTargets, packHold);
-    // Any clip shortens the leg: the walked route would not be the validated line.
-    return clipped.GetPointPath().size() >= leg.size();
+    for (size_t i = 1; i < leg.size(); ++i)
+    {
+        TravelPath clipped;
+        clipped.addPath({ leg[i - 1], leg[i] });
+        clipped.ClipPath(ai, mover, ignoreEnemyTargets, packHold);
+        // Any clip shortens the segment: the walked route would not be the validated line.
+        if (clipped.GetPointPath().size() < 2)
+            return false;
+    }
+    return true;
 }
 
 // SwimPathPolicy.h ChooseSwimHandoff: a bot in water whose own route makes no progress hands the move to the
@@ -1152,23 +1157,47 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
         map->isInLineOfSight(startPos.getX(), startPos.getY(), surfaceZ,
             endPos.getX(), endPos.getY(), endPos.getZ() + 0.5f, true);
     ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);
+    // Round 1: name the stall the hand-off will not take (the brief's "model on the line, over
+    // 100 yd" cases), rate-limited on the hand-off stamp. Anything else silent stays silent: it is
+    // the old behaviour (on land, walking, a land line, a partial path), not a stall.
     if (kind == ai::SwimHandoff::None)
+    {
+        if (f.inWater && !f.excluded && f.endFromBot > ai::kSwimNoProgressYd &&
+            f.routeEndFromBot <= ai::kSwimNoProgressYd &&
+            f.coreType == (ai::kPathTypeNormal | ai::kPathTypeUnderwater))
+        {
+            if (f.coreLineHitsModel)
+                LogSwimHandoffRefused(bot, lastMove, "core line", "model on the line", endPos, f.coreType,
+                    route.size(), f.routeEndFromBot);
+            else if (!(f.endFromBot <= ai::kSwimHandoffMaxLineYd))
+                LogSwimHandoffRefused(bot, lastMove, "core line", "over 100 yd", endPos, f.coreType,
+                    route.size(), f.routeEndFromBot);
+        }
         return SwimHandoffResult::NotTaken;
+    }
 
     // The 0x1 core path, as the module's own spline over the core's points (round 1 (b)/(2)):
     // the core's MovePoint would recompute a different route; the module walks exactly the path
-    // it validated. It runs through the SAME ClipPath as an ordinary route (hostile/hazard);
-    // a cut route is dispatched when 2+ points remain, else the hand-off is refused.
+    // it validated. It runs through the SAME ClipPath (hostile/hazard + packHold) as an ordinary
+    // route; a cut route is dispatched when 2+ points remain, else the hand-off is refused.
+    // path.getPath()[0] is the bot's own spot, so it is kept once, not duplicated (a zero-length
+    // first leg would freeze the spline: Launch overwrites legs[0] with the live position).
     std::vector<WorldPosition> coreRoute;
     if (kind == ai::SwimHandoff::CoreLine && f.coreType == ai::kPathTypeNormal)
     {
         for (G3D::Vector3 const& p : path.getPath())
-            coreRoute.push_back(WorldPosition(bot->GetMapId(), p.x, p.y, p.z));
+        {
+            WorldPosition const wp(bot->GetMapId(), p.x, p.y, p.z);
+            if (coreRoute.empty() && wp.distance(startPos) < 0.1f)
+                continue;
+            coreRoute.push_back(wp);
+        }
+        coreRoute.insert(coreRoute.begin(), startPos);
         if (coreRoute.size() < 2)
             return SwimHandoffResult::NotTaken;
         TravelPath clipped;
         clipped.addPath(coreRoute);
-        clipped.ClipPath(ai, bot, ignoreEnemyTargets, nullptr);
+        clipped.ClipPath(ai, bot, ignoreEnemyTargets, packHold);
         std::vector<WorldPosition> const kept = clipped.GetPointPath();
         if (kept.size() < coreRoute.size())
         {
@@ -1187,10 +1216,7 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
     if (kind == ai::SwimHandoff::CoreLine)
     {
         if (f.coreType == ai::kPathTypeNormal)
-        {
             linePoints = coreRoute;
-            linePoints.insert(linePoints.begin(), startPos);
-        }
         else
             linePoints.push_back(WorldPosition(bot->GetMapId(), coreEnd.x, coreEnd.y, coreEnd.z));
     }
@@ -1203,7 +1229,7 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
     // Round 1 (c): the 0x81 line and the swim-out legs go through the same ClipPath; a cut refuses.
     if (kind == ai::SwimHandoff::SwimOut || f.coreType == (ai::kPathTypeNormal | ai::kPathTypeUnderwater))
     {
-        if (!SwimHandoffLegClear(ai, bot, ignoreEnemyTargets, nullptr, linePoints))
+        if (!SwimHandoffLegClear(ai, bot, ignoreEnemyTargets, packHold, linePoints))
         {
             LogSwimHandoffRefused(bot, lastMove,
                 kind == ai::SwimHandoff::CoreLine ? "core line" : "swim out", "clipped", endPos, f.coreType,

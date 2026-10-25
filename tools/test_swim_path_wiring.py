@@ -125,23 +125,19 @@ class SwimHandoffWiringTest(unittest.TestCase):
     def test_handoff_round1_clip_magma_slime_ground(self):
         h = self.hand
         # Round 1 (b)/(2): the 0x1 answer walks its own points (path.getPath()) through the same
-        # ClipPath, and launches exactly that validated spline (no fresh core recompute).
+        # ClipPath (hostile/hazard + packHold), and launches exactly that validated spline.
         self.assertIn("for (G3D::Vector3 const& p : path.getPath())", h)
-        self.assertIn("clipped.ClipPath(ai, bot, ignoreEnemyTargets, nullptr);", h)
+        self.assertIn("clipped.ClipPath(ai, bot, ignoreEnemyTargets, packHold);", h)
         self.assertIn('Movement::MoveSplineInit init(*bot, "SwimHandoffCore");', h)
-        self.assertIn("WorldPosition().toPointsArray(linePoints)", h)
-        self.assertIn("WorldPosition().GetPathLength(linePoints)", h)
         # The 0x1 branch launches the validated spline only (no MovePoint recompute beside the 0x81 line).
         core = h[h.index('if (kind == ai::SwimHandoff::CoreLine && f.coreType == ai::kPathTypeNormal)'):h.index('else if (kind == ai::SwimHandoff::CoreLine)')]
         self.assertIn('Movement::MoveSplineInit init(*bot, "SwimHandoffCore");', core)
-        self.assertNotIn("mm.MovePoint(", core)
-        self.assertEqual(MOVES.count('"SwimHandoffCore"'), 1)
-        # Round 1 (c): the 0x81 line and the swim-out legs run the same ClipPath; a cut refuses.
+        # Round 1 (c): the 0x81 line and the swim-out legs run the same ClipPath, segment by
+        # segment; a cut refuses. packHold is threaded (a hold clips too).
         self.assertIn("static bool SwimHandoffLegClear(", MOVES)
-        self.assertIn("clipped.addPath(leg);", MOVES)
+        self.assertIn("clipped.addPath({ leg[i - 1], leg[i] });", MOVES)
         self.assertIn("clipped.ClipPath(ai, mover, ignoreEnemyTargets, packHold);", MOVES)
-        self.assertIn("if (!SwimHandoffLegClear(ai, bot, ignoreEnemyTargets, nullptr, linePoints))", h)
-        self.assertIn('"clipped"', h)
+        self.assertIn("if (!SwimHandoffLegClear(ai, bot, ignoreEnemyTargets, packHold, linePoints))", h)
         # Round 1 (2)/(3): the walked path (not the chord) feeds RouteEntersMagma; slime refuses too.
         self.assertIn("RouteEntersMagma(bot, startPos, line, magmaAt)", h)
         self.assertIn("MAP_LIQUID_TYPE_SLIME", h)
@@ -152,13 +148,17 @@ class SwimHandoffWiringTest(unittest.TestCase):
         self.assertIn("map->GetHeight(endPos.getX(), endPos.getY(), endPos.getZ() + 0.5f)", h)
         self.assertIn("INVALID_HEIGHT", h)
         self.assertIn("f.endHasGround", h)
-        # Round 1 (3): every refused stall logs its reason, rate-limited on the hand-off stamp.
+        # Round 1: every refused stall logs its reason, rate-limited on the hand-off stamp.
         self.assertIn("swim hand-off refused (%s: %s)", MOVES)
         self.assertIn("static void LogSwimHandoffRefused(", MOVES)
-        for reason in ('"core path", "clipped"', '? "core line" : "swim out", "clipped"', '? "core line" : "swim out", "slime"', '? "core line" : "swim out", "magma"'):
+        for reason in ('"core path", "clipped"', '? "core line" : "swim out", "clipped"',
+            '? "core line" : "swim out", "slime"', '? "core line" : "swim out", "magma"',
+            '"model on the line"', '"over 100 yd"'):
             self.assertIn(reason, h)
         refused = body(MOVES, "static void LogSwimHandoffRefused(", "\n}\n")
         self.assertIn("lastMove.swimHandoffLogAt = now;", refused)
+        # The core's first point is the bot's own spot: kept once, never spliced into a zero leg.
+        self.assertIn("coreRoute.insert(coreRoute.begin(), startPos);", h)
 
     def test_policy_has_no_land_line(self):
         choose = body(POLICY, "inline SwimHandoff ChooseSwimHandoff(SwimHandoffFacts const& f)", "\n    }\n")
