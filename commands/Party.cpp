@@ -776,41 +776,58 @@ bool HandleCc(ChatHandler* handler, char const* args)
 // Accepted class-spec ids (spec pickers send these instead of a role) map to
 // the role and apply that spec's strategies on the bot, validated against the
 // bot's own registry. Unknown ids are rejected with usage, never applied.
-static std::string SpecRoleChange(std::string const& id, uint8& role)
+struct SpecRow { char const* id; uint8 cls; uint8 role; char const* change; };
+static SpecRow const kSpecRows[] = {
+    { "arms", CLASS_WARRIOR, 4, "+arms,-protection,-fury" },
+    { "fury", CLASS_WARRIOR, 4, "+fury,-protection,-arms" },
+    { "protection", CLASS_WARRIOR, 1, "+protection,-arms,-fury" },
+    { "holy", CLASS_PALADIN, 2, "+holy,-protection,-retribution" },
+    { "protection", CLASS_PALADIN, 1, "+protection,-holy,-retribution" },
+    { "retribution", CLASS_PALADIN, 4, "+retribution,-protection,-holy" },
+    { "bm", CLASS_HUNTER, 4, "+beast mastery,-marksmanship,-survival" },
+    { "mm", CLASS_HUNTER, 4, "+marksmanship,-beast mastery,-survival" },
+    { "survival", CLASS_HUNTER, 4, "+survival,-beast mastery,-marksmanship" },
+    { "assa", CLASS_ROGUE, 4, "+assassination,-combat,-subtlety" },
+    { "combat", CLASS_ROGUE, 4, "+combat,-assassination,-subtlety" },
+    { "subtlety", CLASS_ROGUE, 4, "+subtlety,-combat,-assassination" },
+    { "discipline", CLASS_PRIEST, 2, "+discipline,-holy,-shadow" },
+    { "holy", CLASS_PRIEST, 2, "+holy,-discipline,-shadow" },
+    { "shadow", CLASS_PRIEST, 4, "+shadow,-holy,-discipline,-offdps" },
+    { "hybrid", CLASS_PRIEST, 2, "+holy,+offdps,-shadow" },
+    { "ele", CLASS_SHAMAN, 4, "+elemental,-restoration,-enhancement" },
+    { "enh", CLASS_SHAMAN, 4, "+enhancement,-restoration,-elemental" },
+    { "restoration", CLASS_SHAMAN, 2, "+restoration,-elemental,-enhancement" },
+    { "arcane", CLASS_MAGE, 4, "+arcane,-frost,-fire" },
+    { "fire", CLASS_MAGE, 4, "+fire,-frost,-arcane" },
+    { "frost", CLASS_MAGE, 4, "+frost,-fire,-arcane" },
+    { "affliction", CLASS_WARLOCK, 4, "+affliction,-demonology,-destruction" },
+    { "demonology", CLASS_WARLOCK, 4, "+demonology,-affliction,-destruction" },
+    { "destruction", CLASS_WARLOCK, 4, "+destruction,-affliction,-demonology" },
+    { "balance", CLASS_DRUID, 4, "+balance,-tank feral,-dps feral,-restoration" },
+    { "boomkin", CLASS_DRUID, 4, "+balance,-tank feral,-dps feral,-restoration" },
+    { "cat", CLASS_DRUID, 4, "+dps feral,-tank feral,-restoration,-balance" },
+    { "bear", CLASS_DRUID, 1, "+tank feral,-dps feral,-restoration,-balance" },
+    { "restoration", CLASS_DRUID, 2, "+restoration,-tank feral,-dps feral,-balance" },
+};
+
+// A spec id names the same role for every class that has it.
+static bool SpecRole(std::string const& id, uint8& role)
 {
-    struct SpecRow { char const* id; uint8 role; char const* change; };
-    static SpecRow const rows[] = {
-        { "arms", 4, "+arms,-protection,-fury" },
-        { "fury", 4, "+fury,-protection,-arms" },
-        { "retribution", 4, "+retribution,-protection,-holy" },
-        { "discipline", 2, "+discipline,-holy,-shadow" },
-        { "shadow", 4, "+shadow,-holy,-discipline,-offdps" },
-        { "restoration", 2, "+restoration,-elemental,-enhancement" },
-        { "balance", 4, "+balance,-tank feral,-dps feral,-restoration" },
-        { "bm", 4, "+beast mastery,-marksmanship,-survival" },
-        { "mm", 4, "+marksmanship,-beast mastery,-survival" },
-        { "survival", 4, "+survival,-beast mastery,-marksmanship" },
-        { "combat", 4, "+combat,-assassination,-subtlety" },
-        { "assa", 4, "+assassination,-combat,-subtlety" },
-        { "subtlety", 4, "+subtlety,-combat,-assassination" },
-        { "hybrid", 2, "+holy,+offdps,-shadow" },
-        { "ele", 4, "+elemental,-restoration,-enhancement" },
-        { "enh", 4, "+enhancement,-restoration,-elemental" },
-        { "frost", 4, "+frost,-fire,-arcane" },
-        { "fire", 4, "+fire,-frost,-arcane" },
-        { "arcane", 4, "+arcane,-frost,-fire" },
-        { "affliction", 4, "+affliction,-demonology,-destruction" },
-        { "demonology", 4, "+demonology,-affliction,-destruction" },
-        { "destruction", 4, "+destruction,-affliction,-demonology" },
-        { "cat", 4, "+dps feral,-tank feral,-restoration,-balance" },
-        { "boomkin", 4, "+balance,-tank feral,-dps feral,-restoration" },
-    };
-    for (SpecRow const& row : rows)
+    for (SpecRow const& row : kSpecRows)
         if (id == row.id)
         {
             role = row.role;
-            return row.change;
+            return true;
         }
+    return false;
+}
+
+// The bot's own class decides the strategies of a shared id (holy, protection, restoration).
+static std::string SpecChangeFor(std::string const& id, uint8 cls)
+{
+    for (SpecRow const& row : kSpecRows)
+        if (id == row.id && row.cls == cls)
+            return row.change;
     return std::string();
 }
 
@@ -825,6 +842,7 @@ bool HandleRole(ChatHandler* handler, char const* args)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
     uint8 role = 255;
+    bool isSpec = false;
     std::string specChange;
     if (roleToken == "tank")
         role = static_cast<uint8>(ai::BOT_ROLE_TANK);
@@ -835,7 +853,7 @@ bool HandleRole(ChatHandler* handler, char const* args)
     else if (roleToken == "clear" || roleToken == "none" || roleToken == "reset")
         role = static_cast<uint8>(ai::BOT_ROLE_NONE);
     else
-        specChange = SpecRoleChange(roleToken, role);
+        isSpec = SpecRole(roleToken, role);
 
     if (requester && role != 255 &&
         (botToken == "self" || botToken == requester->GetName()))
@@ -855,7 +873,7 @@ bool HandleRole(ChatHandler* handler, char const* args)
     Player* bot = nullptr;
     BotRecord* record = nullptr;
     std::string name;
-    if (!requester || botToken.empty() || (role == 255 && specChange.empty()) ||
+    if (!requester || botToken.empty() || role == 255 ||
         !ResolveOwnedBot(handler, botToken.c_str(), bot, record, name))
     {
         handler->PSendSysMessage("Usage: .bot role <online bot name/self/your name> <tank/healer/dps/clear>");
@@ -869,7 +887,9 @@ bool HandleRole(ChatHandler* handler, char const* args)
         return true;
     }
 
-    if (!specChange.empty() && !KnownStrategyChange({ bot }, specChange))
+    if (isSpec)
+        specChange = SpecChangeFor(roleToken, bot->GetClass());
+    if (isSpec && (specChange.empty() || !KnownStrategyChange({ bot }, specChange)))
     {
         handler->PSendSysMessage("Bot %s does not use that spec.", name.c_str());
         return true;

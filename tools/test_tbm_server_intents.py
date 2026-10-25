@@ -67,11 +67,15 @@ class TbmServerIntentsTest(unittest.TestCase):
                      "restoration", "balance", "bm", "mm", "survival",
                      "combat", "assa", "subtlety", "hybrid", "ele", "enh",
                      "frost", "fire", "arcane", "affliction", "demonology",
-                     "destruction", "cat", "boomkin"]:
-            self.assertIn('{ "%s",' % spec, PARTY)
+                     "destruction", "cat", "boomkin", "bear", "holy", "protection"]:
+            self.assertIn('{ "%s", CLASS_' % spec, PARTY)
         for dead in ["tank", "dps", "heal"]:
             self.assertNotIn('{ "%s",' % dead, PARTY)
-        self.assertIn("SpecRoleChange(roleToken, role)", PARTY)
+        # Shared ids resolve per class: a druid "restoration" never gets the shaman kit.
+        self.assertIn('{ "restoration", CLASS_SHAMAN, 2, "+restoration,-elemental,-enhancement" }', PARTY)
+        self.assertIn('{ "restoration", CLASS_DRUID, 2, "+restoration,-tank feral,-dps feral,-balance" }', PARTY)
+        self.assertIn("isSpec = SpecRole(roleToken, role)", PARTY)
+        self.assertIn("specChange = SpecChangeFor(roleToken, bot->GetClass())", PARTY)
 
     def test_bare_cc_answers_invalid(self):
         block = PARTY[PARTY.index("bool HandleCc("):PARTY.index("bool HandleRole(")]
