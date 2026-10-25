@@ -77,6 +77,10 @@ class TbmServerIntentsTest(unittest.TestCase):
         self.assertIn("isSpec = SpecRole(roleToken, role)", PARTY)
         self.assertIn("specChange = SpecChangeFor(roleToken, bot->GetClass())", PARTY)
 
+    def test_autocc_status_parses(self):
+        self.assertIn('first != "autocc"', ACTION)
+        self.assertIn('rest == "cc status"', ACTION)
+
     def test_bare_cc_answers_invalid(self):
         block = PARTY[PARTY.index("bool HandleCc("):PARTY.index("bool HandleRole(")]
         self.assertIn('SendActionError(handler, "cc", "invalid"', block)

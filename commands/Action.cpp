@@ -305,7 +305,7 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
 
     if (first != "attack" && first != "interrupt" && first != "stop" && first != "pull" &&
         first != "pullback" && first != "come" && first != "stay" &&
-        first != "follow" && first != "auto" && first != "aoe" && first != "hold" &&
+        first != "follow" && first != "auto" && first != "autocc" && first != "aoe" && first != "hold" &&
         first != "comestay" && first != "ready" && first != "loot" &&
         first != "repair" && first != "sell" && first != "rest" &&
         first != "drink" && first != "eat" && first != "release" &&
@@ -342,7 +342,7 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
             intent = "auto cc";
             return true;
         }
-        if (rest == "cc on" || rest == "cc off")
+        if (rest == "cc on" || rest == "cc off" || rest == "cc status")
         {
             intent = "auto cc";
             option = rest.substr(3);
