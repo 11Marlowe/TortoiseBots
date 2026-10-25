@@ -448,8 +448,11 @@ bool HandleRoster(ChatHandler* handler, char const* /*args*/)
     // Capability trailer: pull-seconds = adjustable pull/pullback delays
     // (".bot action pull [seconds]", 0-60); flee = ".bot action flee";
     // inventory = ".bot inv" / ".bot item"; behavior = ".bot behavior" and the
-    // BOTSTATE snapshot. Old addons ignore unknown lines and items.
-    handler->PSendSysMessage("TBM:CAPS|pull-seconds,flee,inventory,behavior,claimed-roster");
+    // BOTSTATE snapshot; dungeon-run = ".bot run" and its TBM:RUN status lines,
+    // only while the dungeon run is enabled. Old addons ignore unknown lines and items.
+    bool const dungeonRun = sPlayerbotAIConfig.dungeonSelfClear && sPlayerbotAIConfig.remoteCommander;
+    handler->PSendSysMessage("TBM:CAPS|pull-seconds,flee,inventory,behavior,claimed-roster%s",
+        dungeonRun ? ",dungeon-run" : "");
     // Transport trailer: the addon sends its next commands over the addon
     // channel only while this says "party". See AddonCommandChannel.
     handler->PSendSysMessage("TBM:TRANSPORT|%s", AddonCommandChannel(requester));
