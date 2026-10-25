@@ -651,13 +651,13 @@ class RunLeaderWiringTest(unittest.TestCase):
         read = body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot,", "\n}\n")
         self.assertIn("f.pullStand = sPlayerbotAIConfig.dungeonRunPullStand;", read)
         # The step units (pull/boss) and the hop units carry losLead, from the lead bot's own sight test.
-        self.assertIn("if (f.pullStand)\n                        unit.losLead = lead->IsWithinLOSInMap(creature);\n"
+        self.assertIn("if (f.pullStand || StandThisBoss(slot))\n                        unit.losLead = lead->IsWithinLOSInMap(creature);\n"
                       "                    f.units.push_back(unit);", read)
         self.assertIn("if (f.pullStand)\n                    fact.losLead = lead->IsWithinLOSInMap(unit);\n"
                       "                f.hopUnits.push_back(fact);", read)
         self.assertTrue(read.rstrip().endswith("ReadPullStand(slot, lead, f);"))
         stand = body(COMMANDS, "void ReadPullStand(DungeonRunSlot const& slot,", "\n}\n")
-        self.assertIn("if (!f.pullStand || !lead->IsAlive() || !lead->IsInWorld())\n        return;", stand)
+        self.assertIn("if ((!f.pullStand && !standStep) || !lead->IsAlive() || !lead->IsInWorld())\n        return;", stand)
         # leadShotYd is the module's PullStrategy::GetRange(), for a ranged weapon shot only (0 for spell and body pulls).
         self.assertIn('if (pull && pull->GetPullActionName() == "shoot")\n        f.leadShotYd = pull->GetRange();',
                       stand)
@@ -675,7 +675,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
         pull = body(policy, "inline void PullUnit(", "\n}\n")
         gate = pull.index("HoldForShot(r, f, u, dt, order))\n            return;")
-        self.assertLess(pull.index("if (f.pullStand)\n"), gate)
+        self.assertLess(pull.index("if (f.pullStand && r.standPullShotGuid != u.guid)\n"), gate)
         self.assertLess(gate, pull.index('order = "pullback " + std::to_string(u.guid);'))
         self.assertLess(gate, pull.index("++tries;"))
         on = body(policy, "inline bool PullStandOn(", "\n}\n")
