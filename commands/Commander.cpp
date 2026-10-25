@@ -1659,23 +1659,71 @@ uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::s
         message = TortoiseBots::SystemRun::RefusalText(refusal);
         return 0;
     }
+    std::vector<Player*> moved;
+    std::vector<TortoiseBots::SystemRun::MovedBot> prior;
+    auto recordPrior = [&](Player* bot)
+    {
+        TortoiseBots::SystemRun::MovedBot entry;
+        if (Group* before = bot->GetGroup())
+        {
+            entry.priorGroup = before->GetId();
+            entry.hadGroup = true;
+            entry.priorLeader = before->GetLeaderGuid().GetRawValue();
+        }
+        prior.push_back(entry);
+    };
+    auto restoreMoved = [&]
+    {
+        for (TortoiseBots::SystemRun::RestoreStep const& step :
+            TortoiseBots::SystemRun::RestorePlan(prior))
+        {
+            Player* bot = moved.back();
+            moved.pop_back();
+            Group* now = bot->GetGroup();
+            if (!step.hadGroup)
+            {
+                if (now)
+                    now->RemoveMember(bot->GetObjectGuid(), 0);
+                continue;
+            }
+            if (now && now->GetId() == step.group)
+            {
+                if (!now->IsLeader(ObjectGuid(step.leader)))
+                    now->ChangeLeader(ObjectGuid(step.leader));
+                continue;
+            }
+            if (now)
+                now->RemoveMember(bot->GetObjectGuid(), 0);
+            if (Player* leader = ObjectAccessor::FindPlayer(ObjectGuid(step.leader)))
+                JoinLeadGroup(leader, bot);
+        }
+    };
     for (Player* joiner : joiners)
     {
         if (!joiner || (lead->GetGroup() && joiner->GetGroup() == lead->GetGroup()))
             continue;
+        recordPrior(joiner);
+        moved.push_back(joiner);
         if (!JoinLeadGroup(lead, joiner))
         {
+            restoreMoved();
             code = "invite-failed";
             message = std::string("The group invitation for ") + joiner->GetName() + " was refused.";
             return 0;
         }
     }
+    Group* priorLeadGroup = lead->GetGroup();
+    uint64 priorLeadLeader = priorLeadGroup ? priorLeadGroup->GetLeaderGuid().GetRawValue() : 0;
     Group* group = lead->GetGroup();
     if (group && !group->IsLeader(lead->GetObjectGuid()))
         group->ChangeLeader(lead->GetObjectGuid());
     group = lead->GetGroup();
     if (!group || !group->IsLeader(lead->GetObjectGuid()) || group->GetMembersCount() < 2)
     {
+        if (group && priorLeadGroup && group->GetId() == priorLeadGroup->GetId() &&
+            priorLeadLeader && !group->IsLeader(ObjectGuid(priorLeadLeader)))
+            group->ChangeLeader(ObjectGuid(priorLeadLeader));
+        restoreMoved();
         code = "invite-failed";
         message = "The lead bot could not form a group.";
         return 0;
@@ -1687,6 +1735,7 @@ uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::s
     binding.system = true;
     if (CommanderBindings().Bind(binding) != RemoteCommander::BindResult::Bound)
     {
+        restoreMoved();
         code = "group-bound";
         message = "Another commander already commands that group.";
         return 0;

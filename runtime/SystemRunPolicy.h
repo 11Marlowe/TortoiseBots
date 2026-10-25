@@ -219,6 +219,41 @@ inline char const* SystemOrderCode(SystemOrder order)
     return "rejected";
 }
 
+// One moved bot of a system bind: the group and leader it had before it
+// joined the lead bot's group (no group when it stood alone).
+struct MovedBot
+{
+    uint64_t priorGroup = 0;
+    bool hadGroup = false;
+    uint64_t priorLeader = 0;
+};
+
+// One restore step: the group to put the bot back in (0: take it out of the
+// new group) and the leader to hand it to.
+struct RestoreStep
+{
+    uint64_t group = 0;
+    bool hadGroup = false;
+    uint64_t leader = 0;
+};
+
+// What a failed system bind restores, in reverse join order: every moved bot
+// goes back to its prior group and leader, or out of the new group when it
+// had none. The glue replays one step per moved bot.
+inline std::vector<RestoreStep> RestorePlan(std::vector<MovedBot> const& moved)
+{
+    std::vector<RestoreStep> out;
+    for (size_t i = moved.size(); i-- > 0;)
+    {
+        RestoreStep step;
+        step.group = moved[i].priorGroup;
+        step.hadGroup = moved[i].hadGroup;
+        step.leader = moved[i].priorLeader;
+        out.push_back(step);
+    }
+    return out;
+}
+
 enum class Verb : uint8_t
 {
     Invalid,

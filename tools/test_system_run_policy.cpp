@@ -100,6 +100,33 @@ static void TestSystemOrderGate()
     CHECK(std::string(SystemOrderCode(SystemOrder::RefusePlayerInGroup)) == "player-in-group");
 }
 
+static MovedBot Moved(uint64_t priorGroup, bool hadGroup, uint64_t priorLeader)
+{
+    MovedBot m;
+    m.priorGroup = priorGroup;
+    m.hadGroup = hadGroup;
+    m.priorLeader = priorLeader;
+    return m;
+}
+
+static void TestBindRestoreTrace()
+{
+    // A failure after 1 join and after 3 joins restores every moved bot to
+    // its prior group and leader (or removes it from the new group when it
+    // had none): the trace the glue replays runs in reverse join order.
+    CHECK(RestorePlan({Moved(7, true, 70)}).size() == 1);
+    CHECK(RestorePlan({Moved(7, true, 70)})[0].group == 7);
+    CHECK(RestorePlan({Moved(7, true, 70)})[0].leader == 70);
+    CHECK(RestorePlan({Moved(7, true, 70)})[0].hadGroup);
+    CHECK(RestorePlan({Moved(0, false, 0), Moved(8, true, 80), Moved(9, true, 90)}).size() == 3);
+    CHECK(RestorePlan({Moved(0, false, 0), Moved(8, true, 80), Moved(9, true, 90)})[0].group == 9);
+    CHECK(RestorePlan({Moved(0, false, 0), Moved(8, true, 80), Moved(9, true, 90)})[0].leader == 90);
+    CHECK(RestorePlan({Moved(0, false, 0), Moved(8, true, 80), Moved(9, true, 90)})[2].group == 0);
+    CHECK(!RestorePlan({Moved(0, false, 0), Moved(8, true, 80), Moved(9, true, 90)})[2].hadGroup);
+    CHECK(RestorePlan({Moved(0, false, 0), Moved(8, true, 80), Moved(9, true, 90)})[1].group == 8);
+    CHECK(RestorePlan({}).empty());
+}
+
 static void TestParseArgs()
 {
     CHECK(ParseArgs("bind").verb == Verb::Bind && ParseArgs("bind").rest.empty());
@@ -128,6 +155,7 @@ int main()
     TestJoinStep();
     TestStaleJoinFlag();
     TestSystemOrderGate();
+    TestBindRestoreTrace();
     TestParseArgs();
     TestLogLine();
     std::printf("system run policy: %d checks passed\n", checks);

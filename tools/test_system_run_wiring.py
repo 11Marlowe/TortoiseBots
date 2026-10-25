@@ -94,6 +94,13 @@ class SystemBindingWiringTest(unittest.TestCase):
         self.assertIn("binding.commanderGuid = binding.leadGuid;", bind)
         self.assertIn("BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::string& code, std::string& message)", HANDLERS)
 
+    def test_bind_restores_on_failure(self):
+        bind = body(COMMANDS, "uint64 BindSystemParty(", "\n}\n")
+        self.assertIn("TortoiseBots::SystemRun::RestorePlan(prior)", bind)
+        self.assertIn("priorLeader", bind)
+        self.assertEqual(bind.count("restoreMoved();"), 3)
+        self.assertLess(bind.index("recordPrior(joiner)"), bind.index("JoinLeadGroup(lead, joiner)"))
+
     def test_trace_follows_the_anchor_binding(self):
         trace = body(COMMANDS, "static bool TraceContext(", "\n}\n")
         self.assertIn("->system", trace)
