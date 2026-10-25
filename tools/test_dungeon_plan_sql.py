@@ -754,7 +754,7 @@ class DungeonPlanSql(unittest.TestCase):
         # a stand 15-25 yd off the pack followed by a hold on the crystal's object state (entry the crystal, param 0 ready,
         # flags 16 done-by-object, radius 40, timeout 120, entries 11483): the hold fights a remnant the pull left and ends only
         # when the crystal reads ready, so a missed guardian pauses at the crystal and not at Immol'thar (r36 step 465 sat
-        # 300 s on the boss, unattackable). 20261025000800 (turtle-agent 33a022c, r39 slot6 step 491) is the correction of the
+        # 300 s on the boss, unattackable). 20261025000800 (turtle-agent 9f2ec4f, r39 slot6 step 491) is the correction of the
         # done sign: the crystals spawn GO_STATE_ACTIVE (tw_world_gameobject.sql state 1) and DoUseDoorOrButton toggles them to
         # READY (GameObject.cpp SwitchDoorOrButton), so param 1 waited for the state they had before the event; and the run
         # leader finds the object only within kEntryPointRadius = 30 yd of the hold spot (RemoteCommanderPolicy.h, FindEntryTarget
@@ -782,7 +782,7 @@ class DungeonPlanSql(unittest.TestCase):
         # Ferra 14308 is Illyanna's boss.first; Tsu'zee 11467 (rare) is a member of the Kalendris hall's pull.
         name, text = newest_plan_text("dire_maul_west")
         self.assertEqual(name, "20261025000800_world.sql")
-        self.assertIn("('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 33a022c dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');", text)
+        self.assertIn("('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 9f2ec4f dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');", text)
         legs = leg_rows(text, "dire_maul_west")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["tendris_warpwood", "revanchion", "illyanna_ravenoak", "magister_kalendris", "immol'thar",

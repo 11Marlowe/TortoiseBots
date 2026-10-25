@@ -1,6 +1,6 @@
--- Dire Maul West (map 429): the plan for the run leader (.bot run), exported from turtle-agent 33a022c
+-- Dire Maul West (map 429): the plan for the run leader (.bot run), exported from turtle-agent 9f2ec4f
 -- (dungeons/dire_maul_west.json) with the options of the header of 20261017130000:
---   turtle-agent plan-export --mmaps <map 429 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 33a022c \
+--   turtle-agent plan-export --mmaps <map 429 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 9f2ec4f \
 --     --stamp 20261025000800 --out <dir> dire_maul_west
 -- Stacks on 20261025000200. Round 6 of the Dire Maul West fixes: the r39 slot6 step 491 crystal hold (179505).
 --
@@ -63,7 +63,7 @@
 --   * No use_object row: the script itself uses the crystal, the force field and the vortex, and a player's use changes no
 --     event state.
 --
--- Path checks (server-exact: a local build of 33a022c with the dmw-fix3-tool exporter, the map 429 mmaps of
+-- Path checks (server-exact: a local build of the dmw-fix3-tool exporter with the plan of 9f2ec4f, the map 429 mmaps of
 -- ~/turtle-agent-mmaps): plan-check ok, 339 points on the map 429 navmesh, 0 failing points, 44 warnings (40 estimated
 -- patrol periods, 4 pre-existing detours) and 48 run-leader hop notes, the same as 20261025000200. The changed hops:
 -- -90 650 -> -132 686.5 type 0x1 55.6 yd, -132 686.5 -> -180 710 type 0x1 54.4 yd, -64 661.33 -> -90 650 type 0x1 28.4 yd;
@@ -82,7 +82,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'dire_maul_west';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'dire_maul_west';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'dire_maul_west';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 33a022c dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');
+('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 9f2ec4f dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('dire_maul_west', 0, 'tendris_warpwood', ''),
 ('dire_maul_west', 1, 'revanchion', ''),
