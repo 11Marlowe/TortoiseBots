@@ -318,6 +318,17 @@ uint32 s_dungeonRunMs = 0;
 bool s_runIssuing = false;    // the run leader is sending an order now (it does not pause itself)
 bool s_runGather = false;     // ... and it is a gather on the lead bot's own spot (`cmd move` lets it through)
 
+// The run leader's own orders (`.bot run`): while it sends one, the first answer is also kept here so the run
+// can pause on a refusal.
+struct RunOrderCapture
+{
+    bool active = false;
+    bool answered = false;
+    bool ok = false;
+    std::string text;
+};
+static RunOrderCapture s_runOrderCapture;
+
 // The commanders' last orders with the module's answer, for the observability
 // dashboard (runtime/CommanderTelemetry.h): bounded, noted when a reply is
 // sent, cleared with the bindings. s_commanderOrderDetail is the arguments of
@@ -7124,17 +7135,6 @@ void UpdateRemoteCommanders(uint32_t diff)
     // The run leaders (`.bot run`), after the tasks so they see this tick's answers.
     UpdateDungeonRuns(diff);
 }
-
-// The run leader's own orders (`.bot run`): while it sends one, the first answer is also kept here so the run
-// can pause on a refusal.
-struct RunOrderCapture
-{
-    bool active = false;
-    bool answered = false;
-    bool ok = false;
-    std::string text;
-};
-static RunOrderCapture s_runOrderCapture;
 
 void NoteCommanderOrderResult(ChatHandler* handler, std::string const& intent, bool ok,
     std::string const& result)
