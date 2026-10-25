@@ -16794,6 +16794,31 @@ static DungeonPlan StandPullPlan(bool skip)
     return plan;
 }
 
+// A stand-pull add: seen by the tank, so the stand rule ranks it when it is nearer than the boss.
+static UnitFact StandPullAdd(std::uint64_t guid, std::uint32_t entry, float dist)
+{
+    UnitFact u = Unit(guid, entry, dist);
+    u.losLead = true;
+    return u;
+}
+
+// A stand-pull boss step with two adds (entries 3979/3980): with the adds nearer than the boss, the
+// stand rule ranks a shootable unit first, so a pull of another unit leaves the boss's for the next tick.
+static DungeonPlan StandPullPlanWithAdds()
+{
+    DungeonPlan plan;
+    PlanStep stand = Step(PlanStepKind::Move, -5842.0f, -3807.0f, 200.7f);
+    stand.leg = 0;
+    PlanStep boss = Step(PlanStepKind::Boss, -5820.0f, -3797.19f, 201.241f);
+    boss.leg = 0;
+    boss.entry = 3976;
+    boss.entries = {3979, 3980};
+    boss.radius = 95.0f;
+    boss.flags = ai::kPlanFlagStandPull;
+    ai::NormalizePlanStep(boss);
+    plan.steps = {stand, boss, Step(PlanStepKind::Move, 60)};
+    return plan;
+}
 static Facts StandPullFacts(float dist, bool los = true, float shot = 30.0f)
 {
     Facts f = Party(0);
@@ -17053,21 +17078,73 @@ static void TestStandPullGateOffWhileInCombat()
     CHECK(Tick(r, f).empty());
     CHECK(r.fighting && r.note == "fighting" && r.standPullMs == 0);
 }
-// The latch clears on a held-up pull path: with the latch set (a stale true from an earlier in-shot tick), a
-// gather first clears it, then the boss in shot still pulls from the stand (shotStandFor stays 0).
+// The authorization clears on a held-up pull path: with it set for the boss (a stale guid from an earlier
+// in-shot tick), a gather first clears it, then the boss in shot still pulls from the stand (shotStandFor stays 0).
 static void TestStandPullShotLatchClearsOnGather()
 {
     DungeonPlan plan = StandPullPlan(false);
     Run r = Start(&plan, 1);
     Facts wait = StandPullFacts(28.0f);
     wait.maxMemberYd = kGatherYd + 1.0f;
-    r.standPullShot = true; // a stale latch: the wait path clears it since the pull never went out
+    r.standPullShotGuid = 9; // a stale authorization: the wait path clears it since the pull never went out
     std::string gather = Tick(r, wait);
     CHECK(!gather.empty() && r.note == "gathering before a pull");
-    CHECK(!r.standPullShot);
+    CHECK(r.standPullShotGuid == 0);
     Facts back = StandPullFacts(28.0f);
     CHECK(Tick(r, back) == "pullback 9");
-    CHECK(!r.standPullShot);
+    CHECK(r.standPullShotGuid == 0);
+}
+
+// The in-shot authorization covers only the judged unit: the boss sets it, the way-back read holds the tick,
+// then the nearer add becomes the pick and HoldForShot runs for it (on the bool latch the add pulled from its spot).
+static void TestStandPullAuthAnchorReadThenOtherUnitHolds()
+{
+    DungeonPlan plan = StandPullPlanWithAdds();
+    Run r = Start(&plan, 1);
+    r.anchorKnown = true; // the way back not read yet: the anchor on the stand's floor, 10 yd off
+    r.anchorX = -5832.0f;
+    r.anchorY = -3807.0f;
+    r.anchorZ = 200.7f;
+    Facts read = StandPullFacts(28.0f); // the boss alone: he sets the authorization, the way-back read holds the tick
+    CHECK(Tick(r, read).empty());
+    CHECK(Has(r.note, "checking the way back"));
+    CHECK(r.standPullShotGuid == 9); // the boss set the authorization for his own pull
+    Facts next = StandPullFacts(28.0f);
+    next.anchorPathRead = true;
+    next.anchorReachable = true;
+    next.units.push_back(StandPullAdd(10, 3979, 40.0f)); // too far to shoot: the stand rule holds for the nearer add
+    next.units.push_back(StandPullAdd(11, 3980, 41.0f));
+    CHECK(Tick(r, next).empty()); // not "pullback 10": the stand rule holds for the nearer add first
+    CHECK(Has(r.note, "reading a firing stand for 3979"));
+    CHECK(r.shotStandFor == 10);
+}
+
+// The same through the joiner rest: the boss sets the authorization, the rest holds the tick, then the nearer
+// add becomes the pick and HoldForShot runs for it.
+static void TestStandPullAuthJoinerRestThenOtherUnitHolds()
+{
+    DungeonPlan plan = StandPullPlanWithAdds();
+    Run r = Start(&plan, 1);
+    r.anchorKnown = true; // the way back known: the anchor is the stand itself
+    r.anchorX = -5842.0f;
+    r.anchorY = -3807.0f;
+    r.anchorZ = 200.7f;
+    Facts loud = StandPullFacts(28.0f); // the boss alone: he sets the authorization, the rest holds the tick
+    loud.joinerCeiling = 6;
+    loud.units[0].joiners = 7;
+    loud.units[0].joinersRead = true;
+    loud.minHealthPct = 85;
+    CHECK(Tick(r, loud).empty());
+    CHECK(r.note == "7 joiners expected");
+    CHECK(r.standPullShotGuid == 9); // the boss set the authorization for his own pull
+    Facts next = StandPullFacts(28.0f);
+    next.joinerCeiling = 6;
+    next.minHealthPct = 100; // rested: the rest wait is moot, the nearer add is judged for its own pull
+    next.units.push_back(StandPullAdd(10, 3979, 40.0f)); // too far to shoot: the stand rule holds for the nearer add
+    next.units.push_back(StandPullAdd(11, 3980, 41.0f));
+    CHECK(Tick(r, next).empty()); // not "pullback 10": the stand rule holds for the nearer add first
+    CHECK(Has(r.note, "reading a firing stand for 3979"));
+    CHECK(r.shotStandFor == 10);
 }
 // The final line must not hide a skipped boss: the flagged boss's step ends
 // "not cleared", the run finishes the rest of the plan, and the done note
@@ -19713,6 +19790,8 @@ int main()
     TestStandPullStandInAnotherLegPullsAsBefore();
     TestStandPullGateOffWhileInCombat();
     TestStandPullShotLatchClearsOnGather();
+    TestStandPullAuthAnchorReadThenOtherUnitHolds();
+    TestStandPullAuthJoinerRestThenOtherUnitHolds();
     TestSkippedBossNamedInDoneNoteAliveElsewhere();
     TestSkippedBossNamedInDoneNotePassedBySpot();
     TestDoneNoteUnchangedWithNoSkippedBoss();
