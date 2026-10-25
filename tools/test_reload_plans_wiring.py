@@ -12,7 +12,7 @@ import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CMD = (ROOT / "commands/BotCommands.cpp").read_text()
+CMD = "\n".join((ROOT / "commands" / n).read_text() for n in ("Commander.cpp", "Action.cpp", "Party.cpp", "BotCommands.cpp"))
 MGR = (ROOT / "ai/playerbot/DungeonPlanMgr.cpp").read_text()
 TACTICS = (ROOT / "ai/playerbot/BossTacticsMgr.cpp").read_text()
 DOC_CMD = (ROOT / "docs/play/commands/commander.md").read_text()
@@ -26,7 +26,7 @@ def body(text, start, end="\n}\n"):
 
 class ReloadPlansWiring(unittest.TestCase):
     def test_registered_under_bot_run_before_the_run_leader_checks(self):
-        run = body(CMD, "static bool HandleDungeonRun(", "\nvoid UpdateRemoteCommanders(")
+        run = body(CMD, "bool HandleDungeonRun(", "\nvoid UpdateRemoteCommanders(")
         hook = 'if (verb == "reloadplans")\n        return HandleReloadPlans(handler, intent);'
         self.assertIn(hook, run)
         # before the in-game requirement and the DungeonSelfClear/RemoteCommander gate: a console GM may reload too
@@ -34,7 +34,7 @@ class ReloadPlansWiring(unittest.TestCase):
         self.assertLess(run.index(hook), run.index("sPlayerbotAIConfig.dungeonSelfClear"))
         self.assertIn("/ reloadplans (GameMaster)", run)
         # `.bot run` reaches HandleDungeonRun
-        self.assertIn('if (cmd == "run")\n        return HandleDungeonRun(handler, subArgs);', CMD)
+        self.assertIn('{"run", HandleDungeonRun,', CMD)
 
     def test_gm_gated_first(self):
         fn = body(CMD, "static bool HandleReloadPlans(")

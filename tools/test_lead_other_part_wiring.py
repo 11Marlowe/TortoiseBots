@@ -14,7 +14,7 @@ import pathlib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDS = "\n".join((ROOT / "commands" / n).read_text() for n in ("Commander.cpp", "Action.cpp", "Party.cpp", "BotCommands.cpp"))
 POLICY = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
 
 

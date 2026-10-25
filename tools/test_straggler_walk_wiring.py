@@ -14,7 +14,7 @@ import pathlib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDS = "\n".join((ROOT / "commands" / n).read_text() for n in ("Commander.cpp", "Action.cpp", "Party.cpp", "BotCommands.cpp"))
 POLICY = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
 
 
@@ -91,12 +91,12 @@ class StragglerWalkWiringTest(unittest.TestCase):
         self.assertLess(release.index('ai->SetMovementStrategy("follow");'), release.index("FormUpOnLead("))
         self.assertIn("if (inGroup && bot->GetMapId() == lead->GetMapId())", release)
         self.assertIn("FormUpOnLead(commander, lead, std::vector<Player*>{ bot }, false);", release)
-        update = body(COMMANDS, "static void UpdateDungeonRuns(uint32 diff)", "static void PauseDungeonRunForPlayer(")
+        update = body(COMMANDS, "static void UpdateDungeonRuns(uint32 diff)", "void PauseDungeonRunForPlayer(")
         # Before the early return for no runs: a stopped last run's walker follows again.
         self.assertLess(update.index("SyncRunWalkers();"), update.index("if (DungeonRuns().empty())\n    {"))
 
     def test_a_players_order_drops_the_walkers_untouched(self):
-        pause = body(COMMANDS, "static void PauseDungeonRunForPlayer(", "static bool RebuildBossSpawnCache(")
+        pause = body(COMMANDS, "void PauseDungeonRunForPlayer(", "static bool RebuildBossSpawnCache(")
         self.assertIn("walker = walker->second == commanderRaw ? RunWalkers().erase(walker) : std::next(walker);", pause)
         drop = body(pause, "for (auto walker = RunWalkers().begin();", "SendRunLine(")
         self.assertNotIn("FormUpOnLead", drop)

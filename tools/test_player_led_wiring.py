@@ -10,7 +10,7 @@ import pathlib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDS = "\n".join((ROOT / "commands" / n).read_text() for n in ("Commander.cpp", "Action.cpp", "Party.cpp", "BotCommands.cpp"))
 CONFIG = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
 TEMPLATE = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
 
@@ -55,7 +55,7 @@ class PlayerLedBindWiringTest(unittest.TestCase):
         self.assertIn("hires.ConfirmCommand(", bind)
 
     def test_run_start_player_word(self):
-        run = strip_comments(body(COMMANDS, "static bool HandleDungeonRun(", "\n}\n"))
+        run = strip_comments(body(COMMANDS, "bool HandleDungeonRun(", "\n}\n"))
         self.assertIn("TortoiseBots::PlayerLed::TakeStart(rawArg)", run)
         self.assertIn("BindPlayerLed(handler, commander, playerLedStart.tank, intent)", run)
         self.assertIn("arg = playerLedStart.rest;", run)
@@ -72,7 +72,7 @@ class PlayerLedBindWiringTest(unittest.TestCase):
         self.assertIn("TortoiseBots::PlayerLed::ModeText(", run)
 
     def test_player_led_binding_ends_with_the_run(self):
-        run = strip_comments(body(COMMANDS, "static bool HandleDungeonRun(", "\n}\n"))
+        run = strip_comments(body(COMMANDS, "bool HandleDungeonRun(", "\n}\n"))
         stop = run[run.index('if (verb == "stop")'):]
         stop = stop[:stop.index("return true;")]
         self.assertIn("if (playerLed)", stop)
@@ -86,7 +86,7 @@ class PlayerLedBindWiringTest(unittest.TestCase):
 
 class PlayerLedOrderWiringTest(unittest.TestCase):
     def test_player_orders_do_not_pause_a_player_led_run(self):
-        pause = strip_comments(body(COMMANDS, "static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& order)\n{", "\n}\n"))
+        pause = strip_comments(body(COMMANDS, "void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& order)\n{", "\n}\n"))
         led = pause.index("it->second.playerLed.on")
         self.assertLess(led, pause.index("TortoiseBots::DungeonRun::PauseForPlayer("))
         self.assertIn("TortoiseBots::PlayerLed::NotePlayerOrder(it->second.playerLed, it->second.run, ProtocolSafe(order))", pause)
@@ -138,7 +138,7 @@ class PlayerLedGlueWiringTest(unittest.TestCase):
         anchor = strip_comments(body(COMMANDS, "Player* CommanderPullAnchor(CommanderOrder const& order)", "\n}\n"))
         self.assertIn("if (order.playerLed && commander && commander->IsInWorld() && commander->IsAlive() && order.lead &&", anchor)
         self.assertIn("return order.lead;", anchor)
-        order = strip_comments(body(COMMANDS, "static bool HandleCommanderOrder(", "\n}\n"))
+        order = strip_comments(body(COMMANDS, "bool HandleCommanderOrder(", "\n}\n"))
         self.assertIn("order.playerLed = binding->playerLed;", order)
         self.assertIn("return RunPullOrder(handler, context, context.requester, verb, option, intent);", order)
         context = strip_comments(body(COMMANDS, "BotCommandContext CommanderContext(CommanderOrder const& order, Unit* target)", "\n}\n"))
@@ -160,7 +160,7 @@ class PlayerLedGlueWiringTest(unittest.TestCase):
         self.assertNotIn('"stay', player)
 
     def test_skip_with_nothing_picked(self):
-        run = strip_comments(body(COMMANDS, "static bool HandleDungeonRun(", "\n}\n"))
+        run = strip_comments(body(COMMANDS, "bool HandleDungeonRun(", "\n}\n"))
         self.assertIn("slot.playerLed.on && slot.playerLed.picked == TortoiseBots::PlayerLed::kNone", run)
         self.assertIn("TortoiseBots::PlayerLed::SkipNearest(slot.run, slot.playerLed, here)", run)
 
@@ -206,7 +206,7 @@ class PlayerLedRound1WiringTest(unittest.TestCase):
         self.assertIn("IsLiveHeadlessBot(member) && commanded(member)", fill)
 
     def test_named_tank_pulls(self):
-        order = strip_comments(body(COMMANDS, "static bool HandleCommanderOrder(", "\n}\n"))
+        order = strip_comments(body(COMMANDS, "bool HandleCommanderOrder(", "\n}\n"))
         sel = order.index("context.selectedBot = order.lead;")
         self.assertLess(order.index("if (order.playerLed)"), sel)
         self.assertLess(sel, order.index("return RunPullOrder(handler, context, context.requester, verb, option, intent);"))

@@ -79,8 +79,11 @@ class BotReviveDoorWiringTest(unittest.TestCase):
             self.assertIn(line, rules)
 
     def test_policy_test_is_in_the_gate(self):
-        self.assertIn("python3 -m unittest tools/test_bot_revive_door_wiring.py", GATE)
-        self.assertIn("test_corpse_entrance_policy", GATE)
+        # the gate discovers every tools/test_*.py and tools/test_*.cpp, so being named test_* puts a test in it
+        self.assertIn("python3 -m unittest discover -s tools -p 'test_*.py'", GATE)
+        self.assertIn("tools/test_*.cpp", GATE)
+        self.assertTrue((ROOT / "tools/test_bot_revive_door_wiring.py").is_file())
+        self.assertTrue((ROOT / "tools/test_corpse_entrance_policy.cpp").is_file())
 
 
 @unittest.skipUnless(os.environ.get("TORTOISE_CORE"), "set TORTOISE_CORE=<core checkout> to check the core side")

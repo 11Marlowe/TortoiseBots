@@ -26,7 +26,7 @@ TRIGGERS = (ROOT / "ai/playerbot/strategy/triggers/GenericTriggers.cpp").read_te
 RUN = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
 POLICY = (ROOT / "runtime/StayArrivalPolicy.h").read_text()
 LAST_MOVE = (ROOT / "ai/playerbot/strategy/values/LastMovementValue.h").read_text()
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDS = "\n".join((ROOT / "commands" / n).read_text() for n in ("Commander.cpp", "Action.cpp", "Party.cpp", "BotCommands.cpp"))
 CONTEXT = (ROOT / "commands/BotCommandContext.cpp").read_text()
 
 ORDERED = "TortoiseBots::StayWalkOrdered("
@@ -84,7 +84,7 @@ class StayArrivalWiringTest(unittest.TestCase):
         self.assertEqual(LAST_MOVE.count("stayWalk"), 3)  # the field and its copy line: a move's clear() keeps it
 
     def test_explicit_orders_clear_the_backoff(self):
-        anchor = body(COMMANDS, "static void SetStayAnchor(")
+        anchor = body(COMMANDS, "void SetStayAnchor(")
         self.assertIn(ORDERED + 'ai->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get().stayWalk);', anchor)
         self.assertLess(anchor.index('posMap["stay"] = stayPos;'), anchor.index(ORDERED))
         go = body(GO, "void GoAction::UpdateStrategyPosition(", "\n   else if")
@@ -95,7 +95,7 @@ class StayArrivalWiringTest(unittest.TestCase):
         self.assertIn(ORDERED + 'ai->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get().stayWalk);', hold)
         callers = sorted(p.name for p in list((ROOT / "ai").rglob("*.cpp")) + list((ROOT / "commands").rglob("*.cpp"))
                          if ORDERED in p.read_text(errors="replace"))
-        self.assertEqual(callers, ["BotCommandContext.cpp", "BotCommands.cpp", "ChatShortcutActions.cpp", "GoAction.cpp"])
+        self.assertEqual(callers, ["BotCommandContext.cpp", "ChatShortcutActions.cpp", "GoAction.cpp", "Party.cpp"])
 
     def test_other_qualifiers_keep_their_rule(self):
         fn = body(POSITION, "bool MoveToPositionAction::isUseful()")

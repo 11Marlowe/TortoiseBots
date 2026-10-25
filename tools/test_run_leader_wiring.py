@@ -1168,7 +1168,7 @@ class RunTestSpeedWiringTest(unittest.TestCase):
 
     def test_the_start_takes_and_guards_the_speed(self):
         code = strip_comments(COMMANDS)
-        run = body(code, "static bool HandleDungeonRun(ChatHandler* handler, char const* args)", "\n}\n")
+        run = body(code, "bool HandleDungeonRun(ChatHandler* handler, char const* args)", "\n}\n")
         start = run[run.index('if (verb == "start")\n'):]
         self.assertLess(start.index("SpeedArgs const speedArgs = TakeSpeed(arg);"),
                         start.index("StartArgs const startArgs = ParseStartArgs(arg);"))

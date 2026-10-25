@@ -20,7 +20,7 @@ MGR = (PB / "BotAreaTriggers.cpp").read_text()
 CONF_CPP = (PB / "PlayerbotAIConfig.cpp").read_text()
 TEMPLATE = (PB / "aiplayerbot.conf.dist.in").read_text()
 CMAKE = (ROOT / "TortoiseBots.cmake").read_text()
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDS = "\n".join((ROOT / "commands" / n).read_text() for n in ("Commander.cpp", "Action.cpp", "Party.cpp", "BotCommands.cpp"))
 
 
 def squash(text):

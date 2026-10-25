@@ -12,7 +12,7 @@ import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDS = "\n".join((ROOT / "commands" / n).read_text() for n in ("Commander.cpp", "Action.cpp", "Party.cpp", "BotCommands.cpp"))
 AI = (ROOT / "ai/playerbot/PlayerbotAI.cpp").read_text()
 QUERY = (ROOT / "runtime/CommandedGroupQuery.h").read_text()
 
@@ -68,7 +68,7 @@ class PlayerInPartyWiringTest(unittest.TestCase):
         self.assertLess(rel.index("group->RemoveMember(guid, 0);"), rel.index("HireLifecycle::Instance().EndCommand("))
 
     def test_inparty_bind_keeps_the_commander(self):
-        bind = strip_comments(body(COMMANDS, "static bool HandleCommanderBind(", "\nstatic bool HandleCommander("))
+        bind = strip_comments(body(COMMANDS, "static bool HandleCommanderBind(", "\nbool HandleCommander("))
         self.assertIn("bool const inParty = RemoteCommander::TakeBindInParty(names);", bind)
         self.assertIn("facts.inParty = inParty;", bind)
         self.assertIn("facts.partyPlayers", bind)
@@ -111,7 +111,7 @@ class PlayerInPartyWiringTest(unittest.TestCase):
         self.assertIn("RemoteCommander::RunBoundRefusalText(", note)
 
     def test_bot_action_of_another_player_is_refused(self):
-        action = strip_comments(body(COMMANDS, "static bool HandleAction(ChatHandler* handler, char const* args)", "\n}\n"))
+        action = strip_comments(body(COMMANDS, "bool HandleAction(ChatHandler* handler, char const* args)", "\n}\n"))
         self.assertIn("    if (parsed)\n        if (uint64 const owner = BoundForeignCommander(requester))", action)
         refuse = action.index("BoundForeignCommander(requester)")
         self.assertLess(refuse, action.index("\"run-bound\""))

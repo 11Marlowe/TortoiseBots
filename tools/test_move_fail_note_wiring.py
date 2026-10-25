@@ -24,7 +24,7 @@ MOVES = (ROOT / "ai/playerbot/strategy/actions/MovementActions.cpp").read_text()
 POSITION = (ROOT / "ai/playerbot/strategy/actions/PositionAction.cpp").read_text()
 WORLDPOS = (ROOT / "ai/playerbot/WorldPosition.cpp").read_text()
 LASTMOVE = (ROOT / "ai/playerbot/strategy/values/LastMovementValue.h").read_text()
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDS = "\n".join((ROOT / "commands" / n).read_text() for n in ("Commander.cpp", "Action.cpp", "Party.cpp", "BotCommands.cpp"))
 POLICY = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
 
 
