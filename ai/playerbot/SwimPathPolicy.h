@@ -26,6 +26,7 @@
 // a point more than 2 yd under the floor, or where the floor rises above the
 // water), and the line is in sight (vmaps and dynamic objects). A line that
 // crosses land, a wall, a closed door, magma or slime is refused, as before.
+// A bot in water whose own route goes nowhere hands the move to the core instead (ChooseSwimHandoff, below).
 namespace ai
 {
     // The core's PathType bits (src/game/Maps/PathFinder.h), mirrored so this
@@ -118,27 +119,41 @@ namespace ai
         return static_cast<std::uint32_t>(std::ceil(length / kSwimSampleYd)) + 1;
     }
 
-    // Whether the straight line a -> b lies in water: liquidAt(x, y, z, request,
-    // typeFlags) answers the core's liquid status at a point for the liquid types
-    // `request` (always kSwimLiquidRequest) and sets the answer's type flags;
-    // every sample must be in water, and the line is at most kSwimMaxLineYd long.
+    // The first sample of the straight line a -> b that is not in water: its index (0 at a), and its
+    // liquid status, type flags and spot in the out-parameters; -1 when every sample is in water, -2 for
+    // a line longer than kSwimMaxLineYd. liquidAt(x, y, z, request, typeFlags) answers the core's liquid
+    // status at a point for the liquid types `request` (always kSwimLiquidRequest) and sets the
+    // answer's type flags.
     template <class LiquidAt>
-    inline bool SwimLineInWater(float ax, float ay, float az, float bx, float by, float bz, LiquidAt&& liquidAt)
+    inline int SwimLineFirstFailing(float ax, float ay, float az, float bx, float by, float bz, LiquidAt&& liquidAt,
+        std::uint32_t& status, std::uint32_t& typeFlags, float& sx, float& sy, float& sz)
     {
         float const dx = bx - ax, dy = by - ay, dz = bz - az;
         float const length = std::sqrt(dx * dx + dy * dy + dz * dz);
         if (!(length <= kSwimMaxLineYd))
-            return false;
+            return -2;
         std::uint32_t const samples = SwimSampleCount(length);
         for (std::uint32_t i = 0; i < samples; ++i)
         {
             float const t = samples == 1 ? 0.0f : static_cast<float>(i) / static_cast<float>(samples - 1);
-            std::uint32_t typeFlags = 0;
-            std::uint32_t const status = liquidAt(ax + dx * t, ay + dy * t, az + dz * t, kSwimLiquidRequest, typeFlags);
+            sx = ax + dx * t;
+            sy = ay + dy * t;
+            sz = az + dz * t;
+            typeFlags = 0;
+            status = liquidAt(sx, sy, sz, kSwimLiquidRequest, typeFlags);
             if (!SwimSampleInWater(status, typeFlags))
-                return false;
+                return static_cast<int>(i);
         }
-        return true;
+        return -1;
+    }
+
+    // Whether the straight line a -> b lies in water: every sample in water, at most kSwimMaxLineYd long.
+    template <class LiquidAt>
+    inline bool SwimLineInWater(float ax, float ay, float az, float bx, float by, float bz, LiquidAt&& liquidAt)
+    {
+        std::uint32_t status = 0, typeFlags = 0;
+        float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+        return SwimLineFirstFailing(ax, ay, az, bx, by, bz, liquidAt, status, typeFlags, sx, sy, sz) == -1;
     }
 
     // The whole verdict for one path step: Keep, or KeepIfSwimLine with the
@@ -151,5 +166,77 @@ namespace ai
             case PathStepVerdict::KeepIfSwimLine: return swimLineInWater && swimLineInSight;
             default: return false;
         }
+    }
+
+    // MoveTo2's swim hand-off (MovementActions.cpp MovementAction::SwimHandoff). Blackfathom Deeps r26
+    // step 82 and r29 step 580 (2026-10-23/24): a lead bot in a deep pool got the core's straight swim
+    // line (0x81) for a pool point, the route's own swim-line test (SwimPathFits) refused it, the route
+    // was the bot's own spot and the move failed (dispatch-short) every 2 s although the core's own
+    // movement walks that line (its follow did, BFD 6b). Karazhan Crypt r40 step 113 (2026-10-25): the
+    // lead on the flooded shaft's floor stood at the dive link's lower end while the core had a complete
+    // path up it. Stormwrought Ruins r41 steps 717/719: the lead on Eldermaw's pool bed, cut off from the
+    // shore, had no path at all to the apron at the waterline. Now a bot in water whose own route makes no
+    // progress (fewer than 2 points, or ending within kSwimNoProgressYd of it) hands the move to the
+    // core when the core answers a complete path (0x1) or its swim line (0x81, no static model on it, at
+    // most kSwimHandoffMaxLineYd), or swims up and out to a shore point at the waterline within
+    // kSwimOutMaxGroundYd. Never a real player's character, a transport, a flight; never 0x11 (the
+    // core's straight line on land), a shortcut, a partial or failed path.
+    constexpr float kSwimNoProgressYd = 2.0f;
+    constexpr float kSwimHandoffMaxLineYd = 100.0f;
+    constexpr float kSwimOutMaxGroundYd = 30.0f;
+    constexpr float kSwimOutSurfaceBandYd = 3.0f;
+    constexpr float kSwimOutSurfaceDepthYd = 0.5f;
+    // Round 1 (Codex + Opus review 2026-10-25): the hand-off ran before ClipPath, so it skipped
+    // the pack hold and the enemy/hazard clipping; the 0x1 magma guard read the chord, not the
+    // walked path. Now a follow that holds before packs never hands off; a 0x1 answer walks its
+    // own points through the same ClipPath (a cut route is dispatched, under 2 points refused);
+    // the 0x81 line and the swim-out legs are refused when clipped; slime refuses the line as
+    // magma does; the swim-out needs a floor within 1 yd below its end.
+
+    enum class SwimHandoff
+    {
+        None,     // the bot's own move as before
+        CoreLine, // 0x1: the module's spline over the core's clipped points; 0x81: MovePoint with pathfinding
+        SwimOut,  // up to just under the surface, then straight to the end
+    };
+    // (The glue clips each hand-off route with the same ClipPath as an ordinary route; see MovementActions.cpp.)
+
+    struct SwimHandoffFacts
+    {
+        bool inWater = false;            // IsInWater || IsUnderwater || swimming
+        bool excluded = false;           // a real player's character, a transport, flying, a taxi, another map
+        float routeEndFromBot = 0.0f;    // the bot's own route: its last point to the bot (0: fewer than 2 points)
+        float endFromBot = 0.0f;         // the move's end to the bot (3D)
+        std::uint32_t coreType = 0;      // PathFinder(bot) to the end: getPathType
+        bool coreLineHitsModel = false;  // a static model on the line bot -> the core's actual end
+        bool swimmableHere = false;      // the core's IsSwimmable at the bot's spot
+        bool endSwimmable = false;       // the core's IsSwimmable at the end
+        bool endHasGround = false;       // a floor within 1 yd below the end (the swim-out lands on it)
+        float endGroundYd = 0.0f;        // bot -> end on the ground plane
+        float endFromSurfaceYd = 0.0f;   // end z minus the water level over the bot
+        bool surfaceLineClear = false;   // bot -> the rise point and the rise point -> the end, both in sight
+    };
+
+    inline SwimHandoff ChooseSwimHandoff(SwimHandoffFacts const& f)
+    {
+        if (!f.inWater || f.excluded)
+            return SwimHandoff::None;
+        if (!(f.endFromBot > kSwimNoProgressYd) || f.routeEndFromBot > kSwimNoProgressYd)
+            return SwimHandoff::None;
+        if (f.coreType == kPathTypeNormal)
+            return SwimHandoff::CoreLine;
+        if (f.coreType == (kPathTypeNormal | kPathTypeUnderwater))
+            return !f.coreLineHitsModel && f.endFromBot <= kSwimHandoffMaxLineYd ? SwimHandoff::CoreLine
+                                                                                  : SwimHandoff::None;
+        if (f.swimmableHere && !f.endSwimmable && f.endHasGround && f.endGroundYd <= kSwimOutMaxGroundYd &&
+            std::fabs(f.endFromSurfaceYd) <= kSwimOutSurfaceBandYd && f.surfaceLineClear)
+            return SwimHandoff::SwimOut;
+        return SwimHandoff::None;
+    }
+
+    // Whether the swim-out rises first: the bot more than 1 yd below kSwimOutSurfaceDepthYd under the level.
+    inline bool SwimOutNeedsRise(float botZ, float waterLevel)
+    {
+        return (waterLevel - kSwimOutSurfaceDepthYd) - botZ > 1.0f;
     }
 }

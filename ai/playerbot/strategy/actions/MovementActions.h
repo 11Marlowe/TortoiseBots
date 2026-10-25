@@ -70,6 +70,13 @@ namespace ai
 
         // False when the path leads nowhere (fewer than two points): nothing was launched.
         bool DispatchMovement(TravelPath movePath, bool generatePath, bool masterWalking);
+        // MoveTo2's swim hand-off (SwimPathPolicy.h ChooseSwimHandoff). Moving (MoveTo2 returns true),
+        // Refused (a guard refused its line: MoveTo2 returns false), NotTaken (MoveTo2 goes on).
+        // Round 1: takes MoveTo2's packHold (a follow that holds never hands off) and ignoreEnemyTargets
+        // for the hand-off route's own ClipPath.
+        enum class SwimHandoffResult { NotTaken, Moving, Refused };
+        SwimHandoffResult SwimHandoff(const WorldPosition& startPos, const WorldPosition& endPos,
+            TravelPath& movePath, LastMovement& lastMove, PackHoldResult* packHold, bool ignoreEnemyTargets);
 
         Unit* GetMover(Player* bot);
 

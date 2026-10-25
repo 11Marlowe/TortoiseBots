@@ -21,6 +21,7 @@
 - Fixed the run leader pausing after a wipe that brought the bot-only party back in another part of the instance: the lead is now teleported back to the run's way.
 - Fixed the run leader still pausing (and refusing resume) when a bot was a ghost a few seconds longer than the lead in another part of the instance: it waits, then teleports.
 - Fixed the run leader dropping a focus skull with no retry and keeping a stale skull across pauses.
+- Fixed bots in deep water standing still on a swim the server allows: their move now goes to the server's own swim, or up and out onto a shore within 30 yd.
 
 ## v1.8.0 (2026-10-22)
 

@@ -149,11 +149,21 @@ class MagmaGuardWiringTest(unittest.TestCase):
         # (void) casts only in mutation scratch, never in shipped tests.
         self.assertNotIn("(void)", f[clampedAt:at(f, "CalculatePassengerOffset(p.x, p.y, p.z);")])
     def test_route_check_never_edits_the_route(self):
-        f = body(MOVES, "static bool RouteEntersMagma(", "\n}\n")
+        # Round 2: the ONE sampled liquid-hazard guard (magma, and slime for
+        # the hand-off) owns the traversal; the magma-only entry keeps its name.
+        f = body(MOVES, "static bool RouteEntersLiquidHazard(", "\n}\n")
         self.assertIn("ai::CutPathBeforeMagma(start, route,", f)
-        self.assertIn(".isInMagma(terrain)", f)
+        self.assertIn("MAP_ALL_LIQUIDS", f)
+        self.assertIn("ai::ClassifyLiquidHazard(", f)
         for edit in ("erase(", "addPoint(", "push_back(PathNodePoint", "points.clear("):
             self.assertNotIn(edit, f)
+
+    def test_ordinary_moves_stay_magma_only(self):
+        # Round 2: ordinary moves pass slime off, so slime stays allowed outside
+        # the hand-off (Undercity); the hand-off passes true (pinned in
+        # test_swim_path_wiring.py).
+        f = body(MOVES, "static bool RouteEntersMagma(", "\n}\n")
+        self.assertIn("RouteEntersLiquidHazard(bot, startPos, movePath, magmaAt, false,", f)
 
     def test_magma_query_is_the_cores(self):
         f = body(WORLDPOS, "bool WorldPosition::isInMagma(", "\n}\n")
