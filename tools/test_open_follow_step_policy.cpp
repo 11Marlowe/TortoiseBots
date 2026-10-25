@@ -47,8 +47,13 @@ int main()
     CHECK(!ai::OpenFollowStepAllowed(10.0f, -10.0f, true));
     // Bound exactly on the limit is allowed.
     CHECK(ai::OpenFollowStepAllowed(25.0f, 8.0f, true));
-    // Bound exactly on the dungeon step limit is allowed.
+    // Bound exactly on the dungeon climb limit is allowed; past it refused.
     CHECK(ai::DungeonFollowStepAllowed(12.0f, 10.0f, true));
+    CHECK(!ai::DungeonFollowStepAllowed(12.0f, 10.1f, true));
+    // Small drops step down, big ones belong to the ledge step-down.
+    CHECK(ai::DungeonFollowStepAllowed(6.0f, -5.0f, true));
+    CHECK(!ai::DungeonFollowStepAllowed(6.0f, -5.1f, true));
+    CHECK(!ai::DungeonFollowStepLeaderNear(9.4f, -6.0f));
     // Leader beyond 60 yd or far above: the normal follow owns it.
     CHECK(!ai::OpenFollowStepLeaderNear(70.0f, 0.0f));
     // SFK Odo room: bot on the walkway ~9.4 yd away and ~9 yd below the
@@ -79,6 +84,23 @@ int main()
     CHECK(ai::DungeonFollowStepGroundNearLeader(99.0f, 100.1f));
     CHECK(!ai::DungeonFollowStepGroundNearLeader(91.2f, 100.1f));
     CHECK(!ai::DungeonFollowStepGroundNearLeader(102.0f, 100.1f));
+    // Floor must run along the whole segment: a stair hugging the walked
+    // line passes, a pit between balconies refuses. Sample at t=0.25/0.5/0.75
+    // of a 9.4 yd segment (samples every 1.5 yd).
+    {
+        float const botZ = 91.0f, targetZ = 100.1f;
+        // SFK stair: ground rising with the line passes every sample.
+        CHECK(ai::DungeonFollowStepSampleOk(true, ai::DungeonFollowStepLineZ(botZ, targetZ, 0.25f) + 0.5f,
+            ai::DungeonFollowStepLineZ(botZ, targetZ, 0.25f)));
+        CHECK(ai::DungeonFollowStepSampleOk(true, ai::DungeonFollowStepLineZ(botZ, targetZ, 0.5f) - 0.5f,
+            ai::DungeonFollowStepLineZ(botZ, targetZ, 0.5f)));
+        CHECK(ai::DungeonFollowStepSampleOk(true, ai::DungeonFollowStepLineZ(botZ, targetZ, 0.75f) + 1.0f,
+            ai::DungeonFollowStepLineZ(botZ, targetZ, 0.75f)));
+        // Balcony to balcony over a pit: the middle sample drops off the line.
+        CHECK(!ai::DungeonFollowStepSampleOk(true, 80.0f, ai::DungeonFollowStepLineZ(100.0f, 100.0f, 0.5f)));
+        // A hole with no ground at all refuses too.
+        CHECK(!ai::DungeonFollowStepSampleOk(false, 0.0f, ai::DungeonFollowStepLineZ(botZ, targetZ, 0.5f)));
+    }
     // Headway: steps that close the gap keep the rescue alive...
     {
         OpenFollowStepHeadway headway;
