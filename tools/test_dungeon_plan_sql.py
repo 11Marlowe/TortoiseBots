@@ -474,7 +474,7 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
     def test_dragonmaw_retreat_is_the_plan_with_the_census_fixes(self):
-        # 20261025001800 (turtle-agent 529ab6d, 2026-10-25, after r39s2/r41s2 lost 34 bots in the halgan hall with no mob in
+        # 20261025001800 (turtle-agent 5779343, 2026-10-25, after r39s2/r41s2 lost 34 bots in the halgan hall with no mob in
         # combat, 33 of them on a thin floor over WMO magma): 20261025001600 again, with every stand of the hall on a solid column.
         # The core's GetWaterOrGroundLevel answers the lava level 72.25 - 2 = 70.25 for a point on the 72.6 floor (its liquid
         # lookup casts from ground_z and so finds the lava bed below the plane), and DispatchMovement keeps the 2.35 yd clamp, so
@@ -517,7 +517,7 @@ class DungeonPlanSql(unittest.TestCase):
         # 10 legs, 827 steps (28+6+12+60+23+17+25+10+22+3 pulls), bosses in leg order, no door or event step.
         name, text = newest_plan_text("dragonmaw_retreat")
         self.assertEqual(name, "20261025001800_world.sql")
-        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 529ab6d dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 5779343 dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "dragonmaw_retreat")
         self.assertEqual(sorted(legs), list(range(10)))
         self.assertEqual([legs[i][0] for i in range(10)],
