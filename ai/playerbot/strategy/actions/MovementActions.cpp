@@ -997,6 +997,12 @@ bool MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bo
     {
         bool normalizeZ = true;
 
+        // Hoisted for the magma floor guard below: the loop runs per path
+        // point, the two liquid lookups only on a lowered point.
+        TerrainInfo const* dispatchTerrain = bot->GetMap()->GetTerrain();
+        bool const dispatchMagmaGuard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());
+        LastMovement& dispatchMove = AI_VALUE(LastMovement&, "last movement");
+
         for (auto& p : pointPath)
         {
             if (bot->GetTransport())
@@ -1011,6 +1017,27 @@ bool MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bo
             // floor. Keep the navmesh elevation when the rewrite is a big drop.
             if (p.z < navmeshZ && navmeshZ - p.z > kMaxWaypointDrop)
                 p.z = navmeshZ;
+            // Thin floor over magma (specs/dmr-step453.md Fix B): over a WMO
+            // magma bed under a floor the core's GetWaterOrGroundLevel answers
+            // liquid level - 2 (swim=true, LIQUID_MAP_ABOVE_WATER), inside the
+            // magma; the 2.35 yd drop there is under the stair limit above.
+            // Keep the navmesh floor when the clamp landed in magma and the
+            // navmesh point is dry.
+            if (!bot->GetTransport() && p.z < navmeshZ &&
+                ai::KeepNavmeshZOverMagma(dispatchMagmaGuard, true,
+                    WorldPosition(bot->GetMapId(), p.x, p.y, p.z).isInMagma(dispatchTerrain),
+                    WorldPosition(bot->GetMapId(), p.x, p.y, navmeshZ).isInMagma(dispatchTerrain)))
+            {
+                float const clampedZ = p.z;
+                p.z = navmeshZ;
+                time_t const now = time(nullptr);
+                if (!dispatchMove.magmaLogAt || now - dispatchMove.magmaLogAt >= kMagmaLogSeconds)
+                {
+                    dispatchMove.magmaLogAt = now;
+                    TB_LOG_DETAIL("TortoiseBots: %s: waypoint kept on the floor over magma at %.1f %.1f %.1f (clamp %.2f)",
+                        bot->GetName(), p.x, p.y, navmeshZ, clampedZ);
+                }
+            }
             if (bot->GetTransport())
                 bot->GetTransport()->CalculatePassengerOffset(p.x, p.y, p.z);
         }

@@ -246,4 +246,13 @@ namespace ai
         }
         return result;
     }
+
+    // DispatchMovement rewrites each path point with UpdateAllowedPositionZ; over a thin floor above WMO
+    // magma the core answers liquid level - 2 (GetWaterOrGroundLevel, swim=true, on LIQUID_MAP_ABOVE_WATER),
+    // which is inside the magma (Dragonmaw Retreat r39s2/r41s2, specs/dmr-step453.md). Keep the navmesh
+    // floor then.
+    inline bool KeepNavmeshZOverMagma(bool guardApplies, bool lowered, bool clampedInMagma, bool navmeshInMagma)
+    {
+        return guardApplies && lowered && clampedInMagma && !navmeshInMagma;
+    }
 }

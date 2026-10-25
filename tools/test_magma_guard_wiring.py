@@ -93,6 +93,20 @@ class MagmaGuardWiringTest(unittest.TestCase):
         self.assertEqual(f.count("MovePoint("), 1)  # the guarded walk is the only one
         self.assertRegex(f[blocked:walk], r"isInMagma\(\s*bot->GetMap\(\)->GetTerrain\(\)\)\)\)\s*return;")
 
+    def test_dispatch_keeps_the_dry_navmesh_floor(self):
+        f = body(MOVES, "bool MovementAction::DispatchMovement(", "\n}\n")
+        drop = at(f, "if (p.z < navmeshZ && navmeshZ - p.z > kMaxWaypointDrop)")
+        keep = at(f, "ai::KeepNavmeshZOverMagma(dispatchMagmaGuard, true,")
+        self.assertLess(drop, keep)
+        self.assertIn("TerrainInfo const* dispatchTerrain = bot->GetMap()->GetTerrain();", f[:keep])
+        self.assertIn("bool const dispatchMagmaGuard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());", f[:keep])
+        self.assertIn("WorldPosition(bot->GetMapId(), p.x, p.y, p.z).isInMagma(dispatchTerrain),", f[keep:])
+        self.assertIn("WorldPosition(bot->GetMapId(), p.x, p.y, navmeshZ).isInMagma(dispatchTerrain)))", f[keep:])
+        self.assertIn("p.z = navmeshZ;", f[keep:])
+        self.assertIn('"TortoiseBots: %s: waypoint kept on the floor over magma at %.1f %.1f %.1f (clamp %.2f)"',
+                      f[keep:])
+        # (void) casts only in mutation scratch, never in shipped tests.
+        self.assertNotIn("(void)", f[drop:at(f, "CalculatePassengerOffset(p.x, p.y, p.z);")])
     def test_route_check_never_edits_the_route(self):
         f = body(MOVES, "static bool RouteEntersMagma(", "\n}\n")
         self.assertIn("ai::CutPathBeforeMagma(start, route,", f)
