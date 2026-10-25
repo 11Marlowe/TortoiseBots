@@ -19511,6 +19511,206 @@ static void TestSpeedRestoreWaitIsBounded()
     CHECK(SpeedRestoreWaits(false, 15000) == false);   // 15 s: restore anyway
     CHECK(SpeedRestoreWaits(false, 16000) == false);   // 16 s: restored
 }
+// The test speed's leash (lead decision 2026-10-25, SCHOLO-REFAST-AUDIT 1.5): a fast walk holds once a living bot is
+// more than 25 yd (kSpeedLeashYd) from the lead bot, and walks on at 20 yd (kGatherYd) or after 30 s (kGatherCapMs).
+// (The common fixture keeps Facts::seen from Party: an unseen move step reads the approach hops, never WalkTo.)
+static Run SpeedLeashRun(DungeonPlan& plan, Facts& f, float yd)
+{
+    plan.steps = {Step(PlanStepKind::Move, 400)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.testSpeed = 3.0f;
+    r.speedNow = 3.0f;
+    f = Party(0);
+    f.members = {Mem("Krah", yd)};
+    f.maxMemberYd = yd;
+    return r;
+}
+
+static void SpeedLeashStraggler(Facts& f, float yd)
+{
+    f.members = {Mem("Krah", yd)};
+    f.maxMemberYd = yd;
+}
+
+static void TestSpeedLeashHoldsAFastWalkForAStraggler()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = SpeedLeashRun(plan, f, 10);
+    CHECK(Tick(r, f) == "move 400.0 0.0 0.0");
+    f.leadX = 40;
+    SpeedLeashStraggler(f, 30);
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    CHECK(r.speedLeash);
+    CHECK(r.note.find("waits for the party (Krah 30.0 yd behind)") != std::string::npos);
+    CHECK(r.phase == Phase::Walk);
+    CHECK(SpeedWalking(r, f));
+    CHECK(Tick(r, f) == "");
+    CHECK(r.speedLeash);
+    SpeedLeashStraggler(f, 22);
+    CHECK(Tick(r, f) == "");
+    CHECK(r.speedLeash);
+    SpeedLeashStraggler(f, 18);
+    CHECK(Tick(r, f) == "move 400.0 0.0 0.0");
+    CHECK(!r.speedLeash);
+    CHECK(r.note.find("closed up") != std::string::npos);
+    // Inside the band (20-25 yd): walking on, no new hold.
+    SpeedLeashStraggler(f, 22);
+    CHECK(Tick(r, f) == "");
+    CHECK(!r.speedLeash);
+}
+
+static void TestSpeedLeashLeavesOtherRunsAlone()
+{
+    for (int which = 0; which < 3; ++which)
+    {
+        DungeonPlan plan;
+        Facts f;
+        Run r = SpeedLeashRun(plan, f, 10);
+        std::string order;
+        CHECK(!WalkTo(r, f, 400, 0, 0, false, kTickMs, order) && order == "move 400.0 0.0 0.0");
+        f.leadX = 40;
+        SpeedLeashStraggler(f, 30);
+        if (which == 0)
+        {
+            r.testSpeed = 1.0f;
+            r.speedNow = 1.0f;
+        }
+        else if (which == 1)
+            r.speedPlayerBlocked = true;
+        else
+            r.speedNow = 1.0f; // a meal, a pull stand, a pack in sight
+        order.clear();
+        CHECK(!WalkTo(r, f, 400, 0, 0, false, kTickMs, order));
+        CHECK(order == "" && !r.speedLeash);
+    }
+}
+
+static void TestSpeedLeashSkipsDirectWaterFightsAndEvents()
+{
+    for (int which = 0; which < 6; ++which)
+    {
+        DungeonPlan plan;
+        Facts f;
+        Run r = SpeedLeashRun(plan, f, 30);
+        if (which == 1)
+            f.leadInWater = true;
+        else if (which == 2)
+            f.anyInCombat = true;
+        else if (which == 3)
+            f.leadInCombat = true;
+        else if (which == 4)
+            r.fighting = true;
+        else if (which == 5)
+            r.eventOn = true;
+        std::string order;
+        bool const direct = which == 0;
+        CHECK(!WalkTo(r, f, 400, 0, 0, direct, kTickMs, order));
+        CHECK(order == (direct ? "move 400.0 0.0 0.0 direct" : "move 400.0 0.0 0.0") && !r.speedLeash);
+    }
+}
+
+static void TestSpeedLeashHoldsBeforeAFreshWalk()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = SpeedLeashRun(plan, f, 40);
+    std::string order;
+    CHECK(!WalkTo(r, f, 400, 0, 0, false, kTickMs, order));
+    CHECK(order == "move 0.0 0.0 0.0"); // the lead bot holds where it stands
+    CHECK(r.speedLeash);
+    CHECK(r.phase == Phase::Walk);
+    CHECK(r.walkX == 400);
+    DungeonPlan together;
+    Facts g;
+    Run s = SpeedLeashRun(together, g, 10);
+    order.clear();
+    CHECK(!WalkTo(s, g, 400, 0, 0, false, kTickMs, order));
+    CHECK(order == "move 400.0 0.0 0.0" && !s.speedLeash);
+}
+
+static void TestSpeedLeashIsBoundedByTheGatherCap()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = SpeedLeashRun(plan, f, 10);
+    CHECK(Tick(r, f) == "move 400.0 0.0 0.0");
+    f.leadX = 40;
+    SpeedLeashStraggler(f, 60);
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    CHECK(r.speedLeash);
+    for (int tick = 1; tick <= static_cast<int>(kGatherCapMs / kTickMs); ++tick)
+    {
+        std::string order = Tick(r, f);
+        if (tick < static_cast<int>(kGatherCapMs / kTickMs))
+        {
+            CHECK(order == "");
+            CHECK(r.walkStillMs == 0);
+            CHECK(r.walkTries == 1);
+            CHECK(r.state == State::Running);
+        }
+        else
+        {
+            CHECK(order == "move 400.0 0.0 0.0");
+            CHECK(r.note.find("did not close up within 30 s") != std::string::npos);
+            CHECK(r.speedLeashSpent);
+        }
+    }
+    CHECK(Tick(r, f) == ""); // spent: walking on, no new hold
+    CHECK(!r.speedLeash);
+    std::string order;
+    CHECK(!WalkTo(r, f, 500, 0, 0, false, kTickMs, order));
+    CHECK(order == "move 40.0 0.0 0.0"); // a new point re-arms the leash
+    CHECK(r.speedLeash);
+}
+
+static void TestSpeedLeashResumesWhenTheRateDrops()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = SpeedLeashRun(plan, f, 10);
+    CHECK(Tick(r, f) == "move 400.0 0.0 0.0");
+    f.leadX = 40;
+    SpeedLeashStraggler(f, 30);
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    CHECK(r.speedLeash);
+    r.speedNow = 1.0f;
+    CHECK(Tick(r, f) == "move 400.0 0.0 0.0");
+    CHECK(!r.speedLeash && !r.speedLeashSpent);
+}
+
+static void TestSpeedLeashResumesTheLegOnALegWalk()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = SpeedLeashRun(plan, f, 10);
+    CHECK(Tick(r, f) == "move 400.0 0.0 0.0");
+    r.legOn = true;
+    r.legX = 100;
+    r.legY = 0;
+    r.legZ = 0;
+    f.leadX = 40;
+    SpeedLeashStraggler(f, 30);
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    SpeedLeashStraggler(f, 10);
+    CHECK(Tick(r, f) == "move 100.0 0.0 0.0");
+    CHECK(r.legBestYd == 60.0f);
+}
+
+static void TestSpeedLeashClearedByANewStep()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = SpeedLeashRun(plan, f, 10);
+    CHECK(Tick(r, f) == "move 400.0 0.0 0.0");
+    f.leadX = 40;
+    SpeedLeashStraggler(f, 30);
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    CHECK(r.speedLeash);
+    ResetStep(r);
+    CHECK(!r.speedLeash && r.speedLeashMs == 0 && !r.speedLeashSpent);
+}
 
 static void TestSpeedShowsInTheLines()
 {
@@ -21084,6 +21284,14 @@ int main()
     TestSpeedShowsInTheLines();
     TestSpeedChangeWaitsWhileSwimmingASpline();
     TestSpeedRestoreWaitIsBounded();
+    TestSpeedLeashHoldsAFastWalkForAStraggler();
+    TestSpeedLeashLeavesOtherRunsAlone();
+    TestSpeedLeashSkipsDirectWaterFightsAndEvents();
+    TestSpeedLeashHoldsBeforeAFreshWalk();
+    TestSpeedLeashIsBoundedByTheGatherCap();
+    TestSpeedLeashResumesWhenTheRateDrops();
+    TestSpeedLeashResumesTheLegOnALegWalk();
+    TestSpeedLeashClearedByANewStep();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

@@ -131,6 +131,9 @@ constexpr float kStragglerDzYd = 8.0f;            // ... or this far up or down 
 constexpr float kStragglerGainYd = 5.0f;          // ... came less than this closer since the last sample is summoned
 constexpr float kStillYd = 2.0f;                   // a bot that moved less than this ...
 constexpr std::uint32_t kStillMs = 6000;          // ... in this long stands still (stuck: summoned at a ceiling)
+// The test speed's leash (lead decision 2026-10-25, SCHOLO-REFAST-AUDIT 1.5): a fast walk holds once a living bot is
+// farther than this from the lead bot, and walks on at kGatherYd or after kGatherCapMs (SpeedLeashTick).
+constexpr float kSpeedLeashYd = kGatherYd + kStragglerGainYd; // 25 yd
 constexpr std::uint32_t kStuckSummonMs = 15000;   // in a regroup's gather: a far bot still this long is summoned at once
 // The straggler ladder (StragglerLadderTick; Shadowfang Keep r25 slot 5 step 39 and r26 slot 7 step 46): a living
 // bot out of combat that stays out of the gather (kGatherYd, or kStragglerDzYd up or down) while the run waits for
@@ -1447,6 +1450,11 @@ struct Run
     bool speedPlayerBlocked = false; // a real player was in the party on a tick: 1.0 for the rest of the run
     std::uint32_t speedOnMs = 0;     // the walking rule (SpeedWalking) has held this long without a break
     float speedNow = 1.0f;           // the rate of the last tick (the glue's SyncRunSpeed reads it)
+    // The test speed's leash (SpeedLeashTick): the walk holds for the party, since when, its note, and whether this
+    // walk point already spent its kGatherCapMs (no second hold until the next walk point).
+    bool speedLeash = false;
+    std::uint32_t speedLeashMs = 0;
+    bool speedLeashSpent = false;
     // Times a straight walk back moved its target to an earlier point after its path passed an uncleared pack
     // (ClearPointBefore, kStraightBackoffs), this walk back.
     std::uint32_t straightBackoffs = 0;
@@ -2149,6 +2157,9 @@ inline void ResetStep(Run& r)
     r.holdEngageGuid = 0;
     r.hold.clear();
     r.holdDue = false;
+    r.speedLeash = false;
+    r.speedLeashMs = 0;
+    r.speedLeashSpent = false;
 }
 
 // "N wipe(s), M near wipe(s)", or "" for none.
@@ -5513,6 +5524,70 @@ inline bool WalkBackStuckRescue(Run& r, const Facts& f, float dist, float x, flo
     return true;
 }
 
+// The test speed's leash (lead decision 2026-10-25, SCHOLO-REFAST-AUDIT 1.5): at 3x the followers fall 80-127 yd
+// behind (a core follow runs at the bot's own rate and never closes a gap; every cast or meal opens one 3x as fast),
+// and the party reached packs split. Only on a fast test walk: never at 1.0, after a real player, on a direct step,
+// with the lead bot in water (a stop could cut a swim spline), in a fight or an event.
+inline bool SpeedLeashApplies(const Run& r, const Facts& f, bool direct)
+{
+    return r.testSpeed > 1.0f && !r.speedPlayerBlocked && r.speedNow > 1.0f && !direct && !f.leadInWater &&
+        !f.anyInCombat && !f.leadInCombat && !r.fighting && !InEvent(r);
+}
+
+// The living bot farthest from the lead bot (Facts::members), or none.
+inline const MemberFact* SpeedLeashStraggler(const Facts& f)
+{
+    const MemberFact* farthest = nullptr;
+    for (const MemberFact& m : f.members)
+        if (!m.name.empty() && (!farthest || m.yd > farthest->yd))
+            farthest = &m;
+    return farthest;
+}
+
+// One tick of the leash inside WalkTo, the walk's point x y z and the lead bot `dist` from it. True: this tick is the
+// leash's (the hold order, the resume order or nothing went out): WalkTo returns false at once.
+inline bool SpeedLeashTick(Run& r, const Facts& f, float x, float y, float z, bool direct, float dist,
+    std::uint32_t dt, std::string& order)
+{
+    const MemberFact* farthest = SpeedLeashStraggler(f);
+    std::string const who = farthest ? farthest->name + " " + Num(farthest->yd) + " yd behind" : Num(f.maxMemberYd) + " yd";
+    if (r.speedLeash)
+    {
+        r.speedLeashMs += dt;
+        bool const capped = r.speedLeashMs >= kGatherCapMs;
+        if (!SpeedLeashApplies(r, f, direct) || f.maxMemberYd <= kGatherYd || capped)
+        {
+            r.speedLeash = false;
+            r.speedLeashMs = 0;
+            if (capped)
+                r.speedLeashSpent = true;
+            r.walkStillMs = 0;
+            r.walkBestYd = dist;
+            r.walkMoveX = f.leadX;
+            r.walkMoveY = f.leadY;
+            r.walkMoveZ = f.leadZ;
+            if (r.legOn)
+                r.legBestYd = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.legX, r.legY, r.legZ);
+            order = r.legOn ? MoveOrder(r.legX, r.legY, r.legZ, false) : MoveOrder(x, y, z, direct);
+            r.note = capped ? "test speed: the party did not close up within " + std::to_string(kGatherCapMs / 1000) +
+                    " s (" + who + "): walking on"
+                            : "test speed: the party closed up, walking on";
+            return true;
+        }
+        r.walkStillMs = 0; // a hold is not a stalled walk (kWalkRetryMs, the stuck pause)
+        r.note = "test speed: the walk waits for the party (" + who + ")";
+        return true;
+    }
+    if (r.speedLeashSpent || !SpeedLeashApplies(r, f, direct) || f.maxMemberYd <= kSpeedLeashYd)
+        return false;
+    r.speedLeash = true;
+    r.speedLeashMs = 0;
+    r.walkStillMs = 0;
+    order = MoveOrder(f.leadX, f.leadY, f.leadZ, false); // the lead bot holds where it stands (as the firing-stand hold)
+    r.note = "test speed: the walk waits for the party (" + who + ")";
+    return true;
+}
+
 // Walks the party to a point. True once the lead bot is there; otherwise
 // `order` may hold the move to send. Pauses after kWalkTries moves without
 // progress.
@@ -5524,6 +5599,8 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
     // or, for a stalled arrival short of it (a point off the mesh), its own spot.
     auto arrived = [&](float ax, float ay, float az)
     {
+        r.speedLeash = false;
+        r.speedLeashMs = 0;
         r.restWalkDue = false; // the walk after the rest is done: no later stall is taken for it
         r.anchorKnown = true;
         r.anchorX = ax;
@@ -5551,9 +5628,16 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         r.walkMoveY = f.leadY;
         r.walkMoveZ = f.leadZ;
         r.walkMovingMs = 0;
+        r.speedLeash = false;
+        r.speedLeashMs = 0;
+        r.speedLeashSpent = false;
+        if (SpeedLeashTick(r, f, x, y, z, direct, dist, dt, order))
+            return false; // a straggler already 25 yd off: hold before the walk goes out
         order = MoveOrder(x, y, z, direct);
         return false;
     }
+    if (SpeedLeashTick(r, f, x, y, z, direct, dist, dt, order))
+        return false;
     r.walkStillMs += dt;
     bool const moved = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.walkMoveX, r.walkMoveY, r.walkMoveZ) >= kWalkProgressYd;
     if (dist < r.walkBestYd - kWalkProgressYd)
