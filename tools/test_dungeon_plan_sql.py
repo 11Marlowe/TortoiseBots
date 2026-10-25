@@ -751,15 +751,18 @@ class DungeonPlanSql(unittest.TestCase):
         # fix. The five CrystalGenerator game objects (177259, 177257, 177258, 179504, 179505) are each used when the four Mana
         # Remnants 11483 within 20 yd of it die (instance_dire_maul.cpp SetData64 TYPE_CRISTAL_EVENT, DoSortCristalsEventMobs);
         # the last one opens the force field 179503 and makes Immol'thar selectable. Each crystal has one four-remnant pull from
-        # a stand 15-25 yd off the pack followed by a hold on the crystal's object state (entry the crystal, param 0 ready,
+        # a stand 15-25 yd off the pack followed by a hold on the crystal's object state (entry the crystal, param 1 active,
         # flags 16 done-by-object, radius 40, timeout 120, entries 11483): the hold fights a remnant the pull left and ends only
-        # when the crystal reads ready, so a missed guardian pauses at the crystal and not at Immol'thar (r36 step 465 sat
-        # 300 s on the boss, unattackable). 20261025000800 (turtle-agent 9f2ec4f, r39 slot6 step 491) is the correction of the
-        # done sign: the crystals spawn GO_STATE_ACTIVE (tw_world_gameobject.sql state 1) and DoUseDoorOrButton toggles them to
-        # READY (GameObject.cpp SwitchDoorOrButton), so param 1 waited for the state they had before the event; and the run
-        # leader finds the object only within kEntryPointRadius = 30 yd of the hold spot (RemoteCommanderPolicy.h, FindEntryTarget
-        # in BotCommands.cpp), so 179505's stand moved from -150 690 (30.17 yd from the crystal) to -132 686.5 (26.5 yd), and the
-        # plan is 616 steps. 20261024154700 (turtle-agent 56de96ff, r38 slotB step 29): the z 28.6 upper-west
+        # when the crystal reads active, so a missed guardian pauses at the crystal and not at Immol'thar (r36 step 465 sat
+        # 300 s on the boss, unattackable). 20261025001200 (turtle-agent d55bda0, r39s2 slotC) is the correction of the done
+        # sign: the crystals spawn GO_STATE_READY (their spawns' DB state 1 is GO_STATE_READY, GameObject.h:603-605) and
+        # DoUseDoorOrButton switches a crystal to GO_STATE_ACTIVE (0) when its guard list empties, where it stays (a button
+        # with no auto-close), so the done param is 1 (active); 0 (ready) is the state the crystal leaves, and round 6 read
+        # the DB 1 as ACTIVE and waited for it (r39s2 waited for 0 for 4 x 120 s after the crystal went 1). The run leader finds
+        # the object only within kEntryPointRadius = 30 yd of the hold spot (RemoteCommanderPolicy.h:1181, EntryGameObjectCheck
+        # in BotCommands.cpp:7067-7082) and reads its live state in ReadHoldDone (BotCommands.cpp:11174-11196); 179505's stand
+        # stays at -132 686.5 (26.5 yd from the crystal, the move of 20261025000800) and the plan is 616 steps.
+        # 20261024154700 (turtle-agent 56de96ff, r38 slotB step 29): the z 28.6 upper-west
         # room is left out and r38's lower-hall step-29 fight is four leg-0 pulls (groups 13-16 = W1-W4) with stands 25.9-30.3
         # yd off the pack centres; steps 27/28 move onto the lower floor. 20261025000200 (turtle-agent 4b64803d, r38 slotC2
         # steps 441-442 and 233): the Immol'thar hall is worked from its mouth instead of along the Residual Monstrosities'
@@ -781,8 +784,8 @@ class DungeonPlanSql(unittest.TestCase):
         # Summoners (11466) and the courtyard's Gordok mobs are out of every pull; Revanchion 14690 has a leg of his own;
         # Ferra 14308 is Illyanna's boss.first; Tsu'zee 11467 (rare) is a member of the Kalendris hall's pull.
         name, text = newest_plan_text("dire_maul_west")
-        self.assertEqual(name, "20261025000800_world.sql")
-        self.assertIn("('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 9f2ec4f dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025001200_world.sql")
+        self.assertIn("('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent d55bda0 dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');", text)
         legs = leg_rows(text, "dire_maul_west")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["tendris_warpwood", "revanchion", "illyanna_ravenoak", "magister_kalendris", "immol'thar",
@@ -796,20 +799,21 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss", "hold"})
         for leg in range(6):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
-        # The five crystal holds: the object entry, its ready state (param 0: the script toggles the crystal's spawn state 1 to
-        # 0 when its four remnants are down) and the done-by-object flag 16, at the stand of the pull group right before each,
-        # with the remnant entry as their only units. The two hall holds stand off the ring (179505's -132 686.5 is 46 yd from
-        # its ring path and 26.5 yd from the crystal, inside the run leader's 30 yd object search; 95 880 is 41 yd).
+        # The five crystal holds: the object entry, its done state (param 1 active: the crystal spawns GO_STATE_READY and the
+        # script switches it to GO_STATE_ACTIVE when its four remnants are down) and the done-by-object flag 16, at the stand of
+        # the pull group right before each, with the remnant entry as their only units. The two hall holds stand off the ring
+        # (179505's -132 686.5 is 46 yd from its ring path and 26.5 yd from the crystal, inside the run leader's 30 yd object
+        # search; 95 880 is 41 yd).
         holds = [r for r in rows if r["kind"] == "hold"]
         self.assertEqual([(r["leg"], r["seq"], r["entry"], float(r["x"]), float(r["y"]), float(r["z"]), r["param"], r["flags"],
                            r["timeout_s"], float(r["radius"]), r["entries"]) for r in holds],
-                         [("0", "13", "177259", 32.0, 300.0, -7.5, "0", "16", "120", 40.0, "11483"),
-                          ("0", "91", "177257", 130.6, 454.9, 29.2, "0", "16", "120", 40.0, "11483"),
-                          ("2", "70", "177258", -102.7, 426.9, 29.2, "0", "16", "120", 40.0, "11483"),
-                          ("4", "59", "179505", -132.0, 686.5, -24.52, "0", "16", "120", 40.0, "11483"),
-                          ("4", "93", "179504", 95.0, 880.0, -24.19, "0", "16", "120", 40.0, "11483")])
+                         [("0", "13", "177259", 32.0, 300.0, -7.5, "1", "16", "120", 40.0, "11483"),
+                          ("0", "91", "177257", 130.6, 454.9, 29.2, "1", "16", "120", 40.0, "11483"),
+                          ("2", "70", "177258", -102.7, 426.9, 29.2, "1", "16", "120", 40.0, "11483"),
+                          ("4", "59", "179505", -132.0, 686.5, -24.52, "1", "16", "120", 40.0, "11483"),
+                          ("4", "93", "179504", 95.0, 880.0, -24.19, "1", "16", "120", 40.0, "11483")])
         for r in holds:
-            self.assertIn("is ready", r["comment"])
+            self.assertIn("is active", r["comment"])
         # The stand is within the run leader's 30 yd object search of its crystal (kEntryPointRadius), which 20261025000200's
         # -150 690 was not (30.17 yd, so the hold read no object and could never end: r39 slot6 step 491).
         crystals = {"177259": (16.7865, 277.154, -8.4683), "177257": (111.851, 436.077, 28.6016),
