@@ -7313,8 +7313,8 @@ void BuildBossSpawnCache()
         sLog.outString("TortoiseBots: %u maps have a boss roster over the cap", overCap);
 }
 
-// The boss roster of a map, or null while the cache is not built (the plans were not sealed at start: the AI is off). Never builds it:
-// the snapshot only reads.
+// The boss roster of a map, or null while the cache is not built (the plans were not sealed at start, or the
+// dungeon flags are off so OnStartup skipped the scan). Never builds it: the snapshot only reads.
 static std::vector<CommanderTelemetry::BossEntrySpawns> const* DashBossSpawnsOn(uint32 mapId)
 {
     static std::vector<CommanderTelemetry::BossEntrySpawns> const none;
@@ -7332,7 +7332,7 @@ static void FillCommanderBosses(Player* lead, CommanderTelemetry::BindingRef& re
         return;
     std::vector<CommanderTelemetry::BossEntrySpawns> const* roster = DashBossSpawnsOn(lead->GetMapId());
     if (!roster)
-        return; // no cache (the plans were not sealed at start): not reported, the dashboard falls back
+        return; // no cache: not reported, the dashboard falls back
     ref.bossesReported = true;
     ref.bossesMap = lead->GetMapId();
     MapPersistentState* persistent = map->GetPersistentState();

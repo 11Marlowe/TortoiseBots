@@ -82,6 +82,10 @@ class BossListWiring(unittest.TestCase):
         self.assertIn("BotCommands::BuildBossSpawnCache();", start)
         # after the plans are sealed (sPlayerbotAIConfig.Initialize loads and seals them)
         self.assertLess(start.index("sPlayerbotAIConfig.Initialize();"), start.index("BotCommands::BuildBossSpawnCache();"))
+        # only for the dungeon features that read it; everyone else skips the full-table scan
+        self.assertIn("if (sPlayerbotAIConfig.dungeonTactics || sPlayerbotAIConfig.dungeonSelfClear)", start)
+        self.assertLess(start.index("if (sPlayerbotAIConfig.dungeonTactics || sPlayerbotAIConfig.dungeonSelfClear)"),
+                        start.index("BotCommands::BuildBossSpawnCache();"))
         self.assertIn("void BuildBossSpawnCache();", (ROOT / "commands/BotCommands.h").read_text())
         # the snapshot path only reads the cache: no build, no scan
         for name in ("static std::vector<CommanderTelemetry::BossEntrySpawns> const* DashBossSpawnsOn(",

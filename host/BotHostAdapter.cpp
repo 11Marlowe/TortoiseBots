@@ -92,7 +92,9 @@ void BotHostAdapter::OnStartup()
 
     bool configured = sPlayerbotAIConfig.Initialize();
     // The dashboard's boss list: one pass over the creature spawns, here at start (the plans were just sealed), never in a 2 s snapshot.
-    BotCommands::BuildBossSpawnCache();
+    // Only for the dungeon features that read it; everyone else skips the scan and the readers fall back.
+    if (sPlayerbotAIConfig.dungeonTactics || sPlayerbotAIConfig.dungeonSelfClear)
+        BotCommands::BuildBossSpawnCache();
     HireRecruiterScript::SyncUnlockFees();
     HireRecruiterScript::SyncHireUnlockChain();
     // Issue #490: static hire-gear sets, one pass over the table rows.
