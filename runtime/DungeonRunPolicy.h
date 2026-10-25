@@ -1542,14 +1542,25 @@ struct Run
     // teleport is used), by any other rescue, when the replay starts, and by ResetStep; a send keeps it (the
     // outcome is not known yet).
     bool strandReplay = false;
-    // A pending teleport is a bot-only kind's (set by ReplayRescue and IslandWalkBackRescue beside RescueDue):
-    // a real player who joined the party since it was armed walks back with the party, so StrandedTeleportTick
-    // drops it before the send (no try spent) and falls back as a refused rescue of that kind does. Cleared with
-    // the due flag (ResetStep, ReplayWalkBack, the cancel), by any other rescue (RescueDue drops it; the two
-    // bot-only kinds set it again after it), when the lead bot arrives (its step's teleport is used) and when
-    // StrandFailed gives it up; a send keeps it (a refused send is tried again, and the recheck runs before
+    // A pending teleport is a bot-only kind's (set by ReplayRescue, IslandWalkBackRescue and OtherPartRescue beside
+    // RescueDue): a real player who joined the party since it was armed walks back with the party, so
+    // StrandedTeleportTick drops it before the send (no try spent) and falls back as a refused rescue of that kind
+    // does (an other-part rescue pauses for the other part instead). Cleared with
+    // the due flag (ResetStep, ReplayWalkBack, the cancel), by any other rescue (RescueDue drops it; the three
+    // bot-only kinds set their flag again after it), when the lead bot arrives (its step's teleport is used) and
+    // when StrandFailed gives it up; a send keeps it (a refused send is tried again, and the recheck runs before
     // every send).
     bool strandBotOnly = false;
+    // The pending teleport was armed by OtherPartRescue (set beside RescueDue there, with strandBotOnly): a real
+    // player who joined the party since it was armed does not walk back with the party alone (the lead bot is in
+    // another part), so StrandedTeleportTick drops it before the send (no try spent) and pauses for the other part
+    // (PauseOtherPart with OtherPartBlock::Player: the old player-present pause and hold, no walk-back advance)
+    // instead of passing the walk-back point. The island rescue keeps its behaviour (it passes the point).
+    // Cleared with the due flag (ResetStep, ReplayWalkBack, the cancel), by any other rescue (RescueDue drops it;
+    // OtherPartRescue sets it again after it), when the lead bot arrives (its step's teleport is used) and when
+    // StrandFailed gives it up; a send keeps it (a refused send is tried again, and the recheck runs before
+    // every send).
+    bool strandFromOtherPart = false;
     // The return of a bot outside the instance (OffMapReturnTick, Dire Maul West r38 slot B): the run clock (runMs)
     // of each bot's last return, and each bot's returns at the step offMapReturnStep (kOffMapReturnTries a step and
     // bot; the pause names the bot that needed a fourth return; Resume starts every bot's count over).
@@ -2102,6 +2113,7 @@ inline void ResetStep(Run& r)
     r.strandOn = false;
     r.strandReplay = false;
     r.strandBotOnly = false;
+    r.strandFromOtherPart = false;
     r.strandMs = 0;
     r.strandSummon = false;
     r.strandSummoned.clear();
@@ -4702,6 +4714,7 @@ inline void StrandFailed(Run& r, const std::string& why)
     bool const replay = r.strandReplay;
     r.strandReplay = false;
     r.strandBotOnly = false;
+    r.strandFromOtherPart = false;
     if (replay && r.walkBack && r.plan)
     {
         // The lead bot's spot is unknown here (StrandFailed has no Facts), so replay from the rescue's spot
@@ -4991,6 +5004,7 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
                 StrandCountsForStep(r);
                 r.strandDue = true;
                 r.strandBotOnly = false; // an older rescue: never a bot-only kind
+                r.strandFromOtherPart = false; // ... nor an other-part rescue
                 r.strandIdx = r.walkBackIdx;
                 r.strandX = r.leadLastX;
                 r.strandY = r.leadLastY;
@@ -5366,6 +5380,7 @@ inline void RescueDue(Run& r, const Facts& f, std::size_t target)
     r.walkBackDirect = false;
     r.strandReplay = false;
     r.strandBotOnly = false; // the two bot-only kinds set it again below
+    r.strandFromOtherPart = false; // OtherPartRescue sets it again below
     r.approachHops = 0;
     EnterPhase(r, Phase::Begin);
 }
@@ -5433,6 +5448,7 @@ inline bool OtherPartRescue(Run& r, const Facts& f)
     float const yd = PlanNearestYd(r, f.leadX, f.leadY, f.leadZ);
     RescueDue(r, f, target);
     r.strandBotOnly = true; // armed bot-only: StrandedTeleportTick rechecks for a joined player before the send
+    r.strandFromOtherPart = true; // armed by the other-part rescue: a joined player pauses instead of passing
     if (r.otherPartRescueStep != r.step)
     {
         r.otherPartRescueStep = r.step;
@@ -7502,6 +7518,7 @@ inline bool ReplayWalkBack(Run& r, const Facts& f)
 {
     r.strandReplay = false;
     r.strandBotOnly = false;
+    r.strandFromOtherPart = false;
     r.strandDue = false; // a refused teleport's replay answers the same failure, not a second send
     r.walkBackDirect = false;
     r.shortcutWanted = r.shortcutFrom = static_cast<std::size_t>(-1);
@@ -8183,6 +8200,7 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
         r.strandStep = r.step;
         r.strandReplay = false; // used: no replay after it
         r.strandBotOnly = false; // used: no player recheck after it
+        r.strandFromOtherPart = false; // used: no player pause after it
         r.strandSummon = true;
         r.strandSummoned.clear();
         r.strandSummonMs = 0;
@@ -8243,11 +8261,20 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
     // A bot-only rescue armed, then a real player joined before the send: he walks back with the party, so drop
     // the teleport (no try spent) and fall back as a refused rescue of that kind does (a refused ReplayRescue
     // replays the plan's points, a refused island rescue passes the point as before). Older rescues never set
-    // the flag and send as before.
+    // the flag and send as before. An other-part rescue's teleport is different: the lead bot is in another part,
+    // so the party alone cannot walk back to it; the run pauses for the other part instead (PauseOtherPart of
+    // OtherPartBlock::Player: the old player-present pause and hold, no walk-back advance).
     if (r.strandBotOnly && !f.players.empty())
     {
+        bool const fromOtherPart = r.strandFromOtherPart;
         r.strandDue = false;
         r.strandBotOnly = false;
+        r.strandFromOtherPart = false;
+        if (fromOtherPart)
+        {
+            PauseOtherPart(r, f, OtherPartBlock::Player);
+            return true;
+        }
         if (r.strandReplay)
         {
             std::string const why = "a real player joined after the rescue was armed: replaying the plan's points";
@@ -8265,7 +8292,8 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
     }
 
     // The spot as the facts read it now (the lead bot may have moved on the island); a send keeps strandReplay
-    // (it says what the teleport was, cleared when StrandFailed gives it up).
+    // and strandFromOtherPart (they say what the teleport was, cleared when StrandFailed gives it up or the lead
+    // bot arrives).
     r.strandX = f.leadX;
     r.strandY = f.leadY;
     r.strandZ = f.leadZ;

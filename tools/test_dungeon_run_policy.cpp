@@ -15636,8 +15636,40 @@ static void TestLeadInOtherPartAfterAWipeIsRescued()
     CHECK(r.state == State::Running && r.strandStep == r.step && !LeadInOtherPart(r, f));
 }
 
-// The pause stays where the rescue does not fit: a real player in the party (he walks back with it), the rescue off,
-// or once a step (the latch used): each the pause as before, with nothing teleported.
+// A joined player cancels an armed other-part rescue (strandFromOtherPart): no rescue order goes out (no try
+// spent); the run pauses for the other part (PauseOtherPart of OtherPartBlock::Player: the old player-present
+// pause and hold, no walk-back advance) instead of passing the walk-back point (the island rescue's behaviour,
+// TestJoinedPlayerCancelsTheIslandRescue). Fails on be9cd92d (PassWalkBackPoint advanced the walk-back). The
+// bot-only control still teleports.
+static void TestJoinedPlayerCancelsTheOtherPartRescue()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = WipedAtTheOtherDoor(plan, f);
+    std::size_t const walkBackBefore = r.walkBackIdx;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && r.strandDue && r.strandBotOnly && r.strandFromOtherPart);
+    PlayerFact p;
+    p.name = "Hypeer";
+    p.commander = true;
+    f.players.push_back(p); // joins between the arm and the send
+    CHECK(Tick(r, f).empty()); // no rescue order: the Player pause instead
+    CHECK(r.state == State::Paused && r.otherPartPaused && !r.otherPartResumeRescue && !r.strandDue &&
+        !r.strandBotOnly && !r.strandFromOtherPart && !r.strandOn && r.strandTries == 0);
+    CHECK(r.walkBackIdx == walkBackBefore); // no walk-back advance
+    CHECK(r.note == "the lead bot revived in another part of the instance (2000.0 0.0 0.0), 1780.0 yd from the run: "
+        "it cannot walk back; bring it to the party, then .bot run resume");
+    CHECK(r.hold.empty() && !r.holdWhilePaused && !HoldStandsNow(r)); // at the door: nobody far to hold
+    std::string refusal;
+    CHECK(!ResumeChecked(r, SpotAt(2000), refusal) && !refusal.empty() && r.state == State::Paused);
+    DungeonPlan control;
+    Facts g;
+    Run b = WipedAtTheOtherDoor(control, g);
+    CHECK(Tick(b, g).empty());
+    CHECK(Tick(b, g) == "rescue from 2000.0 0.0 0.0 to 10.0 0.0 0.0"); // control: still teleports
+    CHECK(b.strandOn && !b.strandDue && b.strandTries == 0);
+}
+
 static void TestLeadInOtherPartRescueBounds()
 {
     {
@@ -15869,6 +15901,7 @@ static void TestLeadRevivedAwayWithADeadBotRegroupsThenRescues()
     f.members[1].x = 215;
     CHECK(Tick(r, f).empty());
     CHECK(r.state == State::Running && r.regroup && !r.strandDue && r.autoRegroups == 1);
+    CHECK(r.walkBackDue); // LeadRevivedAway's Dead branch arms the regroup's walk back (drop it: no walk back after)
     CHECK(r.note == "the lead bot revived in another part of the instance: regrouping by itself, the rescue teleport "
         "after the dead (Healy) are up");
     CHECK(Tick(r, f) == "revive party");
@@ -15879,7 +15912,6 @@ static void TestLeadRevivedAwayWithADeadBotRegroupsThenRescues()
     CHECK(Tick(r, f).empty() && r.strandDue && !r.regroup && r.state == State::Running);
 }
 
-// kOtherPartRescuesPerStep rescues at one step: the pause names it; a resume gives fresh ones and the regroup rescues.
 static void TestOtherPartRescueCapThenResume()
 {
     DungeonPlan plan;
@@ -15912,14 +15944,38 @@ static void TestOtherPartRescueCapThenResume()
         "where it is)");
     std::string refusal;
     CHECK(ResumeChecked(r, SpotAt(2000), refusal) && refusal.empty() && r.otherPartRescues == 0);
-    CHECK(Tick(r, f).empty() && r.strandDue && r.otherPartRescues == 1 && r.otherPartRescueStep == r.step);
-    // A new step counts from zero.
-    r.step = 1;
-    CHECK(OtherPartRescueWhy(r, f) != OtherPartBlock::Cap);
+    CHECK(Tick(r, f).empty() && r.strandDue && r.strandBotOnly && r.strandFromOtherPart);
+    CHECK(r.otherPartRescues == 1 && r.otherPartRescueStep == r.step);
+    // A new step counts from zero: the same count at another step is not the cap (the step comparison pins it:
+    // dropping `r.otherPartRescueStep == r.step` fails here). The scratch copy drops the armed teleport so the
+    // check below reads the cap branch, not RescueAllowed's Busy.
+    Run probe = r;
+    probe.strandDue = false;
+    probe.strandOn = false;
+    probe.otherPartRescueStep = probe.step;
+    probe.otherPartRescues = kOtherPartRescuesPerStep; // at the cap at this step again
+    CHECK(OtherPartRescueWhy(probe, f) == OtherPartBlock::Cap);
+    probe.step = 1; // the rescue's own step is over: the same count is not the cap
+    CHECK(OtherPartRescueWhy(probe, f) != OtherPartBlock::Cap);
     CHECK(kOtherPartRescuesPerStep == 3);
 }
 
-// IslandEscape with the lead bot in another wing (r20): the rescue where it goes, else the pause with the reason.
+// Busy (a fight, a rescue already due or on, the run not running, the lead bot dead) counts as resumable
+// (OtherPartResumeRescues): the pause it names resumes into the regroup that runs the rescue, same as the Dead
+// pause (TestOtherPartDeadWaitIsBoundedAndResumeRescues). The no-Busy mutation
+// (drop `|| why == OtherPartBlock::Busy`) fails the first line.
+static void TestOtherPartBusyResumesIntoTheRescue()
+{
+    CHECK(OtherPartResumeRescues(OtherPartBlock::Busy));
+    CHECK(OtherPartResumeRescues(OtherPartBlock::Dead));
+    CHECK(OtherPartResumeRescues(OtherPartBlock::Cap));
+    CHECK(OtherPartResumeRescues(OtherPartBlock::Used));
+    CHECK(!OtherPartResumeRescues(OtherPartBlock::Player));
+    CHECK(!OtherPartResumeRescues(OtherPartBlock::Off));
+    CHECK(!OtherPartResumeRescues(OtherPartBlock::Tries));
+    CHECK(!OtherPartResumeRescues(OtherPartBlock::NoPoint));
+}
+
 static void TestIslandEscapeInOtherPartRescues()
 {
     for (bool rescueOn : {true, false})
@@ -20802,12 +20858,14 @@ int main()
     TestBackDoorNearThePlanIsNotAnotherPart();
     TestLeadRevivedAwayInOtherPartPauses();
     TestLeadInOtherPartAfterAWipeIsRescued();
+    TestJoinedPlayerCancelsTheOtherPartRescue();
     TestLeadInOtherPartRescueBounds();
     TestLeadRevivedAwayInOtherPartIsRescued();
     TestDireMaulWestR40SecondRevivalWaitsForTheDead();
     TestOtherPartDeadWaitIsBoundedAndResumeRescues();
     TestLeadRevivedAwayWithADeadBotRegroupsThenRescues();
     TestOtherPartRescueCapThenResume();
+    TestOtherPartBusyResumesIntoTheRescue();
     TestIslandEscapeInOtherPartRescues();
     TestNoSummonTowardALeadInAnotherPart();
     TestNoIslandHopForALeadInAnotherPart();
