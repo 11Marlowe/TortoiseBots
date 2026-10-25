@@ -60,6 +60,7 @@
 #include "../runtime/DungeonRunPolicy.h"
 #include "../runtime/RunTrace.h"
 #include "../ai/playerbot/DungeonPlanMgr.h"
+#include "../ai/playerbot/PullAggroEstimatePolicy.h"
 #include "../ai/playerbot/WorldPosition.h"
 #include "Group/CreatureLinkingMgr.h"
 #include "Maps/InstanceData.h"
@@ -7124,9 +7125,26 @@ void UpdateRemoteCommanders(uint32_t diff)
     UpdateDungeonRuns(diff);
 }
 
+// The run leader's own orders (`.bot run`): while it sends one, the first answer is also kept here so the run
+// can pause on a refusal.
+struct RunOrderCapture
+{
+    bool active = false;
+    bool answered = false;
+    bool ok = false;
+    std::string text;
+};
+static RunOrderCapture s_runOrderCapture;
+
 void NoteCommanderOrderResult(ChatHandler* handler, std::string const& intent, bool ok,
     std::string const& result)
 {
+    if (s_runOrderCapture.active && !s_runOrderCapture.answered)
+    {
+        s_runOrderCapture.answered = true;
+        s_runOrderCapture.ok = ok;
+        s_runOrderCapture.text = result;
+    }
     // Only the answers to a bound commander's `.bot cmd <order>` count.
     if (intent.compare(0, 4, "cmd ") != 0)
         return;
@@ -7525,7 +7543,8 @@ static void FillDungeonMob(Player* seer, Unit* unit, CommanderTelemetry::MobInfo
     mob.level = unit->GetLevel();
     if (creature)
         mob.rank = CommanderTelemetry::RankKind(creature->GetCreatureInfo()->rank,
-            creature->HasExtraFlag(CREATURE_FLAG_EXTRA_INSTANCE_BIND));
+            creature->HasExtraFlag(CREATURE_FLAG_EXTRA_INSTANCE_BIND),
+            ai::GetDungeonPlans().IsBossEntry(creature->GetMapId(), creature->GetEntry()));
     mob.cc = CommanderTelemetry::CcKind(unit->HasUnitState(UNIT_STAT_STUNNED), unit->HasUnitState(UNIT_STAT_CONFUSED),
         unit->HasUnitState(UNIT_STAT_FLEEING), unit->HasUnitState(UNIT_STAT_ROOT));
     if (uint32 const spellId = CurrentSpellId(unit))

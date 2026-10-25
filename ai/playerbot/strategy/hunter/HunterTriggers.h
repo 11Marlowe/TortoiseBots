@@ -524,6 +524,16 @@ private:
         HunterMultiShotTrigger(PlayerbotAI* ai) : SpellCanBeCastedTrigger(ai, "multi-shot") {}
         virtual bool IsActive() override;
     };
+
+    // Two or more mobs on the hunter itself, the current target one of them and
+    // within reach: the Wing Clip row that runs before the step-out (F13).
+    class HunterSwarmedTrigger : public Trigger
+    {
+    public:
+        HunterSwarmedTrigger(PlayerbotAI* ai) : Trigger(ai, "hunter swarmed", 1) {}
+        bool IsActive() override;
+    };
+
     // BM cooldown: intimidation is a self-cast (BUFF_ACTION on self, core
     // rejects positive spells on hostile targets), ordered by the owner, so
     // the cast gate must run against the hunter itself — plus a live-pet
