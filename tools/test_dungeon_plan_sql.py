@@ -2346,23 +2346,26 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (349) AND `entry` IN (13282, 12258, 12203, 13601, 13596, 12201);", text)
 
     def test_blackrock_depths_is_the_plan_with_the_angerforge_hall_first(self):
-        # 20261025000500 (turtle-agent brd-fix1 dbc3edb, 2026-10-25, after r38 slotB2 ran to step 679/1124 and stalled
-        # for 10+ minutes on the last pull of leg 5, 12 cycles of 'no firing stand found'/'firing stands used up (2)'):
-        # leg 5's gallery pulls are gone (see below) and the Incendius boss has the only served descent, so the leg
-        # ends on the boss. The rest is 20261024154600's: leg 3 clears the z-45 hall (8911/8898) and Angerforge before
-        # g3, g3 opens leg 4 from the boss's hall, g9 starts on the party's real z-65 stand, g45 descends to its own
-        # z-72 floor, and the Angerforge approach stands 25.0 yd from the boss (the four linked 8901 guards cannot be
-        # split: creature_linking flag 1031).
-        # No row hand-set, with the boss rows of map 230. 10 legs, 1136 steps (30 + 60 + 6 + 11 + 30 + 23 + 14 + 8
+        # 20261025002200 (turtle-agent prep/brd-92-floor ff95dac, 2026-10-25, after the refast run stopped at step 92
+        # with 4 pauses and steps 816/818 were still open from r39): leg 1's g9 approach walks down the ring and the ramp
+        # from the z-43 ledge the g7/g8 fight leaves the party on (the 432.2 yd route to the old first point 522 -241 -65
+        # is 256 smooth points, MAX_POINT_PATH_LENGTH, so the server answers NOPATH from the ledge at 536.7 -246.6 -42.5;
+        # from r39's end 549.9 -274.8 -43.1 the same route is 94 points and NORMAL), and leg 6's g12/g13 carry the ridge
+        # approach points on their floor (the cutter's 50 yd hops stood 6.33 and 5.26 yd under it and had no poly).
+        # The rest is 20261025000500's: leg 5's gallery pulls are gone and the Incendius boss has the only served descent;
+        # leg 3 clears the z-45 hall (8911/8898) and Angerforge before g3, g3 opens leg 4 from the boss's hall, g45
+        # descends to its own z-72 floor, and the Angerforge approach stands 25.0 yd from the boss (the four linked 8901
+        # guards cannot be split: creature_linking flag 1031).
+        # No row hand-set, with the boss rows of map 230. 10 legs, 1164 steps (30 + 60 + 6 + 11 + 30 + 23 + 14 + 8
         # + 67 + 8 pulls), bosses in leg order. The lava points are out of the pulls, leg 7's start is on
         # Flamelash's platform, the packs that stand at five bosses are those boss rows' entries, the four rares
         # are pulls of their own, and no pull reaches beyond its own spread.
         name, text = newest_plan_text("blackrock_depths")
-        self.assertEqual(name, "20261025000500_world.sql")
-        self.assertIn("('blackrock_depths', 230, '8903,8892,8890,8891', '8903', '8894,8898,8896,8904,8900', 'turtle-agent dbc3edb dungeons/blackrock_depths.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025002200_world.sql")
+        self.assertIn("('blackrock_depths', 230, '8903,8892,8890,8891', '8903', '8894,8898,8896,8904,8900', 'turtle-agent ff95dac dungeons/blackrock_depths.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "blackrock_depths")), 10)
         rows = [r for r in self.step_rows(text) if r["plan"] == "blackrock_depths"]
-        self.assertEqual(len(rows), 1136)
+        self.assertEqual(len(rows), 1164)
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
                          [30, 60, 6, 11, 30, 23, 14, 8, 67, 8])
@@ -2401,8 +2404,14 @@ class DungeonPlanSql(unittest.TestCase):
         # (565 -53 -60, 583 17 -69, 676 -94 -71.5); every hop was path-checked from the lead's real position
         # (523.6 -237.8 -64.4 and 624.5 -11.8 -72.7). Warder Stilgiss 16079 (no fight in the run) is gone.
         leg1 = leg_steps(rows, 1)
-        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg1 if r["comment"] == "pull group 9 approach"],
-                         [("522", "-241", "-65"), ("535", "-244", "-68")])
+        # The refast step-92 stop: the g7/g8 fight leaves the party on the z-43 ledge, where 522 -241 -65 is a 432.2 yd
+        # route (84 polys, 256 smooth points -> the server's MAX_POINT_PATH_LENGTH -> NOPATH) and 535 -244 -68 the same.
+        # The approach anchors on the ramp top and then the pull stand: 270.9 yd / 73 points from the refast ledge
+        # (536.7 -246.6 -42.5) and 246.3 yd / 63 points from r39's end (549.9 -274.8 -43.1), then 165.6 yd / 41 points down.
+        g9 = [r for r in leg1 if r["comment"] == "pull group 9 approach"]
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in g9],
+                         [("585.6", "-103.4668", "-45.4225"), ("535", "-244", "-68")])
+        self.assertNotIn("522", [r["x"] for r in g9])
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg1 if r["comment"] == "pull group 45 approach"],
                          [("565", "-53", "-60"), ("583", "17", "-69"), ("676", "-94", "-71.5")])
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg1 if r["comment"] == "pull group 37 approach"],
@@ -2455,6 +2464,20 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(floor_jumps(6), [])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["blackrock_depths"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (230) AND `entry` IN (9018, 9319, 9016, 9033, 8983, 9017, 9056, 9156, 9938, 9019);", text)
+        # The steps 816/818 fix: the cutter's 50 yd hops (1180.5664 -397.7208 -97.98146 and 1171.39 -410.61612 -98.72122)
+        # stood 6.33 and 5.26 yd under the ridge floor and had no poly within the finder's reach; the two groups carry the
+        # ridge points on their floor instead, and the old rows are gone.
+        leg6 = leg_steps(rows, 6)
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg6 if r["comment"] == "pull group 12 approach"],
+                         [("1180.5664", "-397.7208", "-91.6458")])
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg6 if r["comment"] == "pull group 13 approach"],
+                         [("1171.39", "-410.6161", "-93.4582")])
+        self.assertFalse([r for r in rows if r["x"] == "1180.5664" and r["z"] == "-97.98146"])
+        self.assertFalse([r for r in rows if r["x"] == "1171.39" and r["z"] == "-98.72122"])
+        # The g12/g13 chain walks at most 50.6 yd between its rows (the ridge point to g12's pack centre).
+        g12 = next(i for i, r in enumerate(leg6) if r["comment"] == "pull group 12 approach")
+        self.assertEqual(leg6[g12 + 1]["x"], "1173.3334")
+        self.assertEqual(leg6[g12 + 1]["z"], "-92.52249")
 
     def test_dragonmaw_retreat_is_the_plan_with_the_census_fixes(self):
         # 20261025001900 (turtle-agent 1116b84, 2026-10-25, after live run r41s2 slotA stopped at step 755 with 4 pauses): the
