@@ -169,6 +169,13 @@ bool FollowAction::RescueStalledDungeonFollow(Unit* followTarget, bool& moved)
     if (StepUpToLeaderInDungeon(followTarget, moved))
         return true;
 
+    // Own clock and throttle (LedgeStepDownPolicy.h): only fires on an island edge.
+    if (StepDownOffLedge(followTarget))
+    {
+        moved = true;
+        return true;
+    }
+
     // Between walks the normal follow runs (it does not re-issue a core
     // follow that is already running).
     uint32 const nowMs = WorldTimer::getMSTime();
@@ -197,11 +204,11 @@ bool FollowAction::RescueStalledDungeonFollow(Unit* followTarget, bool& moved)
 // Same shape as the open-world step, with dungeon caps
 // (OpenFollowStepPolicy.h): toward a close sighted leader whose height
 // differs by a walkable stair, and only when floor runs along the whole
-// segment near the walked line. Shares the rescue watch with the navmesh
-// walk below: a launched or refused step counts as a walk for pacing, and
-// the watch's give-up still bounds the whole episode. True only when a
-// step launched; `moved` mirrors it. Anything else falls through to the
-// ledge step-down and the navmesh walk.
+// segment near the walked line. A launched step counts as a walk of the
+// rescue watch, so its pacing and give-up bound the episode. A refused step
+// is only re-checked every kDungeonFollowStepRecheckMs and leaves the watch
+// alone: the ledge step-down and the navmesh walk below still run. True
+// only when a step launched; `moved` mirrors it.
 bool FollowAction::StepUpToLeaderInDungeon(Unit* followTarget, bool& moved)
 {
     moved = false;
@@ -213,10 +220,10 @@ bool FollowAction::StepUpToLeaderInDungeon(Unit* followTarget, bool& moved)
         return false;
 
     uint32 const nowMs = WorldTimer::getMSTime();
-    if (!followStallWatch.WalkDue(nowMs))
+    if (!followStallWatch.WalkDue(nowMs) || nowMs - dungeonStepCheckedMs < ai::kDungeonFollowStepRecheckMs)
         return false;
+    dungeonStepCheckedMs = nowMs;
 
-    auto const refused = [&]() { followStallWatch.Walked(nowMs, false); return false; };
     float const dx = followTarget->GetPositionX() - bot->GetPositionX();
     float const dy = followTarget->GetPositionY() - bot->GetPositionY();
     float const dz = followTarget->GetPositionZ() - bot->GetPositionZ();
@@ -230,28 +237,30 @@ bool FollowAction::StepUpToLeaderInDungeon(Unit* followTarget, bool& moved)
     bool const seesLeader = map->isInLineOfSight(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ() + h,
         followTarget->GetPositionX(), followTarget->GetPositionY(), followTarget->GetPositionZ() + h);
     if (!ai::DungeonFollowStepAllowed(horizontal, dz, seesLeader))
-        return refused();
+        return false;
 
     float groundZ = map->GetHeight(step.x, step.y, followTarget->GetPositionZ() + 0.5f);
     if (!MaNGOS::IsValidMapCoord(step.x, step.y, groundZ) ||
         !ai::DungeonFollowStepGroundNearLeader(groundZ, followTarget->GetPositionZ()))
-        return refused();
+        return false;
 
     // Floor must run along the whole straight segment: sample ground every
     // ~1.5 yd and require each sample near the line from the bot's feet to
     // the step target. A stair hugs the line; a pit or the void between
     // balconies drops off it, and the step is refused.
     float const botZ = bot->GetPositionZ();
-    int const samples = (int)std::ceil(horizontal / ai::kDungeonFollowStepSampleYd);
+    float const sdx = step.x - bot->GetPositionX();
+    float const sdy = step.y - bot->GetPositionY();
+    int const samples = (int)std::ceil(std::sqrt(sdx * sdx + sdy * sdy) / ai::kDungeonFollowStepSampleYd);
     for (int i = 1; i < samples; ++i)
     {
         float const t = (float)i / (float)samples;
-        float const sx = bot->GetPositionX() + dx * t;
-        float const sy = bot->GetPositionY() + dy * t;
+        float const sx = bot->GetPositionX() + sdx * t;
+        float const sy = bot->GetPositionY() + sdy * t;
         float const sampleZ = map->GetHeight(sx, sy, ai::DungeonFollowStepLineZ(botZ, groundZ, t) + 0.5f);
         if (!MaNGOS::IsValidMapCoord(sx, sy, sampleZ) ||
             !ai::DungeonFollowStepSampleOk(true, sampleZ, ai::DungeonFollowStepLineZ(botZ, groundZ, t)))
-            return refused();
+            return false;
     }
 
     float const startDist = bot->GetDistance(followTarget);

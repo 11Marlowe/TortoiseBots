@@ -26,6 +26,7 @@ namespace ai
         // Stair span the mesh does not link (OpenFollowStepPolicy.h dungeon step).
         bool StepUpToLeaderInDungeon(Unit* followTarget, bool& moved);
         DungeonFollowStallWatch followStallWatch;
+        uint32 dungeonStepCheckedMs = 0;
         // Open-world rescue of a core follow that stands still on a navmesh
         // gap (OpenFollowStepPolicy.h): short straight steps toward a seen
         // leader on the same floor. The dungeon rescue above owns instances.

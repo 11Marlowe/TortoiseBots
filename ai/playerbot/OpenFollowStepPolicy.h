@@ -167,6 +167,10 @@ namespace ai
         return std::fabs(stepGroundZ - leaderZ) <= kDungeonFollowStepGroundSlackYd;
     }
 
+    // A refused step is checked again only this often, so its sight and
+    // height queries do not run every tick while the bot stands.
+    constexpr unsigned kDungeonFollowStepRecheckMs = 2000;
+
     // Samples along a straight floor segment, every this far: a missing
     // sample is a hole the bot must not cross.
     constexpr float kDungeonFollowStepSampleYd = 1.5f;
