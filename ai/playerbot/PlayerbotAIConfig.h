@@ -391,6 +391,10 @@ public:
     // Companions are hired at a <Mercenary Hire> recruiter. When set, the fast
     // `.bot hire` command also works anywhere; fees are the same either way.
     bool hireAnywhere = false;
+    // Hires stay out of battlegrounds when unset: queueing warns the master,
+    // entry dismisses them, and hiring is refused while queued or inside.
+    // Set for today's behaviour (hires may go to battlegrounds).
+    bool hireAllowPvP = false;
     // Issue #1125: the experimental 7.3 shaman tank build. 0 withholds it from
     // the recruiter spec menu, `.bot hire`, raid hire and the random pool roll.
     bool shamanTankEnabled = true;

@@ -119,6 +119,8 @@ private:
         // transition (regroupOnReturn set) until it is back, but not longer
         // than this.
         time_t regroupDeadline = 0;
+        // Battleground queue entry was warned once for the current queue stay.
+        bool bgQueueWarned = false;
     };
 
     // A dismissed hire whose character is waiting for its asynchronous
@@ -133,6 +135,23 @@ private:
         // request, so a stuck session is not spammed and is abandoned instead.
         bool stopRequested = false;
     };
+
+    enum class DismissalReason { MasterLeft, Disbanded, Removed, EnteredBattleground };
+    struct PendingDismissal
+    {
+        ObjectGuid botGuid;
+        ObjectGuid masterGuid;
+        DismissalReason reason;
+    };
+    // Group hooks run inside core group iteration; never log out there.
+    void QueueDismissal(HiredRecord const& record, DismissalReason reason);
+    void DrainDismissals();
+    // Battleground boundary: warned queue-entry masters and dismissed
+    // entered masters, once per queue stay / entry.
+    void SweepBattlegroundBoundary();
+    void WarnMasterOnQueueEntry(Player* master);
+    // Native leave-queue path for a queued hire (action=0 port packet).
+    void LeaveBattlegroundQueue(Player* bot);
 
     void Dismiss(HiredRecord const& record, char const* reason, bool removeFromGroup = true);
     bool MasterOnline(HiredRecord const& record) const;
@@ -155,10 +174,12 @@ private:
     std::unordered_map<uint32_t, HiredRecord> m_hired;
     std::unordered_set<uint32_t> m_dismissing;
     std::vector<PendingDeletion> m_pendingDeletions;
+    std::vector<PendingDismissal> m_pendingDismissals;
     bool m_ledgerRecovered = false;
     time_t m_recoveryRetryAt = 0;
     uint32_t m_updateElapsedMs = 0;
     uint32_t m_restockElapsedMs = 0;
+    uint32_t m_bgElapsedMs = 0;
 };
 
 } // namespace TortoiseBots

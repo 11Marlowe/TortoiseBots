@@ -6,9 +6,9 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "runtime/BotManager.h"
+#include "runtime/HireLifecycle.h"
+#include "runtime/policy/hire/HirePvpPolicy.h"
 #include "playerbot/RandomBotFacade.h"
-
-using namespace ai;
 
 namespace
 {
@@ -142,9 +142,13 @@ bool BGStatusAction::Execute(Event& event)
         return false;
     }
 
+    // Hires are PvE-only: never answer the invite. The sweep dequeues the
+    // hire and the master dismissal owns the hire itself.
+    if (TortoiseBots::ShouldRefuseBattlegroundInvite(sPlayerbotAIConfig.hireAllowPvP,
+        TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid())))
+        return false;
     ai->Unmount();
     ai->GetAiObjectContext()->GetValue<uint32>("bg type")->Set(queueType);
-
     WorldPacket port(CMSG_BATTLEFIELD_PORT, 8);
     port << mapId << uint8(1);
     bot->GetSession()->HandleBattleFieldPortOpcode(port);
