@@ -130,6 +130,7 @@ namespace ai
         // In magma by the core's own rule (MagmaHazardPolicy.h); the overload
         // takes a terrain the caller already resolved (one lookup per route).
         bool isInMagma() const { return isInMagma(getTerrain()); }
+        bool isInMagma(const TerrainInfo* terrain) const;
         bool isInSlime() const { return isInSlime(getTerrain()); }
         bool isInSlime(const TerrainInfo* terrain) const;
         bool setAtWaterSurface();
