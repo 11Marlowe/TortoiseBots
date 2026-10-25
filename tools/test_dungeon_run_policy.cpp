@@ -16804,10 +16804,10 @@ static void TestSkippedBossNamedInDoneNoteAliveElsewhere()
     Facts g = Party(60);
     CHECK(Tick(r, g).empty());
     CHECK(r.state == State::Done);
-    CHECK(r.note == "plan done (boss not cleared: boss 3976 (step 1))");
+    CHECK(r.note == "plan done (boss skipped, not seen killed: boss 3976 (step 1))");
     Run w = r;
     w.wipes = 1;
-    CHECK(DoneNote(w) == "plan done (1 wipe; boss not cleared: boss 3976 (step 1))");
+    CHECK(DoneNote(w) == "plan done (1 wipe; boss skipped, not seen killed: boss 3976 (step 1))");
 }
 
 static void TestSkippedBossNamedInDoneNotePassedBySpot()
@@ -16831,7 +16831,7 @@ static void TestSkippedBossNamedInDoneNotePassedBySpot()
     Facts g = Party(60);
     CHECK(Tick(r, g).empty());
     CHECK(r.state == State::Done);
-    CHECK(r.note == "plan done (boss not cleared: boss 3976 (step 1))");
+    CHECK(r.note == "plan done (boss skipped, not seen killed: boss 3976 (step 1))");
 }
 
 static void TestDoneNoteUnchangedWithNoSkippedBoss()
