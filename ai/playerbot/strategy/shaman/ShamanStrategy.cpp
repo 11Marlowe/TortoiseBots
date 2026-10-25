@@ -53,7 +53,7 @@ void ShamanStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 
     triggers.push_back(new TriggerNode(
         "earth shock interrupt",
-        NextAction::array(0, new NextAction("earth shock", ACTION_INTERRUPT + 2), NULL)));
+        NextAction::array(0, new NextAction("earth shock on interrupt target", ACTION_INTERRUPT + 2), NULL)));
 }
 
 void ShamanStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -69,7 +69,7 @@ void ShamanStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("healing wave", ACTION_MEDIUM_HEAL), NULL)));
     triggers.push_back(new TriggerNode(
         "totemic recall",
-        NextAction::array(0, new NextAction("totemic recall", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("totemic recall", ACTION_HIGH + 1), NULL)));
 }
 
 void ShamanStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)

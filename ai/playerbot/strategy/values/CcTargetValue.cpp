@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "CcTargetValue.h"
+#include "CurrentCcTargetValue.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/Action.h"
@@ -291,7 +292,7 @@ Unit* CcTargetValue::Calculate()
         if (!ai->IsSafe(add))
             continue;
 
-        if (ai->HasMyAura(qualifier, add))
+        if (ai->HasMyAura(CcAuraName(qualifier), add))
             return NULL;
 
         if (qualifier == "polymorph")

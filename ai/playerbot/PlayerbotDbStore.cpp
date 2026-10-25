@@ -59,7 +59,9 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
         if (stored.combat)
         {
             ai->ClearStrategies(BotState::BOT_STATE_COMBAT);
-            ai->ChangeStrategy("+chat", BotState::BOT_STATE_COMBAT);
+            // Keep raid entry/exit detection when an older snapshot omits it.
+            // Replay follows, so an explicit saved -dungeon still wins.
+            ai->ChangeStrategy("+chat,+dungeon", BotState::BOT_STATE_COMBAT);
         }
         if (stored.nonCombat)
         {
@@ -68,7 +70,7 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
             // them (#222), +quest survives snapshots predating it (#277). Replay
             // below then re-applies the stored snapshot verbatim, so a stored
             // "-quest" (explicit opt-out) still wins over this default.
-            ai->ChangeStrategy("+chat,+loot,+delayed roll,+quest", BotState::BOT_STATE_NON_COMBAT);
+            ai->ChangeStrategy("+chat,+loot,+delayed roll,+quest,+dungeon", BotState::BOT_STATE_NON_COMBAT);
         }
 
         std::list<std::string> values;

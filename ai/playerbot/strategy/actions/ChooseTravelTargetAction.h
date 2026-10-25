@@ -5,7 +5,7 @@
 #include "MovementActions.h"
 #include "GenericActions.h"
 #include "playerbot/TravelMgr.h"
-#include "playerbot/TravelPickSlicePolicy.h"
+#include "playerbot/policy/travel/TravelPickSlicePolicy.h"
 
 #include <chrono>
 #include <map>

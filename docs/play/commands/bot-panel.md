@@ -231,12 +231,13 @@ Configures and manages shaman totem loadouts and casting policies.
 <details>
 <summary>Totem parameters and modes</summary>
 
-- **Slot Pinning:** Assign a specific totem to an element slot (`earth`, `fire`, `water`, `air`). Passing `auto` restores automatic selection (subgroup-aware for earth, water, and air; falls back to spec-row behavior for fire). Passing `none` stores an empty order identical to unset, so the slot falls back to the automatic pick (auto behavior).
+- **Slot Pinning:** Assign a specific totem to an element slot (`earth`, `fire`, `water`, `air`). Passing `auto` restores automatic selection (subgroup-aware for earth, water, and air; falls back to spec-row behavior for fire). Passing `none` stores an empty order identical to unset, so the slot falls back to the automatic pick (auto behavior). An order chooses *which* totem the slot places; *when* is still the drop mode, so use `drop` to place an ordered set immediately.
 - **Casting Modes:**
-  - `auto`: Bot drops totems as needed based on combat conditions (default).
-  - `prepull` (or `pre-pull`): Drops totems out of combat when combat is imminent (ready check / rebuff window) and refreshes them in combat.
+  - `auto`: Bot drops totems in combat and in the pre-pull window (ready check / rebuff) only — never otherwise out of combat, so a following bot leaves no totems in town (default).
+  - `prepull` (or `pre-pull`): The same rule as `auto`, kept as an explicit choice: drops totems out of combat when combat is imminent and refreshes them in combat.
   - `manual`: Suppresses automatic drops; totems are dropped only via `.bot totem drop` or explicit strategies.
 - **Immediate Drop:** `.bot totem <scope> drop` queues the configured totems now, in or out of combat.
+- **Recall and Modes:** *Totemic Recall* refunds a standing set once the bot and its group are out of combat. Because the automatic drops are quiet out of combat (they only fire in combat or the pre-pull window), the recalled set stays recalled until the next fight — the refund waits only while the pre-pull window is open or *Mana Tide Totem* is down.
 - **Status Query:** `.bot totem <bot|party|raid> status` reports current loadout and mode via `TBM:TOTEM` records followed by a trailing `TBM:ACTION_ACK|totem status|<scope>|<n>|-`.
 
 </details>

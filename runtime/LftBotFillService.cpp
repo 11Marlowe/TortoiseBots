@@ -1,7 +1,7 @@
 #include "LftBotFillService.h"
 #include "BotActivityLease.h"
-#include "LftCompPolicy.h"
-#include "LftRoleKitPolicy.h"
+#include "runtime/policy/hire/LftCompPolicy.h"
+#include "runtime/policy/hire/LftRoleKitPolicy.h"
 
 #include "BotManager.h"
 #include "PlayerbotAIStorage.h"
@@ -184,7 +184,12 @@ uint8 LftBotFillService::GetBotRoleMask(Player const* bot) const
 {
     if (!bot) return 0;
     BotRoles r = AiFactory::GetPlayerRoles(bot);
-    return static_cast<uint8>(r);
+    // A shaman whose tank identity comes from its levelling build before the
+    // key talents cannot fill the tank slot (RoleMismatchReason) but is still
+    // a damage body; without the bit the queue would have no role for it at
+    // all (issue #1125).
+    return TortoiseBots::LftRoleMaskForLatentShamanTank(bot->GetClass() == CLASS_SHAMAN,
+        static_cast<uint8>(r), AiFactory::HasShamanTankTalents(bot));
 }
 
 std::string LftBotFillService::RoleMismatchReason(Player* bot, uint8 needRole) const
@@ -207,7 +212,7 @@ std::string LftBotFillService::RoleMismatchReason(Player* bot, uint8 needRole) c
     if (needRole == LFT_ROLE_TANK)
     {
         uint8 cls = bot->GetClass();
-        if (cls == CLASS_WARRIOR || cls == CLASS_PALADIN)
+        if (cls == CLASS_WARRIOR || cls == CLASS_PALADIN || cls == CLASS_SHAMAN)
         {
             Item const* offhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
             ItemPrototype const* proto = offhand ? offhand->GetProto() : nullptr;
@@ -221,6 +226,14 @@ std::string LftBotFillService::RoleMismatchReason(Player* bot, uint8 needRole) c
         }
         if (cls == CLASS_DRUID && !bot->HasSpell(5487) && !bot->HasSpell(9634))
             return "druid tank without bear form";
+        // A shaman tanks the slot when it has a key tank talent or already
+        // plays the tank kit (a 7.3 build below the first key talent at 25);
+        // a DPS shaman has neither and stays out ("borrow" aside).
+        if (cls == CLASS_SHAMAN)
+        {
+            if (!AiFactory::HasShamanTankTalents(bot) && !(GetCombatKitRoleMask(bot) & kLftRoleTank))
+                return "shaman tank without tank talents";
+        }
     }
     if (needRole == LFT_ROLE_HEALER)
     {
@@ -368,6 +381,7 @@ uint8 LftBotFillService::GetCombatKitRoleMask(Player const* bot) const
     // produce a role bit).
     bool kitTank = ai->HasStrategy("protection", BotState::BOT_STATE_COMBAT) ||
         ai->HasStrategy("tank feral", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT) ||
         ai->HasStrategy("bear", BotState::BOT_STATE_COMBAT) ||
         ai->HasStrategy("tank", BotState::BOT_STATE_COMBAT);
     bool kitHealer = ai->HasStrategy("holy", BotState::BOT_STATE_COMBAT) ||
@@ -400,7 +414,12 @@ void LftBotFillService::ClearForcedRole(uint32 guidLow)
         {
             ai->SetForcedRole(0);
             sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
+            // The same rebuild `.bot role` runs: "auto talents" only applies
+            // the premade, and a bot that already has it changes nothing
+            // there, so on its own it left the cleared role's kit installed
+            // (issue #1125). ResetStrategies reads the role and rebuilds.
             ai->DoSpecificAction("auto talents");
+            ai->ResetStrategies();
         }
 }
 
@@ -845,7 +864,8 @@ void LftBotFillService::Update(uint32_t diff)
                     if (!mismatch.empty())
                     {
                         if (needRole == LFT_ROLE_TANK &&
-                            (cand->GetClass() == CLASS_WARRIOR || cand->GetClass() == CLASS_PALADIN) &&
+                            (cand->GetClass() == CLASS_WARRIOR || cand->GetClass() == CLASS_PALADIN ||
+                                cand->GetClass() == CLASS_SHAMAN) &&
                             mismatch == "tank-spec without shield equipped" &&
                             EquipBestShieldFromBags(cand) &&
                             RoleMismatchReason(cand, needRole).empty())
@@ -897,10 +917,14 @@ void LftBotFillService::Update(uint32_t diff)
                     {
                         // Same rebuild as `.bot role`: a stored strategy
                         // snapshot would replay the old spec's kit (e.g.
-                        // "shadow pve") under the borrowed role.
+                        // "shadow pve") under the borrowed role, and the
+                        // role-dependent build (shaman tank) is rebuilt from
+                        // the role here rather than whenever an unrelated
+                        // reset happens to run (issue #1125).
                         ai->SetForcedRole(needRole);
                         sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
                         ai->DoSpecificAction("auto talents");
+                        ai->ResetStrategies();
                     }
 
                 bool ok = sLFTMgr.QueuePlayer(chosen, instVec, needRole);
@@ -912,6 +936,7 @@ void LftBotFillService::Update(uint32_t diff)
                             ai->SetForcedRole(0);
                             sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
                             ai->DoSpecificAction("auto talents");
+                            ai->ResetStrategies();
                         }
                     BotActivityLeaseManager::Instance().Release(guidLow, BotActivity::LftQueued,
                         previousActivity == BotActivity::Grinding ? BotActivity::Grinding : BotActivity::Idle);

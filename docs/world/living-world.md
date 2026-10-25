@@ -69,6 +69,8 @@ Autonomous pool bots travel without routine teleporting. When a bot selects a di
 
 Flight paths are selected from known taxi nodes to the node nearest the destination. The hop must be level-appropriate (the destination area can be at most five levels above the bot), and the bot must have enough gold to cover the flight fare above its class trainer savings reserve. The bot walks to the flight master, boards the taxi, and pays standard fare. Cross-zone travel such as leaving starting islands occurs naturally by air or boat rather than artificial movement. Teleports remain as a last resort for stuck travel, ghost recovery, and level-appropriate scatter of newly seeded bots.
 
+A destination is only accepted when the walk there is survivable, not just when the destination itself fits: the route is checked at every waypoint and along the legs between them (every 64 yd, against the static town-guard index and the same area-level table the destination gates use), so a bot refuses a trip whose walk crosses a hostile-faction town or an area more than five levels above it. Boat, zeppelin, portal and taxi hops are exempt - the bot is a passenger, not on foot. The verdict is cached per bot and destination for five minutes.
+
 </details>
 
 <details>
@@ -200,6 +202,8 @@ Fresh pool bots at level 5 and above receive level-appropriate starter equipment
 - **Fury warriors below level 10:** Fury warriors can equip two-handed weapons until *Dual Wield* is trained, at which point one-handed weapons take priority if they out-score the two-hander by the upgrade threshold.
 - **Protection shields:** Tanking specs retain their highest-scoring shield in bags even while holding a two-handed weapon, swapping the shield into the off-hand immediately if a one-handed weapon is equipped.
 - **Armor classes:** Bots prioritize their native armor proficiencies, but will wear a lower armor class if an item fills an empty slot or beats the current item without sacrificing total armor and block.
+- **Duplicate copies:** Re-modelled copies of existing items — the same name at a far higher item id, with no loot, vendor or quest source of their own (such as the unobtainable second "Might of Menethil" next to the real Naxxramas mace) — never enter the gear pools; bots only receive the lowest-id original.
+- **Transmog clones:** Items created by the transmogrification system (clone prototypes with their own item id, and any id a clone shadows) are player-only: no pool that hands items to bots — gear, consumables, auction house, quest rewards or hire kits — ever offers them.
 - **Vendor weapon purchases:** Random pool bots with surplus gold above their trainer reserve will purchase single weapon upgrades from vendors. Profession tools are excluded from weapon evaluation.
 
 ### Bag management & cleanup order

@@ -5,7 +5,7 @@
 #include "NearestUnitsValue.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/AvoidAoePolicy.h"
-#include "playerbot/CreatureAuraKeepoutPolicy.h"
+#include "../../policy/loot/CreatureAuraKeepoutPolicy.h"
 
 #include <atomic>
 

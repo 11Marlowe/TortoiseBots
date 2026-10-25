@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/actions/SkinningLootPolicy.h"
+#include "../ai/playerbot/policy/loot/SkinningLootPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

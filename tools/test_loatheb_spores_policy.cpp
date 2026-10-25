@@ -1,4 +1,4 @@
-#include "../ai/playerbot/LoathebSporesPolicy.h"
+#include "../ai/playerbot/policy/raid/LoathebSporesPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

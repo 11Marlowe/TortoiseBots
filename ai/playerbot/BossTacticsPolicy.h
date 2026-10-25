@@ -25,7 +25,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "RearFlankPolicy.h"
+#include "policy/combat/RearFlankPolicy.h"
 
 namespace ai
 {

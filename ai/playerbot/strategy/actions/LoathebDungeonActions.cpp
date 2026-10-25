@@ -1,6 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "LoathebDungeonActions.h"
-#include "playerbot/LoathebSporesPolicy.h"
+#include "playerbot/policy/raid/LoathebSporesPolicy.h"
 #include "AttackAction.h"
 #include "ChooseTargetActions.h"
 #include "MovementActions.h"

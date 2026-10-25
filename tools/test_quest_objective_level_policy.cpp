@@ -1,4 +1,4 @@
-#include "../ai/playerbot/PullRegenPolicy.h"
+#include "../ai/playerbot/policy/pull/PullRegenPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

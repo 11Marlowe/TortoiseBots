@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <string>
 
-#include "ActionFailureBackoff.h"
+#include "../ai/playerbot/strategy/ActionFailureBackoff.h"
 
 static int checks = 0;
 #define CHECK(cond) do { ++checks; if (!(cond)) { std::printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); return 1; } } while (0)

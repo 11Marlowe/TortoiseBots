@@ -94,20 +94,20 @@ fi
 # Vetted player controls must stay mapped to fixed mature actions. Do not turn
 # the public shell into an unrestricted forwarding path while adding aliases.
 for control in guard free ready attack formation status; do
-    grep -q "cmd == \"$control\"" commands/BotCommands.cpp \
+    grep -q "{\"$control\", Handle" commands/BotCommands.cpp \
         || fail "public player control is missing: $control"
 done
-grep -q 'guard chat shortcut' commands/BotCommands.cpp \
+grep -q 'guard chat shortcut' commands/Party.cpp \
     || fail "guard is no longer mapped to its mature shortcut action"
-grep -q 'free chat shortcut' commands/BotCommands.cpp \
+grep -q 'free chat shortcut' commands/Party.cpp \
     || fail "free is no longer mapped to its mature shortcut action"
-grep -q '"ready check"' commands/BotCommands.cpp \
+grep -q '"ready check"' commands/Party.cpp \
     || fail "ready is no longer mapped to the mature ready-check action"
-grep -q '"attack my target"' commands/BotCommands.cpp \
+grep -q '"attack my target"' commands/Party.cpp \
     || fail "attack is no longer mapped to the mature selected-target action"
-grep -q 'DoSpecificAction("formation"' commands/BotCommands.cpp \
+grep -q 'DoSpecificAction("formation"' commands/Party.cpp \
     || fail "formation is no longer mapped to the mature formation action"
-grep -q 'formation == "shield"' commands/BotCommands.cpp \
+grep -q 'formation == "shield"' commands/Party.cpp \
     || fail "formation no longer uses the reviewed finite enum"
 
 # CC executor selection must come from the mature action graph, not a second

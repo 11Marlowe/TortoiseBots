@@ -1,6 +1,6 @@
 #pragma once
 #include "playerbot/PlayerbotAI.h"
-#include "playerbot/QuestLogPolicy.h"
+#include "playerbot/policy/quest/QuestLogPolicy.h"
 #include "playerbot/WandPolicy.h"
 #include "playerbot/ChatHelper.h"
 #include "playerbot/strategy/Trigger.h"
@@ -99,6 +99,20 @@ namespace ai
 		virtual bool IsActive() override;
 	};
 
+    // A mob is on a non-tank group member, the healer's attacker first:
+    // fires when the "attacker of non-tank target" value picks a mob. Only
+    // tank strategies arm a row for it; every class context registers it.
+    class PartyMemberAttackedTrigger : public Trigger
+    {
+    public:
+        PartyMemberAttackedTrigger(PlayerbotAI* ai) : Trigger(ai, "party member attacked") {}
+
+        virtual bool IsActive() override
+        {
+            return AI_VALUE(Unit*, "attacker of non-tank target") != NULL;
+        }
+    };
+
 	class HasAggroTrigger : public Trigger
     {
 	public:
@@ -146,12 +160,16 @@ namespace ai
         virtual bool IsActive() override;
     };
 
-	// TODO: check other targets
+	// The pick is any engaged hostile in the interrupt's range casting an
+	// interruptible spell, not only the current target; the matching actions
+	// (CastInterruptSpellAction family) read the same value. Overrides below
+	// pin a spell back to the current target while its action is shared with
+	// non-interrupt rows.
     class InterruptSpellTrigger : public SpellTrigger
 	{
     public:
         InterruptSpellTrigger(PlayerbotAI* ai, std::string spell) : SpellTrigger(ai, spell) {}
-        virtual std::string GetTargetName() override { return "current target"; }
+        virtual Value<Unit*>* GetTargetValue() override { return context->GetValue<Unit*>("interrupt target", spell); }
         virtual bool IsActive() override;
     };
 
@@ -557,8 +575,15 @@ namespace ai
     class GenericBoostTrigger : public Trigger
     {
     public:
-        GenericBoostTrigger(PlayerbotAI* ai) : Trigger(ai, "generic boost", 3) {}
+        // The spells the racials row offers, in its cast order: readiness is
+        // checked against exactly this pair.
+        GenericBoostTrigger(PlayerbotAI* ai, std::string firstSpell = "berserking",
+                            std::string secondSpell = "blood fury")
+            : Trigger(ai, "generic boost", 3), firstSpell(firstSpell), secondSpell(secondSpell) {}
         virtual bool IsActive() override;
+
+    protected:
+        std::string firstSpell, secondSpell;
     };
 
     class RandomTrigger : public Trigger
@@ -1453,8 +1478,10 @@ namespace ai
         {
             if (!AI_VALUE2(uint32, "spell id", "arcane torrent"))
                 return false;
-            Unit* target = AI_VALUE(Unit*, "current target");
-            return InterruptSpellTrigger::IsActive() && target && AI_VALUE2(float, "distance", "current target") <= 8.0f;
+            // The cast itself is an AoE silence and needs no target; the 8 yd
+            // radius is judged on the interrupt pick.
+            return InterruptSpellTrigger::IsActive() &&
+                AI_VALUE2(float, "distance", "interrupt target::arcane torrent") <= 8.0f;
         }
     };
 

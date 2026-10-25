@@ -116,23 +116,16 @@ void ProtectionWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
         "lose aggro",
         NextAction::array(0, new NextAction("taunt", ACTION_INTERRUPT + 1), NULL)));
 
-    triggers.push_back(new TriggerNode(
-        "taunt on snare target",
-        NextAction::array(0, new NextAction("taunt on snare target", ACTION_MOVE), NULL)));
-
-    // A mob already standing on the healer or a DPS (PLAN-SPELL-AUDIT F1:
-    // 31 of 53 priest deaths had one, 8 saw a Taunt): "lose aggro" reads only
-    // the tank's current target and "taunt on snare target" only a running
-    // mob. Same band as "lose aggro"; no step, no target change, at most one
-    // Taunt per mob per 10 s (AttackerOfNonTankValue). Three or more such
-    // mobs within 10 yd: Challenging Shout first.
-    triggers.push_back(new TriggerNode(
-        "party member attacked aoe",
-        NextAction::array(0, new NextAction("challenging shout", ACTION_INTERRUPT + 2), NULL)));
-
+    // A mob sitting on a non-tank member: "lose aggro" only sees the tank's
+    // current target and the snare row skips an arrived mob. A missed taunt
+    // costs the healer.
     triggers.push_back(new TriggerNode(
         "party member attacked",
         NextAction::array(0, new NextAction("taunt on attacker", ACTION_INTERRUPT + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "taunt on snare target",
+        NextAction::array(0, new NextAction("taunt on snare target", ACTION_MOVE), NULL)));
 
     triggers.push_back(new TriggerNode(
         "demoralizing shout",

@@ -4,7 +4,7 @@
 The record layer, the run lifecycle and the permission rules are tested as
 behaviour in tools/test_run_trace_records.cpp, and the writer (end marker,
 stalled disk, shutdown deadline) in tools/test_run_trace_writer.cpp. The glue
-in runtime/RunTrace.cpp, commands/BotCommands.cpp and the outcome sites in
+in runtime/RunTrace.cpp, commands/Commander.cpp and the outcome sites in
 Engine::DoNextAction need the game headers (Player, ObjectAccessor, Group),
 and there is no seam to drive RunTraceService without the core, so these
 checks pin how the glue calls the tested parts:
@@ -37,7 +37,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RUN_TRACE = ROOT / "runtime/RunTrace.cpp"
 ENGINE = ROOT / "ai/playerbot/strategy/Engine.cpp"
-COMMANDS = ROOT / "commands/BotCommands.cpp"
+COMMANDS = ROOT / "commands/Commander.cpp"
 VETO_EARLIER = "if (std::find(vetoedActions.begin(), vetoedActions.end(), action) != vetoedActions.end())"
 
 
@@ -200,7 +200,7 @@ class AiOffTest(unittest.TestCase):
     def test_start_is_refused_with_the_ai_off(self):
         start = function_body(RUN_TRACE.read_text(), "bool RunTraceService::Start(")
         self.assertIn("RunTrace::TraceOffReason(sPlayerbotAIConfig.enabled, sPlayerbotAIConfig.runTrace)", start)
-        handler = function_body(COMMANDS.read_text(), "static bool HandleTrace(")
+        handler = function_body(COMMANDS.read_text(), "bool HandleTrace(")
         self.assertIn("RunTrace::TraceOffReason(sPlayerbotAIConfig.enabled, sPlayerbotAIConfig.runTrace)", handler)
         self.assertNotIn("if (!sPlayerbotAIConfig.runTrace)", handler)
 
@@ -218,13 +218,13 @@ class CommandGlueTest(unittest.TestCase):
         self.assertIn("binding->leadGuid", binding)
 
     def test_party_start_uses_the_frame_rule(self):
-        body = function_body(self.src, "static bool HandleTrace(")
+        body = function_body(self.src, "bool HandleTrace(")
         party = body[body.index('else if (scope == "party")'):]
         self.assertIn("RunTrace::MayRecordBot(admin, CanControlBot(requester, record), commanded)", party)
         self.assertNotIn("!commanded && !CanControlBot(", body, "a GameMaster may trace any party")
 
     def test_start_and_status_use_the_policies(self):
-        body = function_body(self.src, "static bool HandleTrace(")
+        body = function_body(self.src, "bool HandleTrace(")
         self.assertIn("RunTrace::MayStartTrace(sPlayerbotAIConfig.runTraceGmOnly, admin)", body)
         self.assertIn("RunTrace::MaySeeRunDetail(admin,", body)
         self.assertIn("service.Status(detail)", body)
@@ -330,7 +330,7 @@ class SummaryFieldsGlueTest(unittest.TestCase):
         self.assertIn("RenderArgs{ false,", start)
 
     def test_command_takes_driver_and_passes_the_context(self):
-        body = function_body(self.cmd, "static bool HandleTrace(")
+        body = function_body(self.cmd, "bool HandleTrace(")
         self.assertIn("RunTrace::IsDriverToken(parts[i])", body)
         self.assertIn("RunTrace::DriverRefusal(value)", body)
         self.assertIn("params.driver = driver;", body)

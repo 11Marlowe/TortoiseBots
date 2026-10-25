@@ -4,6 +4,8 @@
 #include "PlayerbotAIStorage.h"
 #include "playerbot/PlayerbotAI.h"
 #include "GearSeedingGuard.h"
+#include "runtime/policy/pvp/WorldPvpSeekPolicy.h"
+#include "runtime/policy/pvp/WorldPvpFightPolicy.h"
 #include "HireLifecycle.h"
 #include "ClaimLifecycle.h"
 #include "AltBotService.h"
@@ -16,12 +18,13 @@
 #include "Log.h"
 #include "Database/DatabaseEnv.h"
 #include "playerbot/PlayerbotAIConfig.h"
+#include "playerbot/AiFactory.h"
 #include "playerbot/RandomBotFacade.h"
 #include "RandomBotAccountRegistry.h"
 #include "RandomBotPoolReset.h"
 #include "StartZoneBalance.h"
 #include "BotNameService.h"
-#include "BotAppearancePolicy.h"
+#include "runtime/policy/provision/BotAppearancePolicy.h"
 #include "AccountMgr.h"
 #include "SharedDefines.h"
 #include "Database/DBCStores.h"
@@ -644,21 +647,30 @@ RandomBotService::AutoCreateCharResult RandomBotService::TryCreateCharacterOnAcc
                 if (zone >= 0 && zone < int(kStartZoneCount))
                     ++m_startZoneCounts[zone];
             }
+            // Synchronous (direct) writes, like the creation seam itself
+            // (CharacterCreation::CreateCharacter commits the character with
+            // SaveToDB(false, true, false) before it returns): the bot's headless
+            // session starts reading `characters` and `character_homebind` right
+            // after this. Queued PExecute could land after that read, so the login
+            // found no homebind row, Player::_LoadHomeBind inserted one itself and
+            // the late REPLACE then hit the primary key ("[1062] Duplicate entry
+            // ... character_homebind", 25 pool goblins/high elves, live
+            // 2026-10-21 09:54-09:56).
             if (race == RACE_GOBLIN)
             {
-                CharacterDatabase.PExecute(
+                CharacterDatabase.DirectPExecute(
                     "UPDATE characters SET map = 1, zone = 14, position_x = -618.518, position_y = -4251.67, position_z = 38.718, orientation = 0 WHERE guid = '%u'",
                     outcome.guid.GetCounter());
-                CharacterDatabase.PExecute(
+                CharacterDatabase.DirectPExecute(
                     "REPLACE INTO character_homebind (guid, map, zone, position_x, position_y, position_z) VALUES ('%u', 1, 14, -618.518, -4251.67, 38.718)",
                     outcome.guid.GetCounter());
             }
             else if (race == RACE_HIGH_ELF)
             {
-                CharacterDatabase.PExecute(
+                CharacterDatabase.DirectPExecute(
                     "UPDATE characters SET map = 0, zone = 12, position_x = -8949.95, position_y = -132.493, position_z = 83.5312, orientation = 0 WHERE guid = '%u'",
                     outcome.guid.GetCounter());
-                CharacterDatabase.PExecute(
+                CharacterDatabase.DirectPExecute(
                     "REPLACE INTO character_homebind (guid, map, zone, position_x, position_y, position_z) VALUES ('%u', 0, 12, -8949.95, -132.493, 83.5312)",
                     outcome.guid.GetCounter());
             }
@@ -1693,6 +1705,42 @@ void RandomBotService::Update(uint32_t diff)
         {
             sRandomBotFacade.ChangeStrategy(player);
             m_strategyAgeMs[i] = 0;
+        }
+
+        // Seek-role upkeep: an ineligible holder (grouped with a real player,
+        // owned, hired) loses the role on the next pass, not at the next
+        // re-roll; eligible bots re-roll about every WorldPvpSeekRerollMinutes
+        // with jitter, never while in combat.
+        if (PlayerbotAI* seekAi = PlayerbotAIStorage::Instance().GetAI(player))
+        {
+            uint32 const nowMs = WorldTimer::getMSTime();
+            if (seekAi->worldPvpCampGuidLow_ && seekAi->worldPvpCampStartMs_ &&
+                WorldPvpCampExpired(seekAi->worldPvpCampStartMs_, nowMs))
+            {
+                seekAi->worldPvpIgnoreGuidLow_ = seekAi->worldPvpCampGuidLow_;
+                seekAi->worldPvpIgnoreStartMs_ = nowMs;
+                seekAi->worldPvpCampGuidLow_ = 0;
+                seekAi->worldPvpCampStartMs_ = 0;
+            }
+            bool const holdsSeek = seekAi->HasStrategy("world pvp", BotState::BOT_STATE_NON_COMBAT) ||
+                seekAi->HasStrategy("world pvp", BotState::BOT_STATE_COMBAT);
+            if (holdsSeek && !AiFactory::IsWorldPvpSeekEligible(player, seekAi))
+            {
+                AiFactory::RollWorldPvpSeek(player, seekAi);
+            }
+            else
+            {
+                uint32 const baseMin = sPlayerbotAIConfig.worldPvpSeekRerollMinutes;
+                if (baseMin && !seekAi->worldPvpSeekNextMs_)
+                    seekAi->worldPvpSeekNextMs_ = seekAi->worldPvpSeekRollMs_ +
+                        baseMin * 60 * 1000 + urand(0, 5 * 60 * 1000);
+                if (baseMin && seekAi->worldPvpSeekNextMs_ && nowMs >= seekAi->worldPvpSeekNextMs_ &&
+                    WorldPvpSeekRerollDue(seekAi->worldPvpSeekRollMs_, nowMs, baseMin, player->IsInCombat()))
+                {
+                    AiFactory::RollWorldPvpSeek(player, seekAi);
+                    seekAi->worldPvpSeekNextMs_ = nowMs + baseMin * 60 * 1000 + urand(0, 5 * 60 * 1000);
+                }
+            }
         }
 
         m_randomizeAgeMs[i] += elapsed;

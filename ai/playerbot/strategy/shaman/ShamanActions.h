@@ -3,7 +3,8 @@
 #include "playerbot/GroupMembers.h"
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/actions/ChangeStrategyAction.h"
-#include "ShamanFireGatePolicy.h"
+#include "playerbot/policy/class/ShamanFireGatePolicy.h"
+#include "playerbot/policy/class/ShamanTankPolicy.h"
 
 namespace ai
 {
@@ -31,6 +32,12 @@ namespace ai
     public:
         CastLesserHealingWaveAction(PlayerbotAI* ai) : CastSelfDownrankHealingAction(ai, "lesser healing wave", 25, HealManaEfficiency::LOW) {}
         ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+        bool isUseful() override
+        {
+            if (bot->IsInCombat() && (ai->IsTank(bot) || ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT)))
+                return false;
+            return CastSelfDownrankHealingAction::isUseful();
+        }
     };
 
     class CastLesserHealingWaveOnPartyAction : public HealPartyMemberAction
@@ -44,6 +51,12 @@ namespace ai
     public:
         CastHealingWaveAction(PlayerbotAI* ai) : CastSelfDownrankHealingAction(ai, "healing wave", 50, HealManaEfficiency::MEDIUM) {}
         ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+        bool isUseful() override
+        {
+            if (bot->IsInCombat() && (ai->IsTank(bot) || ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT)))
+                return false;
+            return CastSelfDownrankHealingAction::isUseful();
+        }
     };
 
     class CastHealingWaveOnPartyAction : public HealPartyMemberAction
@@ -134,8 +147,25 @@ namespace ai
     public:
         CastTotemAction(PlayerbotAI* ai, std::string spell) : CastBuffSpellAction(ai, spell) {}
 
+        bool Execute(Event& event) override
+        {
+            bool ok = CastBuffSpellAction::Execute(event);
+            if (ok)
+            {
+                time_t now = time(0);
+                SET_AI_VALUE2(time_t, "manual time", "last totem cast time", now);
+                if (IsAirTotem(name))
+                    SET_AI_VALUE2(time_t, "manual time", "last air totem cast time", now);
+            }
+            return ok;
+        }
+
         bool isUseful() override
         {
+            time_t lastCast = AI_VALUE2(time_t, "manual time", "last totem cast time");
+            if (lastCast && time(0) - lastCast < 4)
+                return false;
+
             if (sServerFacade.isMoving(bot))
             {
                 // No totems on the run: they would be left behind and burn
@@ -148,9 +178,21 @@ namespace ai
             if (!CastBuffSpellAction::isUseful())
                 return false;
 
+            if (AI_VALUE2(bool, "has totem", name))
+                return false;
+
+            if (IsAirTotem(name))
+            {
+                time_t lastAir = AI_VALUE2(time_t, "manual time", "last air totem cast time");
+                if (lastAir && time(0) - lastAir < 4)
+                    return false;
+                if (HasAnyAirTotem())
+                    return false;
+            }
+
             Group* group = bot->GetGroup();
             if (!group)
-                return !AI_VALUE2(bool, "has totem", name);
+                return true;
 
             for (Player* member : LiveGroupMembers(group))
             {
@@ -190,10 +232,37 @@ namespace ai
             if (!bot->GetGroup())
                 return CastBuffSpellAction::getPrerequisites();
 
+            // A tank shaman in combat must never leave its target to place a totem;
+            // drop totems where it stands without walking away from the mob.
+            if (bot->IsInCombat() && (ai->IsTank(bot) || ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT)))
+                return CastBuffSpellAction::getPrerequisites();
+
             const std::string qualifiersStr = Qualified::MultiQualify({ GetSpellName(), "party member for totem" }, "::");
             return NextAction::merge(
                 NextAction::array(0, new NextAction("reach party member for totem::" + qualifiersStr), nullptr),
                 CastBuffSpellAction::getPrerequisites());
+        }
+
+        static bool IsAirTotem(std::string const& totemName)
+        {
+            return totemName == "windfury totem" ||
+                   totemName == "tranquil air totem" ||
+                   totemName == "grace of air totem" ||
+                   totemName == "grounding totem" ||
+                   totemName == "nature resistance totem" ||
+                   totemName == "windwall totem" ||
+                   totemName == "sentry totem";
+        }
+
+        bool HasAnyAirTotem()
+        {
+            return AI_VALUE2(bool, "has totem", "windfury totem") ||
+                   AI_VALUE2(bool, "has totem", "tranquil air totem") ||
+                   AI_VALUE2(bool, "has totem", "grace of air totem") ||
+                   AI_VALUE2(bool, "has totem", "grounding totem") ||
+                   AI_VALUE2(bool, "has totem", "nature resistance totem") ||
+                   AI_VALUE2(bool, "has totem", "windwall totem") ||
+                   AI_VALUE2(bool, "has totem", "sentry totem");
         }
 
         // True when the member carries any rank's aura of this totem
@@ -417,6 +486,45 @@ namespace ai
 		CastPurgeAction(PlayerbotAI* ai) : CastSpellAction(ai, "purge") {}
 	};
 
+    // Tank taunt (Tortoise 51365, 5 yd, 10 s CD, off-GCD): the lose-aggro
+    // row queues it at warrior protection priority (INTERRUPT+1) when a mob
+    // peels onto a non-tank member; the target check mirrors the warrior
+    // CastTauntAction guard (victim exists and is not us).
+    MELEE_ACTION_U(CastEarthshakerSlamAction, "earthshaker slam", GetTarget() && GetTarget()->GetVictim() && GetTarget()->GetVictim() != bot);
+
+    // Taunt the mob picked by "attacker of non-tank target". CastMeleeSpellAction's
+    // own reach prerequisite targets that mob (a taunt past 5 yards fails, so
+    // the shaman walks to the healer's attacker first); no strategy node may
+    // override it with an unqualified "reach melee", which would target the
+    // current target instead.
+    class CastEarthshakerSlamOnAttackerAction : public CastEarthshakerSlamAction
+    {
+    public:
+        CastEarthshakerSlamOnAttackerAction(PlayerbotAI* ai) : CastEarthshakerSlamAction(ai) {}
+
+    protected:
+        virtual std::string GetTargetName() override { return "attacker of non-tank target"; }
+        virtual std::string getName() override { return "earthshaker slam on attacker"; }
+    };
+
+    // Tauren tank racial (Tortoise 45500, quest 40348, 90 s CD): damage plus
+    // slow, NOT a taunt. Fires in melee when the strikes are cooling down
+    // (the TotemicSlamTrigger ready-gate); off-GCD damage on every mob in
+    // reach via the melee-aoe spell base, like war stomp.
+    class CastTotemicSlamAction : public CastMeleeAoeSpellAction
+    {
+    public:
+        CastTotemicSlamAction(PlayerbotAI* ai) : CastMeleeAoeSpellAction(ai, "totemic slam", 5.0f)
+        {
+            range = radius;
+        }
+
+        bool isUseful() override
+        {
+            return GetSpellID() && sServerFacade.IsSpellReady(bot, GetSpellID()) && CastMeleeAoeSpellAction::isUseful();
+        }
+    };
+
     class CastStormstrikeAction : public CastMeleeSpellAction
     {
 	public:
@@ -500,6 +608,14 @@ namespace ai
         CastEarthShockAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "earth shock") {}
     };
 
+    // Interrupt rows only: "earth shock" itself stays on the current target
+    // (rotation and lose-aggro rows cast it there).
+    class CastEarthShockInterruptAction : public CastInterruptSpellAction
+    {
+    public:
+        CastEarthShockInterruptAction(PlayerbotAI* ai) : CastInterruptSpellAction(ai, "earth shock") {}
+    };
+
     ENEMY_HEALER_ACTION(CastEarthShockOnEnemyHealerAction, "earth shock");
 
     class CastFrostShockAction : public CastSnareSpellAction
@@ -515,12 +631,30 @@ namespace ai
         // Hits every mob in the area, loose adds included: the party threat back-off
         // checks it against the "aoe" threat (mod-playerbots types it Aoe too).
         virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+
+        virtual bool isUseful() override
+        {
+            if ((ai->IsTank(bot) || ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT)) &&
+                !TankHardCastAllowed(AI_VALUE(uint8, "attackers count")))
+                return false;
+
+            return CastSpellAction::isUseful();
+        }
     };
 
     class CastLightningBoltAction : public CastSpellAction
     {
     public:
         CastLightningBoltAction(PlayerbotAI* ai) : CastSpellAction(ai, "lightning bolt") {}
+
+        virtual bool isUseful() override
+        {
+            if ((ai->IsTank(bot) || ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT)) &&
+                !TankHardCastAllowed(AI_VALUE(uint8, "attackers count")))
+                return false;
+
+            return CastSpellAction::isUseful();
+        }
     };
 
     class CastCurePoisonAction : public CastCureSpellAction
@@ -621,6 +755,14 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure enhancement pve", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cure enhancement pve", strategiesRequired);
 
+            strategiesRequired = { "tank shaman/tank", "cc" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc tank shaman pve", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc tank shaman pve", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "cure" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure tank shaman pve", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cure tank shaman pve", strategiesRequired);
+
             strategiesRequired = { "enhancement", "totems" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "totems enhancement pve", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "totems enhancement pve", strategiesRequired);
@@ -632,6 +774,28 @@ namespace ai
             strategiesRequired = { "enhancement", "boost" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "boost enhancement pve", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "boost enhancement pve", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "tank shaman pve", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "tank shaman pve", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_DEAD, "tank shaman pve", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_REACTION, "tank shaman pve", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "aoe" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "aoe tank shaman pve", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "aoe tank shaman pve", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "totems" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "totems tank shaman pve", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "totems tank shaman pve", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "buff" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "buff tank shaman pve", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "buff tank shaman pve", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "boost" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "boost tank shaman pve", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "boost tank shaman pve", strategiesRequired);
 
             strategiesRequired = { "restoration" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "restoration pve", strategiesRequired);
@@ -726,6 +890,14 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure enhancement pvp", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cure enhancement pvp", strategiesRequired);
 
+            strategiesRequired = { "tank shaman/tank", "cc" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc tank shaman pvp", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc tank shaman pvp", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "cure" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure tank shaman pvp", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cure tank shaman pvp", strategiesRequired);
+
             strategiesRequired = { "enhancement", "totems" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "totems enhancement pvp", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "totems enhancement pvp", strategiesRequired);
@@ -737,6 +909,28 @@ namespace ai
             strategiesRequired = { "enhancement", "boost" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "boost enhancement pvp", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "boost enhancement pvp", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "tank shaman pvp", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "tank shaman pvp", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_DEAD, "tank shaman pvp", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_REACTION, "tank shaman pvp", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "aoe" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "aoe tank shaman pvp", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "aoe tank shaman pvp", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "totems" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "totems tank shaman pvp", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "totems tank shaman pvp", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "buff" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "buff tank shaman pvp", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "buff tank shaman pvp", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "boost" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "boost tank shaman pvp", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "boost tank shaman pvp", strategiesRequired);
 
             strategiesRequired = { "restoration" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "restoration pvp", strategiesRequired);
@@ -831,6 +1025,14 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure enhancement raid", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cure enhancement raid", strategiesRequired);
 
+            strategiesRequired = { "tank shaman/tank", "cc" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc tank shaman raid", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc tank shaman raid", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "cure" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure tank shaman raid", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cure tank shaman raid", strategiesRequired);
+
             strategiesRequired = { "enhancement", "totems" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "totems enhancement raid", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "totems enhancement raid", strategiesRequired);
@@ -842,6 +1044,28 @@ namespace ai
             strategiesRequired = { "enhancement", "boost" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "boost enhancement raid", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "boost enhancement raid", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "tank shaman raid", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "tank shaman raid", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_DEAD, "tank shaman raid", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_REACTION, "tank shaman raid", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "aoe" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "aoe tank shaman raid", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "aoe tank shaman raid", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "totems" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "totems tank shaman raid", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "totems tank shaman raid", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "buff" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "buff tank shaman raid", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "buff tank shaman raid", strategiesRequired);
+
+            strategiesRequired = { "tank shaman/tank", "boost" };
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "boost tank shaman raid", strategiesRequired);
+            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "boost tank shaman raid", strategiesRequired);
 
             strategiesRequired = { "restoration" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "restoration raid", strategiesRequired);

@@ -84,6 +84,7 @@
     botsView: 'live',
     botsState: 'all',
     botsClass: 'all',
+    botsSpec: 'all',
     botsIssueOnly: false,
     botsPvpOnly: false,
     botsSort: { key: null, dir: 1 }, // null = online first, then by name
@@ -104,12 +105,13 @@
     profile: null,
     profileTab: 'overview',
     profileRecent: null,
+    profilePvp: null,
     armorySpellFilter: '',
     activity: null,
     lootFeed: [],
-    questFeed: []
+    questFeed: [],
+    pvpFeed: []
   };
-
   // Equipment slot IDs mirror core Player.h EquipmentSlots (0-18).
   const EQUIP_SLOT_NAMES = {
     0: 'Head', 1: 'Neck', 2: 'Shoulders', 3: 'Shirt', 4: 'Chest',
@@ -153,6 +155,18 @@
     return live.pvp === 'bg'
       ? `<span class="badge badge-pvp" title="In battleground: ${esc(name)}">PvP · ${esc(short)}</span>`
       : `<span class="badge badge-info" title="Queued for: ${esc(name)}">Queue · ${esc(short)}</span>`;
+  }
+
+  // World PvP badges: the seeker role, and the live fight while one lasts.
+  function worldPvpBadge(live) {
+    if (!live) return '';
+    if (live.world_pvp_fighting) return `<span class="badge badge-error" title="Fighting in the open world right now">Fighting ${esc(live.world_pvp_fighting)}</span>`;
+    if (live.world_pvp_seeker) return `<span class="badge badge-pvp" title="Holds the open-world PvP seeker role">PvP · world</span>`;
+    return '';
+  }
+
+  function inWorldPvp(live) {
+    return !!(live && (live.world_pvp_seeker || live.world_pvp_fighting));
   }
 
   const STATE_COLORS = {
@@ -526,6 +540,7 @@
     stateChips: document.getElementById('state-chips'),
     kindChips: document.getElementById('kind-chips'),
     classChips: document.getElementById('class-chips'),
+    specChips: document.getElementById('spec-chips'),
     rosterHead: document.getElementById('roster-head'),
     rosterTable: document.getElementById('roster-table-body'),
     rosterCount: document.getElementById('roster-count'),
@@ -547,6 +562,8 @@
     lootBotSearch: document.getElementById('loot-bot-search'),
     questsTable: document.getElementById('quests-table-body'),
     questBotSearch: document.getElementById('quest-bot-search'),
+    pvpTable: document.getElementById('pvp-table-body'),
+    pvpBotSearch: document.getElementById('pvp-bot-search'),
 
     // Bot profile slide-over
     profileDrawer: document.getElementById('profile-drawer'),
@@ -628,7 +645,8 @@
     tickNow: document.getElementById('tick-now'),
     consoleBody: document.getElementById('console-body'),
     consoleRate: document.getElementById('console-rate'),
-    refreshBtn: document.getElementById('refresh-btn')
+    refreshBtn: document.getElementById('refresh-btn'),
+    logoutBtn: document.getElementById('logoutBtn')
   };
 
   // All dynamic values rendered via innerHTML must pass through this.
@@ -945,6 +963,18 @@
   }
   window.addEventListener('resize', onWindowResize);
   window.addEventListener('orientationchange', onWindowResize);
+
+  if (el.logoutBtn) {
+    el.logoutBtn.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'same-origin' });
+        if (!resp.ok) throw new Error(`logout failed: HTTP ${resp.status}`);
+        window.location = '/login';
+      } catch (err) {
+        console.error(err); // stay put: navigating now would leave the session cookie live
+      }
+    });
+  }
 
   if (el.refreshBtn) {
     el.refreshBtn.addEventListener('click', () => {
@@ -2298,6 +2328,27 @@
     return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '–';
   }
 
+  // A shaman tank keeps its Enhancement spec for the filters, the chips and the
+  // class colour, but the spec label says so. The server's live combat role is
+  // the only source that knows (a forced role from the 7.3 premade build, a
+  // hired tank, or the gear+talent detection: see IsDetectedShamanTank), so an
+  // offline shaman keeps the plain spec name.
+  function specLabel(spec, cls, live) {
+    if (!spec) return '';
+    if (String(cls).toLowerCase() !== 'shaman' || !live || live.role !== 'tank') return spec;
+    return `${spec} (Tank)`;
+  }
+
+  // Spec chips under the class filter: one count per spec the class has. A row
+  // without a spec (a character with no talent points, or a bot the armory list
+  // has not caught up with) is counted under "All specs" only — giving it a
+  // spec name would show a spec the character does not have.
+  function specCounts(rows) {
+    const counts = {};
+    rows.forEach(r => { if (r.spec) counts[r.spec] = (counts[r.spec] || 0) + 1; });
+    return counts;
+  }
+
   // Issue #872: every row carries one kind: pool, hired, claimed, alt,
   // companion (owned alt following its player), player, or own (a
   // player-account character offline or not yet seen live). Live telemetry
@@ -2388,7 +2439,7 @@
         const badge = issue
           ? ` <span class="badge ${issue.severity === 'persistent' ? 'badge-error' : 'badge-warn'}" title="${esc(ISSUE_LABELS[issue.type] || issue.type)}">${esc(fmtDuration(issue.duration_sec))}</span>`
           : '';
-        const pvp = pvpBadge(r.live);
+        const pvp = pvpBadge(r.live) || worldPvpBadge(r.live);
         const kind = kindBadge(r.kind);
         return `<a class="bot-name bot-link" style="color: ${classColor(r.cls)};" href="${esc(routeHash({ tab: 'roster', bot: r.guid, ptab: state.profileTab }))}">${esc(r.name)}</a>${kind}${pvp ? ` ${pvp}` : ''}${badge}`;
       }
@@ -2396,7 +2447,7 @@
     class: {
       label: 'Class',
       sort: r => `${r.cls} ${r.spec}`.toLowerCase(),
-      cell: r => `${esc(capClass(r.cls))}${r.spec ? ` <span class="cell-muted">${esc(r.spec)}</span>` : ''}`
+      cell: r => `${esc(capClass(r.cls))}${r.spec ? ` <span class="cell-muted">${esc(specLabel(r.spec, r.cls, r.live))}</span>` : ''}`
     },
     level: { label: 'Lvl', sort: r => r.level || 0, cell: r => esc(r.level) },
     state: {
@@ -2507,7 +2558,7 @@
     const stateCount = {};
     forStates.forEach(r => { if (r.live) { const k = r.live.state || 'idle'; stateCount[k] = (stateCount[k] || 0) + 1; } });
     const withIssues = base.filter(r => issues[r.guid]).length;
-    const inPvp = base.filter(r => r.live && r.live.pvp).length;
+    const inPvp = base.filter(r => (r.live && r.live.pvp) || inWorldPvp(r.live)).length;
     el.stateChips.innerHTML =
       chip('state', 'all', 'Any state', forStates.length, '', state.botsState === 'all') +
       STATE_ORDER.filter(k => stateCount[k] || state.botsState === k)
@@ -2522,6 +2573,16 @@
       chip('class', 'all', 'All classes', forClasses.length, '', state.botsClass === 'all') +
       Object.entries(classCount).sort((a, b) => b[1] - a[1])
         .map(([c, n]) => chip('class', c, capClass(c), n, classColor(c), state.botsClass === c)).join('');
+
+    // Spec chips appear once a class is picked and split it by spec.
+    if (!el.specChips) return;
+    if (state.botsClass === 'all') { el.specChips.innerHTML = ''; return; }
+    const forSpecs = forClasses.filter(r => r.cls === state.botsClass);
+    const specCount = specCounts(forSpecs);
+    el.specChips.innerHTML =
+      chip('spec', 'all', 'All specs', forSpecs.length, '', state.botsSpec === 'all') +
+      Object.entries(specCount).sort((a, b) => b[1] - a[1])
+        .map(([s, n]) => chip('spec', s, s, n, '', state.botsSpec === s)).join('');
   }
 
   // Issue #872: kind chips filter like the state/class chips. The sentence
@@ -2595,13 +2656,14 @@
       text.every(w => r.name.toLowerCase().includes(w) || r.cls.includes(w) || r.spec.toLowerCase().includes(w) || r.kind.includes(w));
     const stateOk = r => state.botsState === 'all' || (r.live && (r.live.state || 'idle') === state.botsState);
     const classOk = r => state.botsClass === 'all' || r.cls === state.botsClass;
+    const specOk = r => state.botsClass === 'all' || state.botsSpec === 'all' || r.spec === state.botsSpec;
     const issueOk = r => !state.botsIssueOnly || !!issues[r.guid];
-    const pvpOk = r => !state.botsPvpOnly || !!(r.live && r.live.pvp);
+    const pvpOk = r => !state.botsPvpOnly || !!(r.live && r.live.pvp) || inWorldPvp(r.live);
 
     const base = rows.filter(r => presenceOk(r) && segOk(r) && queryOk(r));
     renderBotChips(base, issues, stateOk, classOk);
     renderKindChips(base);
-    const list = base.filter(r => kindOk(r) && stateOk(r) && classOk(r) && issueOk(r) && pvpOk(r));
+    const list = base.filter(r => kindOk(r) && stateOk(r) && classOk(r) && specOk(r) && issueOk(r) && pvpOk(r));
 
     const cols = BOT_VIEWS[state.botsView] || BOT_VIEWS.live;
     const sortKey = cols.includes(state.botsSort.key) ? state.botsSort.key : null;
@@ -2818,7 +2880,8 @@
       if (!btn) return;
       const v = btn.dataset.v;
       if (btn.dataset.kind === 'state') state.botsState = state.botsState === v ? 'all' : v;
-      else if (btn.dataset.kind === 'class') state.botsClass = state.botsClass === v ? 'all' : v;
+      else if (btn.dataset.kind === 'class') { state.botsClass = state.botsClass === v ? 'all' : v; state.botsSpec = 'all'; }
+      else if (btn.dataset.kind === 'spec') state.botsSpec = state.botsSpec === v ? 'all' : v;
       else if (btn.dataset.kind === 'kind') state.botsKindFilter = state.botsKindFilter === v ? 'all' : v;
       else if (btn.dataset.kind === 'pvp') state.botsPvpOnly = !state.botsPvpOnly;
       else state.botsIssueOnly = !state.botsIssueOnly;
@@ -2826,6 +2889,7 @@
     };
     el.stateChips.addEventListener('click', onChip);
     el.classChips.addEventListener('click', onChip);
+    if (el.specChips) el.specChips.addEventListener('click', onChip);
     if (el.kindChips) el.kindChips.addEventListener('click', onChip);
 
     const sortBy = (th) => {
@@ -2856,6 +2920,7 @@
         state.botsState = row.dataset.state;
         state.botsPresence = 'online';
         state.botsClass = 'all';
+        state.botsSpec = 'all';
         state.botsIssueOnly = false;
         state.botsPvpOnly = false;
         go({ tab: 'roster' });
@@ -2868,6 +2933,7 @@
         state.botsState = 'all';
         state.botsPresence = 'online';
         state.botsClass = 'all';
+        state.botsSpec = 'all';
         state.botsIssueOnly = false;
         state.botsPvpOnly = true;
         go({ tab: 'roster' });
@@ -2961,6 +3027,12 @@
         ['Ghost time', esc(fmtDuration(c.ghost_seconds))],
         ['Give-ups', num(c.giveups)]
       ]) +
+      statGroup('World PvP', [
+        ['Seekers now', num((state.grinding || {}).world_pvp_seekers)],
+        ['Engagements', num(c.pvp_engagements)],
+        ['PvP kills', num(c.pvp_kills)],
+        ['PvP deaths', num(c.pvp_deaths)]
+      ]) +
       statGroup('Loot & gathering', [
         ['Loot items', num(c.loot_items)],
         ['Notable loot', num(c.notable_loot), 'Green or better'],
@@ -2994,7 +3066,7 @@
     return `${esc(capClass(cls))} <span class="cell-muted">L${esc(level)}</span>`;
   }
 
-  // Feeds: one panel, three views (quests / loot / live console).
+  // Feeds: one panel, four views (quests / loot / world PvP / live console).
   function showFeed(view) {
     state.feedView = view;
     paintSeg(el.feedSeg, view);
@@ -3005,6 +3077,7 @@
   function fetchFeed() {
     if (state.feedView === 'quests') fetchQuestFeed();
     else if (state.feedView === 'loot') fetchLootFeed();
+    else if (state.feedView === 'pvp') fetchPvpFeed();
   }
 
   function lootFeedParams() {
@@ -3079,6 +3152,45 @@
     </tr>`).join('');
   }
 
+  const PVP_EVENT_LABELS = { engage: 'Engaged', kill: 'Killed', death: 'Died to' };
+  const pvpEventLabel = e => PVP_EVENT_LABELS[e] || e || 'pvp';
+
+  function pvpTargetCell(r) {
+    const kind = r.target_kind ? ` <span class="badge ${r.target_kind === 'bot' ? 'badge-info' : 'badge-warn'}">${esc(r.target_kind)}</span>` : '';
+    const lvl = r.target_level ? ` <span class="mono cell-muted">L${esc(r.target_level)}</span>` : '';
+    return `${esc(r.target || '-')}${lvl}${kind}`;
+  }
+
+  function fetchPvpFeed() {
+    if (!el.pvpTable || state.activeTab !== 'activity' || state.feedView !== 'pvp') return;
+    const parts = ['limit=200'];
+    if (el.pvpBotSearch && el.pvpBotSearch.value.trim()) parts.push(`bot=${encodeURIComponent(el.pvpBotSearch.value.trim())}`);
+    fetch(`/api/v1/activity/pvp?${parts.join('&')}`)
+      .then(jsonOrThrow)
+      .then(rows => {
+        state.pvpFeed = Array.isArray(rows) ? rows : [];
+        renderPvpFeed();
+      })
+      .catch(() => {});
+  }
+
+  function renderPvpFeed() {
+    if (!el.pvpTable) return;
+    const rows = state.pvpFeed || [];
+    if (!rows.length) {
+      el.pvpTable.innerHTML = '<tr><td colspan="6" class="table-empty">No world PvP events match.</td></tr>';
+      return;
+    }
+    el.pvpTable.innerHTML = rows.map(r => `<tr>
+      <td class="mono cell-time">${esc(feedClock(r))}</td>
+      <td>${botLink(r.guid, r.bot, r.class)}</td>
+      <td>${classLevelCell(r.class, r.level)}</td>
+      <td><span class="badge ${r.event === 'kill' ? 'badge-success' : (r.event === 'death' ? 'badge-error' : 'badge-pvp')}">${esc(pvpEventLabel(r.event))}</span></td>
+      <td>${pvpTargetCell(r)}</td>
+      <td class="mono">${esc(getZoneName(r.zone, r.map))}</td>
+    </tr>`).join('');
+  }
+
   // Level-up timeline (Progress tab), newest first, capped so the DOM stays small.
   function renderLevelTimeline() {
     if (!el.levelTimeline) return;
@@ -3100,6 +3212,7 @@
     renderActivityMetrics();
     renderQuestFeed();
     renderLootFeed();
+    renderPvpFeed();
   }
 
   function fetchActivity() {
@@ -3130,6 +3243,7 @@
 
   let lootFilterTimer = null;
   let questFilterTimer = null;
+  let pvpFilterTimer = null;
 
   function initActivity() {
     bindSeg(el.feedSeg, showFeed);
@@ -3143,6 +3257,10 @@
     if (el.questBotSearch) el.questBotSearch.addEventListener('input', () => {
       clearTimeout(questFilterTimer);
       questFilterTimer = setTimeout(fetchQuestFeed, 300);
+    });
+    if (el.pvpBotSearch) el.pvpBotSearch.addEventListener('input', () => {
+      clearTimeout(pvpFilterTimer);
+      pvpFilterTimer = setTimeout(fetchPvpFeed, 300);
     });
   }
 
@@ -3331,6 +3449,7 @@
     if (changed) {
       state.profile = null;
       state.profileRecent = null;
+      state.profilePvp = null;
       const body = el.profileDrawer.querySelector('.profile-body');
       if (body) body.scrollTop = 0;
       if (el.armoryError) el.armoryError.style.display = 'none';
@@ -3339,6 +3458,7 @@
     renderProfileHeader();
     renderArmoryPanel(state.profile, state.profileTab);
     ensureProfileRecent();
+    ensureProfilePvp();
     if (changed) refreshSelection();
   }
 
@@ -3347,6 +3467,7 @@
     state.profileGuid = null;
     state.profile = null;
     state.profileRecent = null;
+    state.profilePvp = null;
     el.profileDrawer.classList.remove('open');
     el.profileDrawer.setAttribute('aria-hidden', 'true');
     el.profileBackdrop.classList.remove('active');
@@ -3354,13 +3475,6 @@
   }
 
   function fetchProfile(guid) {
-    const live = liveBot(guid);
-    if (live && live.player) {
-      state.profile = null;
-      renderProfileHeader();
-      renderProfileOverview();
-      return;
-    }
     fetch(`/api/v1/armory/bot/${encodeURIComponent(guid)}`)
       .then(async r => {
         if (r.status === 401) throw new Error('HTTP 401');
@@ -3410,6 +3524,24 @@
       state.profileRecent = { guid, rows };
       renderProfileOverview();
     });
+  }
+
+  // The bot's recent world PvP fights (same bounded in-memory feed), plus
+  // its session totals from the activity rollup.
+  function ensureProfilePvp() {
+    const guid = state.profileGuid;
+    if (guid === null || (state.profilePvp && state.profilePvp.guid === guid)) return;
+    const name = knownBotName(guid);
+    if (!name) return;
+    state.profilePvp = { guid, rows: null };
+    fetch(`/api/v1/activity/pvp?bot=${encodeURIComponent(name)}&limit=50`)
+      .then(jsonOrThrow)
+      .then(rows => {
+        if (state.profileGuid !== guid) return;
+        state.profilePvp = { guid, rows: (Array.isArray(rows) ? rows : []).filter(r => r.guid === guid).slice(0, 50) };
+        renderProfileOverview();
+      })
+      .catch(() => {});
   }
 
   function profileBars(p, live) {
@@ -3491,7 +3623,8 @@
     if (el.armoryMoney) el.armoryMoney.innerHTML = s ? formatMoney(s.money) : '';
     if (el.armoryPlayed) el.armoryPlayed.textContent = s ? formatPlayed(s.totaltime) : '';
 
-    // Spec = the talent tree with the most points.
+    // Spec = the talent tree with the most points. A character with no talent
+    // points has no spec: the line says so instead of naming one.
     if (el.armorySpecInfo) {
       const trees = (p && p.talents) || [];
       if (!trees.length) {
@@ -3501,7 +3634,8 @@
         const total = pts.reduce((a, b) => a + b, 0);
         let top = trees[0];
         trees.forEach(t => { if ((t.points || 0) > (top.points || 0)) top = t; });
-        el.armorySpecInfo.textContent = `${total > 0 ? (top.name || 'Hybrid') : 'Unspecified'} (${pts.join(' / ')})`;
+        const name = total > 0 ? specLabel(top.name || 'Hybrid', clsName, live) : 'No talents';
+        el.armorySpecInfo.textContent = `${name} (${pts.join(' / ')})`;
       }
     }
     profileBars(p, live);
@@ -3540,7 +3674,7 @@
           ${live.player ? '' : kv('Last action', kvMono(live.last_action))}
           ${live.player ? '' : kv('Trigger', kvMono(live.last_trigger))}
           ${live.player ? '' : kv('Strategy', kvMono(live.strategy || 'default'))}
-          ${live.pvp ? kv('PvP', pvpBadge(live)) : ''}
+          ${(live.pvp || inWorldPvp(live)) ? kv('PvP', pvpBadge(live) || worldPvpBadge(live)) : ''}
           ${dgnRunLink(guid)}
           ${live.player ? '' : kv('Combat role', `<span class="badge badge-info" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${esc(roleLabel(live))}</span>`)}
         </div>
@@ -3569,6 +3703,16 @@
       recent === null ? '<div class="empty-hint">Loading…</div>'
         : recent.length ? recent.map(r => `<div class="recent-row"><span class="recent-time mono">${esc(r.time)}</span>${r.html}</div>`).join('')
           : '<div class="empty-hint">No quest or loot events recorded this session.</div>'
+    }</div>`;
+
+    const pvp = state.profilePvp && state.profilePvp.guid === guid ? state.profilePvp.rows : null;
+    const pact = live && live.activity ? live.activity : ((state.profile && state.profile.activity) || null);
+    const pvpTotals = pact && (pact.pvp_engagements || pact.pvp_kills || pact.pvp_deaths)
+      ? ` <span class="cell-muted mono">${esc(pact.pvp_engagements || 0)} fights · ${esc(pact.pvp_kills || 0)} kills · ${esc(pact.pvp_deaths || 0)} deaths</span>` : '';
+    html += `<div class="profile-section"><div class="section-label">World PvP${pvpTotals}</div>${
+      pvp === null ? '<div class="empty-hint">Loading…</div>'
+        : pvp.length ? pvp.map(r => `<div class="recent-row"><span class="recent-time mono">${esc(feedClock(r))}</span><span class="badge ${r.event === 'kill' ? 'badge-success' : (r.event === 'death' ? 'badge-error' : 'badge-pvp')} recent-kind">${esc(pvpEventLabel(r.event))}</span><span>${pvpTargetCell(r)} <span class="cell-muted mono">${esc(getZoneName(r.zone, r.map))}</span></span></div>`).join('')
+          : '<div class="empty-hint">No world PvP fights recorded this session.</div>'
     }</div>`;
     host.innerHTML = html;
   }
@@ -3619,12 +3763,7 @@
     if (tab === 'overview') { renderProfileOverview(); return; }
     if (!p) {
       const host = document.getElementById(`armory-content-${tab}`);
-      const live = liveBot(state.profileGuid);
-      if (host && tab !== 'gear') {
-        host.innerHTML = (live && live.player)
-          ? '<div class="empty-hint">Players have no database profile — live status is on the Overview tab.</div>'
-          : '<div class="empty-hint">Loading…</div>';
-      }
+      if (host && tab !== 'gear') host.innerHTML = '<div class="empty-hint">Loading…</div>';
       return;
     }
     // Gear & stats render together with the profile (renderArmory).
@@ -4867,8 +5006,8 @@
   let cmdLayers = MapLayers.load(cmdLayerStore);
   const cmdAvail = {};        // commander -> availability of each layer on its map
   const cmdEvents = UnitInfo.newEvents(); // deaths, wipes, boss kills, objects opened (derived from the reports as they come)
-  const cmdPics = new Map();  // map id -> [picture layer] | 'loading' | null (the folder has none; asked again after a while)
-  const cmdPicMiss = new Map();
+  const cmdPics = new Map(); // map id -> [picture slot] | 'loading' (the first answer is coming) | null (the daemon gave no list)
+  const cmdPicAsk = new Map(); // map id -> when the daemon was last asked for its picture slots (unix ms)
   const cmdTrails = CmdPaths.newTrails(); // every bot's path (the lead's is in cmdTracker.trail), kept from the 2 s reports
   const cmdStalls = CmdPaths.newStalls(); // where the run paused or an order was refused, fixed when first seen
   let cmdTrailsLoading = false;
@@ -5192,37 +5331,52 @@
     return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y), name: displayZoneName(zb.name) };
   }
 
-  // The real game-map pictures of a map id, when the daemon has a folder of them (TBDASH_MAP_DIR): undefined = not offered, 'loading',
-  // null = none for this map (looked for again after 30 s), else the list of {name, url, x, y, w, h}.
+  // The picture slots of a map id, from the daemon's folder (TBDASH_MAP_DIR): undefined = no folder, 'loading' = the first answer is on
+  // its way, null = the daemon gave no list, else the slots of CmdView.pictureSlots (the World map and its floors, the Minimap and the
+  // Navmesh; a missing one says why). A stale list is asked for again in the background (30 s with no picture at all, 5 min with one
+  // missing) while the list already on screen stays there: a redraw never flashes an empty map.
   function ensureCmdPics(mapId) {
     if (!state.commanders.realMaps || mapId == null) return undefined;
     const have = cmdPics.get(mapId);
-    if (cmdPics.has(mapId) && !(have === null && Date.now() - (cmdPicMiss.get(mapId) || 0) > 30000)) return have;
-    cmdPics.set(mapId, 'loading');
+    if (have === 'loading') return have;
+    if (cmdPics.has(mapId)) {
+      const wait = CmdView.pictureRefreshAfter(have);
+      if (wait === null || Date.now() - (cmdPicAsk.get(mapId) || 0) < wait) return have;
+    }
+    if (!cmdPics.has(mapId)) cmdPics.set(mapId, 'loading');
+    cmdPicAsk.set(mapId, Date.now());
     fetch('/api/v1/maps/' + encodeURIComponent(mapId)).then(r => (r.ok ? r.json() : null)).then(ls => {
-      const l = CmdView.pictureLayers(ls);
+      const l = CmdView.pictureSlots(ls);
       cmdPics.set(mapId, l.length ? l : null);
-      cmdPicMiss.set(mapId, Date.now());
       if (state.activeTab === 'commanders') renderCommanders();
-    }).catch(() => { cmdPics.set(mapId, null); cmdPicMiss.set(mapId, Date.now()); });
-    return 'loading';
+    }).catch(() => { if (!Array.isArray(cmdPics.get(mapId))) cmdPics.set(mapId, null); });
+    return cmdPics.get(mapId);
   }
 
   // What one card's map has data for, from the report and the browser's own memory.
   function cmdMapFacts(bind) {
     const lead = CmdView.leadBot(bind), first = lead || (bind.bots || [])[0] || null;
     const onMap = first ? (bind.bots || []).filter(b => b.map === first.map) : [];
-    const pl = first ? ensureCmdPics(first.map) : undefined;
-    const pics = Array.isArray(pl) ? pl : [];
+    // the demo card draws made-up picture slots (the reference Zul'Farrak layout and Uldaman's, without a minimap), but only when the
+    // daemon has a map folder to serve their files
+    const pl = first ? (bind.demo ? (state.commanders.realMaps ? CmdView.pictureSlots(CmdDemo.pictures(first.map)) : []) : ensureCmdPics(first.map)) : undefined;
+    const slots = Array.isArray(pl) ? pl : [];
     const tr = cmdTracker.trail[bind.commander];
     const trail = tr && first && tr.map === first.map ? tr.pts : [];
     const heading = lead && lead.map === (first && first.map) ? CmdView.heading(trail, cmdNowFor(bind)) : null;
     const zr = cmdZoneRect(first);
     const zonesAround = !!(first && ZONE_BOUNDS && Object.keys(ZONE_BOUNDS).some(k => ZONE_BOUNDS[k] && ZONE_BOUNDS[k].map_id === first.map && ZONE_BOUNDS[k].area_id !== first.zone));
-    // What the module reports for the map the party is on (a mob list that is empty still counts: the layers stay selectable).
+    // What the module reports for the map the party is on (a mob list that is empty still counts: the layers stay selectable). The
+    // commander feed caps its list at 24; when this card's party is a dungeon run the tab already knows (same map, a shared bot), its
+    // DUNGEON_MOBS list is drawn too: the union by guid shows every enemy the run knows, the feed winning on the fields it carries.
     const mapId = first ? first.map : null;
-    const mobs = first ? CmdView.mobsOf(bind, mapId) : [];
-    const reported = !!first && Array.isArray(bind.mobs) && bind.mobs_map === mapId;
+    const feedMobs = first ? CmdView.mobsOf(bind, mapId) : [];
+    const feedReported = !!first && Array.isArray(bind.mobs) && bind.mobs_map === mapId;
+    const run = first ? MapLayers.findRun(bind, state.dungeons.runs, mapId) : null;
+    const runMobs = run && Array.isArray(run.mobs) ? run.mobs : null;
+    const mobs = runMobs ? MapLayers.mobUnion(feedMobs, runMobs) : feedMobs;
+    const mobsTotal = runMobs ? (run.mobs_total || 0) : 0;
+    const reported = feedReported || !!runMobs;
     const commanderAt = first ? CmdView.commanderPlace(bind, mapId) : null;
     // What the drawing layers have: the other bots' paths, the plan steps of the run, stall spots, the objects the bots have seen.
     const steps = CmdPaths.runSteps(bind.run);
@@ -5232,13 +5386,15 @@
     const ctx = {
       memberTrails: !!first && CmdPaths.memberTrails(cmdTrails, bind, mapId, CmdPaths.TRAIL_MAX).length > 0,
       runSteps: steps.length > 0, stalls: stalls.length > 0, objects: objsReported,
-      picture: pics.length > 0, zone: !!zr, zonesAround, bots: onMap.length > 0, lead: !!lead && onMap.indexOf(lead) >= 0,
+      picture: slots.some(s => s.available),
+      pictureWhy: slots.some(s => s.available) ? '' : 'No picture of this map in the map folder',
+      zone: !!zr, zonesAround, bots: onMap.length > 0, lead: !!lead && onMap.indexOf(lead) >= 0,
       trail: trail.length >= 2, heading: !!heading, healer: onMap.some(b => b.role === 'healer' && b.alive !== false),
       commanderPos: !!commanderAt, mobs: reported, mobTargets: reported, botTargets: reported && onMap.some(b => !!b.id),
       activity: onMap.some(b => b.st != null) || mobs.some(m => m.cast || m.cc),
       events: UnitInfo.eventsOf(cmdEvents, bind.commander).length > 0,
     };
-    return { lead, first, onMap, pics, trail, heading, zr, ctx, mobs, commanderAt, steps, stalls, objs };
+    return { lead, first, onMap, slots, trail, heading, zr, ctx, mobs, mobsTotal, commanderAt, steps, stalls, objs };
   }
 
   // A clock time for a label on the path: the game server's seconds in the browser's locale.
@@ -5283,7 +5439,7 @@
   function cmdMemberTrailsSvg(c, bind, mapId) {
     let g = '';
     CmdPaths.memberTrails(cmdTrails, bind, mapId, cmdLayers.trailLen).forEach(m => {
-      g += cmdTrailSvg(c, 'membertrails', `mtrail ${CmdView.roleKey(m.bot)}`, m.pts, 0.75, 2);
+      g += cmdTrailSvg(c, 'memberpaths', `mtrail ${CmdView.roleKey(m.bot)}`, m.pts, 0.75, 2);
     });
     return g;
   }
@@ -5357,9 +5513,18 @@
   }
 
   // Lines between two game points: from (a) to (b), classed and styled as one of the combat layers.
-  function cmdLineSvg(c, key, cls, a, b, baseAlpha) {
+  function cmdLineSvg(c, key, cls, a, b, baseAlpha, basePx) {
     const p = CmdView.project(a.x, a.y), q = CmdView.project(b.x, b.y);
-    return `<line class="${cls}" style="${cmdLineStyle(key, 1.6, baseAlpha)}" x1="${c.f(p.x)}" y1="${c.f(p.y)}" x2="${c.f(q.x)}" y2="${c.f(q.y)}"/>`;
+    return `<line class="${cls}" style="${cmdLineStyle(key, basePx == null ? 1.6 : basePx, baseAlpha)}" x1="${c.f(p.x)}" y1="${c.f(p.y)}" x2="${c.f(q.x)}" y2="${c.f(q.y)}"/>`;
+  }
+
+  // The target, heal and crowd-control lines of a card, one style key for all three (the action-lines layer).
+  function cmdCombatLinesSvg(c, on, onMap, mobs) {
+    let g = '';
+    if (on.bottarget) CmdView.botTargetLines(onMap, mobs).forEach(l => { g += cmdLineSvg(c, 'actionlines', 'bottarget', l.bot, l.mob, 0.9, 1.5); });
+    if (on.healline) CmdPaths.healLines(onMap).forEach(l => { g += cmdLineSvg(c, 'actionlines', 'healline', l.from, l.to, 0.9); });
+    if (on.ccline) CmdPaths.ccLines(onMap, mobs).forEach(l => { g += cmdLineSvg(c, 'actionlines', 'ccline', l.from, l.to, 0.9); });
+    return g;
   }
 
   function drawCmdMap(key) {
@@ -5371,10 +5536,10 @@
     if (!pw || !ph) return; // the tab is hidden
     const ms = cmdMaps[key] || (cmdMaps[key] = { follow: true, view: null, userScale: null, pic: '' });
     const facts = cmdMapFacts(bind);
-    const { lead, first, onMap, pics, trail, heading, zr, mobs, commanderAt, steps, stalls, objs } = facts;
+    const { lead, first, onMap, slots, trail, heading, zr, mobs, mobsTotal, commanderAt, steps, stalls, objs } = facts;
     const avail = MapLayers.availability(facts.ctx);
     cmdAvail[key] = avail;
-    const on = MapLayers.active(cmdLayers, avail);
+    const on = MapLayers.active(cmdLayers, avail, facts.ctx);
     const away = (bind.bots || []).length - onMap.length;
     const pts = onMap.map(b => CmdView.project(b.x, b.y));
     if (ms.follow || !ms.view) ms.view = CmdView.followView(pts, pw, ph, 44, 60, ms.userScale);
@@ -5383,7 +5548,9 @@
     const f = n => n.toFixed(2);
 
     // the picture sits in its own group that is only rebuilt when it changes, so it does not flicker while the rest is redrawn
-    const pick = pics.find(l => l.name === ms.pic) || pics[0] || null;
+    const choice = CmdView.pictureChoice(slots, ms.pic);
+    const pick = choice.slot;
+    const ui = CmdView.pictureSelect(slots, ms.pic);
     const picKey = on.bg && pick ? `${pick.url}|${pick.x}|${pick.y}|${pick.w}|${pick.h}` : '';
     const picG = svg.querySelector('g.pic');
     if (picG._k !== picKey) {
@@ -5392,12 +5559,23 @@
     }
     svg.style.setProperty('--bgb', String((100 - cmdLayers.dim) / 100)); // the picture's brightness (the dim slider)
     const sel = card.querySelector('select.cmd-pic');
-    sel.hidden = pics.length < 2;
-    if (pics.length >= 2 && sel._k !== pics.map(l => l.name).join('|')) {
-      sel._k = pics.map(l => l.name).join('|');
-      sel.replaceChildren(...pics.map(l => { const o = document.createElement('option'); o.value = l.name; o.textContent = l.name; return o; }));
+    sel.hidden = ui.hidden;
+    const selKey = ui.options.map(o => `${o.value}|${o.label}|${o.disabled}|${o.title}`).join('|');
+    if (!ui.hidden && sel._k !== selKey) {
+      sel._k = selKey;
+      sel.replaceChildren(...ui.options.map(o => {
+        const el = document.createElement('option');
+        el.value = o.value;
+        el.textContent = o.label;
+        el.disabled = o.disabled;
+        if (o.title) el.title = o.title;
+        return el;
+      }));
     }
-    if (pick) sel.value = pick.name;
+    if (pick) sel.value = pick.key;
+    // why the picture the card is set to is not there (a run moved to a map without it): the picker shows the fallback, this says why
+    const picWhy = card.querySelector('.cmd-picwhy');
+    if (picWhy) { picWhy.hidden = !ui.reason; picWhy.textContent = ui.reason || ''; }
 
     let g = '';
     if (on.grid) {
@@ -5425,7 +5603,7 @@
     const dc = { f, k, units };
     if (on.runsteps) g += cmdRunStepsSvg(dc, steps, lead && first && lead.map === first.map ? lead : null);
     if (on.membertrails && first) g += cmdMemberTrailsSvg(dc, bind, first.map);
-    if (on.trail && trail.length >= 2) g += cmdTrailSvg(dc, 'trail', 'trail', trail.slice(-cmdLayers.trailLen), 1, 3);
+    if (on.trail && trail.length >= 2) g += cmdTrailSvg(dc, 'leadpath', 'trail', trail.slice(-cmdLayers.trailLen), 1, 3);
     if (on.trailtime) {
       CmdView.trailStamps(trail, v.scale, 70, 8).forEach(s => {
         g += `<g class="stamp"><circle cx="${f(s.x)}" cy="${f(s.y)}" r="${f(3 * k)}"/>`
@@ -5454,14 +5632,7 @@
         g += `<line class="threat" style="${cmdLineStyle('threat', 1.5, 0.85)}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`;
       });
     }
-    if (on.bottarget) {
-      CmdView.botTargetLines(onMap, mobs).forEach(l => {
-        const a = CmdView.project(l.bot.x, l.bot.y), b = CmdView.project(l.mob.x, l.mob.y);
-        g += `<line class="bottarget" style="${cmdLineStyle('bottarget', 1.5, 0.9)}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`;
-      });
-    }
-    if (on.healline) CmdPaths.healLines(onMap).forEach(l => { g += cmdLineSvg(dc, 'healline', 'healline', l.from, l.to, 0.9); });
-    if (on.ccline) CmdPaths.ccLines(onMap, mobs).forEach(l => { g += cmdLineSvg(dc, 'ccline', 'ccline', l.from, l.to, 0.9); });
+    g += cmdCombatLinesSvg(dc, on, onMap, mobs);
     if (on.objects) g += cmdObjectsSvg(dc, objs);
     // the health bar and status icons over a unit at plane point p, radius r (drawing units)
     const overlay = (u, kind, p, r) => {
@@ -5527,8 +5698,11 @@
     });
     svg.setAttribute('viewBox', box.map(f).join(' '));
     svg.querySelector('g.dyn').innerHTML = g;
-    const note = away > 0 ? `${away} bot${away === 1 ? ' is' : 's are'} on another map` : '';
-    card.querySelector('.cmd-mapnote').textContent = note;
+    const awayNote = away > 0 ? `${away} bot${away === 1 ? ' is' : 's are'} on another map` : '';
+    const enemiesNote = MapLayers.enemiesText(mobs.length, mobsTotal);
+    const noteEl = card.querySelector('.cmd-mapnote');
+    noteEl.textContent = [awayNote, enemiesNote].filter(Boolean).join(' · ');
+    noteEl.title = enemiesNote ? 'The module caps the mob list per run (24 in a party, 48 in a raid)' : '';
     card.querySelector('.cmd-grid-size').textContent = on.grid ? `grid ${step} yd` : '';
     const sc = card.querySelector('.cmd-scale');
     sc.hidden = !on.scale;
@@ -5737,6 +5911,7 @@
             <div class="cmd-mapnote"></div>
             <div class="cmd-tip" hidden></div>
           </div>
+          <div class="cmd-picwhy" hidden></div>
           <div class="cmd-feed" hidden></div>
           <div class="cmd-legend">${cmdLegendHtml()}</div>
         </div>
@@ -5814,22 +5989,8 @@
   // copies of the same dungeon are two runs. The daemon does the grouping (/api/v1/dungeons, internal/state/dungeons.go); the tab shows
   // the list of runs, and a run's live view reuses the Commanders card and map renderer. No orders, no buttons that act on bots.
 
-  // A run as the card/map machinery expects it: a pseudo-binding whose bots are the run's members (bots and the real player, alive
-  // from the dead flag). `dungeon` marks it so the Commanders render never picks it up.
-  function dgnBind(run) {
-    return {
-      commander: 'dgn:' + run.key,
-      dungeon: true,
-      dgn: run,
-      online: true, group: 0, lead: '',
-      bots: (run.members || []).map(m => ({
-        name: m.name, guid: m.guid, player: m.player, class: m.class, role: m.role, level: m.level,
-        hp: m.hp, max_hp: m.max_hp, power: m.power, max_power: m.max_power, power_type: m.power_type,
-        map: m.map, zone: m.zone, x: m.x, y: m.y, z: m.z, o: m.o,
-        alive: !m.dead, state: m.state,
-      })),
-    };
-  }
+  // A run as the card/map machinery expects it: DgnView.bindOf (dungeons.js) builds it — a pseudo-binding whose bots are the run's
+  // members, with their ids, targets and mobs — and `dungeon` marks it so the Commanders render never picks it up.
 
   // The run's name: the zone name of the members' zone if the client knows one for it (a dungeon is its own
   // zone there), else any zone name recorded for the map, else "Map <id>".
@@ -5881,7 +6042,7 @@
       state.dungeons.runs = view.runs;
       state.dungeons.staleModule = !!view.stale_module;
       state.dungeons.at = Date.now();
-      state.dungeons.binds = view.runs.map(dgnBind);
+      state.dungeons.binds = view.runs.map(r => DgnView.bindOf(r));
       state.dungeons.byMember = new Map();
       view.runs.forEach(r => (r.members || []).forEach(m => {
         if (!state.dungeons.byMember.has(m.guid)) state.dungeons.byMember.set(m.guid, r);
@@ -5915,10 +6076,15 @@
       const stateWord = DgnView.runState(open);
       document.getElementById('dgn-run-title').innerHTML =
         `${esc(name)}${labels[open.key] ? ` &middot; <span class="cell-muted">copy ${labels[open.key]}</span>` : ''} &middot; <span class="cmd-state s-${esc(stateWord.replace(/\s+/g, '-'))}">${esc(stateWord)}</span>`;
+      // The module caps the mob list per run (24 in a party, 48 in a raid): say how many of what it saw are shown.
+      const mobsShown = Array.isArray(open.mobs) ? open.mobs.length : 0;
+      const mobsNote = open.mobs_total > mobsShown
+        ? ` &middot; <span class="cell-muted" title="The module caps the mob list per run (24 in a party, 48 in a raid)">${mobsShown} of ${open.mobs_total} mobs shown</span>`
+        : '';
       setHtml(document.getElementById('dgn-run-sub'),
         `${open.bots ? open.bots + ' bot' + (open.bots === 1 ? '' : 's') : ''}`
         + `${open.players ? (open.bots ? ' · ' : '') + open.players + ' player' + (open.players === 1 ? '' : 's') : open.bots ? '' : 'no player'}`
-        + ` · seen ${esc(DgnView.seenText(open.seen_sec))}${state.dungeons.staleModule ? ' · <span title="The game server runs an older module that reports no instance id, so copies of one dungeon cannot be told apart">one run per map</span>' : ''}`);
+        + ` · seen ${esc(DgnView.seenText(open.seen_sec))}${state.dungeons.staleModule ? ' · <span title="The game server runs an older module that reports no instance id, so copies of one dungeon cannot be told apart">one run per map</span>' : ''}${mobsNote}`);
 
     // One shared card per run, rebuilt and drawn like a commander's; the cards of runs that are no longer open go away.
     const key = 'dgn:' + open.key;
@@ -6166,7 +6332,7 @@
       cmdDimRow.row.title = avail.bg.ok ? '' : 'Greyed out: ' + avail.bg.why;
     }
     if (cmdTrailRow) {
-      const any = avail.trail.ok || avail.membertrails.ok;
+      const any = avail.leadpath.ok || avail.memberpaths.ok;
       cmdTrailRow.box.value = String(cmdLayers.trailLen);
       cmdTrailRow.val.textContent = String(cmdLayers.trailLen);
       cmdTrailRow.box.disabled = !any;
@@ -6188,7 +6354,7 @@
       r.box.disabled = !a.ok;
       r.row.classList.toggle('off', !a.ok);
       r.why.textContent = a.ok ? '' : a.why;
-      r.row.title = a.ok ? '' : 'Greyed out: ' + a.why;
+      r.row.title = [d.tip, a.ok ? '' : 'Greyed out: ' + a.why].filter(Boolean).join(' — ');
     });
   }
 

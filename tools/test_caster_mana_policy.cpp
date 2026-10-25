@@ -1,4 +1,4 @@
-#include "../ai/playerbot/CasterManaPolicy.h"
+#include "../ai/playerbot/policy/combat/CasterManaPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

@@ -3,7 +3,7 @@
 #include "RogueTriggers.h"
 #include "RogueActions.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
-#include "../../../runtime/RogueThreatPolicy.h"
+#include "../../../runtime/policy/class/RogueThreatPolicy.h"
 
 using namespace ai;
 

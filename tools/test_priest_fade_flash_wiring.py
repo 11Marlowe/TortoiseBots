@@ -26,7 +26,11 @@ def rows(path):
 
 class PriestFadeFlashWiringTest(unittest.TestCase):
     def test_fade_above_heals_when_targeted(self):
-        self.assertIn(("target of attacker", "fade", "ACTION_CRITICAL_HEAL + 3"), rows("PriestStrategy.cpp"))
+        # The row arms only while fade is trained and off cooldown ("fade
+        # ready" gate ANDed with the attacker condition).
+        self.assertIn(("fade ready and target of attacker", "fade", "ACTION_CRITICAL_HEAL + 3"), rows("PriestStrategy.cpp"))
+        ctx = (PRIEST / "PriestAiObjectContext.cpp").read_text()
+        self.assertIn('creators["fade ready"]', ctx)
         actions = (PRIEST / "PriestActions.h").read_text()
         self.assertIn('BUFF_ACTION_U(CastFadeAction, "fade", bot->GetGroup());', actions)
 
@@ -49,6 +53,30 @@ class PriestFadeFlashWiringTest(unittest.TestCase):
         self.assertIn("bot->GetGroup()", fn)
         self.assertIn("PlayerbotAI::IsTank(victimPlayer)", fn)
         self.assertIn("++offTank >= 2", fn)
+
+    def test_pace_row_wiring(self):
+        # One pace row covering both bands: fast damage keeps the fast heal
+        # even when the bar crosses 50. Registered trigger, band-spanning
+        # gate (critical health to medium health), flash outranking the slow
+        # greater heals of both bands (priority, not row order, decides).
+        ctx = (PRIEST / "PriestAiObjectContext.cpp").read_text()
+        self.assertIn('creators["party member fast damage"] = [](PlayerbotAI* ai) { return new PartyMemberFastDamageTrigger(ai); };', ctx)
+        trig = (PRIEST / "PriestTriggers.h").read_text()
+        fn = trig[trig.index("class PartyMemberFastDamageTrigger"):]
+        fn = fn[:fn.index("\n    };")]
+        self.assertIn('PartyMemberLowHealthTrigger(ai, "party member fast damage",', fn)
+        self.assertIn("sPlayerbotAIConfig.mediumHealth, sPlayerbotAIConfig.criticalHealth", fn)
+        # Band gate reads the CURRENT health, not the preheal-predicted one.
+        self.assertIn("float const healthPercent = GetValue();", fn)
+        self.assertNotIn("PartyMemberLowHealthTrigger::IsActive()", fn)
+        for path in ("HolyPriestStrategy.cpp", "DisciplinePriestStrategy.cpp"):
+            text = (PRIEST / path).read_text()
+            self.assertIn('"party member fast damage"', text)
+            self.assertIn('new NextAction("flash heal on party", ACTION_MEDIUM_HEAL + 2), NULL)));', text)
+            # Slow-damage greater heals of both bands sit below the pace flash.
+            self.assertIn('new NextAction("greater heal on party", ACTION_MEDIUM_HEAL + 1)', text)
+            self.assertIn('new NextAction("greater heal on party", ACTION_MEDIUM_HEAL),', text)
+
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ The native module has its own independent logging system. This allows administra
 | :--- | :---: | :--- |
 | [`TortoiseBots.LogLevel`](#tortoisebotsloglevel) | `2` (Detail) | Sets module logging verbosity independently of the core server log level. |
 | [`AiPlayerbot.AllowedLogFiles`](#aiplayerbotallowedlogfiles) | `bot_events.csv,deaths.csv` | Comma-separated list of structured diagnostic CSV files enabled for writing. |
+| [`AiPlayerbot.RaidBossDiagnostics`](#aiplayerbotraidbossdiagnostics) | `0` | Opt-in raid boss threat snapshots and spell-hit observations in `bot_events.csv`. |
 | [`AiPlayerbot.LogRetentionDays`](#aiplayerbotlogretentiondays) | `3` | Days to keep compressed historical CSV logs before automatic deletion. |
 | [`AiPlayerbot.EnableActionLog`](#aiplayerbotenableactionlog) | `0` | Writes dedicated per-bot execution logs under `logs/bots/`. |
 | [`AiPlayerbot.ActionLogScope`](#aiplayerbotactionlogscope) | `commanded` | Filters which bots generate action log files (`commanded`, `all`, `none`). |
@@ -36,6 +37,7 @@ The native module has its own independent logging system. This allows administra
 | [`AiPlayerbot.RunTrace.GmOnly`](#aiplayerbotruntracegmonly) | `1` | Only a GameMaster may start a run trace. |
 | [`AiPlayerbot.RunTrace.Dir`](#aiplayerbotruntracedir) | `traces` | Folder for run traces and their summaries (relative to `LogsDir`). |
 | [`AiPlayerbot.RunTrace.MaxFileMb`](#aiplayerbotruntracemaxfilemb) | `64` | Size cap of one run trace file in megabytes. |
+| [`AiPlayerbot.ObservabilityDungeonMobs`](#aiplayerbotobservabilitydungeonmobs) | `1` | Sends the mobs, threat and target lines of every dungeon run to the dashboard's Dungeons tab. |
 
 ## Settings
 
@@ -68,6 +70,7 @@ Defines the active CSV log streams:
 
 - `bot_events.csv`: Records high-level bot behavioral events, travel destination changes, vendor trips, and unstuck interventions.
 - `deaths.csv`: Records character deaths, death position, killer identity and level, other attackers, and travel destination.
+- `pvp_seek.csv`: Records open-world PvP seek-role grants and new seek engagements (bot, target, level, map, zone).
 - Additional diagnostic logs (such as `travel_route_gate.csv` and `ghost_moves.csv`) can be added to the list as needed.
 
 Setting this key to an empty string (`""`) disables all CSV event logging. Note that if this key is omitted from configuration entirely, the internal fallback defaults to disabled; ensure the key is present to record events.
@@ -225,6 +228,19 @@ Configures the destination UDP port for telemetry packet dispatch. Must match th
 
 </details>
 
+### `AiPlayerbot.ObservabilityDungeonMobs`
+Sends the mobs of every dungeon run (with their threat and the bots' target lines) to the dashboard's Dungeons tab.
+**Default:** `1` · **Values:** `0` disabled, `1` enabled · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Only acts while [`AiPlayerbot.Observability`](#aiplayerbotobservability) is on. Setting it to `0` in either `modules/tortoise_bots.conf` or `aiplayerbot.conf` switches it off.
+
+Once per 2 s telemetry cycle the server sends a `DUNGEON_MOBS` datagram built from the run members' own victims, attackers and cached lists, without a world scan: up to 48 mobs per party run and 64 per raid run, fewer when many runs share the 384-mob cycle budget, packed by whole runs into parts of at most 96 mobs and 8 runs. The limits live in `runtime/DungeonMobTelemetry.h` ([#1101](https://github.com/Sagiroth/TortoiseBots/issues/1101)).
+
+</details>
+
 ---
 
 ### `AiPlayerbot.RunTrace.Enabled`
@@ -293,3 +309,14 @@ Enabled logs opened in write mode (including `bot_events.csv` and startup travel
 - No CSV headers or column structures are altered.
 - If packing or rotation fails (for example, due to filesystem permissions), an error is logged, the existing file is preserved, and writes to that log are skipped for 5 minutes before the next retry.
 - Disabled logs are left untouched.
+
+## AiPlayerbot.RaidBossDiagnostics
+
+Default: `0` (disabled). Set to `1` and include `bot_events.csv` in
+`AiPlayerbot.AllowedLogFiles` to record engaged raid bosses. `BossThreat` rows
+sample the current victim and top five numeric threat entries at most once per
+two seconds per boss/instance. `BossSpellHit` rows record supported victim-session
+spell-damage packets, including Hateful Strike. `hp_sample` is sampled at packet
+send and `hp_est` is clamped subtraction of reported damage; neither guarantees
+exact post-hit health. Disable the option after collecting a diagnostic capture.
+See [column definitions and coverage](../../developers/host-api.md#csv-columns-unchanged-nine-column-layout).

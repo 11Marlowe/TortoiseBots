@@ -7,11 +7,12 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/BotDiagnostics.h" // SC_LOG for attack-command diagnostic trace
 #include "playerbot/strategy/generic/CombatStrategy.h"
+#include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/GroupMembers.h"
 #include "GenericActions.h"
 #include "../../../../runtime/AttackOrderPolicy.h"
-#include "../../../../runtime/PetAttackGatePolicy.h"
+#include "../../../../runtime/PetEngagePolicy.h"
 
 using namespace ai;
 
@@ -186,6 +187,28 @@ bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)
     if (ai->HasPullWindow())
         return false;
 
+    // The "wait for attack" clock above only runs with a real player
+    // master. A party run by bots alone has none, so with a live tank in
+    // the group the pet waits out the tank's lead window (~2 s from the
+    // group's combat start) first; solo pets and tankless groups are the
+    // fallback holders and keep engaging at once (runtime/PetEngagePolicy.h).
+    if (bot->GetGroup())
+    {
+        TortoiseBots::PetEngageInputs engage;
+        engage.grouped = true;
+        engage.tankInGroup = !ai::IsPetTauntAllowed(ai, bot);
+        engage.playerMaster = ai->HasRealPlayerMaster();
+        {
+            Player* targetPlayer = dynamic_cast<Player*>(target);
+            engage.enemyPlayer = targetPlayer && !sServerFacade.IsFriendlyTo(bot, target);
+        }
+        time_t const combatStart = ai->GetAiObjectContext()->GetValue<time_t>("combat start time")->Get();
+        engage.inCombat = combatStart > 0;
+        engage.combatElapsedSeconds = combatStart > 0 ? static_cast<uint32_t>(time(0) - combatStart) : 0;
+        if (TortoiseBots::ShouldHoldPetForTankLead(engage))
+            return false;
+    }
+
     if (ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT) &&
         bot->GetDistance(target) >= ai->GetRange("spell"))
         return false;
@@ -202,49 +225,6 @@ bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)
         return false;
 
     return true;
-}
-
-// Live input gathering for runtime/PetAttackGatePolicy.h. Cheap-first: a solo
-// bot, an enemy player and a party without a living tank (the pet is the
-// fallback tank) leave before any threat read.
-bool AttackAction::PetHeldForTank(PlayerbotAI* ai, Unit* target)
-{
-    Player* bot = ai ? ai->GetBot() : nullptr;
-    if (!bot || !target || !bot->GetGroup())
-        return false;
-
-    // An enemy player has no threat list: never hold the pet against one.
-    if (target->IsPlayer())
-        return false;
-
-    TortoiseBots::PetAttackGateInputs in;
-    in.grouped = true;
-    in.liveTank = !IsPetTauntAllowed(ai, bot);
-    if (!in.liveTank)
-        return false;
-
-    ThreatManager& threats = sServerFacade.GetThreatManager(target);
-    Unit* victim = target->GetVictim();
-    in.targetOnBot = victim == bot;
-    Player* victimPlayer = victim ? dynamic_cast<Player*>(victim) : nullptr;
-    in.victimIsLivingTank = victimPlayer && victimPlayer != bot && victimPlayer->IsAlive() &&
-        PlayerbotAI::IsTank(victimPlayer);
-    in.victimThreat = victim ? threats.getThreat(victim) : 0.0f;
-
-    // The best living tank of the group (the bot itself is never one here).
-    in.tankThreat = -1.0f;
-    for (Player* member : LiveGroupMembers(bot->GetGroup()))
-    {
-        if (!member || member == bot || !member->IsAlive() || !PlayerbotAI::IsTank(member))
-            continue;
-        float const threat = threats.getThreat(member);
-        if (threat > in.tankThreat)
-        {
-            in.tankThreat = threat;
-            in.tankInMelee = member->GetDistance(target, SizeFactor::CombatReach) <= ATTACK_DISTANCE;
-        }
-    }
-    return TortoiseBots::PetAttackHeldForTank(in);
 }
 
 bool AttackAction::ArmsMeleeSwing()
@@ -319,10 +299,7 @@ bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance, bo
             }
 
             UnitAI* creatureAI = ((Creature*)pet)->AI();
-            // An explicit order (acceptCurrentVictim) sends the pet at once; the
-            // automatic attack waits until the tank holds the mob (F5).
-            if (creatureAI && CanPetAttack(ai, pet, target) &&
-                (acceptCurrentVictim || !PetHeldForTank(ai, target)))
+            if (creatureAI && CanPetAttack(ai, pet, target))
             {
                 creatureAI->AttackStart(target);
             }

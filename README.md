@@ -9,7 +9,9 @@ An independent, native PlayerBots module for the canonical **Tortoise WoW 1.18.1
 TortoiseBots delivers native AI companions through a decoupled C++ architecture: bot AI, combat strategies, and lifecycle management live entirely within this module, while bots run as headless sessions with no game client and character state stays cleanly owned by the core. The core compiles and runs cleanly without the module.
 
 > [!TIP]
-> Pair with the [TortoiseBotsManager](https://github.com/Sagiroth/TortoiseBotsManager) (`/tbm`) in-game addon for roster management, party controls, and bot inspection.
+> **New here? Start with [Getting Started](docs/play/getting-started.md).**
+> It covers client setup, the [TortoiseBotsManager](https://github.com/Sagiroth/TortoiseBotsManager) (`/tbm`) addon, and bringing your own account alts into your party.
+> Then go through the [feature table](docs/play/features.md) and turn on what you want. Each row says whether it's on by default and which flag enables it.
 
 ### 🐢 Vision
 
@@ -37,9 +39,9 @@ Detailed guides, class breakdowns, commands, and architecture rules live in the 
 
 | Guide / Reference | Description |
 | :--- | :--- |
-| [Documentation Start Page](docs/README.md) | Central switchboard, quick task finder, and audience directory |
+| **[Getting Started](docs/play/getting-started.md)** | **Start here:** client setup, `/tbm` addon, summoning alts, and first party setup |
 | [What Bots Can Do](docs/play/features.md) | Feature catalog, defaults, and configuration toggle flags |
-| [Getting Started](docs/play/getting-started.md) | Client setup, `/tbm` addon, summoning alts, and first party setup |
+| [Documentation Start Page](docs/README.md) | Central switchboard, quick task finder, and audience directory |
 | [Player Commands](docs/play/commands/README.md) | Complete `.bot` command reference, whisper syntax, and tactical intents |
 | [Class AI & Rotations](docs/classes/overview.md) | Rotations, specs, and Turtle WoW 1.18.1 custom abilities for all classes |
 | [Dungeon & Raid Tactics](docs/play/dungeons-and-raids.md) | Line-of-sight pullback pulls, CC discipline, and wipe recovery |

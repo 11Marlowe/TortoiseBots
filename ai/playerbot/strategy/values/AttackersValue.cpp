@@ -3,6 +3,8 @@
 #include "AttackersValue.h"
 #include "PossibleTargetsValue.h"
 #include "EnemyPlayerValue.h"
+#include "WorldPvpSeekChecks.h"
+#include "playerbot/policy/combat/AttackersAoeDensityPolicy.h"
 
 using namespace ai;
 using namespace MaNGOS;
@@ -130,25 +132,14 @@ std::list<ObjectGuid> AttackersValue::Calculate()
             // A copied target counts when it threatens us or anyone we fight for
             // (group, master) - the same rule a fresh scan applies. Validating
             // against ourselves only dropped every threat aimed at a groupmate,
-            // so grouped bots never engaged (#549).
-            std::list<ObjectGuid> distinctResult;
-            std::set<ObjectGuid> seen;
-
-            for (auto& guid : result)
-            {
-                if (!seen.insert(guid).second)
-                    continue;
-
-                target = ai->GetUnit(guid);
-                if (IsValidForGroup(target))
+            // so grouped bots never engaged (#549). The dedup/first-seen/getOne
+            // loop is the shared DistinctValidTargets policy rule.
+            return DistinctValidTargets(result,
+                [this](const ObjectGuid& guid)
                 {
-                    distinctResult.push_back(guid);
-                    if (getOne)
-                        break;
-                }
-            }
-
-            return distinctResult;
+                    return IsValidForGroup(ai->GetUnit(guid));
+                },
+                getOne);
         }
     }
 
@@ -418,10 +409,15 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
     Player* enemyPlayer = dynamic_cast<Player*>(target);
     if (enemyPlayer)
     {
-        // Don't consider enemy players if pvp strategy is not set
-        if (PlayerbotAIStorage::Instance().GetAI(playerToCheckAgainst) && !PlayerbotAIStorage::Instance().GetAI(playerToCheckAgainst)->HasStrategy("pvp", BotState::BOT_STATE_COMBAT))
+        // Don't consider enemy players if neither the battleground pvp
+        // strategy nor the open-world seek role is set.
+        if (PlayerbotAI* targetAi = PlayerbotAIStorage::Instance().GetAI(playerToCheckAgainst))
         {
-            return false;
+            if (!targetAi->HasStrategy("pvp", BotState::BOT_STATE_COMBAT) &&
+                !WorldPvpSeekChecks::IsSeeking(targetAi, playerToCheckAgainst))
+            {
+                return false;
+            }
         }
 
         // A masterless random bot that died to this named player recently does not

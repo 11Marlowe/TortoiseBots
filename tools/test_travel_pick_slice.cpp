@@ -10,7 +10,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_travel_pick_slice.cpp -o /tmp/test_travel_pick_slice
 //   /tmp/test_travel_pick_slice
 
-#include "../ai/playerbot/TravelPickSlicePolicy.h"
+#include "../ai/playerbot/policy/travel/TravelPickSlicePolicy.h"
 
 #include <chrono>
 #include <cstdio>

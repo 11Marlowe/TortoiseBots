@@ -9,7 +9,7 @@
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_ah_seller_teleport_policy.cpp -o /tmp/test_ah_seller_teleport_policy && /tmp/test_ah_seller_teleport_policy
 
-#include "../runtime/AhSellerTeleportPolicy.h"
+#include "../runtime/policy/ah/AhSellerTeleportPolicy.h"
 
 #include <cstdint>
 #include <iostream>

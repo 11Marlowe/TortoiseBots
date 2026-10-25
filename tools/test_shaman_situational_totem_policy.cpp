@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/shaman/ShamanSituationalTotemPolicy.h"
+#include "../ai/playerbot/policy/class/ShamanSituationalTotemPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

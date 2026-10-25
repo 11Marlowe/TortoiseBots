@@ -8,7 +8,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_starter_kit_policy.cpp -o /tmp/test_starter_kit
 //   /tmp/test_starter_kit
 
-#include "../runtime/StarterKitPolicy.h"
+#include "../runtime/policy/provision/StarterKitPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

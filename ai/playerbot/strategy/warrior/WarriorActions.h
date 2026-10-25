@@ -124,7 +124,7 @@ namespace ai
     MELEE_ACTION(CastSlamAction, "slam");
     BUFF_ACTION(CastBerserkerRageAction, "berserker rage");
     MELEE_ACTION(CastWhirlwindAction, "whirlwind");
-    MELEE_ACTION(CastPummelAction, "pummel");
+    MELEE_INTERRUPT_ACTION(CastPummelAction, "pummel");
     ENEMY_HEALER_ACTION(CastPummelOnEnemyHealerAction, "pummel");
     BUFF_ACTION(CastRecklessnessAction, "recklessness");
 
@@ -137,26 +137,20 @@ namespace ai
     MELEE_ACTION_U(CastTauntAction, "taunt", GetTarget() && GetTarget()->GetVictim() && GetTarget()->GetVictim() != bot);
     SNARE_ACTION(CastTauntOnSnareTargetAction, "taunt");
 
-    // Taunt the mob standing on a non-tank party member ("attacker of
-    // non-tank"). No reach step: the value only returns mobs within Taunt's
-    // range and sight, so the tank never leaves its spot (a run leader's
-    // "stay" or guard point). Taunt does no damage and leaves the tank's
-    // current target alone.
-    class CastTauntOnAttackerAction : public CastSpellAction
+    // Taunt the mob picked by "attacker of non-tank target"; the cast reads
+    // its real range from the spell and the reach prerequisite walks the
+    // tank in.
+    class CastTauntOnAttackerAction : public CastSnareSpellAction
     {
     public:
-        CastTauntOnAttackerAction(PlayerbotAI* ai) : CastSpellAction(ai, "taunt") {}
-        virtual std::string getName() override { return "taunt on attacker"; }
-        virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
-        virtual bool Execute(Event& event) override;
+        CastTauntOnAttackerAction(PlayerbotAI* ai) : CastSnareSpellAction(ai, "taunt") {}
 
     protected:
-        virtual std::string GetTargetName() override { return "attacker of non-tank"; }
-        virtual std::string GetTargetQualifier() override { return GetSpellName(); }
-        virtual std::string GetReachActionName() override { return ""; }
+        virtual std::string GetTargetName() override { return "attacker of non-tank target"; }
+        virtual std::string getName() override { return "taunt on attacker"; }
     };
     BUFF_ACTION(CastBloodrageAction, "bloodrage");
-    MELEE_ACTION(CastShieldBashAction, "shield bash");
+    MELEE_INTERRUPT_ACTION(CastShieldBashAction, "shield bash");
     ENEMY_HEALER_ACTION(CastShieldBashOnEnemyHealerAction, "shield bash");
     MELEE_ACTION(CastRevengeAction, "revenge");
     BUFF_ACTION(CastShieldBlockAction, "shield block");

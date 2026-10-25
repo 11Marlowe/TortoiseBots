@@ -7,7 +7,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_pet_taunt_policy.cpp -o /tmp/test_pet_taunt
 //   /tmp/test_pet_taunt
 
-#include "../runtime/PetTauntPolicy.h"
+#include "../runtime/policy/pet/PetTauntPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>

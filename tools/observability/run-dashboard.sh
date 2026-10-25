@@ -8,6 +8,8 @@
 #
 # Optional: TBDASH_AGENT_MAPS_DIR=DIR (the folder `turtle-agent map` writes its run maps into) enables the
 # read-only Agent maps tab; unset, the tab stays hidden. It is passed to the daemon as is.
+# Optional: HTTP_HOST=0.0.0.0 serves the dashboard on all interfaces (LAN); the default 127.0.0.1 keeps it local only.
+# Optional: SESSION_SECRET keeps dashboard sessions across a restart; unset, the daemon generates a random key at startup.
 #
 # mangosd.conf discovery: --mangosd-conf, else MANGOSD_CONF env, else
 # ./mangosd.conf | ./etc/mangosd.conf | <module>/../../../etc/mangosd.conf
@@ -38,6 +40,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$HERE/tortoise-observability"
 HTTP_PORT="${HTTP_PORT:-8095}"
 UDP_PORT="${UDP_PORT:-9195}"
+# What the daemon binds (127.0.0.1 = local only, its default; 0.0.0.0 = all
+# interfaces for LAN, put a firewall or reverse proxy in front). A health
+# probe against a specific bind address must target that address.
+HTTP_HOST="${HTTP_HOST:-127.0.0.1}"
+case "$HTTP_HOST" in
+  ""|"127.0.0.1"|localhost|"0.0.0.0") PROBE_HOST="127.0.0.1" ;;
+  *) PROBE_HOST="$HTTP_HOST" ;;
+esac
 
 find_conf() {
   if [[ -n "$CONF_OVERRIDE" ]]; then echo "$CONF_OVERRIDE"; return; fi
@@ -95,7 +105,7 @@ main() {
   # Probe first: never replace the binary underneath a running instance
   # (on Linux the old process would keep running; on Windows the .exe is
   # locked). Updating requires stopping the dashboard first.
-  if curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:${HTTP_PORT}/metrics" 2>/dev/null; then
+  if curl -fsS -o /dev/null --max-time 2 "http://${PROBE_HOST}:${HTTP_PORT}/metrics" 2>/dev/null; then
     echo "dashboard already running at http://localhost:${HTTP_PORT}/dashboard"
     echo "stop it first to update the binary."
     exit 0
@@ -151,6 +161,7 @@ main() {
   export DB_LOGIN="$LOGIN_DB" DB_CHAR="$CHAR_DB" DB_WORLD="$WORLD_DB"
   export HTTP_PORT UDP_PORT
   export UDP_HOST="127.0.0.1"
+  export HTTP_HOST
   [[ -n "$DBC_DIR" ]] && export DBC_DIR
   export ICON_CACHE_DIR="${ICON_CACHE_DIR:-$HERE/.icon-cache}"
   mkdir -p "$ICON_CACHE_DIR"
@@ -162,7 +173,7 @@ main() {
   echo "starting dashboard (logs: $HERE/dashboard.log) ..."
   nohup "$BIN" > "$HERE/dashboard.log" 2>&1 &
   sleep 2
-  if curl -fsS -o /dev/null --max-time 3 "http://127.0.0.1:${HTTP_PORT}/metrics"; then
+  if curl -fsS -o /dev/null --max-time 3 "http://${PROBE_HOST}:${HTTP_PORT}/metrics"; then
     echo "dashboard up at http://localhost:${HTTP_PORT}/dashboard"
   else
     echo "start failed; see $HERE/dashboard.log" >&2

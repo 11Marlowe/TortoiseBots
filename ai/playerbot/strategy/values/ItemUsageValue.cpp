@@ -2,17 +2,17 @@
 #include "playerbot/playerbot.h"
 #include "ItemUsageValue.h"
 #include "CraftValues.h"
-#include "playerbot/EquipThresholdPolicy.h"
+#include "playerbot/policy/gear/EquipThresholdPolicy.h"
 #include "MountValues.h"
-#include "AmmoCheatPolicy.h"
+#include "runtime/policy/provision/AmmoCheatPolicy.h"
 #include "BudgetValues.h"
 #include "GuildValues.h"
 
 #include "playerbot/RandomItemMgr.h"
-#include "playerbot/AiFactory.h"
 #include "playerbot/ServerFacade.h"
-#include "playerbot/QuestLogPolicy.h"
-#include "../../../../runtime/ClassConsumablePolicy.h"
+#include "playerbot/policy/quest/QuestLogPolicy.h"
+#include "../../../../runtime/policy/provision/ClassConsumablePolicy.h"
+#include "../../../../runtime/policy/ah/AhReadModelPolicy.h"
 
 using namespace ai;
 
@@ -701,15 +701,17 @@ uint8 ItemUsageValue::GetPreferredEquipSlot(Player* bot, Item* item, ItemPrototy
 
 // A shield is only worth keeping for a bot that can still end up in a
 // one-hander-and-shield setup: a spec that lists the shield as its off-hand
-// (protection warrior/paladin, holy paladin) or the tank role the roster gave
-// the bot. Two-hander specs (arms, fury, retribution) never get back to it, so
-// for them a shield stays ordinary loot.
+// (protection warrior/paladin, holy paladin, shaman tank) or a bot the AI
+// reads as a tank (forced role, tank strategy or tank gear/talents - the
+// strategy-tanked shaman has no talent-role bit). Two-hander specs (arms,
+// fury, retribution) never get back to it, so for them a shield stays
+// ordinary loot.
 static bool BotCanReturnToShield(Player* bot, uint32 specId, ItemPrototype const* proto)
 {
     if (sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, proto, bot->CanDualWield()))
         return true;
 
-    return (AiFactory::GetPlayerRoles(bot) & BOT_ROLE_TANK) != 0;
+    return PlayerbotAI::IsTank(bot);
 }
 
 // True when nothing else the bot carries is a better shield: the off-hand and
@@ -1869,25 +1871,13 @@ uint32 ItemUsageValue::GetAHMedianBuyoutPricePerItem(ItemPrototype const* proto,
 {
     if (sPlayerbotAIConfig.shouldQueryAHListingsOutsideOfAH)
     {
-        std::vector<float> prices;
-
         std::vector<AuctionEntry> listings = sRandomBotFacade.GetAhPrices(proto->ItemId, bot);
-        for (auto& auction : listings)
-        {
-            uint32 itemCount = GetAuctionItemCount(auction);
-            if (itemCount)
-                prices.push_back((float)auction.buyout / (float)itemCount);
-        }
-
-        if (prices.empty())
-            return 0;
-
-        size_t n = prices.size() / 2;
-        std::nth_element(prices.begin(), prices.begin() + n, prices.end());
-        float median = prices[n];
-        if (median > 0 && median < 1)
-            return 1;
-        return static_cast<uint32>(median);
+        return AhMedianBuyoutPricePerItem(listings,
+            [](AuctionEntry const& auction) -> float
+            {
+                uint32 itemCount = GetAuctionItemCount(auction);
+                return itemCount ? (float)auction.buyout / (float)itemCount : 0.0f;
+            });
     }
 
     return 0;
@@ -1899,54 +1889,17 @@ uint32 ItemUsageValue::GetAHListingLowestBuyoutPricePerItem(ItemPrototype const*
     {
         // M9: track the minimum by PER-UNIT price and return it. The old code
         // compared listing totals but the function promises per-item.
-        // REVIEW-FIX: keep a positive sentinel — a found listing with a
+        // REVIEW-FIX: keep a positive sentinel - a found listing with a
         // sub-copper unit price still returns 1, never the 0 of "no listing",
         // so AreCurrentAHListingsTooCheap and resale paths can tell the two
         // apart exactly as before (old code returned the positive total).
-        float minPrice = 0;
-        bool found = false;
-
         std::vector<AuctionEntry> listings = sRandomBotFacade.GetAhPrices(proto->ItemId, bot);
-        for (auto& auction : listings)
-        {
-            uint32 itemCount = GetAuctionItemCount(auction);
-            if (itemCount)
+        return AhLowestBuyoutPricePerItem(listings,
+            [](AuctionEntry const& auction) -> float
             {
-                float unitPrice = (float)auction.buyout / (float)itemCount;
-                if (!found || unitPrice < minPrice)
-                {
-                    minPrice = unitPrice;
-                    found = true;
-                }
-            }
-        }
-
-        if (!found)
-            return 0;
-        if (minPrice > 0 && minPrice < 1)
-            return 1;
-        return (uint32)minPrice;
-        /*
-        auto query = CharacterDatabase.PQuery(
-            "SELECT buyoutprice / item_count"
-            " FROM auction"
-            " WHERE item_template = '%u'"
-            " ORDER BY buyoutprice ASC"
-            " LIMIT 1",
-            proto->ItemId
-        );
-        if (query)
-        {
-            do
-            {
-                Field* fields = query->Fetch();
-
-                uint32 lowestBuyoutPrice = (fields[0].GetUInt32());
-
-                return lowestBuyoutPrice;
-            } while (query->NextRow());
-        }
-        */
+                uint32 itemCount = GetAuctionItemCount(auction);
+                return itemCount ? (float)auction.buyout / (float)itemCount : 0.0f;
+            });
     }
 
     return 0;
@@ -2297,23 +2250,9 @@ uint32 ItemUsageValue::DesiredPricePerItem(Player* bot, const ItemPrototype* pro
             maxAhPrice = minAhPrice * 1.5f;
     }
 
-    uint32 desiredPricePerItem = minAhPrice + static_cast<uint32>((maxAhPrice - minAhPrice) * priceModifier / 100);
-
-    if (lowestBuyoutItemPricePerItem > 0 && lowestPrice.owner != bot->GetGUIDLow())
-    {
-        uint32 undercutByMoney = std::max(static_cast<uint32>(1), static_cast<uint32>(lowestBuyoutItemPricePerItem * frand(0.0f, 0.1f)));
-
-        if (undercutByMoney < lowestBuyoutItemPricePerItem)
-        {
-            desiredPricePerItem = lowestBuyoutItemPricePerItem - undercutByMoney;
-        }
-        else
-        {
-            desiredPricePerItem = lowestBuyoutItemPricePerItem - 1;
-        }
-    }
-
-    desiredPricePerItem = std::max(minAhPrice, desiredPricePerItem);
+    uint32 desiredPricePerItem = AhDesiredPricePerItem(minAhPrice, maxAhPrice,
+        lowestBuyoutItemPricePerItem, lowestPrice.owner != bot->GetGUIDLow(), priceModifier,
+        [] { return frand(0.0f, 0.1f); });
 
     return desiredPricePerItem;
 }

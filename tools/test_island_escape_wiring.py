@@ -3,7 +3,7 @@
 The tank stood 13 minutes on a 3 x 3 yd navmesh island while the walk back
 passed every point. The pure rules (the island reading and its second sign,
 the ring spot, the straight line's check) are tested in
-tools/test_dungeon_run_policy.cpp; this pins where commands/BotCommands.cpp
+tools/test_dungeon_run_policy.cpp; this pins where commands/Commander.cpp
 calls them, so the glue cannot drift away silently:
 - the run's "escape ..." order never goes out as a `cmd`: IssueRunOrder hands
   it to RunIslandEscape, whose sscanf formats match the order the policy writes;
@@ -20,7 +20,7 @@ import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDS = (ROOT / "commands/Commander.cpp").read_text()
 POLICY = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
 
 

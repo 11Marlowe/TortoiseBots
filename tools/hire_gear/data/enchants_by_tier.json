@@ -17048,6 +17048,610 @@
      "pick": "role-fallback"
     }
    }
+  },
+  "shaman_tank": {
+   "1": {
+    "0": {
+     "spell": 15389,
+     "name": "Lesser Arcanum of Constitution (+100 HP)",
+     "source": "DM Lorekeeper Lydros q4481",
+     "pick": "KB mitigation: head 100 HP"
+    },
+    "1": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "2": {
+     "spell": 22599,
+     "name": "Chromatic Mantle of the Dawn (+5 all res)",
+     "source": "AD vendor (Exalted, 25 Valor)",
+     "pick": "KB mitigation: shoulders (ZG Fortitude from t2)"
+    },
+    "4": {
+     "spell": 20026,
+     "name": "Enchant Chest: Major Health (+100 HP)",
+     "source": "vendor Qia",
+     "pick": "KB mitigation: chest 100 HP"
+    },
+    "5": {
+     "spell": 57179,
+     "name": "Arcanite Belt Buckle (+5 def)",
+     "source": "blacksmithing crafted",
+     "pick": "KB mitigation: belt 5 Defense"
+    },
+    "6": {
+     "spell": 15389,
+     "name": "Lesser Arcanum of Constitution (+100 HP)",
+     "source": "DM Lorekeeper Lydros q4481",
+     "pick": "KB mitigation: legs 100 HP"
+    },
+    "7": {
+     "spell": 13890,
+     "name": "Enchant Boots: Minor Speed (run speed)",
+     "source": "world formula",
+     "pick": "KB mitigation: boots (Stamina from t2)"
+    },
+    "8": {
+     "spell": 20011,
+     "name": "Enchant Bracer: Superior Stamina (+9 stam)",
+     "source": "world drop formula",
+     "pick": "KB mitigation: wrists Stamina"
+    },
+    "9": {
+     "spell": 20012,
+     "name": "Enchant Gloves: Greater Agility (+7 agi)",
+     "source": "Legashi Rogue drop",
+     "pick": "KB mitigation: gloves (Superior Agility from t6)"
+    },
+    "10": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "11": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "14": {
+     "spell": 20015,
+     "name": "Enchant Cloak: Superior Defense (+70 armor)",
+     "source": "vendors Lorelae/Argnuhl",
+     "pick": "KB mitigation: back (1% dodge from t2)"
+    },
+    "15": {
+     "spell": 20034,
+     "name": "Crusader (str proc)",
+     "source": "Scarlet Spellbinder EPL drop",
+     "pick": "KB mitigation: weapon Crusader"
+    },
+    "16": {
+     "spell": 20017,
+     "name": "Enchant Shield: Greater Stamina (+7 stam)",
+     "source": "shield-only",
+     "pick": "KB mitigation: shield Stamina"
+    }
+   },
+   "2": {
+    "0": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: head/legs ZG"
+    },
+    "1": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "2": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: shoulders ZG Presence of Might"
+    },
+    "4": {
+     "spell": 20026,
+     "name": "Enchant Chest: Major Health (+100 HP)",
+     "source": "vendor Qia",
+     "pick": "KB mitigation: chest 100 HP"
+    },
+    "5": {
+     "spell": 57179,
+     "name": "Arcanite Belt Buckle (+5 def)",
+     "source": "blacksmithing crafted",
+     "pick": "KB mitigation: belt 5 Defense"
+    },
+    "6": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: legs ZG"
+    },
+    "7": {
+     "spell": 57127,
+     "name": "Enchant Boots: Superior Stamina (+15 stam)",
+     "source": "Lower Kara trio drop",
+     "pick": "KB mitigation: boots Stamina"
+    },
+    "8": {
+     "spell": 20011,
+     "name": "Enchant Bracer: Superior Stamina (+9 stam)",
+     "source": "world drop formula",
+     "pick": "KB mitigation: wrists Stamina"
+    },
+    "9": {
+     "spell": 20012,
+     "name": "Enchant Gloves: Greater Agility (+7 agi)",
+     "source": "Legashi Rogue drop",
+     "pick": "KB mitigation: gloves"
+    },
+    "10": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "11": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "14": {
+     "spell": 25086,
+     "name": "Enchant Cloak: Dodge (+1% dodge)",
+     "source": "AQ family drop",
+     "pick": "KB mitigation: back 1% dodge"
+    },
+    "15": {
+     "spell": 20034,
+     "name": "Crusader (str proc)",
+     "source": "Scarlet Spellbinder EPL drop",
+     "pick": "KB mitigation: weapon Crusader"
+    },
+    "16": {
+     "spell": 20017,
+     "name": "Enchant Shield: Greater Stamina (+7 stam)",
+     "source": "shield-only",
+     "pick": "KB mitigation: shield Stamina"
+    }
+   },
+   "3": {
+    "0": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: head/legs ZG"
+    },
+    "1": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "2": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: shoulders ZG Presence of Might"
+    },
+    "4": {
+     "spell": 20026,
+     "name": "Enchant Chest: Major Health (+100 HP)",
+     "source": "vendor Qia",
+     "pick": "KB mitigation: chest 100 HP"
+    },
+    "5": {
+     "spell": 57179,
+     "name": "Arcanite Belt Buckle (+5 def)",
+     "source": "blacksmithing crafted",
+     "pick": "KB mitigation: belt 5 Defense"
+    },
+    "6": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: legs ZG"
+    },
+    "7": {
+     "spell": 57127,
+     "name": "Enchant Boots: Superior Stamina (+15 stam)",
+     "source": "Lower Kara trio drop",
+     "pick": "KB mitigation: boots Stamina"
+    },
+    "8": {
+     "spell": 20011,
+     "name": "Enchant Bracer: Superior Stamina (+9 stam)",
+     "source": "world drop formula",
+     "pick": "KB mitigation: wrists Stamina"
+    },
+    "9": {
+     "spell": 20012,
+     "name": "Enchant Gloves: Greater Agility (+7 agi)",
+     "source": "Legashi Rogue drop",
+     "pick": "KB mitigation: gloves"
+    },
+    "10": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "11": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "14": {
+     "spell": 25086,
+     "name": "Enchant Cloak: Dodge (+1% dodge)",
+     "source": "AQ family drop",
+     "pick": "KB mitigation: back 1% dodge"
+    },
+    "15": {
+     "spell": 20034,
+     "name": "Crusader (str proc)",
+     "source": "Scarlet Spellbinder EPL drop",
+     "pick": "KB mitigation: weapon Crusader"
+    },
+    "16": {
+     "spell": 20017,
+     "name": "Enchant Shield: Greater Stamina (+7 stam)",
+     "source": "shield-only",
+     "pick": "KB mitigation: shield Stamina"
+    }
+   },
+   "4": {
+    "0": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: head/legs ZG"
+    },
+    "1": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "2": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: shoulders ZG Presence of Might"
+    },
+    "4": {
+     "spell": 20026,
+     "name": "Enchant Chest: Major Health (+100 HP)",
+     "source": "vendor Qia",
+     "pick": "KB mitigation: chest 100 HP"
+    },
+    "5": {
+     "spell": 57179,
+     "name": "Arcanite Belt Buckle (+5 def)",
+     "source": "blacksmithing crafted",
+     "pick": "KB mitigation: belt 5 Defense"
+    },
+    "6": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: legs ZG"
+    },
+    "7": {
+     "spell": 57127,
+     "name": "Enchant Boots: Superior Stamina (+15 stam)",
+     "source": "Lower Kara trio drop",
+     "pick": "KB mitigation: boots Stamina"
+    },
+    "8": {
+     "spell": 20011,
+     "name": "Enchant Bracer: Superior Stamina (+9 stam)",
+     "source": "world drop formula",
+     "pick": "KB mitigation: wrists Stamina"
+    },
+    "9": {
+     "spell": 20012,
+     "name": "Enchant Gloves: Greater Agility (+7 agi)",
+     "source": "Legashi Rogue drop",
+     "pick": "KB mitigation: gloves"
+    },
+    "10": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "11": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "14": {
+     "spell": 25086,
+     "name": "Enchant Cloak: Dodge (+1% dodge)",
+     "source": "AQ family drop",
+     "pick": "KB mitigation: back 1% dodge"
+    },
+    "15": {
+     "spell": 20034,
+     "name": "Crusader (str proc)",
+     "source": "Scarlet Spellbinder EPL drop",
+     "pick": "KB mitigation: weapon Crusader"
+    },
+    "16": {
+     "spell": 20017,
+     "name": "Enchant Shield: Greater Stamina (+7 stam)",
+     "source": "shield-only",
+     "pick": "KB mitigation: shield Stamina"
+    }
+   },
+   "5": {
+    "0": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: head/legs ZG"
+    },
+    "1": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "2": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: shoulders ZG Presence of Might"
+    },
+    "4": {
+     "spell": 20026,
+     "name": "Enchant Chest: Major Health (+100 HP)",
+     "source": "vendor Qia",
+     "pick": "KB mitigation: chest 100 HP"
+    },
+    "5": {
+     "spell": 57179,
+     "name": "Arcanite Belt Buckle (+5 def)",
+     "source": "blacksmithing crafted",
+     "pick": "KB mitigation: belt 5 Defense"
+    },
+    "6": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: legs ZG"
+    },
+    "7": {
+     "spell": 57127,
+     "name": "Enchant Boots: Superior Stamina (+15 stam)",
+     "source": "Lower Kara trio drop",
+     "pick": "KB mitigation: boots Stamina"
+    },
+    "8": {
+     "spell": 20011,
+     "name": "Enchant Bracer: Superior Stamina (+9 stam)",
+     "source": "world drop formula",
+     "pick": "KB mitigation: wrists Stamina"
+    },
+    "9": {
+     "spell": 20012,
+     "name": "Enchant Gloves: Greater Agility (+7 agi)",
+     "source": "Legashi Rogue drop",
+     "pick": "KB mitigation: gloves"
+    },
+    "10": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "11": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "14": {
+     "spell": 25086,
+     "name": "Enchant Cloak: Dodge (+1% dodge)",
+     "source": "AQ family drop",
+     "pick": "KB mitigation: back 1% dodge"
+    },
+    "15": {
+     "spell": 20034,
+     "name": "Crusader (str proc)",
+     "source": "Scarlet Spellbinder EPL drop",
+     "pick": "KB mitigation: weapon Crusader"
+    },
+    "16": {
+     "spell": 20017,
+     "name": "Enchant Shield: Greater Stamina (+7 stam)",
+     "source": "shield-only",
+     "pick": "KB mitigation: shield Stamina"
+    }
+   },
+   "6": {
+    "0": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: head/legs ZG"
+    },
+    "1": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "2": {
+     "spell": 29480,
+     "name": "Fortitude of the Scourge (+16 stam/+100 armor)",
+     "source": "Sapphiron drop, Naxx",
+     "pick": "KB mitigation: shoulders Fortitude of the Scourge"
+    },
+    "4": {
+     "spell": 20025,
+     "name": "Enchant Chest: Greater Stats (+4 all)",
+     "source": "world drop formula",
+     "pick": "KB mitigation: chest Greater Stats (Naxx)"
+    },
+    "5": {
+     "spell": 57179,
+     "name": "Arcanite Belt Buckle (+5 def)",
+     "source": "blacksmithing crafted",
+     "pick": "KB mitigation: belt 5 Defense"
+    },
+    "6": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: legs ZG"
+    },
+    "7": {
+     "spell": 57127,
+     "name": "Enchant Boots: Superior Stamina (+15 stam)",
+     "source": "Lower Kara trio drop",
+     "pick": "KB mitigation: boots Stamina"
+    },
+    "8": {
+     "spell": 20011,
+     "name": "Enchant Bracer: Superior Stamina (+9 stam)",
+     "source": "world drop formula",
+     "pick": "KB mitigation: wrists Stamina"
+    },
+    "9": {
+     "spell": 25080,
+     "name": "Enchant Gloves: Superior Agility (+15 agi)",
+     "source": "AQ family incl. Kurinnaxx",
+     "pick": "KB mitigation: gloves Superior Agility"
+    },
+    "10": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "11": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "14": {
+     "spell": 25086,
+     "name": "Enchant Cloak: Dodge (+1% dodge)",
+     "source": "AQ family drop",
+     "pick": "KB mitigation: back 1% dodge"
+    },
+    "15": {
+     "spell": 20034,
+     "name": "Crusader (str proc)",
+     "source": "Scarlet Spellbinder EPL drop",
+     "pick": "KB mitigation: weapon Crusader"
+    },
+    "16": {
+     "spell": 20017,
+     "name": "Enchant Shield: Greater Stamina (+7 stam)",
+     "source": "shield-only",
+     "pick": "KB mitigation: shield Stamina"
+    }
+   },
+   "7": {
+    "0": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: head/legs ZG"
+    },
+    "1": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "2": {
+     "spell": 29480,
+     "name": "Fortitude of the Scourge (+16 stam/+100 armor)",
+     "source": "Sapphiron drop, Naxx",
+     "pick": "KB mitigation: shoulders Fortitude of the Scourge"
+    },
+    "4": {
+     "spell": 20025,
+     "name": "Enchant Chest: Greater Stats (+4 all)",
+     "source": "world drop formula",
+     "pick": "KB mitigation: chest Greater Stats (Naxx)"
+    },
+    "5": {
+     "spell": 57179,
+     "name": "Arcanite Belt Buckle (+5 def)",
+     "source": "blacksmithing crafted",
+     "pick": "KB mitigation: belt 5 Defense"
+    },
+    "6": {
+     "spell": 24149,
+     "name": "Presence of Might (+7 def/+10 stam/+15 block)",
+     "source": "ZG quest 8184 Zanza (Friendly)",
+     "pick": "KB mitigation: legs ZG"
+    },
+    "7": {
+     "spell": 57127,
+     "name": "Enchant Boots: Superior Stamina (+15 stam)",
+     "source": "Lower Kara trio drop",
+     "pick": "KB mitigation: boots Stamina"
+    },
+    "8": {
+     "spell": 20011,
+     "name": "Enchant Bracer: Superior Stamina (+9 stam)",
+     "source": "world drop formula",
+     "pick": "KB mitigation: wrists Stamina"
+    },
+    "9": {
+     "spell": 25080,
+     "name": "Enchant Gloves: Superior Agility (+15 agi)",
+     "source": "AQ family incl. Kurinnaxx",
+     "pick": "KB mitigation: gloves Superior Agility"
+    },
+    "10": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "11": {
+     "spell": 51045,
+     "name": "Stunning Imperial Gemstone (+3 all stats)",
+     "source": "Turtle custom (vendor TBD)",
+     "pick": "gemstone"
+    },
+    "14": {
+     "spell": 25086,
+     "name": "Enchant Cloak: Dodge (+1% dodge)",
+     "source": "AQ family drop",
+     "pick": "KB mitigation: back 1% dodge"
+    },
+    "15": {
+     "spell": 20034,
+     "name": "Crusader (str proc)",
+     "source": "Scarlet Spellbinder EPL drop",
+     "pick": "KB mitigation: weapon Crusader"
+    },
+    "16": {
+     "spell": 20017,
+     "name": "Enchant Shield: Greater Stamina (+7 stam)",
+     "source": "shield-only",
+     "pick": "KB mitigation: shield Stamina"
+    }
+   }
   }
  }
 }

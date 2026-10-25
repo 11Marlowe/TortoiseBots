@@ -1,7 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "ShamanActions.h"
-#include "ShamanImbuePolicy.h"
+#include "playerbot/policy/class/ShamanImbuePolicy.h"
 #include "playerbot/AiFactory.h"
 
 using namespace ai;
@@ -13,9 +13,12 @@ bool CastShamanWeaponUpkeepAction::Execute(Event& event)
     // bot's talent tab (elemental 0 / enhancement 1 / restoration 2, low
     // levels default to enhancement); only enhancement takes windfury head.
     bool const enhancement = AiFactory::GetPlayerSpecTab(bot) == SHAMAN_TAB_ENHANCEMENT;
+    // Tank shamans talent enhancement but fight on Rockbiter; IsTank is
+    // true for forced-role and tank-strategy bots (ShamanTankPolicy.h).
     std::string const best = BestKnownShamanImbue(enhancement,
         ai->HasSpell("windfury weapon"), ai->HasSpell("flametongue weapon"),
-        ai->HasSpell("frostbrand weapon"), ai->HasSpell("rockbiter weapon"));
+        ai->HasSpell("frostbrand weapon"), ai->HasSpell("rockbiter weapon"),
+        ai->IsTank(bot));
 
     if (best.empty())
         return false;

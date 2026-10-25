@@ -69,35 +69,6 @@ namespace ai
         return HunterSwarmed(attackersOnHunter) && targetOnHunter && inMeleeReach;
     }
 
-    // Multi-Shot is an area shot (audit F6: its share of the hunter's combat
-    // frames was the same on one mob, 7.0 %, as on three or more, 7.7 %). Only
-    // worth the shot when this many usable targets (alive, not under a
-    // breakable CC; the primary target counts) stand within its radius.
-    inline constexpr uint32_t kMultiShotMinTargets = 2;
-    inline constexpr bool MultiShotWorthIt(uint32_t usableTargets)
-    {
-        return usableTargets >= kMultiShotMinTargets;
-    }
-
-    // Hunter's Mark with a living tank in the fight goes only on a mob the tank
-    // holds (or that nobody holds yet, the opening mark). The r7 hunter re-cast
-    // it on every new target while three mobs were on her.
-    enum class HuntersMarkHolder { Nobody, Tank, Hunter, Other };
-    // Who holds the mob: the hunter, a living tank of the group (the main tank
-    // or an off-tank, PlayerbotAI::IsTank on the victim), nobody, or someone
-    // else (a healer, a pet).
-    inline constexpr HuntersMarkHolder ClassifyHuntersMarkHolder(bool hasVictim, bool victimIsBot, bool victimIsLivingTank)
-    {
-        return !hasVictim ? HuntersMarkHolder::Nobody
-            : victimIsBot ? HuntersMarkHolder::Hunter
-            : victimIsLivingTank ? HuntersMarkHolder::Tank
-            : HuntersMarkHolder::Other;
-    }
-    inline constexpr bool HuntersMarkAllowed(bool tankInFight, HuntersMarkHolder holder)
-    {
-        return !tankInFight || holder == HuntersMarkHolder::Tank || holder == HuntersMarkHolder::Nobody;
-    }
-
     // Glued inside the shot's dead zone: the donor's own melee edge, and the
     // same band the GenericHunterStrategy step-back ("enemy too close for
     // auto shot" -> disengage/flee) uses, so the switch and the step-back

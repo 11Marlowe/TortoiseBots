@@ -147,6 +147,7 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "DISCOVERY")
     "${TORTOISEBOTS_ROOT}/host/BotChatAdapter.cpp"
     "${TORTOISEBOTS_ROOT}/host/BotAddonAdapter.cpp"
     "${TORTOISEBOTS_ROOT}/host/BotPacketAdapter.cpp"
+    "${TORTOISEBOTS_ROOT}/host/RaidBossDiagnostics.cpp"
     "${TORTOISEBOTS_ROOT}/host/BotPlayerAdapter.cpp"
     "${TORTOISEBOTS_ROOT}/host/LftFillAdapter.cpp"
     "${TORTOISEBOTS_ROOT}/host/HireRecruiterScript.cpp"
@@ -184,6 +185,17 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "DISCOVERY")
     "${TORTOISEBOTS_ROOT}/behavior/Movement.cpp"
     "${TORTOISEBOTS_ROOT}/behavior/PlayerConvenience.cpp"
     "${TORTOISEBOTS_ROOT}/commands/BotCommands.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/CommandShared.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/Info.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/Hire.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/Upkeep.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/Inventory.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/Party.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/Totem.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/Action.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/Commander.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/Pool.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/Ah.cpp"
     "${TORTOISEBOTS_ROOT}/commands/BotCommandContext.cpp")
 
   # These are the module-owned runtime and mature AI foundations. The donor
@@ -192,6 +204,12 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "DISCOVERY")
   set(TORTOISEBOTS_AI_SRC
     "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIBase.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAI.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIActivity.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIChat.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIItems.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIPackets.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIQuests.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAISpells.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/PlayerbotAIConfig.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/AiFactory.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/ServerFacade.cpp"

@@ -1,7 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "LootRollAction.h"
-#include "playerbot/LootRollPolicy.h"
+#include "../../policy/loot/LootRollPolicy.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/strategy/values/LootValues.h"

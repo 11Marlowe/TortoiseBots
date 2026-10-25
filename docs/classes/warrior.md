@@ -34,7 +34,6 @@ Warriors serve as primary dungeon tanks or powerful melee DPS, managing dynamic 
 - **Mitigation & Taunts:**
   - Activates *Shield Wall* early at low health (20-50%) and holds *Last Stand* for critical health emergencies (<20%).
   - Taunts with *Taunt* immediately if any attacker peels onto non-tank party members.
-  - Until 2026-10-21 a mob that had reached the healer and stood on it was nobody's Taunt (the lose-aggro row read only the tank's own target, the snare row only a mob still running; 31 of 53 priest deaths in 33 dungeon runs had a mob on the priest, 8 saw a Taunt). Since then a tank in a group with Taunt castable now (Defensive Stance, off cooldown) Taunts a mob standing on a non-tank party member: the healer's first, then the lowest member's, then the nearest; only within Taunt's own range and sight (it never steps off its spot or changes its target, so it keeps a run leader's stay and guard orders), never a crowd-controlled, evading or held CC mark (bar the healer rule), an enemy player, a mob on a pet or another tank, a mob it already wins back by threat (110 % in melee reach, 130 % outside), or a mob it Taunted in the last 10 s. With three or more such mobs within 10 yd and its target in melee reach it casts *Challenging Shout* first.
   - Intervenes to intercept physical attacks aimed at focused group members.
 
 ### Arms & Fury (Melee DPS)
@@ -64,8 +63,8 @@ Warriors serve as primary dungeon tanks or powerful melee DPS, managing dynamic 
   - *Fury:* Uses *Pummel* (in Berserker Stance).
   - *Arms:* Uses *Pummel* first, falling back to *Shield Bash* without stance dancing.
   - Interrupts only fire on active cast bars or channels; delayed instants never trigger interrupts.
-- **Shouts:** Maintains *Battle Shout* on party members (skipping if an equal or stronger *Blessing of Might* is active). Protection maintains *Demoralizing Shout*. *Intimidating Shout* is restricted to open-world emergencies and never used in dungeons.
-- **Rage hygiene:** The *Disarm*, *Bloodrage* and *Battle Shout* rows were gated on 2026-10-21 after a trace audit found Protection tanks under 20 rage in 81 % of combat samples while these rows were tried, and failed as impossible, on almost every tick: *Disarm* now needs 20 rage, a ready spell and a target with a main-hand weapon, *Bloodrage* needs its cooldown to be over as well as low rage and medium health, and *Battle Shout* needs 10 rage (rules in `WarriorRagePolicy.h`).
+- **Shouts:** Maintains *Battle Shout* on party members (skipping if an equal or stronger *Blessing of Might* is active, or below 10 rage). Protection maintains *Demoralizing Shout*. *Intimidating Shout* is restricted to open-world emergencies and never used in dungeons.
+- **Rage gates:** *Disarm* is only cast on a target that carries a weapon and only with the 20 rage it costs; *Bloodrage* is held while its cooldown runs or the bot is too hurt to pay the health cost. Rows that cannot be cast are never tried, so low-rage ticks go to *Sunder Armor* and *Revenge* instead.
 - **Hold Ground Opt-In:** When [PoolMeleeHoldGround](../server/settings/performance.md#aiplayerbotpoolmeleeholdground) is enabled, pool warriors fight through low-health emergencies using *Shield Wall* and *Last Stand* rather than fleeing.
 
 ---

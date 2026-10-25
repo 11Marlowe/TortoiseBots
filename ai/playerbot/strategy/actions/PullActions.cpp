@@ -659,16 +659,41 @@ bool PullEndAction::Execute(Event& event)
         }
         else
         {
-            // The pull failed: nothing is engaged, so there is no fight to hand
-            // over. Drop every trace of the target the request stamped on the
+            // The pull failed: nothing was engaged by the request itself. When
+            // the tank is not fighting, that means there is no fight to hand
+            // over: drop every trace of the target the request stamped on the
             // bot. A live, hostile "attack target" is what CombatEndTrigger
             // waits on, so leaving it behind kept the tank inside the combat
             // engine - no fight, no follow - for good, and (in a dungeon) also
             // blocked every later "should pull". Clearing it lets the combat
             // state end and the tank go back to following the party.
-            context->GetValue<ObjectGuid>("attack target")->Reset();
-            SET_AI_VALUE(Unit*, "current target", nullptr);
-            bot->SetSelectionGuid(ObjectGuid());
+            //
+            // When the tank is already in a live fight (intercepted by the rest
+            // of the pack while the shot was in the air), the wipe would end a
+            // fight that is happening: drop only what still names the unengaged
+            // pull target - the combat engine re-picks an attacker on its own
+            // tick (mod-playerbots' pull end clears just the current target).
+            // The held party releases either way: the fight is now, not after
+            // a join window.
+            const bool fighting = !bot->GetAttackers().empty();
+            if (fighting)
+            {
+                if (pullTarget)
+                {
+                    if (AI_VALUE(Unit*, "current target") == pullTarget)
+                        SET_AI_VALUE(Unit*, "current target", nullptr);
+                    if (AI_VALUE(ObjectGuid, "attack target") == pullTarget->getObjectGuid())
+                        context->GetValue<ObjectGuid>("attack target")->Reset();
+                    if (bot->GetSelectionGuid() == pullTarget->getObjectGuid())
+                        bot->SetSelectionGuid(ObjectGuid());
+                }
+            }
+            else
+            {
+                context->GetValue<ObjectGuid>("attack target")->Reset();
+                SET_AI_VALUE(Unit*, "current target", nullptr);
+                bot->SetSelectionGuid(ObjectGuid());
+            }
 
             // Free the party now: the wait window they were given exists to
             // cover the pull that is coming, and it is not. They release

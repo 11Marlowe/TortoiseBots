@@ -18,6 +18,11 @@
 #include <unordered_map>
 #include <vector>
 
+// The read-model snapshot, faction scoping and appraisal rules under test
+// live in the shared policy header production calls into (issue #1180);
+// the mock types below only translate game state into plain inputs.
+#include "../runtime/policy/ah/AhReadModelPolicy.h"
+
 static int checks = 0;
 #define CHECK(cond) do { \
     ++checks; \
@@ -232,6 +237,9 @@ struct MockRandomBotFacade
 {
     std::unordered_map<uint32, std::vector<AuctionEntry>> ahMirror;
 
+// Read-model snapshot through the shared policy: keep the 64 cheapest
+// listings per item, replacing the dearest one only when the candidate is
+// strictly cheaper per item (production: RandomBotFacade::LoadAuctionPrices).
     void LoadAuctionPrices(const std::vector<MockAuctionHouseObject*>& houses)
     {
         ahMirror.clear();
@@ -253,31 +261,24 @@ struct MockRandomBotFacade
                 if (!item || !item->GetCount())
                     continue;
 
-                constexpr size_t kMaxAuctionsPerItem = 64;
                 auto& listings = ahMirror[entry->itemTemplate];
-                if (listings.size() < kMaxAuctionsPerItem)
+                if (listings.size() < ai::kMaxAuctionsPerItem)
                 {
                     listings.push_back(*entry);
                 }
                 else
                 {
                     float currentUnitPrice = float(entry->buyout) / float(item->GetCount());
-                    size_t maxIdx = 0;
-                    float maxUnitPrice = 0.0f;
-                    for (size_t idx = 0; idx < listings.size(); ++idx)
-                    {
-                        Item const* existingItem = sMockCore.GetAItem(listings[idx].itemGuidLow);
-                        uint32 existingCount = existingItem ? existingItem->GetCount() : 1;
-                        float existingUnitPrice = float(listings[idx].buyout) / float(existingCount);
-                        if (existingUnitPrice > maxUnitPrice)
+                    size_t replaceIdx = ai::AhListingReplaceIndex(listings, currentUnitPrice,
+                        [](AuctionEntry const& existing)
                         {
-                            maxUnitPrice = existingUnitPrice;
-                            maxIdx = idx;
-                        }
-                    }
-                    if (currentUnitPrice < maxUnitPrice)
+                            Item const* existingItem = sMockCore.GetAItem(existing.itemGuidLow);
+                            uint32 existingCount = existingItem ? existingItem->GetCount() : 1;
+                            return float(existing.buyout) / float(existingCount);
+                        });
+                    if (replaceIdx != ai::kAhNoListingIndex)
                     {
-                        listings[maxIdx] = *entry;
+                        listings[replaceIdx] = *entry;
                     }
                 }
             }
@@ -300,14 +301,8 @@ struct MockRandomBotFacade
 
         for (auto const& entry : it->second)
         {
-            if (sMockCore.twoSidedAuction)
-            {
-                result.push_back(entry);
-                continue;
-            }
-
             uint32 team = entry.auctionHouseEntry ? MockCore::GetAuctionHouseTeam(entry.auctionHouseEntry) : NEUTRAL_TEAM;
-            if (team == NEUTRAL_TEAM || team == houseFaction || houseFaction == NEUTRAL_TEAM)
+            if (ai::AhListingVisibleForFaction(sMockCore.twoSidedAuction, team, houseFaction))
             {
                 result.push_back(entry);
             }
@@ -324,57 +319,37 @@ struct MockRandomBotFacade
 
 static MockRandomBotFacade sFacade;
 
-// Appraisal functions
+// Appraisal functions through the shared policy (production:
+// ItemUsageValue::GetAHMedianBuyoutPricePerItem / GetAHListingLowestBuyoutPricePerItem)
 uint32 GetAuctionItemCount(AuctionEntry const& auction)
 {
     Item* item = sMockCore.GetAItem(auction.itemGuidLow);
     return item ? item->GetCount() : 0;
 }
 
+static float ListingUnitPrice(AuctionEntry const& auction)
+{
+    uint32 itemCount = GetAuctionItemCount(auction);
+    return itemCount ? (float)auction.buyout / (float)itemCount : 0.0f;
+}
+
 uint32 GetAHMedianBuyoutPricePerItem(ItemPrototype const* proto, MockPlayer const* bot = nullptr)
 {
-    std::vector<float> prices;
     std::vector<AuctionEntry> listings = sFacade.GetAhPrices(proto->ItemId, bot);
-    for (auto& auction : listings)
-    {
-        uint32 itemCount = GetAuctionItemCount(auction);
-        if (itemCount)
-            prices.push_back((float)auction.buyout / (float)itemCount);
-    }
-    if (prices.empty()) return 0;
-
-    size_t n = prices.size() / 2;
-    std::nth_element(prices.begin(), prices.begin() + n, prices.end());
-    float median = prices[n];
-    if (median > 0 && median < 1)
-        return 1;
-    return static_cast<uint32>(median);
+    return ai::AhMedianBuyoutPricePerItem(listings, ListingUnitPrice);
 }
 
 uint32 GetAHListingLowestBuyoutPricePerItem(ItemPrototype const* proto, MockPlayer const* bot = nullptr)
 {
-    float minPrice = 0;
-    bool found = false;
     std::vector<AuctionEntry> listings = sFacade.GetAhPrices(proto->ItemId, bot);
-    for (auto& auction : listings)
-    {
-        uint32 itemCount = GetAuctionItemCount(auction);
-        if (itemCount)
-        {
-            float unitPrice = (float)auction.buyout / (float)itemCount;
-            if (!found || unitPrice < minPrice)
-            {
-                minPrice = unitPrice;
-                found = true;
-            }
-        }
-    }
-    if (!found) return 0;
-    if (minPrice > 0 && minPrice < 1) return 1;
-    return (uint32)minPrice;
+    return ai::AhLowestBuyoutPricePerItem(listings, ListingUnitPrice);
 }
 
-uint32 DesiredPricePerItem(MockPlayer const* bot, ItemPrototype const* proto, uint32 count, uint32 priceModifier)
+// Desired sell price, production shape (ItemUsageValue::DesiredPricePerItem):
+// the AH price band arrives as configured min/max, the undercut fraction
+// stands in for frand(0, 0.1).
+uint32 DesiredPricePerItem(MockPlayer const* bot, ItemPrototype const* proto, uint32 count,
+    uint32 priceModifier, uint32 minAhPrice, uint32 maxAhPrice)
 {
     AuctionEntry lowestPrice;
     lowestPrice.Id = 0;
@@ -397,25 +372,9 @@ uint32 DesiredPricePerItem(MockPlayer const* bot, ItemPrototype const* proto, ui
     uint32 lowestBuyoutItemPricePerItem = lowestItemCount ?
         static_cast<uint32>(float(lowestPrice.buyout) / float(lowestItemCount)) : 0;
 
-    uint32 minAhPrice = lowestBuyoutItemPricePerItem;
-    uint32 maxAhPrice = GetAHMedianBuyoutPricePerItem(proto, bot) * 1.5f;
-    if (!maxAhPrice) maxAhPrice = minAhPrice ? minAhPrice * 1.5f : proto->SellPrice * 2;
-    if (!minAhPrice) minAhPrice = proto->SellPrice ? proto->SellPrice : 1;
-
-    uint32 desiredPrice = minAhPrice + static_cast<uint32>((maxAhPrice - minAhPrice) * priceModifier / 100);
-
-    if (lowestBuyoutItemPricePerItem > 0 && lowestPrice.owner != (bot ? bot->GetGUIDLow() : 0))
-    {
-        uint32 undercut = std::max<uint32>(1, uint32(lowestBuyoutItemPricePerItem * 0.05f));
-        if (undercut < lowestBuyoutItemPricePerItem)
-            desiredPrice = lowestBuyoutItemPricePerItem - undercut;
-        else
-            desiredPrice = lowestBuyoutItemPricePerItem - 1;
-    }
-
-    desiredPrice = std::max(minAhPrice, desiredPrice);
-    if (!desiredPrice) desiredPrice = 1;
-    return desiredPrice;
+    return ai::AhDesiredPricePerItem(minAhPrice, maxAhPrice, lowestBuyoutItemPricePerItem,
+        lowestPrice.owner != (bot ? bot->GetGUIDLow() : 0), priceModifier,
+        [] { return 0.05f; });
 }
 
 // Canonical trade operations mimicking core session handlers
@@ -654,9 +613,39 @@ int main()
         uint32 median = GetAHMedianBuyoutPricePerItem(&protoLinen, &allyBot);
         CHECK(median == 10);
 
-        // Desired price undercutting test:
-        uint32 desired = DesiredPricePerItem(&allyBot, &protoLinen, 5, 50);
-        CHECK(desired > 0);
+        // Desired price undercutting test (band min 10, max 50):
+        // lerp gives 10 + (50-10)*50/100 = 30, then the lowest competing
+        // listing (10 copper per item, owned by another) undercuts to 9,
+        // and the band floor clamps back up to 10.
+        uint32 desired = DesiredPricePerItem(&allyBot, &protoLinen, 5, 50, 10, 50);
+        CHECK(desired == 10);
+
+        // Neutral-house viewer: without cross-faction trade a teamless
+        // (guid 0 team) viewer still sees every listing.
+        {
+            MockPlayer neutralBot{ 31, 103, "NeutralBot", NEUTRAL_TEAM, 0, false, {} };
+            CHECK(sFacade.GetAhPrices(protoLinen.ItemId, &neutralBot).size() == 3);
+        }
+
+        // Snapshot bound: with more than kMaxAuctionsPerItem listings for one
+        // item, the dearest listing is replaced whenever a cheaper candidate
+        // arrives, and an equal-or-dearer candidate is dropped.
+        {
+            std::vector<AuctionEntry> overflow;
+            for (uint32 i = 0; i < ai::kMaxAuctionsPerItem; ++i)
+            {
+                AuctionEntry e;
+                e.Id = i + 1;
+                e.itemGuidLow = i + 1;
+                e.buyout = (i + 1) * 10; // unit prices 10 .. 640 copper (1 item each)
+                overflow.push_back(e);
+            }
+            float replacePrice = ai::AhListingReplaceIndex(overflow, 5.0f,
+                [](AuctionEntry const& e) { return float(e.buyout); });
+            CHECK(replacePrice == ai::kMaxAuctionsPerItem - 1);  // dearest (640) replaced by 5
+            CHECK(ai::AhListingReplaceIndex(overflow, 640.0f,
+                [](AuctionEntry const& e) { return float(e.buyout); }) == ai::kAhNoListingIndex); // dearer than all: dropped
+        }
 
         // Clean up test auctions
         houseAlliance.RemoveAuction(auc1); delete auc1; sMockCore.RemoveAItem(item1->guid); delete item1;

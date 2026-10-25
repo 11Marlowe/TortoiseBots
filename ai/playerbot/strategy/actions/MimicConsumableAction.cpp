@@ -2,8 +2,8 @@
 #include "MimicConsumableAction.h"
 #include "playerbot/ServerFacade.h"
 #include "../../../runtime/BotManager.h"
-#include "../../../runtime/ClassConsumablePolicy.h"
-#include "../../../runtime/MimicConsumablePolicy.h"
+#include "../../../runtime/policy/provision/ClassConsumablePolicy.h"
+#include "../../../runtime/policy/provision/MimicConsumablePolicy.h"
 
 using namespace ai;
 using namespace TortoiseBots;
@@ -324,8 +324,11 @@ bool MimicConsumableAction::Execute(Event& event)
         return false;
 
     PlayerTalentSpec spec = ai->GetTalentSpec();
+    // A shaman tank still reports SPEC_SHAMAN_ENHANCEMENT (tab 1): the
+    // policy's spec enum cannot express it, so thread the AI tank read
+    // through and the tank ladders (Titans, armor, STA) apply.
     MimicResolution resolution = ResolveMimicItem(masterItemId, bot->GetClass(),
-        static_cast<uint32_t>(spec), bot->GetLevel());
+        static_cast<uint32_t>(spec), bot->GetLevel(), ai->IsTank(bot));
 
     // Raid anti-spam: with more than kMaxWhisperBots bots on the same
     // master every bot still acts, but none whispers; the master sees one

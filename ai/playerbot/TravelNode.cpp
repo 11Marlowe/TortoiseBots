@@ -1,6 +1,6 @@
 #include "TravelNode.h"
 #include "playerbot/TravelMgr.h"
-#include "playerbot/TravelRoutePolicy.h"
+#include "playerbot/policy/travel/TravelRoutePolicy.h"
 #include "playerbot/DungeonFollowHoldPolicy.h"
 
 #include <iomanip>

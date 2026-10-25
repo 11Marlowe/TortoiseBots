@@ -2,7 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "PartyMemberToSoulstone.h"
 #include "playerbot/ServerFacade.h"
-#include "../../../../runtime/WarlockSoulstonePolicy.h"
+#include "../../../../runtime/policy/class/WarlockSoulstonePolicy.h"
 
 using namespace ai;
 

@@ -53,7 +53,7 @@
 //     once it has arrived. Never during an event.
 
 #include "../ai/playerbot/DungeonPlanPolicy.h"
-#include "../ai/playerbot/RangedApproachPolicy.h"
+#include "../ai/playerbot/policy/combat/RangedApproachPolicy.h"
 #include "RemoteCommanderTasks.h"
 #include "RezHoldPolicy.h"
 

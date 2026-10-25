@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/shaman/ShamanImbuePolicy.h"
+#include "../ai/playerbot/policy/class/ShamanImbuePolicy.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -54,6 +54,13 @@ int main()
     // Any imbue beats none: windfury is the last resort, never an empty hand.
     CHECK(BestKnownShamanImbue(false, true, false, false, false) == "windfury weapon");
     std::cout << "  [PASS] windfury is the last resort rather than no imbue\n";
+    // Tank shamans are enhancement-tabbed but fight on Rockbiter (stance):
+    // the tank branch heads the policy, with the same fallback tail when
+    // no Rockbiter rank is known yet.
+    CHECK(BestKnownShamanImbue(true, true, true, true, true, true) == "rockbiter weapon");
+    CHECK(BestKnownShamanImbue(true, true, false, false, false, true) == "windfury weapon");
+    CHECK(BestKnownShamanImbue(false, true, true, false, false, true) == "flametongue weapon");
+    std::cout << "  [PASS] tank shamans keep rockbiter over windfury\n";
 
     // Upkeep tick gate (live ACTION_LOOP: sitting/casting/stunned bots failed
     // every tick on an already-imbued weapon). Only a known-but-missing

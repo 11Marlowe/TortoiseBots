@@ -1,6 +1,6 @@
 // pi-lens-ignore-file: clang:pp_file_not_found,clang:unknown_typename,clang:use_of_undeclared_identifier,clang:unknown_type_name,clang:undeclared_var_use,clang:incomplete_member_access
 #include "WorldBuffRaidAdapter.h"
-#include "../runtime/WorldBuffPolicy.h"
+#include "../runtime/policy/pvp/WorldBuffPolicy.h"
 #include "../runtime/WorldBuffRaidKeeper.h"
 #include "../ai/playerbot/playerbot.h"
 

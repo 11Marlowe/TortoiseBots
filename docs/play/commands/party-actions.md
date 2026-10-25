@@ -161,7 +161,7 @@ Accepts `[seconds]` (0 to 60, default 5) and `[ranged]` in either order. The tan
 <summary>How it works in detail</summary>
 
 - **Corner Pulling:** Use this maneuver to pull enemy packs around corners or through doorways to break enemy caster line of sight.
-- **Anchor Hold:** The tank holds ground at the pullback spot for that fight only. Once the pulled enemies are defeated, the tank resumes normal following.
+- **Anchor Hold:** The tank holds ground at the pullback spot only while the pulled enemy is still on its way. Once it arrives, stops short or dies, the tank fights the rest of the pack freely and follows you again after combat.
 - **Fallback Melee:** If the tank has no working ranged weapon, it walks in, strikes the target once in melee, and sprints back to your position.
 - **Meal Interrupt:** The order first interrupts a cast of the tank's (a meal) and stands it up, since the reach does not move a casting bot; a walk still not started after the order's decisions gets one direct reach.
 
@@ -546,8 +546,25 @@ Out of combat outside instances, mounted bots follow 3 yards further out than th
 Adds or removes strategies on a bot or the whole party.
 
 ```text
-.bot strategy <+|-|~strategy> [Name]
+.bot strategy [+|-|~]<strategy name> [@tank|@dps|@heal|@melee|@ranged|Name]
 ```
+
+Multiword strategy names are accepted as a whole, for example
+`.bot strategy +aoe fear @dps` or `.bot strategy +tank assist TankName`.
+A complete registered strategy name takes precedence over interpreting its last
+word as a bot name. Comma-separated changes still work, for example
+`.bot strategy +loot,-passive @dps` (no spaces around commas).
+
+Without a suffix, the selected controllable bot is used, or otherwise the
+controllable party bots. A role suffix explicitly selects matching controllable
+party bots, even when a bot is selected. A name selects that online owned bot.
+Ownership checks and strategy persistence are unchanged.
+
+Role selectors use the same group-aware predicates as whisper role filters:
+`@tank` and `@heal` match those roles, while `@dps` excludes both. `@melee`
+and `@ranged` select attack-range categories, including tanks and healers.
+Unknown selectors or strategy names are rejected; no matching role reports
+zero bots changed. No new configuration or automatic behavior is enabled.
 
 Arguments must begin with `+`, `-`, or `~`. (The prefixes `co`, `nc`, and `de` select combat, non-combat, and dead engines in whisper commands, e.g. `/w <Bot> co +focus`).
 

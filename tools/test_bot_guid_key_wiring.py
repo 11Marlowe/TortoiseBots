@@ -3,7 +3,7 @@
 BotManager::m_bots is keyed by a guid's counter. A creature's or a charmed
 summon's pet guid has a small counter too, and Deadmines r12-19z29 (the
 Remote-Controlled Golem summons, high part 0xF140) answered "a bot" for one:
-ResolveOrderTarget (commands/BotCommands.cpp) refused the tank's pick-up order
+ResolveOrderTarget (commands/Commander.cpp) refused the tank's pick-up order
 with "That GUID is a bot or a member of the group" three times. Every lookup by
 an ObjectGuid argument goes through BotRegistryKey (runtime/BotGuidKey.h,
 tested by tools/test_bot_guid_key_policy.cpp), which refuses any guid whose
@@ -18,7 +18,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 CPP = (ROOT / "runtime/BotManager.cpp").read_text()
 HEADER = (ROOT / "runtime/BotManager.h").read_text()
 KEY = (ROOT / "runtime/BotGuidKey.h").read_text()
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDS = (ROOT / "commands/Commander.cpp").read_text()
 
 
 def body(text, start):

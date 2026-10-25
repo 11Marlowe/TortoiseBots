@@ -60,7 +60,7 @@ void GenericHunterStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     CombatStrategy::InitTriggers(triggers);
 
     // Mark/Ammo/Mana Triggers
-    triggers.push_back(new TriggerNode("no ammo", { NextAction("equip upgrades packet action", 30.0f) }));
+    triggers.push_back(new TriggerNode("no ammo", { NextAction("equip upgrades", 30.0f) }));
     triggers.push_back(new TriggerNode("hunter's mark", { NextAction("hunter's mark", 29.5f) }));
     triggers.push_back(new TriggerNode("rapid fire", { NextAction("rapid fire", 29.0f) }));
 
@@ -76,21 +76,18 @@ void GenericHunterStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("dispel enrage", { NextAction("tranquilizing shot", 61.0f) }));
 
     // Ranged-based Triggers
-    triggers.push_back(new TriggerNode("enemy within melee", { NextAction("explosive trap", 37.0f),
-                                                               NextAction("mongoose bite", 22.0f),
-                                                               NextAction("wing clip", 21.0f) }));
-
     triggers.push_back(new TriggerNode("enemy too close for auto shot", { NextAction("disengage", 35.0f),
                                                                           NextAction("flee", 34.0f) }));
 }
 
 // ===== AoE Strategy, 2/3+ enemies =====
+// Live AoE handling queues the registered "ranged medium aoe" row
+// (HunterStrategy.cpp); the donor "medium aoe"/"light aoe" trigger
+// creators were never ported (issue #1179).
 AoEHunterStrategy::AoEHunterStrategy(PlayerbotAI* botAI) : CombatStrategy(botAI) {}
 
 void AoEHunterStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode("medium aoe", { NextAction("volley", 22.0f) }));
-    triggers.push_back(new TriggerNode("light aoe", { NextAction("multi-shot", 21.0f) }));
 }
 
 void HunterCcStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
@@ -101,5 +98,5 @@ void HunterCcStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
 void HunterTrapWeaveStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode("immolation trap no cd", { NextAction("reach melee", 23.0f) }));
+    // No live trigger creators: "immolation trap no cd" ref removed (issue #1179).
 }

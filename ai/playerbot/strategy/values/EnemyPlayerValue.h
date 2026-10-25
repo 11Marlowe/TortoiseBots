@@ -18,6 +18,7 @@ namespace ai
 
     private:
         void ApplyFilter(std::list<ObjectGuid>& targets, bool getOne, bool proximityScan = false);
+        void ApplyWorldPvpFilter(std::list<ObjectGuid>& targets, bool getOne);
         bool CanEngageFromHere(Unit* target) const;
     };
 

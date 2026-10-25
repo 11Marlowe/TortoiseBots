@@ -1,7 +1,7 @@
 #include "playerbot/playerbot.h"
 #include "ThaddiusDungeonTriggers.h"
-#include "playerbot/ThaddiusPolarityPolicy.h"
-#include "playerbot/strategy/ThaddiusDungeonHelper.h"
+#include "playerbot/policy/raid/ThaddiusPolarityPolicy.h"
+#include "../../policy/raid/ThaddiusDungeonHelper.h"
 
 using namespace ai;
 

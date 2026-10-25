@@ -7,7 +7,7 @@
 #include "MoltenCoreDungeonActions.h"
 
 using namespace ai;
-#include "playerbot/GolemaggPolicy.h"
+#include "playerbot/policy/raid/GolemaggPolicy.h"
 
 bool GolemaggHealerPositionAction::Execute(Event& event)
 {

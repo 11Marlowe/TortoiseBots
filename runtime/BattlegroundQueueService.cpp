@@ -1,6 +1,6 @@
 #include "BattlegroundQueueService.h"
-#include "AutonomousBgPolicy.h"
-#include "HumanBgDemandPolicy.h"
+#include "runtime/policy/pvp/AutonomousBgPolicy.h"
+#include "runtime/policy/pvp/HumanBgDemandPolicy.h"
 #include "BotActivityLease.h"
 
 // pi-lens-ignore: clang:pp_file_not_found

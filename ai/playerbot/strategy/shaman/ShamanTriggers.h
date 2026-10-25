@@ -1,10 +1,11 @@
 #pragma once
 #include "playerbot/GroupMembers.h"
 #include "playerbot/strategy/triggers/GenericTriggers.h"
-#include "ShamanStoneclawPolicy.h"
-#include "ShamanEarthShockPolicy.h"
-#include "ShamanRecallPolicy.h"
+#include "playerbot/policy/class/ShamanStoneclawPolicy.h"
+#include "playerbot/policy/class/ShamanEarthShockPolicy.h"
+#include "playerbot/policy/class/ShamanRecallPolicy.h"
 #include "ShamanTotemGroupPolicy.h"
+#include "playerbot/policy/class/ShamanTankPolicy.h"
 #include "ShamanTotemCommandPolicy.h"
 #include "playerbot/ReadyRebuffPolicy.h"
 #include "playerbot/ForceRebuffPolicy.h"
@@ -19,6 +20,23 @@ namespace ai
     private:
         static std::list<std::string> spells;
     };
+
+    // Fight-imminent read shared by the automatic totem rows (the auto and
+    // prepull drop modes) and by the recall refund, which must not fight the
+    // rows over the same set. True while a raid ready-check anchor is live or
+    // a force-rebuff window is open — the two "the group is assembling for a
+    // pull" signals the repo already keeps per bot.
+    inline bool TotemFightImminent(PlayerbotAI* ai)
+    {
+        AiObjectContext* ctx = ai ? ai->GetAiObjectContext() : nullptr;
+        if (!ctx)
+            return false;
+        time_t anchor = ctx->GetValue<time_t>("manual time", ai::ReadyRebuffAnchorKey())->Get();
+        if (anchor != time_t(0) && time(0) - anchor <= ai::ReadyRebuffCapSec() + ai::ReadyRebuffExpirySlackSec())
+            return true;
+        int beginMs = ctx->GetValue<int>("manual int", "force rebuff begin ms")->Get();
+        return beginMs != 0 && ai::ForceRebuffPending((std::uint32_t)beginMs, WorldTimer::getMSTime());
+    }
 
     class ReadyToRemoveTotemsTrigger : public Trigger
     {
@@ -35,6 +53,13 @@ namespace ai
             // destroys the just-dropped set for pennies and the re-drop
             // loop burns more mana than the refund (live Naxx 2026-10-14:
             // 7 recalls mid fight, 26 water re-drops to repair it).
+            // The refund also stands down while a fight is imminent: the
+            // automatic rows own the set in the pre-pull window and would
+            // rebuild what we just recalled. Out of combat otherwise the
+            // rows are quiet (they only drop in combat or that window), so
+            // the recalled set stays recalled until the next fight — no
+            // recall -> re-drop loop, and no latch that a single combat
+            // tick could clear to restart one (issue #1125).
             // Never recall mana tide: destroying the cooldown totem wastes
             // it for pennies. (No fire-elemental totem action exists in
             // 1.18.1, so there is nothing else to spare.)
@@ -69,7 +94,9 @@ namespace ai
                     }
                 }
             }
-            return TotemicRecallShouldFire(hasSpell, anyOwn, tideOwn, botCombat, memberCombat);
+            bool prepullWanted = TotemFightImminent(ai);
+            return TotemicRecallShouldFire(hasSpell, anyOwn, tideOwn, botCombat, memberCombat,
+                prepullWanted);
         }
     };
 
@@ -89,31 +116,19 @@ namespace ai
 
     // Drop-mode gate for the automatic totem rows (`.bot totem ... mode`).
     // manual: every automatic row stays quiet — only `drop` and the manual
-    // `totem <slot> ...` strategies queue totems. prepull: combat rows fire
-    // normally, OOC rows only while a fight is imminent (ready-check anchor
-    // live or force-rebuff window open). auto/unset: today's behaviour.
+    // `totem <slot> ...` strategies queue totems. auto (default) and
+    // prepull: the rows fire in combat and, out of combat, only while a
+    // fight is imminent (ready-check anchor live or force-rebuff window
+    // open) — never otherwise, so a following bot leaves no totems in town.
+    // One rule for both the rows and the recall refund (TotemAutoRowsFire),
+    // so the two can never disagree about who owns the standing set.
     inline bool TotemAutoRowActive(PlayerbotAI* ai, Player* bot, bool inCombat)
     {
         (void)bot;
         AiObjectContext* ctx = ai ? ai->GetAiObjectContext() : nullptr;
         std::string stored = ctx ? ctx->GetValue<std::string>("manual saved string", TotemModeKey())->Get() : "";
-        TotemDropMode mode = StoredTotemDropMode(stored);
-        if (mode == TotemDropMode::Manual)
-            return false;
-        if (mode == TotemDropMode::Prepull && !inCombat)
-        {
-            time_t anchor = ctx ? ctx->GetValue<time_t>("manual time", ai::ReadyRebuffAnchorKey())->Get() : time_t(0);
-            bool imminent = anchor != time_t(0) &&
-                time(0) - anchor <= ai::ReadyRebuffCapSec() + ai::ReadyRebuffExpirySlackSec();
-            if (!imminent)
-            {
-                int beginMs = ctx ? ctx->GetValue<int>("manual int", "force rebuff begin ms")->Get() : 0;
-                imminent = beginMs != 0 && ai::ForceRebuffPending((std::uint32_t)beginMs, WorldTimer::getMSTime());
-            }
-            if (!imminent)
-                return false;
-        }
-        return true;
+        bool imminent = !inCombat && TotemFightImminent(ai);
+        return TotemAutoRowsFire(StoredTotemDropMode(stored), inCombat, imminent);
     }
 
     class FireTotemTrigger : public Trigger
@@ -164,8 +179,13 @@ namespace ai
                     return !AI_VALUE2(bool, "has totem", ordered.c_str());
                 if (!stored.empty() && stored != "auto")
                     return false;
+                // A standing Fire Nova Totem counts as the fire slot being
+                // taken: the drop carries a 5 s countdown and any fire totem
+                // dropped over it unsummons it before it can detonate, so the
+                // filler must not replace it.
                 return !AI_VALUE2(bool, "has totem", "searing totem") &&
                        !AI_VALUE2(bool, "has totem", "magma totem") &&
+                       !AI_VALUE2(bool, "has totem", "fire nova totem") &&
                        !AI_VALUE2(bool, "has totem", "frost resistance totem") &&
                        !AI_VALUE2(bool, "has totem", "flametongue totem");
             }
@@ -973,6 +993,141 @@ namespace ai
     };
 
     CAN_CAST_TRIGGER(ChainLightningTrigger, "chain lightning");
+
+    // Tank pack filler: Chain Lightning only into a 2+ pack provided nothing
+    // is hitting the tank. Once mobs reach the tank, hard-casting is
+    // suppressed in favor of instant threat and strikes.
+    class TankChainLightningTrigger : public Trigger
+    {
+    public:
+       TankChainLightningTrigger(PlayerbotAI* ai) : Trigger(ai, "tank chain lightning") {}
+
+       virtual bool IsActive() override
+       {
+           if (!ai->HasSpell("chain lightning"))
+               return false;
+           Unit* target = AI_VALUE(Unit*, "current target");
+           if (!target || !ai->CanCastSpell("chain lightning", target, true, nullptr, true))
+               return false;
+           return TankChainLightningShouldFire(AI_VALUE(uint8, "attackers count"),
+                                               AI_VALUE(uint8, "possible attack targets count"));
+       }
+    };
+
+    // Tank fight-target read: elite anywhere (rank above
+    // normal, open world included) or any raid-instance fight. Shared
+    // predicate for the fight Earth Shock and Strength of Earth rows.
+    class TankFightTargetTrigger : public Trigger
+    {
+    public:
+        TankFightTargetTrigger(PlayerbotAI* ai) : Trigger(ai, "tank fight target") {}
+
+        virtual bool IsActive() override;
+    };
+
+    // Stable earth totem on fights: drops Strength of Earth
+    // on boss/elite/raid fights while the earth slot is empty, never
+    // flapping with Stoneskin.
+    class TankStrengthOfEarthTrigger : public Trigger
+    {
+    public:
+        TankStrengthOfEarthTrigger(PlayerbotAI* ai) : Trigger(ai, "tank strength of earth") {}
+
+        virtual bool IsActive() override;
+    };
+
+    // Tank Earth Shock fight gate: bosses / elites / raid
+    // instances burn Earth Shock on cooldown; normal 5-man trash spends it
+    // only when threat is needed (see TankThreatLeadTrigger below). No
+    // dungeon-boss flag exists on this core, so boss/elite reads the
+    // creature rank like the paladin judgement upkeep (PaladinTriggers.cpp)
+    // and the raid leg reads the map id plus group type.
+    class TankEarthShockFightTrigger : public Trigger
+    {
+    public:
+       TankEarthShockFightTrigger(PlayerbotAI* ai) : Trigger(ai, "tank earth shock fight") {}
+
+       virtual bool IsActive() override;
+    };
+
+    // Threat lead for economical trash mode: true when another
+    // member is catching up on the current target (their threat at 70%+ of
+    // ours) or when a pack mob is loose (on a non-tank while we still hold
+    // our target). Earth Shock and the grouped Stoneclaw row queue behind
+    // this signal on non-fight trash.
+    class TankThreatLeadTrigger : public Trigger
+    {
+    public:
+       TankThreatLeadTrigger(PlayerbotAI* ai) : Trigger(ai, "tank threat lead", 2) {}
+
+       virtual bool IsActive() override;
+    };
+
+    // Tank Stoneclaw (trash earth totem): drop on arrival while the earth
+    // slot is empty and threat is needed, or into a wide pack (3+) where
+    // the totem earns its GCD. Manual earth orders keep precedence: any
+    // explicit non-stoneclaw order wins, an explicit stoneclaw order drops
+    // regardless of threat.
+    class TankStoneclawTrigger : public Trigger
+    {
+    public:
+       TankStoneclawTrigger(PlayerbotAI* ai) : Trigger(ai, "tank stoneclaw", 5) {}
+
+       virtual bool IsActive() override;
+    };
+
+    // Tank Fire Nova, the tank's pack pick for the fire slot: 2+ attackers
+    // inside the Nova's own detonation window (the totem lands at our feet,
+    // so the window is the pulse radius, not the 5 yd melee window), while
+    // the drop is off cooldown and no Nova totem already stands. Inherits
+    // the melee AoE pack gate and its breakable-CC interlock from AoeTrigger.
+    class TankFireNovaTrigger : public AoeTrigger
+    {
+    public:
+        TankFireNovaTrigger(PlayerbotAI* ai);
+
+        bool IsActive() override;
+    };
+
+    // Tank Magma: fallback for the fire slot while Fire Nova is on cooldown
+    // (never while it is ready, and never over a standing Nova totem), into a
+    // real pack (3+) with mana to burn.
+    class TankMagmaTrigger : public MeleeMediumAoeTrigger
+    {
+    public:
+        TankMagmaTrigger(PlayerbotAI* ai) : MeleeMediumAoeTrigger(ai) {}
+
+        bool IsActive() override;
+    };
+
+    // Tank shield swap: Lightning Shield for the pull, Water Shield once
+    // mana falls to about two thirds. The two buff rows stay queued like
+    // the elemental pair; each trigger picks its phase so the shields never
+    // recast over each other mid-fight.
+    class TankLightningShieldTrigger : public BuffTrigger
+    {
+    public:
+       TankLightningShieldTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "lightning shield") {}
+       bool IsActive() override;
+    };
+
+    class TankWaterShieldTrigger : public BuffTrigger
+    {
+    public:
+       TankWaterShieldTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "water shield") {}
+       bool IsActive() override;
+    };
+
+    // Tauren Totemic Slam: damage plus slow (NOT a taunt), fired in melee
+    // when both strikes are cooling down. Tauren-gated like war stomp;
+    // the cast action's own ready-gate keeps the row quiet on cooldown.
+    class TotemicSlamTrigger : public Trigger
+    {
+    public:
+       TotemicSlamTrigger(PlayerbotAI* ai) : Trigger(ai, "totemic slam") {}
+
+       virtual bool IsActive() override;
+    };
 
     CAN_CAST_TRIGGER(StormstrikeTrigger, "stormstrike");
     BUFF_TRIGGER(ElementalMasteryTrigger, "elemental mastery");

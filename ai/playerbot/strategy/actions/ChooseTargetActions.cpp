@@ -5,10 +5,13 @@
 #include "playerbot/TravelMgr.h"
 #include "playerbot/strategy/generic/PullStrategy.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
-#include "playerbot/PullRegenPolicy.h"
+#include "playerbot/policy/pull/PullRegenPolicy.h"
 #include "playerbot/SurvivePolicy.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/values/GrindTargetValue.h"
+#include "playerbot/strategy/values/WorldPvpSeekChecks.h"
+#include "playerbot/strategy/values/WorldPvpSeekLog.h"
+#include "../../../../runtime/policy/pvp/WorldPvpFightPolicy.h"
 #include <map>
 
 bool DpsAssistAction::isUseful()
@@ -392,7 +395,42 @@ bool AttackEnemyPlayerAction::isUseful()
     if (bot->HasAura(23333) || bot->HasAura(23335))
         return false;
 
-    return !sPlayerbotAIConfig.IsInPvpProhibitedZone(sServerFacade.GetAreaId(bot));
+    if (sPlayerbotAIConfig.IsInPvpProhibitedZone(sServerFacade.GetAreaId(bot)))
+        return false;
+
+    if (!bot->InBattleGround() && WorldPvpSeekChecks::IsSeeking(ai, bot))
+    {
+        Unit* target = GetTarget();
+        Player* enemy = dynamic_cast<Player*>(target);
+        if (!enemy)
+        {
+            ai->worldPvpPursuitGuidLow_ = 0;
+            ai->worldPvpPursuitStartMs_ = 0;
+            return false;
+        }
+
+        uint32 const nowMs = WorldTimer::getMSTime();
+        if (ai->worldPvpPursuitGuidLow_ == enemy->GetGUIDLow() && ai->worldPvpPursuitStartMs_)
+        {
+            if (!TortoiseBots::WorldPvpPursuitHolds(ai->worldPvpPursuitStartMs_, nowMs,
+                bot->IsWithinDist(enemy, sPlayerbotAIConfig.sightDistance)))
+            {
+                ai->worldPvpPursuitGuidLow_ = 0;
+                ai->worldPvpPursuitStartMs_ = 0;
+                return false;
+            }
+            return true;
+        }
+
+        if (!WorldPvpSeekChecks::IsSeekTarget(ai, bot, enemy))
+        {
+            ai->worldPvpPursuitGuidLow_ = 0;
+            ai->worldPvpPursuitStartMs_ = 0;
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool AttackEnemyPlayerAction::Execute(Event& event)
@@ -403,6 +441,26 @@ bool AttackEnemyPlayerAction::Execute(Event& event)
     Unit* target = GetTarget();
     if (!target)
         return true;
+
+    if (!bot->InBattleGround() && WorldPvpSeekChecks::IsSeeking(ai, bot))
+    {
+        uint32 const nowMs = WorldTimer::getMSTime();
+        if (ai->worldPvpCampGuidLow_ && ai->worldPvpCampStartMs_ &&
+            TortoiseBots::WorldPvpCampExpired(ai->worldPvpCampStartMs_, nowMs))
+        {
+            ai->worldPvpIgnoreGuidLow_ = ai->worldPvpCampGuidLow_;
+            ai->worldPvpIgnoreStartMs_ = nowMs;
+            ai->worldPvpCampGuidLow_ = 0;
+            ai->worldPvpCampStartMs_ = 0;
+        }
+        uint32 const targetLow = target->GetGUIDLow();
+        if (ai->worldPvpPursuitGuidLow_ != targetLow)
+        {
+            ai->worldPvpPursuitGuidLow_ = targetLow;
+            ai->worldPvpPursuitStartMs_ = nowMs;
+            WorldPvpSeekLog::LogEngagement(ai, bot, target);
+        }
+    }
 
     // The nested reach booked its own walk wait; carry it as this action's duration
     // (see AttackAnythingAction::Execute), or release the default when nothing moved.

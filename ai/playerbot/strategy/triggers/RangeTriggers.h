@@ -450,9 +450,11 @@ namespace ai
     // Idle station-keeping for formations. "update follow" only fires past
     // 5 yd from the master, but a formation slot sits ~1.5 yd out, so an
     // idle bot inside the dead zone never walks to a newly set formation
-    // (queue, circle, shield, ... visibly do nothing). This fires while the
-    // bot stands off its own slot, and "follow" then walks it there with
-    // the formation's angle/offset. Cheap: one value read, one distance.
+    // (queue, circle, shield, ... visibly do nothing). This fires once per
+    // formation change or leader stop while the bot stands off its slot, and "follow" then
+    // walks it there with the formation's angle/offset. Later ticks stay quiet:
+    // chaos re-rolls its slot every 3 s, and chasing each new roll would
+    // fidget the bot in place.
     class FormationStationTrigger : public Trigger
     {
     public:
@@ -466,23 +468,29 @@ namespace ai
             if (!followTarget || !ai->IsSafe(followTarget))
                 return false;
             // A walking leader is the core follow's job; a slot point taken
-            // mid-walk is stale by the time the bot gets there.
+            // mid-walk is stale by the time the bot gets there. Each stop
+            // re-arms one station walk, so the party lines up again after a move.
             if (sServerFacade.isMoving(followTarget))
+            {
+                memory = FormationStationMemory();
                 return false;
+            }
             Formation* formation = AI_VALUE(Formation*, "formation");
             if (!formation)
                 return false;
             WorldLocation loc = formation->GetLocation();
             if (Formation::IsNullLocation(loc) || loc.mapId == -1 || bot->GetMapId() != loc.mapId)
                 return false;
-            float const distance = sServerFacade.getDistance2d(bot, loc.x, loc.y);
-            if (!FormationStationWanted(distance))
+            // A slot in magma is no station (the lead tank's slot once lay in
+            // a lava basin); MoveTo2 would refuse the walk anyway
+            // (MagmaHazardPolicy.h).
+            if (MagmaGuardApplies(bot->GetMap()->IsDungeon()) && WorldPosition(loc).isInMagma())
                 return false;
-            // A slot in magma is no station (RFC r3-19z20: the lead tank's
-            // slot lay in the trogg-cave lava basin); MoveTo2 would refuse the
-            // walk every 3 s anyway (MagmaHazardPolicy.h).
-            return !(MagmaGuardApplies(bot->GetMap()->IsDungeon()) && WorldPosition(loc).isInMagma());
+            return FormationStationStep(memory, formation->GetSerial(), bot->GetPositionX(), bot->GetPositionY(), loc.x, loc.y);
         }
+
+    private:
+        FormationStationMemory memory;
     };
 
     class StopFollowTrigger : public Trigger

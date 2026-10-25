@@ -2,8 +2,12 @@
 
 #include "../../runtime/PlayerbotAIStorage.h"
 
+#include <vector>
+
 class Player;
 class ChatHandler;
+class Item;
+struct ItemPrototype;
 
 
 class PlayerbotFactory
@@ -24,12 +28,35 @@ public:
     // its off-hand, shoot a bow, or block without it.
     static void EnsureSkillRewardedSpells(Player* bot);
 
+    // A talent rank spell must never stay "dependent": this core writes only
+    // non-dependent spells to `character_spell` and keeps talents nowhere else,
+    // while its spell-chain pass marks the lower ranks dependent whenever a
+    // higher rank of the chain is learned - and Turtle's data heads a few
+    // trainer chains with a talent rank-1 spell (Lightning Strike 51387 ->
+    // 52420 -> 52422, Mortal Strike 12294 -> 21551 -> ..., Bloodthirst, Shield
+    // Slam, Moonkin Form, Repentance, ...). Teaching those trainer ranks, and
+    // re-loading the character that has them, used to leave the talent out of
+    // the DB (a 51-point shaman tank hire read 15/35 in the armory while its
+    // live spellbook said 15/36). Idempotent, O(spellbook), safe on every login
+    // and every provisioning pass. See TalentSpellSavePolicy.h.
+    static void EnsureTalentSpellsSaved(Player* bot);
+
     void EnchantEquipment();
     void EquipGear() { InitEquipment(false, false); }
     void EquipGearBest() { return InitEquipment(false, false, false); }
     void EquipGearPartialUpgrade() { return InitEquipment(false, false, true, true); }
     void UpgradeGear(bool syncWithMaster) { return InitEquipment(!syncWithMaster, syncWithMaster); }
     void UpgradeGearBest() { return InitEquipment(true, false, false); }
+    // Owner rule (Oct 2026): generated gear is also capped by the bot's own
+    // level (TortoiseBots::GearItemLevelCap), so a wandering pool bot never
+    // wears raid loot it could not have earned. Every gear pass that serves
+    // pool bots or standard (tier 0) companions declares its population here
+    // first: MakeComplete (pool seed and later re-gear), UpgradeGearBest on a
+    // pool respec (ChangeTalentsAction) and ProvisionSpellsAndGear (companion
+    // kit). The owned-bot autogear, the master-sync path and the curated hire
+    // tiers set neither and keep the global RandomGearMaxLevel alone.
+    void UsePoolGearCap() { generatedGearIlvlAboveLevel = sPlayerbotAIConfig.randomGearMaxItemLevelAboveLevel; }
+    void UseStandardHireGearCap() { generatedGearIlvlAboveLevel = sPlayerbotAIConfig.hireGearMaxItemLevelAboveLevel; }
     // Issue #473: owned-bot autogear. Incremental-only re-gear at the bot's
     // level within a quality/ilvl cap, via the same candidate pool as every
     // other gear path (no wipe, no syncWithMaster; the ilvl cap is an
@@ -39,6 +66,26 @@ public:
     // arrows, gun with bullets), see OwnedBotAcceptRangedPick; no ammo is
     // handed out here.
     void AutogearOwned(uint32 cappedQuality, uint32 ilvlCap);
+    // Real-player `.autogear`: the same incremental candidate pool and score
+    // as AutogearOwned, with a forced spec (the caller resolves the name to a
+    // weightscale id) and no bot AI anywhere. Upgrades only; the replaced
+    // pieces go to the bags or, when the bags are full, to the target's own
+    // mailbox (never destroyed) and are reported in autogearUpgrades.
+    // raisedCeiling is the level-60 raise of the ilvl argument: it opens the
+    // quality band up to epic on top of the wider item-level window.
+    // Shirts and tabards are skipped: a random cosmetic swap is not an
+    // upgrade. Ranged is picked purely by score, so the command can warn
+    // about missing ammo exactly like the owned-bot command does.
+    void AutogearPlayer(uint32 specId, uint32 ilvlCap, bool raisedCeiling);
+    struct AutogearUpgrade
+    {
+        uint8 slot;
+        uint32 oldItemId;
+        uint32 newItemId;
+        bool mailed;
+    };
+    // Filled only by AutogearPlayer, one entry per slot actually upgraded.
+    std::vector<AutogearUpgrade> autogearUpgrades;
     // True when the bags hold usable ammo for a ranged weapon of this item
     // subclass (gun -> bullets, bow/crossbow -> arrows). Weapons that need no
     // ammo report true. Used by the autogear reply to warn about a dud weapon.
@@ -115,7 +162,7 @@ private:
     // loot-attested BoE world epics the bot can wear. Returns true with ids
     // filled when the slot has any; false (fall back to the normal band)
     // otherwise.
-    bool TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, std::vector<uint32>& ids);
+    bool TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, uint32 maxItemLevel, std::vector<uint32>& ids);
     bool CanEquipItem(ItemPrototype const* proto, uint32 desiredQuality);
     void InitTradeSkills();
     void SetRandomSkill(uint16 id);
@@ -171,6 +218,21 @@ private:
     // Set only by AutogearOwned: InitEquipment then filters the ranged slot
     // by the ammo the bags hold.
     bool ammoAwareRanged = false;
+    // Set only by AutogearPlayer: InitEquipment runs with the forced spec,
+    // never destroys anything and reports every slot it upgrades.
+    bool playerUpgrade = false;
+    uint32 forcedSpecId = 0;
+    // Set by AutogearPlayer when the ilvl argument raised the ceiling at max
+    // level: the quality band may then reach epic (no random epic roll).
+    bool playerRaisedCeiling = false;
+    // Bags first, mailbox when the bags are full; false when mailed.
+    bool StoreReplacedItem(Item* oldItem);
+    // Generated-gear item-level cap: how far above its own level a bot's
+    // *generated* gear may sit (TortoiseBots::GearItemLevelCap). Set through
+    // UsePoolGearCap() / UseStandardHireGearCap() by the passes that serve pool
+    // bots and standard companions; 0 keeps the global RandomGearMaxLevel
+    // alone, which is what the owned-bot and master-sync paths want.
+    uint32 generatedGearIlvlAboveLevel = 0;
 };
 
 enum PriorizedConsumables

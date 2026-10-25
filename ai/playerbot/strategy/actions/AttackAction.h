@@ -16,9 +16,6 @@ namespace ai
         virtual bool isPossible() override { return !bot->HasUnitState(UNIT_STAT_CAN_NOT_REACT_OR_LOST_CONTROL); }; //Override movement stay.
 
         static bool CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target);
-        // True while a party with a live tank has not yet put the tank on the
-        // mob: the automatic pet sends wait (runtime/PetAttackGatePolicy.h).
-        static bool PetHeldForTank(PlayerbotAI* ai, Unit* target);
 
     protected:
         // acceptCurrentVictim: an explicit order (attack my target, RTI) on the

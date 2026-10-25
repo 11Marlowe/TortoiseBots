@@ -109,16 +109,6 @@ void DpsRogueStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
     triggers.push_back(
         new TriggerNode(
-            "combo points 5 available",
-            {
-                NextAction("rupture", ACTION_HIGH + 1),
-                NextAction("eviscerate", ACTION_HIGH)
-            }
-        )
-    );
-
-    triggers.push_back(
-        new TriggerNode(
             "target with combo points almost dead",
             {
                 NextAction("eviscerate", ACTION_HIGH + 2)
@@ -159,15 +149,6 @@ void DpsRogueStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
             "kick on enemy healer",
             {
                 NextAction("kick on enemy healer", ACTION_INTERRUPT + 1)
-            }
-        )
-    );
-
-    triggers.push_back(
-        new TriggerNode(
-            "light aoe",
-            {
-                NextAction("blade flurry", ACTION_HIGH + 3)
             }
         )
     );
@@ -254,14 +235,6 @@ void StealthedRogueStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(
         new TriggerNode(
-            "combo points 5 available",
-            {
-                NextAction("eviscerate", ACTION_HIGH)
-            }
-        )
-    );
-    triggers.push_back(
-        new TriggerNode(
             "kick",
             {
                 NextAction("cheap shot", ACTION_INTERRUPT)
@@ -341,14 +314,6 @@ void StealthStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
 void RogueAoeStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(
-        new TriggerNode(
-            "light aoe",
-            {
-                NextAction("blade flurry", ACTION_HIGH)
-            }
-        )
-    );
 }
 
 void RogueBoostStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)

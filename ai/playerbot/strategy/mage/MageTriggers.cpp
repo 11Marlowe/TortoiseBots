@@ -1,9 +1,11 @@
 
 #include "playerbot/playerbot.h"
-#include "playerbot/ArcaneRupturePolicy.h"
-#include "playerbot/FlamestrikeWindowPolicy.h"
+#include "playerbot/policy/class/ArcaneRupturePolicy.h"
+#include "playerbot/policy/class/FlamestrikeWindowPolicy.h"
+#include "playerbot/policy/class/MageAoeSafetyPolicy.h"
 #include "playerbot/strategy/values/LastSpellCastValue.h"
-#include "playerbot/HotStreakPolicy.h"
+#include "playerbot/policy/class/HotStreakPolicy.h"
+#include "playerbot/strategy/values/AoeValues.h"
 #include "MageTriggers.h"
 #include "MageActions.h"
 
@@ -292,6 +294,65 @@ bool FlamestrikeWindowTrigger::IsActive()
     Trigger* mediumAoe = ai->GetAiObjectContext()->GetTrigger("ranged medium aoe");
     state.packStillGrouped = mediumAoe && mediumAoe->IsActive();
     return ShouldBlizzardAfterFlamestrike(state);
+}
+
+bool ArcaneExplosionWindowTrigger::IsActive()
+{
+    // Density + breakable-CC interlock from the shared AoeTrigger family,
+    // at Arcane Explosion's 10yd radius instead of the 40yd ranged scan.
+    bool const aoeInterlockSafe = AoeTrigger::IsActive();
+
+    // Same cluster the base just accepted; re-derived because AoeTrigger
+    // keeps no state. Triggers on this interval run every 2s.
+    std::list<ObjectGuid> splash = AoeCountValue::FindMaxDensity(bot, 10.0f);
+    bool safeSplash = true;
+    for (std::list<ObjectGuid>::iterator i = splash.begin(); i != splash.end(); ++i)
+    {
+        Unit* unit = ai->GetUnit(*i);
+        if (!unit)
+            continue;
+
+        // Splash threat rides on whoever holds the mob: only a mob on a
+        // tank or already on the mage is safe to burst.
+        Unit* victim = unit->GetVictim();
+        Player* victimPlayer = victim ? victim->ToPlayer() : nullptr;
+        bool const victimIsTank = victimPlayer && ai->IsTank(victimPlayer);
+        bool const victimIsBot = victim == bot;
+        if (!IsSplashSafeForExplosion(ClassifyMobHolder(victim != nullptr, victimIsTank, victimIsBot)))
+        {
+            safeSplash = false;
+            break;
+        }
+    }
+
+    ArcaneExplosionGate gate;
+    gate.mobsInSplash = splash.size();
+    gate.minMobs = amount;
+    gate.aoeInterlockSafe = aoeInterlockSafe;
+    gate.safeSplash = safeSplash;
+    return ShouldArcaneExplosion(gate);
+}
+
+bool FrostNovaWindowTrigger::IsActive()
+{
+    // Only a mob attacking the mage itself is worth the emergency root
+    // (BlinkBackTrigger's read); the tank's held pack must not burn the
+    // cooldown.
+    std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
+    for (std::list<ObjectGuid>::iterator i = attackers.begin(); i != attackers.end(); ++i)
+    {
+        Unit* unit = ai->GetUnit(*i);
+        if (!unit || !unit->IsAlive())
+            continue;
+
+        // Nova reaches 10yd; a mob beyond it cannot be rooted by this cast.
+        if (!sServerFacade.IsDistanceLessOrEqualThan(sServerFacade.getDistance2d(bot, unit), 10.0f))
+            continue;
+
+        if (unit->GetVictim() == bot)
+            return true;
+    }
+    return false;
 }
 
 bool BlizzardChannelCheckTrigger::IsActive()

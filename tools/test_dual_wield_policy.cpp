@@ -1,4 +1,4 @@
-#include "../ai/playerbot/DualWieldPolicy.h"
+#include "../ai/playerbot/policy/gear/DualWieldPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

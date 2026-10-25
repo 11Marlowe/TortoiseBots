@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/values/VendorBuyPolicy.h"
+#include "../ai/playerbot/policy/gear/VendorBuyPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

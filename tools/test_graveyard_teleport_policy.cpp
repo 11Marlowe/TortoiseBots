@@ -1,4 +1,4 @@
-#include "../ai/playerbot/GraveyardTeleportPolicy.h"
+#include "../ai/playerbot/policy/travel/GraveyardTeleportPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

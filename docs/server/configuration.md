@@ -109,9 +109,9 @@ These keys are read into configuration so older configuration files continue loa
 - `DiffWithPlayer`
 - [`DisableBotOptimizations`](settings/performance.md#aiplayerbotdisablebotoptimizations)
 - `DisableRandomLevels`
+- `ErrorDelay`
 - `FreeMoveDelay`
 - `GroupMemberLootDistanceWithActiveMaster`
-- `InstantRandomize`
 - `LLMApiKey`
 - `MaxFreeMoveDistance`
 - `MinRandomBotInWorldTime`
@@ -126,3 +126,7 @@ These keys are read into configuration so older configuration files continue loa
 - `RandombotsWalkingRPG.InDoors`
 - `RespawnModNeutral`, `RespawnModHostile`, `RespawnModThreshold`, `RespawnModMax`, `RespawnModForPlayerBots`, `RespawnModForInstances`
 - `TweakValue`
+
+Raid diagnostics are separately opt-in through
+[`AiPlayerbot.RaidBossDiagnostics`](settings/logging.md#aiplayerbotraidbossdiagnostics)
+(default `0`); enabling event CSV files alone does not enable boss observations.

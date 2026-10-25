@@ -1,6 +1,6 @@
 #pragma once
 #include "playerbot/GroupMembers.h"
-#include "../../../runtime/RogueThreatPolicy.h"
+#include "../../../runtime/policy/class/RogueThreatPolicy.h"
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/actions/UseItemAction.h"
 #include "playerbot/strategy/values/TargetValue.h"
@@ -109,10 +109,10 @@ namespace ai
         }
     };
 
-	class CastKickAction : public CastMeleeSpellAction
+	class CastKickAction : public CastMeleeInterruptSpellAction
 	{
 	public:
-		CastKickAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "kick") {}
+		CastKickAction(PlayerbotAI* ai) : CastMeleeInterruptSpellAction(ai, "kick") {}
 	};
 
 	// Feint is a target-enemy threat reduction (spell template: effect THREAT,

@@ -84,7 +84,7 @@ By default (`AiPlayerbot.HireAnywhere = 0`), the `.bot hire` chat command always
 <summary>Hiring options, level syntax, and equipment tiers</summary>
 
 - **Level Syntax & Clamping:** Companions match your level by default (`0` means hirer's level). Specify levels using `level=`, `level:`, `lvl=`, `lvl:`, bare `level <n>`, or a bare number $\ge 12$ as the last argument. Levels requested above the server cap are automatically lowered with notice; invalid forms (`level=0`, non-numeric, double level) are refused; a bare number anywhere but last is refused (`Unclear number … put the level last`).
-- **Tier & Druid Spec Words:** Accepts tier words `t<N>`, `tier<N>`, or instance names `mc`, `bwl`, `zg`, `aq`, `naxx`, `kara`. Druid specs can be specified as `cat`, `balance`, `bear`, or `feral`.
+- **Tier & Druid Spec Words:** Accepts tier words `t<N>`, `tier<N>`, or instance names `mc`, `bwl`, `zg`, `aq`, `naxx`, `kara`. Druid specs can be specified as `cat`, `balance`, `bear`, or `feral`. `.bot hire shaman tank` hires the experimental shaman tank (level 10 and above; in the recruiter menu it is "Enhancement (Tank) (experimental)"). It is refused while [`AiPlayerbot.ShamanTankEnabled`](../../server/settings/hiring.md#aiplayerbotshamantankenabled) is `0`.
 - **Intro & Respec:** Once it is grouped with you (and in world), it posts its spec/spell intro once in party chat. Hiring a tier kit respecs talents and refits equipment.
 - **Equipment Tiers:** Level 60 companions can be hired in fixed Best-in-Slot gear sets (Tiers 0 through 7). Tiers unlock per character via recruiter quests (or account-wide if [`AiPlayerbot.HireGearUnlockAccountWide`](../../server/settings/hiring.md#aiplayerbothiregearunlockaccountwide) is enabled): Tier 0 (Standard), Tier 1 (Pre-raid), Tier 2 (Zul'Gurub), Tier 3 (Molten Core), Tier 4 (Blackwing Lair), Tier 5 (Ahn'Qiraj), Tier 6 (Naxxramas), Tier 7 (Karazhan).
 - **Temporary Character:** Hires exist while you are online, plus a disconnect grace period ([`AiPlayerbot.HireDisconnectGracePeriod`](../../server/settings/hiring.md#aiplayerbothiredisconnectgraceperiod)). Removing them deletes the temporary character.
@@ -120,7 +120,7 @@ Overrides party role assignments used by the AI strategy engine to select specs 
 ```
 
 - `<Name>`: Sets the role for a specific companion bot and rebuilds its combat strategy kit. You may use your own character name instead of `self`. `.bot role self` sets the requesting player's own runtime role override and does not target a bot.
-- `tank`, `healer` (alias `heal`), `dps`: Sets the designated combat role.
+- `tank`, `healer` (alias `heal`), `dps`: Sets the designated combat role. `tank` on a shaman bot installs the shaman tank kit.
 - `clear` (aliases `none`, `reset`): Clears the override and restores automatic role inference based on talents and gear.
 
 ### `.bot invite`
@@ -170,6 +170,50 @@ Evaluates a bot's level and automatically equips level-appropriate equipment up 
 ```
 
 Requires [`AiPlayerbot.OwnedBotAutogearEnabled`](../../server/settings/party.md#aiplayerbotownedbotautogearenabled) to be enabled (1). Defaults to uncommon (green) gear unless specified (e.g. `blue` or `200`). Ranged weapons are selected to match existing ammunition in the bot's bags. Note: autogear hands out no ammo; hunter ammunition must be stocked separately.
+
+For real players, use [`.autogear`](#autogear) instead — `.bot autogear` only works on owned or hired bots.
+
+### `.autogear`
+
+Gears a **real player** the way a spawned bot gets geared: items picked for the character's level and the chosen spec from the same gear pool the bots use, under the same item level and quality limits. Upgrades only — nothing already worn is lost.
+
+```text
+.autogear [player name] <spec> [ilvl]
+```
+
+Without a player name the command gears the selected player. The class comes from the character, so you only type the spec. The target must be a real player who is online, alive and out of combat; bots are refused. A druid must leave their shapeshift form first. Characters on a Turtle challenge mode (Hardcore, Slow & Steady, ...) are GM-only whatever the settings below are.
+
+**Specs and aliases.** A tank variant can be typed with a hyphen or a space. Short aliases work too. An unknown or missing spec changes nothing and lists the valid specs for the target's class:
+
+| Class | Specs | Short aliases |
+| :--- | :--- | :--- |
+| Warrior | `arms`, `fury`, `protection` | `prot`, `tank` |
+| Paladin | `holy`, `protection`, `retribution` | `prot`, `ret` |
+| Hunter | `beast`, `marksmanship`, `survival` | `bm`, `mm`, `surv` |
+| Rogue | `assassination`, `combat`, `subtlety` | `sin`, `sub` |
+| Priest | `discipline`, `holy`, `shadow` | `disc` |
+| Shaman | `elemental`, `enhancement`, `enhancement-tank`, `restoration` | `ele`, `enh`, `resto` |
+| Mage | `arcane`, `fire`, `frost` | — |
+| Warlock | `affliction`, `demonology`, `destruction` | `afflic`, `demo`, `destro` |
+| Druid | `balance`, `feral`, `feral-tank`, `restoration` | `moonkin`, `cat`, `bear`, `resto` |
+
+**Upgrades only.** An item goes on only if it scores better for the chosen spec than what is in that slot. Replaced items go to the target's bags; when the bags are full they are mailed to the target with no expiry. Nothing is destroyed. A slot holding something better than the pool would give (for example a manually added epic) is left alone, and pieces of an item set that currently gives an active set bonus are kept whole. A two-handed weapon must beat the current main-hand **and** off-hand pieces together before it displaces the pair. A unique-equipped item is never worn twice (counting what is already equipped).
+
+**Level and quality limits.** Only items the player can wear at their current level (required level ≤ player level). The default ceiling is the same item level and quality a spawned bot of that level gets (rare at most). The optional `ilvl` argument can only lower that ceiling — a higher value is clamped to the default and the reply says so. At level 60 (max level) the `ilvl` argument may also **raise** the ceiling, e.g. `.autogear Thrall protection 90` picks the best items up to item level 90 — epic included, since the point of raising is the best gear in the pool.
+
+**Gear only.** No weapon skills, bags, ammo or consumables are given. If the equipped ranged weapon has no matching ammo in the bags, the command answers with the same missing-ammo warning `.bot autogear` gives.
+
+**Who can use it.** By default GMs only, on any real online player including themselves. With [`AiPlayerbot.PlayerAutogearForAll`](../../server/settings/party.md#aiplayerbotplayerautogearforall) = `1`, every player can use it — but only on themselves. It is free and has no cooldown.
+
+Examples:
+
+```text
+.autogear Thrall enhancement-tank        # GM gears Thrall as a shaman tank
+.autogear enhancement tank               # gears the selected player (space form)
+.autogear resto                          # gears yourself as resto (selected target)
+.autogear <shaman> enhancement 15        # ceiling lowered to item level 15
+.autogear <60 warrior> protection 90     # at level 60: ceiling raised to 90
+```
 
 ### `.bot release`
 

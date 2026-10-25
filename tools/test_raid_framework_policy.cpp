@@ -1,4 +1,4 @@
-#include "../ai/playerbot/RaidFrameworkPolicy.h"
+#include "../ai/playerbot/policy/raid/RaidFrameworkPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

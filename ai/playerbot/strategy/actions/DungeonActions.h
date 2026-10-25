@@ -1,7 +1,7 @@
 #pragma once
 #include "playerbot/PlayerbotAI.h"
 #include "MovementActions.h"
-#include "playerbot/ResistAuraPolicy.h"
+#include "playerbot/policy/class/ResistAuraPolicy.h"
 #include "playerbot/strategy/values/HazardsValue.h"
 
 namespace ai

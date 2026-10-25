@@ -1,4 +1,4 @@
-#include "../ai/playerbot/HeiganDancePolicy.h"
+#include "../ai/playerbot/policy/raid/HeiganDancePolicy.h"
 
 #include <cstdlib>
 #include <iostream>

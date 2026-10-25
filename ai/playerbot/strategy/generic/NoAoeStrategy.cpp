@@ -1,5 +1,5 @@
 #include "playerbot/playerbot.h"
-#include "playerbot/AoeOffPolicy.h"
+#include "playerbot/policy/combat/AoeOffPolicy.h"
 #include "NoAoeStrategy.h"
 
 using namespace ai;

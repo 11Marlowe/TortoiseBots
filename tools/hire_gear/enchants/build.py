@@ -42,7 +42,7 @@ def load_snapshot(name, fetcher):
 WOW = load_snapshot("wowisclassic.json", "tools/hire_gear/sources/wowisclassic/scrape.py")
 TS = load_snapshot("turtle_sheets.json", "tools/hire_gear/sources/turtle_sheets/fetch.py")
 
-# 28 spec keys "<class>_<spec>"; pathName per runtime/HireSpecPolicy.h
+# 29 spec keys "<class>_<spec>"; pathName per runtime/HireSpecPolicy.h
 # (druid bear+cat share the feral path; keys use gossip order).
 SPECS = [
     ("warrior", "protection", "tank"), ("warrior", "arms", "dps"),
@@ -56,7 +56,7 @@ SPECS = [
     ("priest", "holy", "healer"), ("priest", "discipline", "healer"),
     ("priest", "shadow", "dps"),
     ("shaman", "restoration", "healer"), ("shaman", "elemental", "dps"),
-    ("shaman", "enhancement", "dps"),
+    ("shaman", "enhancement", "dps"), ("shaman", "tank", "tank"),
     ("mage", "frost", "dps"), ("mage", "fire", "dps"),
     ("mage", "arcane", "dps"),
     ("warlock", "affliction", "dps"), ("warlock", "demonology", "dps"),
@@ -84,6 +84,7 @@ WOWMAP = {
     ("shaman", "restoration"): ("shaman", "resto"),
     ("shaman", "elemental"): ("shaman", "elem"),
     ("shaman", "enhancement"): ("shaman", "enhan"),
+    ("shaman", "tank"): ("shaman", "enhan"),
     ("mage", "frost"): ("mage", "mage"),
     ("mage", "fire"): ("mage", "mage"),
     ("mage", "arcane"): ("mage", "mage"),
@@ -116,6 +117,7 @@ TSMAP = {
     ("shaman", "elemental"): ("shaman", ["Elemental BIS",
                                          "Elemental Lightning BIS"]),
     ("shaman", "enhancement"): ("shaman", ["Enhance BIS"]),
+    ("shaman", "tank"): ("shaman", ["Enhance BIS"]),
     ("mage", "frost"): ("mage", ["Frost BIS"]),
     ("mage", "fire"): ("mage", ["Fire BIS"]),
     ("mage", "arcane"): ("mage", ["Arcane BIS"]),
@@ -409,7 +411,8 @@ TWOHAND = {("warrior", "arms"), ("paladin", "retribution"),
 # Shield offhand specs.
 SHIELD = {("warrior", "protection"), ("paladin", "protection"),
           ("paladin", "holy"), ("priest", "holy"), ("priest", "discipline"),
-          ("shaman", "restoration"), ("shaman", "elemental")}
+          ("shaman", "restoration"), ("shaman", "elemental"),
+          ("shaman", "tank")}
 
 TIER_NAMES = {1: "pre-raid", 2: "ZG+AQ20+LowerKara", 3: "MC+Ony+Timbermaw",
               4: "BWL+ES", 5: "AQ40", 6: "Naxx", 7: "Tower of Karazhan"}

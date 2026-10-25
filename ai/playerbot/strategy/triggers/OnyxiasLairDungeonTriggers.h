@@ -1,6 +1,6 @@
 #pragma once
 #include "DungeonTriggers.h"
-#include "playerbot/OnyxiaBreathPolicy.h"
+#include "playerbot/policy/raid/OnyxiaBreathPolicy.h"
 
 namespace ai
 {

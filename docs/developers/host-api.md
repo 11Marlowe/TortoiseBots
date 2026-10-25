@@ -173,7 +173,7 @@ Current adapters:
 
 | Adapter | Responsibility |
 | --- | --- |
-| `BotHostAdapter` | startup, shutdown and world update; at startup registers the observability emitter's commander provider (`ObservabilityEmitter::SetCommanderProvider` -> `BotCommands::CollectCommanderTelemetry`, module-internal: the dashboard's Commanders tab, no core seam; the `COMMANDERS` datagram also carries map data, i.e. the commander's position, each bound bot's target and up to 24 hostile units near the lead from the `TBM:VIEW` feed's own builder, plus unit info (each bot's AI state, newest action, spell being cast, crowd control, drinking/eating and target name; each unit's level, rank, cast and crowd control; the binding's start time), read once per 2 s cycle only while a binding stands: no per-tick cost, no world scan, no new core call; fields in `runtime/CommanderTelemetry.h`, see `tools/observability/README.md`) |
+| `BotHostAdapter` | startup, shutdown and world update; at startup registers the observability emitter's commander provider (`ObservabilityEmitter::SetCommanderProvider` -> `BotCommands::CollectCommanderTelemetry`, module-internal: the dashboard's Commanders tab, no core seam; the `COMMANDERS` datagram also carries map data, i.e. the commander's position, each bound bot's target and up to 24 hostile units near the lead from the `TBM:VIEW` feed's own builder, plus unit info (each bot's AI state, newest action, spell being cast, crowd control, drinking/eating and target name; each unit's level, rank, cast and crowd control; the binding's start time), read once per 2 s cycle only while a binding stands: no per-tick cost, no world scan, no new core call; fields in `runtime/CommanderTelemetry.h`, see `tools/observability/README.md`); also the dungeon mob provider (`SetDungeonMobProvider` -> `BotCommands::CollectDungeonMobs`, issue #1101: the `DUNGEON_MOBS` datagram, mobs per dungeon run from the members' own victims, attackers and cached lists — up to 48 per party run and 64 per raid run, fewer when many runs share the 384-mob cycle budget, whole runs packed into parts of at most 96 mobs and 8 runs — once per 2 s cycle, no world scan; policy in `runtime/DungeonMobTelemetry.h`) |
 | `BotSessionAdapter` | Headless session lifecycle |
 | `BotPlayerAdapter` | player lifecycle/reclaim attachment; answers core LFT managed-bot rolecheck (`IsManagedBot`/`GetBotRoles`); logs bot quest completions for `bot_events.csv`; on a bot's own `OnMapChanged` re-applies the [#218](https://github.com/Sagiroth/TortoiseBots/issues/218) instance guard to its non-combat strategies (`AiFactory::ApplyInstanceGuardOnMapChange`); `OnUpdate` (map thread, end of the owner's update) hands a bot pet more than 100 yd from its owner (the core unsummons at 120) to `BotManager::CheckNewPetSpawn` before the map updates creatures (a summon cast completing inside `Player::Update`); the same check also runs on the world thread after each bot's AI turn. Each pet guid is checked once and a pet that appeared out of sight, more than 5 yd off the owner's height or more than 30 yd away is moved onto its owner [#1043](https://github.com/Sagiroth/TortoiseBots/issues/1043), `runtime/PetSpawnPolicy.h`); real players return on the first field read, and the fast path takes no lock |
 | `BotUnitAdapter` | `UnitScript::OnUnitDeath`: killer attribution for `deaths.csv`; `UnitScript::OnDamage`: last-non-self-damager memory so Spirit of Redemption expiries (core self-kill) still log the real killer |
@@ -951,3 +951,61 @@ Before adding another core seam, establish that:
 
 If the design would make PlayerBots-specific checks spread through normal
 core gameplay code, redesign it.
+
+## Raid boss diagnostics (module only)
+
+`RaidBossDiagnostics` observes the existing `UnitScript::OnUnitUpdate`,
+`OnUnitExitCombat`, `OnUnitDeath` and `ServerScript::CanPacketSend` hooks. With `AiPlayerbot.RaidBossDiagnostics = 1` and
+`bot_events.csv` enabled, living, engaged, non-evading world-boss-rank
+creatures in raid maps produce one `BossThreat` snapshot on first observation
+and then no more than once per two seconds per boss/instance. Only due snapshots
+read the threat list; numeric threat order is not the boss's target-selection rule.
+
+`BossSpellHit` observes `SMSG_SPELLNONMELEEDAMAGELOG` on the victim's session
+copy only (including headless sessions). It records reported damage, the health
+sample at packet send (`hp_sample`), and clamped subtraction (`hp_est`). The packet
+can precede damage application and intervening procs; neither field is exact
+post-hit health. Miss packets, melee swings, heals, and separate periodic-aura
+packet formats are not covered. Spell IDs are not hardcoded. Rows require an
+engaged raid boss as caster and a bot or grouped player as victim. These observers
+never modify combat, suppress packets, replace spell scripts, or require core edits.
+
+Only the synchronous combat damage opcode is observed directly. Current core emits it through `WorldObject::SendSpellNonMeleeDamageLog` and `Map::MessageBroadcast` on the owning map/world thread. Other packet types retain the existing deferred handling; the observer stores no player or AI pointer.
+
+## CSV columns (unchanged nine-column layout)
+
+| Column | Meaning |
+| --- | --- |
+| 1 `timestamp` | UTC event timestamp string, suffixed `+00`; uses a thread-local time conversion result. |
+| 2 `actor` | Boss name for BossThreat; victim player/bot name for BossSpellHit. This is not necessarily a bot, unlike older bot-only events. CSV-escaped. |
+| 3 `event` | `BossThreat` or `BossSpellHit`. |
+| 4 `position` | Existing quoted WorldPosition display-coordinate WKT POINT of the actor, not raw XYZ. |
+| 5 `race` | Victim race for BossSpellHit; 0 for BossThreat. |
+| 6 `class` | Victim class for BossSpellHit; 0 for BossThreat. |
+| 7 `level` | Actor's integer level rendered with two decimals; no XP fraction. |
+| 8 `info1` | Boss name, CSV-escaped. |
+| 9 `info2` | Key/value payload described below, CSV-escaped. |
+
+Payload separators are `|` between fields and `=` between key and value. Name bytes outside ASCII letters, digits, underscore and hyphen use percent-encoding (`%20` for space, `%25` for percent, etc.). Numeric GUIDs are raw unsigned 64-bit GUID values in decimal, not character low IDs. Map and instance disambiguate concurrent copies of the same boss.
+
+### BossThreat info2
+
+`entry=<creature entry>|map=<map ID>|instance=<instance ID>|boss_guid=<raw GUID>|victim=<name or none>|top=<0..5>|t1=<name>:<threat>:<GUID>|...`
+
+- `victim` is the boss's current `GetVictim()` name, independently of ranking.
+- `top` is the number of emitted threat entries, up to five.
+- `t1` through `t5` are descending finite numeric `HostileReference::getThreat()` values, with GUID ascending to break equal-threat ties. Values have two decimal places. These are threat points, not percentages.
+- Uses the current threat manager's active threat list with resolvable targets, including pets/creatures if present. The separate offline-reference list is not included. Null targets and nonfinite values are omitted.
+
+Example payload:
+
+`entry=16028|map=533|instance=42|boss_guid=9|victim=Tank%20One|top=2|t1=Tank%20One:12345.50:101|t2=Soaker:9876.25:102`
+
+### BossSpellHit info2
+
+`entry=<creature entry>|map=<map ID>|instance=<instance ID>|caster=<name>|caster_guid=<raw GUID>|spell=<spell ID>|victim=<name>|victim_guid=<raw GUID>|reported_damage=<packet amount>|hp_sample=<health at packet send>|hp_est=<clamped subtraction>|hp_sample_at=packet_send`
+
+- `reported_damage` is the packet's uint32 damage field, not a newly measured health loss. Zero-damage packets are preserved.
+- `hp_sample` is the victim's health when the packet-send hook executes.
+- `hp_est = max(0, hp_sample - reported_damage)`. **Neither health field is exact post-hit health.** The normal direct-damage path sends the packet before applying damage; procs occur between packet send and application. Immunity/god mode, prevention, intervening heals/damage, and other packet-emission paths can make the estimate wrong. It is never used for bot decisions.
+- The name `BossSpellHit` means an observed damage-log packet, not an independently verified successful reduction in health.

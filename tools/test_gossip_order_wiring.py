@@ -36,7 +36,7 @@ def strip_comments(text):
     return "".join(out)
 
 
-COMMANDS = strip_comments((ROOT / "commands/BotCommands.cpp").read_text())
+COMMANDS = strip_comments((ROOT / "commands/Commander.cpp").read_text())
 CONFIG = strip_comments((ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text())
 TEMPLATE = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
 
@@ -101,7 +101,7 @@ class GossipOrderWiringTest(unittest.TestCase):
             self.assertLess(start, order.index(later), later)
 
     def test_order_is_dispatched(self):
-        handler = function(COMMANDS, "static bool HandleCommanderOrder(")
+        handler = function(COMMANDS, "bool HandleCommanderOrder(")
         self.assertRegex(handler, r'verb == "gossip"\)\s*\{\s*parsed = GossipOrder::ParseRequest\(rest, gossipRequest\);')
         self.assertRegex(handler, r'if \(verb == "gossip"\)\s*return CommanderGossip\(handler, order, bot, gossipRequest, intent\);')
 

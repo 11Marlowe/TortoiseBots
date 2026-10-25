@@ -100,3 +100,26 @@ LLM-based chat interactions are purely asynchronous and decoupled. If an LLM bac
 Player-facing boundaries, gameplay quirks, and project non-goals are cataloged in [Known Limitations & Quirks](../play/known-limitations.md). Key architectural invariants include:
 - **Summon Sequencing:** Re-binding the master occurs before follow movement is resumed to guarantee ownership cannot be hijacked during a teleport transition.
 - **Out-of-AH Inventory Queries:** Bots check their inventory values using cached vendor and pricing models rather than sending world-wide auction queries.
+
+## Optional raid boss observations
+
+`RaidBossDiagnostics` uses the existing unit-update and packet-send hooks to
+record engaged raid bosses when explicitly enabled. The synchronous combat
+opcode is observed on its owning map/world thread; asynchronous packet handling
+remains deferred. No player, creature or AI pointer is retained. Per-instance
+throttle metadata is mutex-protected, and threat lists are read only when a
+snapshot is due. Health fields are samples/estimates, not post-damage guarantees.
+See [the host contract](host-api.md#raid-boss-diagnostics-module-only).
+
+## Policy headers by domain
+
+Pure decision rules live in `*Policy.h` headers grouped by domain, so the
+policy for a feature is found by folder instead of by guessing a file name:
+`ai/playerbot/policy/<domain>/` for bot-AI rules (combat, pull, raid,
+dungeon, travel, heal, loot, quest, gear, class, rpg) and
+`runtime/policy/<domain>/` for lifecycle/service rules (pvp, hire, ah, pet,
+class, provision, infra). Includes use paths relative to the existing
+include roots (e.g. `playerbot/policy/travel/TravelRoutePolicy.h`), so no
+new include directory is needed. Headers still referenced by an open
+feature branch stay at their old flat path until that branch lands; the
+flat names disappear once the last branch moves over.

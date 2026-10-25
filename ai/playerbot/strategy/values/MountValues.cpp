@@ -4,7 +4,7 @@
 #include "playerbot/strategy/AiObjectContext.h"
 #include "BudgetValues.h"
 #include "SharedValueContext.h"
-#include "playerbot/MountShopPolicy.h"
+#include "playerbot/policy/travel/MountShopPolicy.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "Database/SQLStorages.h"
 #include "SharedDefines.h"

@@ -1,5 +1,136 @@
 # Changelog
 
+## Unreleased
+
+### World PvP
+- Pool bots stay PvP flagged everywhere, so players can attack them outside contested zones too. About a quarter of free pool bots actively hunt flagged enemies nearby, join same-faction fights, and give up the chase after a minute. Turn it off with `AiPlayerbot.RandomBotForcePvp = 0` and `AiPlayerbot.WorldPvpSeek = 0`.
+- The dashboard shows who fights whom in the open world: a World PvP feed, a seeker and "fighting" badge on the bot list, recent PvP fights in each bot's profile, and counters for seekers, engagements, kills and deaths.
+
+### Classes & Combat
+- Hunters fire Multi-Shot only when the splash around their target catches a second fighting enemy, and never into a crowd-controlled mob standing beside it, so the shot now scales with the pack instead of firing on cooldown.
+- Hunters use Freezing Trap again as crowd control in dungeon runs without assigned marks: they trap an extra attacker that is not the group's kill target, and only once they know Feign Death.
+
+### Commands
+- New `.autogear` command gears a real player the way a spawned bot gets geared: items picked for the level and spec from the same gear pool the bots use, upgrades only, replaced items to the bags or the mailbox. GameMasters can gear any player; `AiPlayerbot.PlayerAutogearForAll` (default `0`) lets every player gear themselves.
+
+### Items & Loot
+- `AiPlayerbot.RandomGearBlacklist` is now a hard ban on every auto-gear path: the empty-slot fallback, shirts and tabards, and the level-60 hire gear sets all skip blocked items. A blocked item also wins over the whitelist, and a pool or hired bot already wearing one gets it replaced or removed on its next gear pass. Real players and owned bots never have their own gear taken off, and found loot is unaffected.
+
+## v1.8.0 (2026-10-22)
+
+### Classes & Combat
+- Tanks now taunt any mob attacking the healer or another party member, and walk to it if needed. [#1211](https://github.com/Sagiroth/TortoiseBots/pull/1211)
+- Bots with an interrupt kick any nearby caster, not only the one they are already fighting. [#1211](https://github.com/Sagiroth/TortoiseBots/pull/1211)
+- Hunter and mage pets behave better in fights, and hunters use Disengage and Hunter's Mark again. [#1211](https://github.com/Sagiroth/TortoiseBots/pull/1211)
+- After pulling a group back, the tank keeps fighting the rest of the pack instead of standing still. [#1169](https://github.com/Sagiroth/TortoiseBots/pull/1169) [#1199](https://github.com/Sagiroth/TortoiseBots/pull/1199)
+- Party bots stand still while idle instead of shuffling around camp. [#1169](https://github.com/Sagiroth/TortoiseBots/pull/1169) [#1199](https://github.com/Sagiroth/TortoiseBots/pull/1199)
+- Priest healers use cheaper heals when health is dropping slowly, saving mana for long fights. [#1213](https://github.com/Sagiroth/TortoiseBots/pull/1213)
+
+### Items & Loot
+- Bots no longer receive duplicate copies of real items, including 139 that were impossible to get twice. [#1199](https://github.com/Sagiroth/TortoiseBots/pull/1199)
+- Bots never get transmogrification clones, whether from gear, loot, quest rewards or hired companions. [#1200](https://github.com/Sagiroth/TortoiseBots/pull/1200) [#1211](https://github.com/Sagiroth/TortoiseBots/pull/1211)
+
+### Commands
+- `.bot strategy` now accepts role selectors such as `@tank`, `@dps`, `@heal`, `@melee` and `@ranged`. [#1185](https://github.com/Sagiroth/TortoiseBots/pull/1185)
+- Two-word strategies like `+aoe fear` are recognised instead of being read as a bot name. [#1185](https://github.com/Sagiroth/TortoiseBots/pull/1185)
+
+### Dashboard
+- The bot dashboard is safer to use, with fixes to a few risky actions. [#1199](https://github.com/Sagiroth/TortoiseBots/pull/1199)
+
+### Behind the scenes
+- Code checks run faster when changes are submitted. [#1199](https://github.com/Sagiroth/TortoiseBots/pull/1199)
+- The README now sends new players to the Getting Started guide first. [#1155](https://github.com/Sagiroth/TortoiseBots/pull/1155)
+- Tidier code comments and small cleanups with no effect on play. [#1211](https://github.com/Sagiroth/TortoiseBots/pull/1211)
+
+---
+
+## v1.7.0 (2026-10-21)
+
+### Classes & Combat
+- Shaman can now tank: wear a shield, put Rockbiter Weapon on the main hand, and learn Totemic Alignment or Spirit Armor. [#1128](https://github.com/Sagiroth/TortoiseBots/pull/1128)
+- Healers now treat a shaman tank as the real tank, and hunter and warlock pets stop taunting it. [#1128](https://github.com/Sagiroth/TortoiseBots/pull/1128)
+- Damage dealers now keep their threat below the shaman tank instead of pulling enemies off it. [#1128](https://github.com/Sagiroth/TortoiseBots/pull/1128)
+- Stormstrike works properly again. [#1128](https://github.com/Sagiroth/TortoiseBots/pull/1128)
+- The usual role command still works if you want to set a shaman as tank yourself. [#1128](https://github.com/Sagiroth/TortoiseBots/pull/1128)
+
+### Dungeons & Maps
+- Dungeon maps on the dashboard now show the enemies in each run and lines showing who they are attacking. [#1101](https://github.com/Sagiroth/TortoiseBots/pull/1101)
+- You now get enemies and target lines for every dungeon and raid run with a bot, not just your own group. [#1126](https://github.com/Sagiroth/TortoiseBots/pull/1126)
+- Maps are drawn from 18 combined map layers, so dungeon layouts line up properly. [#1112](https://github.com/Sagiroth/TortoiseBots/pull/1112)
+- Each dungeon view now always shows three map pictures. [#1112](https://github.com/Sagiroth/TortoiseBots/pull/1112)
+- The Dungeons tab also shows power bars for your group. [#1112](https://github.com/Sagiroth/TortoiseBots/pull/1112)
+- An older dashboard simply ignores the new enemy information and keeps working as before. [#1126](https://github.com/Sagiroth/TortoiseBots/pull/1126)
+
+### Behind the scenes
+- The dashboard update was moved onto the latest version of the game code and checked over. [#1123](https://github.com/Sagiroth/TortoiseBots/pull/1123)
+
+---
+
+## v1.6.2 (2026-10-20)
+
+### Dashboard
+- A new read-only Agent maps tab shows saved run maps when you set the new --agent-maps-dir option; otherwise it stays hidden. [#1119](https://github.com/Sagiroth/TortoiseBots/pull/1119)
+- The tab only displays map files from that folder, with no upload or delete. [#1119](https://github.com/Sagiroth/TortoiseBots/pull/1119)
+
+### Behind the scenes
+- The README now has optional Ko-fi, build status and Discord badges plus a single licence tab. [#1113](https://github.com/Sagiroth/TortoiseBots/pull/1113) [#1114](https://github.com/Sagiroth/TortoiseBots/pull/1114) [#1116](https://github.com/Sagiroth/TortoiseBots/pull/1116)
+- The documentation was rebuilt with a start page, feature list and guides for players and server owners. [#1121](https://github.com/Sagiroth/TortoiseBots/pull/1121)
+- Branches for closed or merged pull requests are now cleaned up automatically, except protected and fork branches. [#1120](https://github.com/Sagiroth/TortoiseBots/pull/1120)
+
+---
+
+## v1.6.1 (2026-10-20)
+
+### Classes & Combat
+- Warlocks no longer recast Soulstone endlessly on players they cannot see, such as an invisible GM. [#1109](https://github.com/Sagiroth/TortoiseBots/pull/1109)
+- Bots now land their heals and group buffs on invisible GMs instead of wasting the cast. [#1109](https://github.com/Sagiroth/TortoiseBots/pull/1109)
+- On servers with bot broadcasts switched off, groups still get their heals and buffs. [#1109](https://github.com/Sagiroth/TortoiseBots/pull/1109)
+
+### Stability
+- Swapping bags no longer crashes the world server. [#1109](https://github.com/Sagiroth/TortoiseBots/pull/1109)
+
+### Bug Reports
+- The bug report form works again. [#1109](https://github.com/Sagiroth/TortoiseBots/pull/1109)
+
+### Behind the scenes
+- The full changelog is posted to the Discord changelog thread again, with only a short announcement in the release thread. [#1106](https://github.com/Sagiroth/TortoiseBots/pull/1106)
+
+---
+
+## v1.6.0 (2026-10-19)
+
+### Bots & Mounts
+- Bots now ride mounts from their own race, so goblins finally show up on Rocket Cars and Shredders. [#1100](https://github.com/Sagiroth/TortoiseBots/pull/1100)
+- Fancy epic mounts are now limited to level 60 bots, so low-level bots no longer look overpowered. [#1100](https://github.com/Sagiroth/TortoiseBots/pull/1100)
+
+### Bots & Gear
+- Bots no longer turn up wearing raid quest rewards such as the Onyxia Tooth Pendant. [#1104](https://github.com/Sagiroth/TortoiseBots/pull/1104)
+- Bots now fill empty gear slots when a fitting item exists, including class-only trinkets. [#1104](https://github.com/Sagiroth/TortoiseBots/pull/1104)
+
+### Dashboard
+- A new Dungeons tab shows a live view of every dungeon run, including groups you hire yourself. [#1103](https://github.com/Sagiroth/TortoiseBots/pull/1103)
+- Groups in different copies of the same dungeon now show up separately, so you can tell them apart. [#1103](https://github.com/Sagiroth/TortoiseBots/pull/1103)
+
+---
+
+## v1.5.0 (2026-10-18)
+
+### Your Alts as Bots
+- Your own characters can now keep playing as bots while you are logged off. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+- Turn this on with the AltBots option in the bot settings; it is off by default. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+- With the option off, your alts behave exactly as they do now and stay your companions. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+- Kick an alt from your group and, with the option on, it carries on playing on its own. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+- If a group you are in breaks up, your alt counts as kicked and keeps going by itself. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+- You can make your alt bots log out whenever you do, with the AltBotsLogoutWithOwner option. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+
+### Bots in the World
+- Random bots now follow your bot cheats setting, so they no longer drown or go without repairs. [#1096](https://github.com/Sagiroth/TortoiseBots/pull/1096)
+- Bots no longer get stuck swapping mounts over and over. [#1096](https://github.com/Sagiroth/TortoiseBots/pull/1096)
+- Bots look normal again instead of showing broken or missing appearances. [#1096](https://github.com/Sagiroth/TortoiseBots/pull/1096)
+- Bots now ride mounts that suit their race, just like real players. [#1096](https://github.com/Sagiroth/TortoiseBots/pull/1096)
+
+---
+
 ## v1.4.0 (2026-10-17)
 
 ### Classes & Combat

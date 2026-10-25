@@ -1,6 +1,6 @@
 // Standalone check for ai/playerbot/CreatureAuraKeepoutPolicy.h:
 //   g++ -std=c++17 -Wall -Wextra tools/test_creature_aura_keepout_policy.cpp -o /tmp/test_cak && /tmp/test_cak
-#include "../ai/playerbot/CreatureAuraKeepoutPolicy.h"
+#include "../ai/playerbot/policy/loot/CreatureAuraKeepoutPolicy.h"
 #include "../ai/playerbot/AvoidAoePolicy.h"
 
 #include <algorithm>

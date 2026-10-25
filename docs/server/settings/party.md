@@ -26,6 +26,7 @@ These settings configure player-owned bots, alt-bots, formation positioning, and
 | [`AiPlayerbot.OwnedBotAutogearEnabled`](#aiplayerbotownedbotautogearenabled) | `0` | Enables automated incremental re-gearing for owned and hired bots. |
 | [`AiPlayerbot.OwnedBotAutogearQualityCap`](#aiplayerbotownedbotautogearqualitycap) | `2` | Caps the maximum item quality allowed during automatic re-gearing. |
 | [`AiPlayerbot.OwnedBotAutogearIlvlCap`](#aiplayerbotownedbotautogearilvlcap) | `0` | Caps the maximum item level allowed during automatic re-gearing. |
+| [`AiPlayerbot.PlayerAutogearForAll`](#aiplayerbotplayerautogearforall) | `0` | Lets every player run `.autogear` on themselves instead of GMs only. |
 | [`AiPlayerbot.OwnedBotSummonWhenGroup`](#aiplayerbotownedbotsummonwhengroup) | `0` | Automatically teleports owned bots to leader when accepting group invite. |
 | [`AiPlayerbot.OwnedBotSummonAllowInCombat`](#aiplayerbotownedbotsummonallowincombat) | `0` | Allows group accept summoning while either leader or bot is in combat. |
 | [`AiPlayerbot.OwnedBotSummonAllowMasterDead`](#aiplayerbotownedbotsummonallowmasterdead) | `0` | Allows group accept summoning while the party leader is dead. |
@@ -102,6 +103,8 @@ Idle party bots arrange themselves in the chosen geometric formation relative to
 - `arrow`: arrowhead formation with role groups staged in depth behind the leader's facing direction.
 - `queue`: single-file column trailing behind the leader.
 
+Bots walk into their slot once when a formation is set or changed, and once each time the leader stops moving. After that they stand still and follow the leader normally, so an idle party does not shuffle.
+
 Individual bots can be assigned custom formations during gameplay using the [`.bot formation`](../../play/commands/party-actions.md#bot-formation) command.
 
 </details>
@@ -168,6 +171,22 @@ Caps the maximum item level of equipment that can be granted when running the au
 Limits candidate equipment selected by `.bot autogear` to items at or below the specified item level.
 
 When set to `0`, no item level cap is enforced and candidate equipment is bounded only by the bot character level and quality cap. Explicit item level arguments in player commands are clamped to this ceiling.
+
+</details>
+
+### `AiPlayerbot.PlayerAutogearForAll`
+Opens `.autogear` — which gears a real player the way a spawned bot gets geared — beyond the GameMaster staff.
+**Default:** `0` · **Values:** `0` off, `1` on · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+`.autogear` equips a real player with items picked from the same gear pool, scoring and level/quality limits a spawned bot of the same level receives. It only upgrades: replaced items go to the target's bags, or to their own mailbox when the bags are full.
+
+- `0` (default): only GameMasters can run `.autogear`, on any real online player including themselves.
+- `1`: every player can run `.autogear` on themselves only. Naming another player is refused, and the command stays free with no cooldown.
+
+This flag never changes bot gearing: owned bots keep `.bot autogear`, controlled by [`AiPlayerbot.OwnedBotAutogearEnabled`](#aiplayerbotownedbotautogearenabled). Characters on a Turtle challenge mode (Hardcore, Slow & Steady, ...) are GM-only for `.autogear` whatever this flag is set to.
 
 </details>
 

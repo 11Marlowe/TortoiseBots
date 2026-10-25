@@ -1,6 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "AnubrekhanDungeonTriggers.h"
-#include "playerbot/AnubrekhanSwarmPolicy.h"
+#include "playerbot/policy/raid/AnubrekhanSwarmPolicy.h"
 
 using namespace ai;
 

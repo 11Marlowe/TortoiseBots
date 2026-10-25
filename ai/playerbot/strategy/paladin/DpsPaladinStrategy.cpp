@@ -143,14 +143,6 @@ void DpsPaladinStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
     triggers.push_back(
         new TriggerNode(
-            "medium aoe",
-            {
-                NextAction("consecration", ACTION_HIGH + 3)
-            }
-        )
-    );
-    triggers.push_back(
-        new TriggerNode(
             "enemy out of melee",
             {
                 NextAction("reach melee", ACTION_HIGH + 1)

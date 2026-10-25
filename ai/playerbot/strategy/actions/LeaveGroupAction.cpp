@@ -1,5 +1,5 @@
 #include "playerbot/GroupMembers.h"
-#include "playerbot/GroupHygienePolicy.h"
+#include "playerbot/policy/rpg/GroupHygienePolicy.h"
 #include "playerbot/playerbot.h"
 #include "../../runtime/PlayerbotAIStorage.h" // Headless storage shim
 #include "../../../../runtime/HireLifecycle.h"

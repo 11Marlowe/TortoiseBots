@@ -11,11 +11,16 @@ public:
     ProtectionPaladinStrategyActionNodeFactory()
     {
         creators["hand of reckoning"] = &hand_of_reckoning;
+        creators["hand of reckoning on attacker"] = &hand_of_reckoning_on_attacker;
         creators["judgement"] = &judgement;
     }
 
 private:
     ACTION_NODE_A(hand_of_reckoning, "hand of reckoning", "righteous defense");
+
+    // Same Righteous Defense fallback when the taunt cannot fire (not
+    // learned, GCD).
+    ACTION_NODE_A(hand_of_reckoning_on_attacker, "hand of reckoning on attacker", "righteous defense");
 
     ACTION_NODE_A(judgement, "judgement", "exorcism");
 };
@@ -47,6 +52,12 @@ void ProtectionPaladinStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
         "lose aggro",
         NextAction::array(0, new NextAction("hand of reckoning", ACTION_MOVE),
                              new NextAction("judgement", ACTION_MOVE - 1), NULL)));
+
+    // A mob sitting on a non-tank member: "lose aggro" only sees the
+    // paladin's current target. Same priority as "lose aggro".
+    triggers.push_back(new TriggerNode(
+        "party member attacked",
+        NextAction::array(0, new NextAction("hand of reckoning on attacker", ACTION_MOVE), NULL)));
 
     triggers.push_back(new TriggerNode(
         "holy shield",

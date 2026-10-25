@@ -1,6 +1,6 @@
 
 #include "playerbot/MountDismountPolicy.h"
-#include "playerbot/MountShopPolicy.h"
+#include "playerbot/policy/travel/MountShopPolicy.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/playerbot.h"
 #include "CheckMountStateAction.h"

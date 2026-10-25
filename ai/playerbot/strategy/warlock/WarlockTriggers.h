@@ -1,6 +1,6 @@
 #pragma once
 #include "playerbot/strategy/triggers/GenericTriggers.h"
-#include "../../../runtime/WarlockPetPolicy.h"
+#include "../../../runtime/policy/pet/WarlockPetPolicy.h"
 
 namespace ai
 {

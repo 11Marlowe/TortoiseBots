@@ -10,7 +10,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_hire_gear_policy.cpp -o /tmp/test_hire_gear
 //   /tmp/test_hire_gear
 
-#include "../runtime/HireGearPolicy.h"
+#include "../runtime/policy/hire/HireGearPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -34,7 +34,7 @@ static uint8_t const kClasses[] = {
     kHireClassShaman, kHireClassMage, kHireClassWarlock, kHireClassDruid,
 };
 
-// All 28 menu options resolve to a non-empty key; druid gets 4 distinct keys
+// All 29 menu options resolve to a non-empty key; druid gets 4 distinct keys
 // with bear != cat.
 static void TestSpecKeys()
 {
@@ -43,7 +43,7 @@ static void TestSpecKeys()
     {
         uint32_t count = 0;
         HireSpecOptions(cls, count);
-        CHECK(count == (cls == kHireClassDruid ? 4u : 3u));
+        CHECK(count == ((cls == kHireClassDruid || cls == kHireClassShaman) ? 4u : 3u));
         for (uint32_t i = 0; i < count; ++i)
         {
             char const* key = HireGearSpecKey(cls, static_cast<int>(i));
@@ -52,9 +52,10 @@ static void TestSpecKeys()
             ++total;
         }
     }
-    CHECK(total == 28);
+    CHECK(total == 29);
     CHECK(std::string(HireGearSpecKey(kHireClassDruid, 0)) == "bear");
     CHECK(std::string(HireGearSpecKey(kHireClassDruid, 3)) == "cat");
+    CHECK(std::string(HireGearSpecKey(kHireClassShaman, 3)) == "tank");
     CHECK(std::string(HireGearSpecKey(kHireClassWarrior, 1)) == "arms");
     CHECK(std::string(HireGearSpecKey(kHireClassWarrior, 2)) == "fury");
     CHECK(HireGearSpecKey(kHireClassWarrior, -1) == nullptr);
@@ -69,7 +70,8 @@ static void TestRoleFallback()
     CHECK(std::string(ResolveHireGearSpecKey(kHireClassWarrior, -1, kHireRoleTank)) == "protection");
     CHECK(std::string(ResolveHireGearSpecKey(kHireClassWarrior, -1, kHireRoleDps)) == "arms");
     CHECK(std::string(ResolveHireGearSpecKey(kHireClassPriest, -1, kHireRoleHealer)) == "holy");
-    CHECK(std::string(ResolveHireGearSpecKey(kHireClassDruid, -1, kHireRoleTank)) == "bear");
+    CHECK(std::string(ResolveHireGearSpecKey(kHireClassShaman, -1, kHireRoleTank)) == "tank");
+    CHECK(std::string(ResolveHireGearSpecKey(kHireClassShaman, -1, kHireRoleHealer)) == "restoration");
     CHECK(std::string(ResolveHireGearSpecKey(kHireClassDruid, -1, kHireRoleDps)) == "balance");
     CHECK(ResolveHireGearSpecKey(6, -1, kHireRoleDps) == nullptr);
 }

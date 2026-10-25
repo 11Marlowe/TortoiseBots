@@ -126,6 +126,13 @@ public:
     uint32 transportTeleportType;
     uint32 randomGearMaxLevel;
     uint32 randomGearMaxDiff;
+    // Owner rule (Oct 2026): generated gear is bounded by the bot's own level,
+    // not only by randomGearMaxLevel. Pool bots (fresh seed and every later
+    // regear) cap at level + randomGearMaxItemLevelAboveLevel; the standard
+    // (tier 0) hire kit at level + hireGearMaxItemLevelAboveLevel. 0 disables
+    // the above-level part. Earned gear (loot, quests, vendor/AH) is uncapped.
+    uint32 randomGearMaxItemLevelAboveLevel;
+    uint32 hireGearMaxItemLevelAboveLevel;
     bool randomGearUpgradeEnabled;
     // Owner-rule source-tier cap (roadmap #289): 0 base only, 1 + end-game
     // dungeons (229/289/329/800), 2 + raids. REP/PVP are orthogonal flags.
@@ -189,6 +196,8 @@ public:
     bool observability = false;
     uint32 observabilityPort = 0;
     std::string observabilityHost;
+    // Issue #1101: the DUNGEON_MOBS datagram (mobs per dungeon run); only acts while observability is on.
+    bool observabilityDungeonMobs = true;
     uint32 ahMarketBuyValue = 80;           // Buyer evaluation willingness % (relative to fair value)
     uint32 ahMarketMaxSpendPerBot = 0;      // Max spend per bot (0 = unlimited up to AH budget)
     uint32 ahMarketMaxQuality = 4;          // Max quality for synthetic supply (0=Poor..4=Epic)
@@ -382,6 +391,9 @@ public:
     // Companions are hired at a <Mercenary Hire> recruiter. When set, the fast
     // `.bot hire` command also works anywhere; fees are the same either way.
     bool hireAnywhere = false;
+    // Issue #1125: the experimental 7.3 shaman tank build. 0 withholds it from
+    // the recruiter spec menu, `.bot hire`, raid hire and the random pool roll.
+    bool shamanTankEnabled = true;
     // Hiring fee in copper for the 1st companion at level 60 (default 15000 =
     // 1.5g). Hires 2-4 multiply by the party mults below; the full 4-bot
     // party totals ~15g at 60. Set to 0 for free hiring.
@@ -448,6 +460,9 @@ public:
     bool ownedBotAutogearEnabled = false;
     uint32 ownedBotAutogearQualityCap = 2;
     uint32 ownedBotAutogearIlvlCap = 0;
+    // `.autogear` on real players: 0 = GM-only, 1 = every player may gear
+    // only themselves. GMs are never restricted.
+    bool playerAutogearForAll = false;
     bool ownedBotSummonWhenGroup = false;
     bool ownedBotSummonAllowInCombat = false;
     bool ownedBotSummonAllowMasterDead = false;
@@ -566,6 +581,10 @@ public:
     bool globalSoundEffects;
     bool shareTargets;
 	std::list<uint32> pvpProhibitedZoneIds;
+    bool randomBotForcePvp;
+    uint32 worldPvpSeek;
+    uint32 worldPvpSeekBotPercent;
+    uint32 worldPvpSeekRerollMinutes;
     bool enableGreet;
     // Seconds before the same real player may be greeted again by the same bot.
     uint32 greetCooldown;
@@ -575,7 +594,6 @@ public:
     bool randomBotShowHelmet;
     bool randomBotShowCloak;
     bool disableRandomLevels;
-    bool instantRandomize;
     bool gearscorecheck;
     int32 levelCheck;
     // Pool-bot trade safety (issue #469, donor EnableRandomBotTrading 0-3
@@ -816,6 +834,7 @@ public:
     // Hour (unix time / 3600) each live log was opened in.
     std::unordered_map<std::string, time_t> logHour;
 
+    bool raidBossDiagnostics = false;
     std::list<std::string> allowedLogFiles;
     std::list<std::string> debugFilter;
 
@@ -853,8 +872,8 @@ public:
     std::set<uint32> llmBlockedReplyChannels;
     //LM END
 
-    uint32 EatDrinkMinDistance = 5;
-    uint32 EatDrinkMaxDistance = 1000;
+    float EatDrinkMinDistance;
+    float EatDrinkMaxDistance;
 
     std::string GetValue(std::string name);
     void SetValue(std::string name, std::string value);

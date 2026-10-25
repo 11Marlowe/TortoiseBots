@@ -1,12 +1,15 @@
 
 #include "playerbot/playerbot.h"
 #include "HunterTriggers.h"
+#include "playerbot/GroupMembers.h"
 #include "../../../runtime/PetRevivePolicy.h"
-#include "../../../runtime/PetAttackGatePolicy.h"
-#include "playerbot/strategy/values/ThreatValues.h"
-#include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "../../../runtime/PetEngagePolicy.h"
 #include "HunterActions.h"
 #include "../../../runtime/HunterViperPolicy.h"
+#include "playerbot/ServerFacade.h"
+#include "playerbot/strategy/values/ThreatValues.h"
+#include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "playerbot/HunterAoePolicy.h"
 
 using namespace ai;
 
@@ -45,6 +48,110 @@ bool AspectOfTheHawkTrigger::IsActive()
             return false;
     }
     return BuffTrigger::IsActive();
+}
+
+// With a living tank in the group, mark only the mob the tank is fighting -
+// not whichever mob is chewing on the hunter. "The tank's mob" is either what
+// the tank is attacking or what is already attacking the tank; a solo hunter
+// or a tank down marks freely.
+bool HuntersMarkTrigger::IsActive()
+{
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target)
+        return false;
+
+    bool const groupHasTank = HunterHasLivingTank(ai);
+    bool targetIsTankTarget = false;
+    if (groupHasTank)
+    {
+        for (Player* member : LiveGroupMembers(bot->GetGroup()))
+        {
+            if (!member || !member->IsAlive() || !PlayerbotAI::IsTank(member))
+                continue;
+            if (member->GetVictim() == target || target->GetVictim() == member)
+            {
+                targetIsTankTarget = true;
+                break;
+            }
+        }
+    }
+
+    if (!ShouldHuntersMarkTarget(groupHasTank, targetIsTankTarget))
+        return false;
+
+    return DebuffTrigger::IsActive();
+}
+
+// The generic CC gate (HasCcTargetTrigger::CcTargetPending) holds dungeon
+// crowd control to an assigned raid mark, so the trap never fired in a
+// markless dungeon run. The trap goes on the chooser's own pick instead -
+// the same target tournament every other crowd control follows: never over
+// an existing CC, never a mob the group is already fighting, never dotted,
+// never the kill target. While our own trap holds a mob the value goes
+// empty, so no second trap is laid on top.
+bool FreezingTrapTrigger::IsActive()
+{
+    // The action feigns before dropping the trap (traps cannot be laid in
+    // combat), so Feign Death must be known - IsSpellReady is true for an
+    // unlearned spell - and ready. Below level 30 the trap row stands down
+    // instead of walking the hunter into melee for a cast that cannot happen.
+    if (!ai->HasSpell("feign death") || !sServerFacade.IsSpellReady(bot, 5384))
+        return false;
+
+    uint32 const trapId = AI_VALUE2(uint32, "spell id", getName());
+    if (!trapId || !sServerFacade.IsSpellReady(bot, trapId))
+        return false;
+
+    return AI_VALUE2(Unit*, "cc target", getName()) && !AI_VALUE2(Unit*, "current cc target", getName());
+}
+
+// The splash is measured around the current target: an attacker inside the
+// 10 yd chain-jump radius (core CHAIN_SPELL_JUMP_RADIUS, starting at the
+// shot's target) gets hit when the shot lands. Members must be fighting -
+// an idle add selected by nobody never counts. A breakable CC inside the
+// splash vetoes the whole shot; damage-immune members (banish, bubbles) are
+// excluded from the count but do not veto. Stuns, fears and roots take the
+// splash harmlessly and still count. Skull-marked mobs opted out of CC
+// protection (same as the AoE interlock): their CC is treated as stale.
+bool HunterMultiShotTrigger::IsActive()
+{
+    if (!SpellCanBeCastedTrigger::IsActive())
+        return false;
+
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target)
+        return false;
+
+    uint8_t splashTargets = 0;
+    bool breakableCcInSplash = false;
+    for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (!unit || !sServerFacade.IsAlive(unit) || !unit->IsInCombat())
+            continue;
+
+        if (sServerFacade.getDistance2d(unit, target) > kHunterMultiShotSplashYd)
+            continue;
+
+        if (PossibleAttackTargetsValue::HasIgnoreCCRti(unit, bot))
+        {
+            ++splashTargets;
+            continue;
+        }
+
+        if (PossibleAttackTargetsValue::HoldsBreakableCc(ai, unit, bot))
+        {
+            breakableCcInSplash = true;
+            continue;
+        }
+
+        if (PossibleAttackTargetsValue::IsImmuneToDamage(unit, bot))
+            continue;
+
+        ++splashTargets;
+    }
+
+    return ShouldHunterMultiShot(splashTargets, breakableCcInSplash);
 }
 
 bool AspectOfTheViperLowManaTrigger::IsActive()
@@ -101,15 +208,12 @@ bool HuntersPetLowHealthTrigger::IsActive()
         !AI_VALUE2(bool, "dead", "pet target") && !AI_VALUE2(bool, "mounted", "self target");
 }
 
-// PET-3/PET-8b: fires while the pet holds the enemy's attention AND pet
-// taunts are stood down (grouped with a real tank). Cheap-first: the
-// victim check and group check run before the member walk inside the
-// helper, so solo hunters never pay for the scan.
-//
-// F5: also fires on the pet's first threat lead over the tank, before it has
-// become the mob's victim (PetCowerOnLead; not for a mob on the hunter): Cower after the mob has turned
-// is a tank swap the party has to pay for. The victim check still catches a
-// pet that holds the mob with no tank value to compare against.
+// Fires when the pet holds the enemy's attention AND pet taunts are stood
+// down (grouped with a real tank), or — first, so the mob never turns on
+// the pet — when the pet's threat on the target leads the tank's
+// (runtime/PetEngagePolicy.h ShouldPetCower). Cheap-first: the victim check
+// and group check run before the member walk inside the helper, so solo
+// hunters never pay for the scan.
 bool PetHasAggroTrigger::IsActive()
 {
     Unit* pet = AI_VALUE(Unit*, "pet target");
@@ -118,61 +222,20 @@ bool PetHasAggroTrigger::IsActive()
     Unit* target = AI_VALUE(Unit*, "current target");
     if (!target)
         return false;
+    bool const petHasAggro = target->GetVictim() == pet;
     if (!bot->GetGroup() || ai::IsPetTauntAllowed(ai, bot))
         return false;
-    Unit* victim = target->GetVictim();
-    if (victim == pet)
-        return true;
-    return TortoiseBots::PetCowerOnLead(
-        sServerFacade.GetThreatManager(target).getThreat(pet), ThreatValue::GetTankThreat(ai, target), victim == bot);
-}
-
-bool HuntersMarkTrigger::IsActive()
-{
-    if (!DebuffTrigger::IsActive())
-        return false;
-
-    // Cheap gates first: the victim read only runs for a grouped hunter that
-    // is about to mark, with a living tank anywhere in the group.
-    if (!bot->GetGroup() || ai::IsPetTauntAllowed(ai, bot))
-        return true;
-
-    Unit* target = AI_VALUE(Unit*, "current target");
-    Unit* victim = target ? target->GetVictim() : nullptr;
-    Player* victimPlayer = victim ? dynamic_cast<Player*>(victim) : nullptr;
-    // Any living tank of the group counts (an off-tank's mob too), not only
-    // the main tank.
-    bool const victimIsLivingTank = victimPlayer && victimPlayer != bot && victimPlayer->IsAlive() &&
-        PlayerbotAI::IsTank(victimPlayer);
-    return HuntersMarkAllowed(true, ClassifyHuntersMarkHolder(victim != nullptr, victim == bot, victimIsLivingTank));
-}
-
-bool MultishotCanCastTrigger::IsActive()
-{
-    if (!SpellCanBeCastedTrigger::IsActive())
-        return false;
-
-    Unit* target = AI_VALUE(Unit*, "current target");
-    if (!target || PossibleAttackTargetsValue::HoldsBreakableCc(ai, target, bot))
-        return false;
-
-    // The primary target counts as one; every other live, un-CC'd attacker
-    // inside the AoE radius of it counts as another.
-    uint32 usable = 1;
-    std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
-    for (std::list<ObjectGuid>::iterator i = attackers.begin(); i != attackers.end() && !MultiShotWorthIt(usable); ++i)
+    TortoiseBots::PetThreatLeadInputs cower;
+    cower.petHasAggro = petHasAggro;
+    if (!petHasAggro)
     {
-        Unit* unit = ai->GetUnit(*i);
-        if (!unit || unit == target || !unit->IsAlive())
-            continue;
-        if (!sServerFacade.IsDistanceLessOrEqualThan(
-                sServerFacade.getDistance2d(unit, target), sPlayerbotAIConfig.aoeRadius))
-            continue;
-        if (PossibleAttackTargetsValue::HoldsBreakableCc(ai, unit, bot))
-            continue;
-        ++usable;
+        // Threat-lead reads only for the pre-aggro case: two threat lookups
+        // and the tank walk stay behind the victim check. A dead or absent
+        // tank reports < 0 and the pet (the fallback holder) never cowers.
+        cower.petThreat = sServerFacade.GetThreatManager(target).getThreat(pet);
+        cower.tankThreat = ThreatValue::GetTankThreat(ai, target);
     }
-    return MultiShotWorthIt(usable);
+    return TortoiseBots::ShouldPetCower(cower);
 }
 
 bool HunterSwarmedTrigger::IsActive()

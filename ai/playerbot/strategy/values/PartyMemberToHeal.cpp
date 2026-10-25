@@ -3,6 +3,7 @@
 #include "playerbot/playerbot.h"
 #include "PartyMemberToHeal.h"
 #include "HealerCoverage.h"
+#include "playerbot/HealTargetPolicy.h"
 #include "playerbot/HealReachPolicy.h"
 #include "playerbot/HealerManaPolicy.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -159,7 +160,7 @@ Unit* PartyMemberToHeal::Calculate()
         if (target &&
             target->getObjectGuid() != bot->getObjectGuid() &&
             sServerFacade.IsFriendlyTo(bot, target) &&
-            sServerFacade.IsAlive(target) &&
+            HealableTarget(sServerFacade.IsAlive(target)) &&
             target->GetHealthPercent() < 100 &&
             Check(target))
         {
@@ -170,8 +171,8 @@ Unit* PartyMemberToHeal::Calculate()
     if (GuidPosition rpgTarget = AI_VALUE(GuidPosition, "rpg target"))
     {
         Unit* target = rpgTarget.GetCreature(bot->GetInstanceId());
-        if (target && sServerFacade.IsFriendlyTo(bot, target) && sServerFacade.IsAlive(target) &&
-            target->GetHealthPercent() < 100)
+        if (target && sServerFacade.IsFriendlyTo(bot, target) &&
+            HealableTarget(sServerFacade.IsAlive(target)) && target->GetHealthPercent() < 100)
         {
             needHeals.push_back(target);
         }
@@ -352,7 +353,7 @@ Unit* PartyMemberToHeal::Calculate()
 
 bool PartyMemberToHeal::CanHealPet(Pet* pet)
 {
-    return MINI_PET != pet->getPetType();
+    return HealablePet(MINI_PET == pet->getPetType(), sServerFacade.IsAlive(pet));
 }
 
 bool PartyMemberToHeal::Check(Unit* player)

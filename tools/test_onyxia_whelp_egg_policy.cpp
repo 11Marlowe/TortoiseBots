@@ -1,4 +1,4 @@
-#include "../ai/playerbot/OnyxiaWhelpEggPolicy.h"
+#include "../ai/playerbot/policy/raid/OnyxiaWhelpEggPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

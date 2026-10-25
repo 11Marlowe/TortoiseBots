@@ -12,7 +12,9 @@ import pathlib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+PARTY = (ROOT / "commands/Party.cpp").read_text()
+COMMANDER = (ROOT / "commands/Commander.cpp").read_text()
+ACTION = (ROOT / "commands/Action.cpp").read_text()
 STAY = (ROOT / "ai/playerbot/strategy/actions/StayActions.cpp").read_text()
 
 
@@ -23,18 +25,18 @@ def body(text, start, end):
 
 class StayAnchorWiringTest(unittest.TestCase):
     def test_helper_sets_stay_and_return(self):
-        fn = body(COMMANDS, "static void SetStayAnchor(", "\n}\n")
+        fn = body(PARTY, "void SetStayAnchor(", "\n}\n")
         self.assertIn('posMap["stay"] = stayPos;', fn)
         self.assertIn('posMap["return"] = returnPos;', fn)
         self.assertIn('posMap["random"].Reset();', fn)
 
     def test_commander_move_uses_helper(self):
-        fn = body(COMMANDS, "static bool CommanderMove(", "\n}\n")
+        fn = body(COMMANDER, "static bool CommanderMove(", "\n}\n")
         self.assertIn("SetStayAnchor(leadAi, point.x, point.y, point.z, lead->GetMapId());", fn)
         self.assertNotIn('posMap["stay"]', fn)
 
     def test_direct_move_walks_straight_and_anchors_the_lead(self):
-        fn = body(COMMANDS, "static bool CommanderMoveDirect(ChatHandler* handler, CommanderOrder const& order,\n    RemoteCommander::MovePoint const& point, std::string const& intent)\n{",
+        fn = body(COMMANDER, "static bool CommanderMoveDirect(ChatHandler* handler, CommanderOrder const& order,\n    RemoteCommander::MovePoint const& point, std::string const& intent)\n{",
                   "\n}\n")
         self.assertIn("SetStayAnchor(ai, point.x, point.y, ground, lead->GetMapId());", fn)
         self.assertIn("MovePoint(0, point.x, point.y, ground, MOVE_RUN_MODE);", fn)
@@ -46,13 +48,13 @@ class StayAnchorWiringTest(unittest.TestCase):
         # The followers take the lead bot's line: its spot first (straight or on a complete navmesh path), then the point.
         # (the per-follower test lives in DirectFollowerJoin, which the run leader's gate reads too)
         self.assertIn("DirectFollowerJoin(bot, map, leadX, leadY, leadZ, point.x, point.y, ground, horizontal, route);", fn)
-        self.assertIn("ChooseDirectJoin(", body(COMMANDS, "static RemoteCommander::DirectJoin DirectFollowerJoin(", "\n}\n"))
+        self.assertIn("ChooseDirectJoin(", body(COMMANDER, "static RemoteCommander::DirectJoin DirectFollowerJoin(", "\n}\n"))
         self.assertIn("for (Vector3 const& next : { leadSpot, target })", fn)
         self.assertIn("init.MovebyPath(walker.route);", fn)
         self.assertNotIn('posMap["stay"]', fn)
 
     def test_come_hold_comestay_use_helper(self):
-        branch = body(COMMANDS, 'else if (intent == "come" || intent == "hold" || intent == "comestay")',
+        branch = body(ACTION, 'else if (intent == "come" || intent == "hold" || intent == "comestay")',
                       'else if (intent == "ready")')
         self.assertIn("SetStayAnchor(ai, requester->GetPositionX()", branch)
         self.assertNotIn('posMap["stay"]', branch)

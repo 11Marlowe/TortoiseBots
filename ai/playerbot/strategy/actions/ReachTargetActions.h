@@ -12,8 +12,8 @@
 #include "GenericSpellActions.h"
 #include "playerbot/strategy/values/HealerCoverage.h"
 #include "playerbot/PlayerbotFactory.h"
-#include "playerbot/PullFiringPolicy.h"
-#include "playerbot/RangedApproachPolicy.h"
+#include "playerbot/policy/pull/PullFiringPolicy.h"
+#include "playerbot/policy/combat/RangedApproachPolicy.h"
 #include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "AI/CreatureAI.h"
 #include <ctime>
@@ -775,6 +775,9 @@ namespace ai
 
         bool isUseful() override
         {
+            if (bot->IsInCombat() && (ai->IsTank(bot) || ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT)))
+                return false;
+
             // No walk without a drop: the aura scan reads "windfury totem"
             // while the raid buff is "Windfury Totem Effect", so after a
             // re-cast loop starts every member reads as missing the aura

@@ -1,4 +1,4 @@
-#include "../ai/playerbot/FlightErrandPolicy.h"
+#include "../ai/playerbot/policy/travel/FlightErrandPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

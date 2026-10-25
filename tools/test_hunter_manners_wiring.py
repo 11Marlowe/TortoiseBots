@@ -1,16 +1,17 @@
-"""Wiring pins for the hunter and pet manners fix (audit F5, F6, F13).
+"""Wiring pins for the hunter and pet manners.
 
-The pure rules live in runtime/PetAttackGatePolicy.h and
-ai/playerbot/HunterSwitchPolicy.h (unit-tested in tools/test_pet_attack_gate_policy.cpp
-and tools/test_hunter_switch_policy.cpp). These pins prove the live rows call them:
-a rule nobody calls changes nothing in the game.
+The pure rules live in runtime/PetEngagePolicy.h, ai/playerbot/HunterAoePolicy.h
+and ai/playerbot/HunterSwitchPolicy.h (unit-tested in tools/test_pet_engage_policy.cpp,
+tools/test_hunter_aoe_policy.cpp and tools/test_hunter_switch_policy.cpp). These pins
+prove the live rows call them: a rule nobody calls changes nothing in the game.
 
- - F5: the pet is not sent in before the tank holds the mob (the "pet attack"
-   row and the pet send inside AttackAction::Attack; explicit orders still go at
-   once), and the pet Cowers on its first threat lead over the tank.
+ - The pet waits out the tank's lead window in a bot-led party (CanPetAttack, used by
+   the "pet attack" row, the pet send inside AttackAction::Attack and the explicit pet
+   attack order), and Cowers on its first threat lead over the tank.
  - F13: two or more mobs on the hunter -> no melee trade, ranged kit back, Wing
-   Clip row above the kite step-out; Hunter's Mark only on the tank's mob.
- - F6: Multi-Shot needs two or more usable targets.
+   Clip row above the kite step-out.
+ - Multi-Shot flies only when its splash hits a second fighting enemy.
+ - Hunter's Mark with a living tank goes only on the tank's mob.
  - The live hunter strategy is HunterStrategy.cpp; GenericHunterStrategy.cpp is
    a donor file with no creator, so none of its rows count.
 """
@@ -21,7 +22,6 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 STRAT = ROOT / "ai/playerbot/strategy"
 ATTACK = (STRAT / "actions/AttackAction.cpp").read_text()
-GENERIC_TRIGGERS = (STRAT / "triggers/GenericTriggers.cpp").read_text()
 H_TRIG_H = (STRAT / "hunter/HunterTriggers.h").read_text()
 H_TRIG_CPP = (STRAT / "hunter/HunterTriggers.cpp").read_text()
 H_STRAT = (STRAT / "hunter/HunterStrategy.cpp").read_text()
@@ -35,42 +35,20 @@ def body(text, start, end="\n}\n"):
 
 
 class PetManners(unittest.TestCase):
-    def test_pet_send_in_attack_waits_for_the_tank_unless_ordered(self):
-        fn = body(ATTACK, "bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance, bool acceptCurrentVictim)")
-        self.assertIn("(acceptCurrentVictim || !PetHeldForTank(ai, target))", fn)
-        self.assertIn("creatureAI->AttackStart(target)", fn)
-
-    def test_pet_attack_row_waits_for_the_tank(self):
-        fn = body(GENERIC_TRIGGERS, "bool PetAttackTrigger::IsActive()")
-        self.assertIn("AttackAction::PetHeldForTank(ai, target)", fn)
-
-    def test_explicit_pet_attack_order_is_not_held(self):
-        generic = (STRAT / "actions/GenericActions.cpp").read_text()
-        for fn in (body(generic, "bool PetAttackAction::isUseful()"), body(generic, "bool PetAttackAction::Execute(Event& event)")):
-            self.assertNotIn("PetHeldForTank", fn)
-
-    def test_hold_reads_live_tank_victim_and_tank_threat(self):
-        fn = body(ATTACK, "bool AttackAction::PetHeldForTank(PlayerbotAI* ai, Unit* target)")
-        self.assertIn("!IsPetTauntAllowed(ai, bot)", fn)
-        self.assertIn("PlayerbotAI::IsTank(victimPlayer)", fn)
-        self.assertIn("victimPlayer->IsAlive()", fn)
-        self.assertIn("LiveGroupMembers(bot->GetGroup())", fn)
-        self.assertIn("PlayerbotAI::IsTank(member)", fn)
-        self.assertIn("in.victimThreat = victim ? threats.getThreat(victim) : 0.0f;", fn)
-        self.assertIn("float const threat = threats.getThreat(member);", fn)
-        self.assertIn("in.tankInMelee = member->GetDistance(target, SizeFactor::CombatReach) <= ATTACK_DISTANCE;", fn)
-        self.assertIn("TortoiseBots::PetAttackHeldForTank(in)", fn)
-
-    def test_enemy_players_never_hold_the_pet(self):
-        fn = body(ATTACK, "bool AttackAction::PetHeldForTank(PlayerbotAI* ai, Unit* target)")
-        self.assertRegex(fn, r"if \(target->IsPlayer\(\)\)\s*return false;")
+    def test_pet_send_holds_for_the_tank_lead_in_bot_led_parties(self):
+        fn = body(ATTACK, "bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)")
+        self.assertIn("TortoiseBots::PetEngageInputs engage;", fn)
+        self.assertIn("TortoiseBots::ShouldHoldPetForTankLead(engage)", fn)
+        attack = body(ATTACK, "bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance, bool acceptCurrentVictim)")
+        self.assertIn("CanPetAttack(ai, pet, target)", attack)
+        self.assertIn("creatureAI->AttackStart(target)", attack)
 
     def test_cower_fires_on_the_first_threat_lead(self):
         fn = body(H_TRIG_CPP, "bool PetHasAggroTrigger::IsActive()")
-        self.assertIn("    return TortoiseBots::PetCowerOnLead(", fn)
-        self.assertIn("victim == bot)", fn)
+        self.assertIn("TortoiseBots::PetThreatLeadInputs cower;", fn)
+        self.assertIn("return TortoiseBots::ShouldPetCower(cower);", fn)
         self.assertIn("IsPetTauntAllowed", fn)
-        self.assertIn("victim == pet", fn)
+        self.assertIn("target->GetVictim() == pet", fn)
 
     def test_pet_rows_still_wired(self):
         pet = body(H_STRAT, "void HunterPetStrategy::InitCombatTriggers", "\n}\n")
@@ -105,17 +83,15 @@ class HunterManners(unittest.TestCase):
 
     def test_hunters_mark_only_on_the_tanks_mob(self):
         fn = body(H_TRIG_CPP, "bool HuntersMarkTrigger::IsActive()")
-        self.assertIn("    return HuntersMarkAllowed(true, ClassifyHuntersMarkHolder(victim != nullptr, victim == bot, victimIsLivingTank))", fn)
-        self.assertIn("PlayerbotAI::IsTank(victimPlayer)", fn)
-        self.assertIn("ai::IsPetTauntAllowed(ai, bot)", fn)
+        self.assertIn("ShouldHuntersMarkTarget(groupHasTank, targetIsTankTarget)", fn)
+        self.assertIn("PlayerbotAI::IsTank(member)", fn)
         self.assertIn("DebuffTrigger::IsActive()", fn)
-        self.assertIn("bool IsActive() override;", body(H_TRIG_H, "class HuntersMarkTrigger", "\n    };"))
 
-    def test_multi_shot_needs_two_usable_targets(self):
-        fn = body(H_TRIG_CPP, "bool MultishotCanCastTrigger::IsActive()")
-        self.assertIn("    return MultiShotWorthIt(usable);", fn)
+    def test_multi_shot_needs_a_second_enemy_in_the_splash(self):
+        fn = body(H_TRIG_CPP, "bool HunterMultiShotTrigger::IsActive()")
+        self.assertIn("ShouldHunterMultiShot(splashTargets, breakableCcInSplash)", fn)
         self.assertIn("HoldsBreakableCc", fn)
-        self.assertIn('creators["multi-shot"] = [](PlayerbotAI* ai) { return new MultishotCanCastTrigger(ai); };', H_CTX)
+        self.assertIn('creators["multi-shot"] = [](PlayerbotAI* ai) { return new HunterMultiShotTrigger(ai); };', H_CTX)
         self.assertRegex(H_STRAT, r'"multi-shot",\s*NextAction::array\(0, new NextAction\("multi-shot", ACTION_HIGH\)')
 
     def test_bandage_refuses_while_anything_attacks_the_bot(self):

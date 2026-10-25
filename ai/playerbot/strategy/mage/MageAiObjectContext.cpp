@@ -193,6 +193,8 @@ namespace ai
                 creators["evocation channel check"] = [](PlayerbotAI* ai) { return new EvocationChannelCheckTrigger(ai); };
                 creators["flamestrike window"] = [](PlayerbotAI* ai) { return new FlamestrikeWindowTrigger(ai); };
                 creators["blizzard channel check"] = [](PlayerbotAI* ai) { return new BlizzardChannelCheckTrigger(ai); };
+                creators["arcane explosion window"] = [](PlayerbotAI* ai) { return new ArcaneExplosionWindowTrigger(ai); };
+                creators["frost nova window"] = [](PlayerbotAI* ai) { return new FrostNovaWindowTrigger(ai); };
                 creators["no improved scorch"] = [](PlayerbotAI* ai) { return new NoImprovedScorchDebuffTrigger(ai); };
                 creators["no fire vulnerability"] = [](PlayerbotAI* ai) { return new NoFireVulnerabilityTrigger(ai); };
                 creators["no food"] = [](PlayerbotAI* ai) { return new NoFoodTrigger(ai); };

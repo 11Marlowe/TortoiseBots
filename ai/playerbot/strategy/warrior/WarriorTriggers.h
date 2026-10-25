@@ -1,7 +1,7 @@
 #pragma once
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "playerbot/BattleShoutPolicy.h"
-#include "playerbot/WarriorRagePolicy.h"
+#include "playerbot/WarriorRageGatePolicy.h"
 
 namespace ai
 {
@@ -10,8 +10,34 @@ namespace ai
     BUFF_TRIGGER_A(BerserkerStanceTrigger, "berserker stance");
     BUFF_TRIGGER_A(ShieldBlockTrigger, "shield block");
     DEBUFF_TRIGGER(RendDebuffTrigger, "rend");
-    DEBUFF_TRIGGER_A(DisarmDebuffTrigger, "disarm");
+
     DEBUFF_TRIGGER_A(SunderArmorDebuffTrigger, "sunder armor");
+    // Disarm only strips a target that carries a weapon and only with the
+    // rage it costs; anything else fails the cast and stalls the rotation.
+    class DisarmDebuffTrigger : public DebuffTrigger
+    {
+    public:
+        DisarmDebuffTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "disarm") {}
+
+        bool IsActive() override
+        {
+            if (!DebuffTrigger::IsActive())
+                return false;
+
+            if (AI_VALUE2(uint8, "rage", "self target") < WARRIOR_DISARM_RAGE_COST)
+                return false;
+
+            Unit* target = GetTarget();
+            if (!target)
+                return false;
+
+            if (Player* playerTarget = target->ToPlayer())
+                return playerTarget->GetWeaponForAttack(BASE_ATTACK, true, true) != nullptr;
+
+            Creature* creatureTarget = target->ToCreature();
+            return creatureTarget && creatureTarget->HasWeapon();
+        }
+    };
     DEBUFF_TRIGGER(DemoralizingShoutDebuffTrigger, "demoralizing shout");
     DEBUFF_TRIGGER(MortalStrikeDebuffTrigger, "mortal strike");
     DEBUFF_ENEMY_TRIGGER(RendDebuffOnAttackerTrigger, "rend");
@@ -40,28 +66,6 @@ namespace ai
     SNARE_TRIGGER(ThunderClapSnareTrigger, "thunder clap");
     DEBUFF_TRIGGER(ThunderClapTrigger, "thunder clap");
     SNARE_TRIGGER(TauntSnareTrigger, "taunt");
-
-    // A mob standing on a non-tank party member (the healer first) that the
-    // tank can Taunt from where it stands ("attacker of non-tank"); "taunt
-    // on snare target" keeps the mobs still running at someone.
-    class TauntAttackerOfNonTankTrigger : public SpellTrigger
-    {
-    public:
-        TauntAttackerOfNonTankTrigger(PlayerbotAI* ai) : SpellTrigger(ai, "taunt") {}
-        virtual std::string getName() override { return "party member attacked"; }
-        virtual Value<Unit*>* GetTargetValue() override;
-        virtual bool IsActive() override;
-    };
-
-    // Three or more mobs on non-tank party members within Challenging
-    // Shout's radius, and the shout needs no step (the current target is in
-    // melee reach: the "challenging shout" action is a melee action on it).
-    class ChallengingShoutOnAttackersTrigger : public Trigger
-    {
-    public:
-        ChallengingShoutOnAttackersTrigger(PlayerbotAI* ai) : Trigger(ai, "party member attacked aoe") {}
-        virtual bool IsActive() override;
-    };
     SNARE_TRIGGER(InterceptSnareTrigger, "intercept");
     CD_TRIGGER(InterceptCanCastTrigger, "intercept");
     BOOST_TRIGGER(DeathWishTrigger, "death wish");
@@ -71,7 +75,16 @@ namespace ai
     INTERRUPT_HEALER_TRIGGER(PummelInterruptEnemyHealerSpellTrigger, "pummel");
     INTERRUPT_TRIGGER(PummelInterruptSpellTrigger, "pummel");
     INTERRUPT_HEALER_TRIGGER(InterceptInterruptEnemyHealerSpellTrigger, "intercept");
-    INTERRUPT_TRIGGER(InterceptInterruptSpellTrigger, "intercept");
+    // The "intercept" action (CastReachTargetSpellAction) closes on and
+    // casts at the current target, so this trigger stays on the current
+    // target too - it must not point at a different mob than its action
+    // charges.
+    class InterceptInterruptSpellTrigger : public InterruptSpellTrigger
+    {
+    public:
+        InterceptInterruptSpellTrigger(PlayerbotAI* ai) : InterruptSpellTrigger(ai, "intercept") {}
+        virtual Value<Unit*>* GetTargetValue() override { return context->GetValue<Unit*>("current target"); }
+    };
     HAS_AURA_TRIGGER(SuddenDeathTrigger, "sudden death");
     HAS_AURA_TRIGGER(SlamInstantTrigger, "slam!");
     HAS_AURA_TRIGGER(TasteForBloodTrigger, "taste for blood");
@@ -83,11 +96,11 @@ namespace ai
 
         bool IsActive() override
         {
-            // Audit F2: impossible below its cost (79 % of tried ticks).
-            if (!ShouldBattleShoutForRage(AI_VALUE2(uint8, "rage", "self target")))
-                return false;
-
             static const std::vector<uint32> battleShoutIds = {6673, 5242, 6192, 11549, 11550, 11551, 25289};
+
+            // The shout costs 10 rage; below that the cast fails.
+            if (!ShouldBattleShout(AI_VALUE2(uint8, "rage", "self target")))
+                return false;
 
             for (uint32 id : battleShoutIds)
             {

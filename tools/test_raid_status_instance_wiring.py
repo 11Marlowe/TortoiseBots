@@ -14,7 +14,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 class RaidStatusInstanceWiringTest(unittest.TestCase):
     def test_idle_text_depends_on_the_map(self):
-        text = (ROOT / "commands/BotCommands.cpp").read_text()
+        text = (ROOT / "commands/Action.cpp").read_text()
         start = text.index('if (intent == "raid status")')
         block = text[start:start + 3000]
         self.assertIn("statusMap->IsDungeon()", block)

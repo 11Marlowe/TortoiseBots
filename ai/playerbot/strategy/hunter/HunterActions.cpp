@@ -5,7 +5,7 @@
 #include "playerbot/ServerFacade.h"
 #include "HunterActions.h"
 #include "HunterValues.h"
-#include "../../../../runtime/HunterFeignDeathPolicy.h"
+#include "../../../../runtime/policy/class/HunterFeignDeathPolicy.h"
 
 using namespace ai;
 
@@ -191,7 +191,7 @@ bool CastAutoShotAction::Execute(Event& event)
 bool HunterStepOutAction::Execute(Event& event)
 {
     (void)event;
-    Unit* target = AI_VALUE(Unit*, "current target");
+    Unit* target = AI_VALUE(Unit*, targetName);
     HunterKitState* state = GetHunterKitState(ai);
     if (!target || !state)
         return false;

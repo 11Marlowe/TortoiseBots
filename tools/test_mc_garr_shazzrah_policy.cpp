@@ -1,4 +1,4 @@
-#include "../ai/playerbot/McGarrShazzrahPolicy.h"
+#include "../ai/playerbot/policy/raid/McGarrShazzrahPolicy.h"
 
 #include <cstdlib>
 #include <iostream>

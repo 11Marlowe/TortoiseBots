@@ -1,12 +1,15 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -50,8 +53,13 @@ func getEnvInt(key string, fallback int) int {
 
 func main() {
 	httpPort := flag.Int("http-port", getEnvInt("HTTP_PORT", 8095), "HTTP server port")
+	// 127.0.0.1 by default: the dashboard is a management surface, so it must
+	// not silently listen on all interfaces. Containers and LAN setups set
+	// 0.0.0.0 (HTTP_HOST) to make the port publishable.
+	httpHost := flag.String("http-host", getEnv("HTTP_HOST", "127.0.0.1"), "HTTP server bind address (127.0.0.1 = local only, 0.0.0.0 = all interfaces, for containers/LAN)")
 	udpHost := flag.String("udp-host", getEnv("UDP_HOST", "127.0.0.1"), "UDP telemetry listen address")
 	udpPort := flag.Int("udp-port", getEnvInt("UDP_PORT", 9195), "UDP telemetry listener port")
+	forwardUDP := flag.String("forward-udp", getEnv("FORWARD_UDP", ""), "Comma-separated host:port list; every telemetry datagram is also sent to each (empty = no forwarding)")
 	dbHost := flag.String("db-host", getEnv("DB_HOST", "127.0.0.1"), "MariaDB / MySQL host")
 	dbPort := flag.Int("db-port", getEnvInt("DB_PORT", 3306), "MariaDB / MySQL port")
 	dbUser := flag.String("db-user", getEnv("DB_USER", "mangos"), "MariaDB / MySQL user")
@@ -140,13 +148,26 @@ func main() {
 	}
 	log.Printf("[Map] Initialized coordinate projection engine with %d zones", len(projectionEngine.GetAllZones()))
 
+	// The session cookie is signed with HMAC-SHA256 keyed by SESSION_SECRET.
+	// There is no shipped default: unset, a random key is generated at
+	// startup, which is safe but ends every session on a restart.
+	sessionSecret := getEnv("SESSION_SECRET", "")
+	if sessionSecret == "" {
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			log.Fatalf("Failed to generate a random session key: %v", err)
+		}
+		sessionSecret = hex.EncodeToString(key)
+		log.Println("[Auth] SESSION_SECRET not set: generated a random session key; dashboard sessions end on restart (set SESSION_SECRET to keep them)")
+	}
+
 	authService, err := auth.NewService(auth.Config{
 		DBHost:     *dbHost,
 		DBPort:     *dbPort,
 		DBUser:     *dbUser,
 		DBPassword: *dbPass,
 		DBName:     *dbName,
-		SecretKey:  getEnv("SESSION_SECRET", "tortoise-observability-salt-secret"),
+		SecretKey:  sessionSecret,
 		MinGMLevel: *minGMLevel,
 	})
 	if err != nil {
@@ -251,6 +272,18 @@ func main() {
 	// 5. WebSocket hub and UDP ingestion
 	hub := ws.NewHub()
 	udpListener := udp.NewListener(*udpHost, *udpPort, store, metricsRegistry, projectionEngine, hub)
+	var forwards []string
+	for _, f := range strings.Split(*forwardUDP, ",") {
+		if f = strings.TrimSpace(f); f != "" {
+			forwards = append(forwards, f)
+		}
+	}
+	if err := udpListener.SetForwards(forwards); err != nil {
+		log.Fatalf("Refusing -forward-udp: %v", err)
+	}
+	if len(forwards) > 0 {
+		log.Printf("[UDP] Forwarding every telemetry datagram to %s", strings.Join(forwards, ", "))
+	}
 	if err := udpListener.Start(); err != nil {
 		log.Fatalf("Failed to start UDP listener: %v", err)
 	}
@@ -314,6 +347,11 @@ func main() {
 		_, _ = w.Write(loginHTML)
 	})
 
+	// Per-IP login backoff (in-memory): 5 failed logins in a row block that
+	// address for 5 minutes. Every failure — wrong password, too low a rank
+	// or a blocked address — answers with the same error text.
+	loginBackoff := auth.NewLoginBackoff()
+
 	mux.HandleFunc("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -329,13 +367,27 @@ func main() {
 			return
 		}
 
-		session, err := authService.Authenticate(req.Username, req.Password)
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
+			ip = r.RemoteAddr
+		}
+		const loginFailure = "invalid username or password"
+		if !loginBackoff.Allow(ip) {
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": loginFailure})
 			return
 		}
+
+		session, err := authService.Authenticate(req.Username, req.Password)
+		if err != nil {
+			loginBackoff.Fail(ip)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": loginFailure})
+			return
+		}
+		loginBackoff.Reset(ip)
 
 		token := authService.CreateSessionToken(session)
 		authService.SetSessionCookie(w, token)
@@ -348,10 +400,7 @@ func main() {
 		})
 	})
 
-	mux.HandleFunc("/api/v1/auth/logout", func(w http.ResponseWriter, r *http.Request) {
-		authService.ClearSessionCookie(w)
-		http.Redirect(w, r, "/login", http.StatusFound)
-	})
+	mux.HandleFunc("/api/v1/auth/logout", logoutHandler(authService))
 
 	requireAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -450,6 +499,18 @@ func main() {
 			f.Limit = 2000
 		}
 		writeJSON(w, store.QuestFeed(f))
+	}))
+
+	mux.HandleFunc("/api/v1/activity/pvp", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		f := state.PvpFilter{Bot: q.Get("bot"), Limit: int(qUint(q.Get("limit")))}
+		if f.Limit <= 0 {
+			f.Limit = 200
+		}
+		if f.Limit > 2000 {
+			f.Limit = 2000
+		}
+		writeJSON(w, store.PvpFeed(f))
 	}))
 
 	// Commanders: the standing remote-commander bindings the module reports
@@ -615,7 +676,9 @@ func main() {
 	}))
 
 	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
+		// Only the dashboard's own pages may open an authenticated stream
+		// (ws.SameOrigin); non-browser clients send no Origin and pass.
+		CheckOrigin: ws.SameOrigin,
 	}
 
 	mux.HandleFunc("/api/v1/stream", func(w http.ResponseWriter, r *http.Request) {
@@ -639,7 +702,7 @@ func main() {
 		hub.Serve(w, r, upgrader, initial...)
 	})
 
-	serverAddr := fmt.Sprintf("0.0.0.0:%d", *httpPort)
+	serverAddr := net.JoinHostPort(*httpHost, strconv.Itoa(*httpPort))
 	log.Printf("[HTTP] Dashboard & API running at http://localhost:%d/dashboard", *httpPort)
 	log.Printf("[HTTP] Prometheus metrics available at http://localhost:%d/metrics", *httpPort)
 
@@ -653,6 +716,34 @@ func main() {
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("HTTP server failed: %v", err)
+	}
+}
+
+// logoutHandler ends the session. Logout is POST-only: a GET or HEAD must not
+// clear the cookie, or a sandboxed page could log a GM out with a plain request.
+// POST alone is not enough: a cross-site HTML form POST is a top-level
+// navigation, so the browser would apply the clearing Set-Cookie. The request
+// must also be same-origin (Origin matches the Host, as for the WebSocket
+// stream); a missing, foreign or opaque (Origin: null) origin gets 403 and the
+// cookie is left alone. The dashboard's button posts with fetch and navigates to
+// /login itself.
+func logoutHandler(authService *auth.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// ws.SameOrigin lets a request with no Origin pass (the WebSocket stream
+		// relies on that for non-browser clients). Logout is stricter: the
+		// dashboard's button is a same-origin fetch POST, which every current
+		// browser sends with Origin, so a POST without one is refused too.
+		if r.Header.Get("Origin") == "" || !ws.SameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		authService.ClearSessionCookie(w)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

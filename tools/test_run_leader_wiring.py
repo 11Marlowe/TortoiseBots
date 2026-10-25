@@ -2,7 +2,7 @@
 
 runtime/DungeonRunPolicy.h retries a refused gather once and passes a refused
 walk-back point by comparing the refused order's text with the order it sent
-that tick (issue #999), so the glue in commands/BotCommands.cpp must report a
+that tick (issue #999), so the glue in commands/Commander.cpp must report a
 refusal with the order exactly as Tick() returned it. A dead lead bot released
 by the regroup's `revive party` is a ghost off the plan's map; the glue must
 not pause the run for that while a regroup (a resume or one the run started by
@@ -16,7 +16,7 @@ import pathlib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDS = (ROOT / "commands/Commander.cpp").read_text()
 
 
 def body(text, start, end):
@@ -104,11 +104,12 @@ class RunLeaderWiringTest(unittest.TestCase):
         # A player's order (a `cmd flee Bob` too) gives every bot the run made passive its own AI back
         # before the order runs; the order is noted before it executes at every call site, so a flee
         # then sets the stance on the bots it names only. No bot of the commander stays passive.
-        pause = body(COMMANDS, "static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& order)\n{", "\n}\n")
+        pause = body(COMMANDS, "void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& order)\n{", "\n}\n")
         self.assertIn("EndRunBackPassive(passive->first);", pause)
         self.assertNotIn('order.find("flee")', pause)
         # The order is noted before it runs: right after parsing in `.bot action`.
-        action = body(COMMANDS, "static bool HandleAction(ChatHandler* handler, char const* args)", "\n}\n")
+        action = body((ROOT / "commands/Action.cpp").read_text(),
+                      "bool HandleAction(ChatHandler* handler, char const* args)", "\n}\n")
         self.assertIn("if (parsed)\n        PauseDungeonRunForPlayer(", action)
 
 
@@ -334,7 +335,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         engine = (ROOT / "ai/playerbot/strategy/ReactionEngine.cpp").read_text()
         self.assertIn("ReactionPassForced(ai->HasRealPlayerMaster(), ai->QueuedChatCommandCount())", engine)
         # 4. `run start ... from ...` resolves the step and guards a start partway.
-        start = body(COMMANDS, "static bool HandleDungeonRun(", "\nvoid UpdateRemoteCommanders(")
+        start = body(COMMANDS, "bool HandleDungeonRun(", "\nvoid UpdateRemoteCommanders(")
         self.assertIn("ResolveStartStep(*plan, startArgs.from, startArgs.value, startStep, &movedBack)", start)
         self.assertIn("CheckPartialStart(OnInstanceMap(lead), members.size(), withLead)", start)
         self.assertIn("slot.run = Start(plan, startStep);", start)

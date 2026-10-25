@@ -135,12 +135,18 @@ type Store struct {
 	// cleared on a session change, like the roster it derives from.
 	dungeonSeen map[string]time.Time
 
+	// dungeonMobs is the newest DUNGEON_MOBS payload per run (dungeon_mobs.go,
+	// issue #1101): the mobs, member ids and targets the Dungeons tab maps
+	// draw. Its own lock, like commanders; cleared with the session.
+	dungeonMobs dungeonMobsState
+
 	// Activity rollup fed by the BOT_EVENTS datagrams: per-bot counters plus
 	// the pool-wide loot/quest/level feeds. Cleared with the roster.
 	activity  map[uint32]*botActivityState
 	lootFeed  []model.LootFeedItem
 	questFeed []model.QuestFeedItem
 	levelFeed []model.ActivityLevelItem
+	pvpFeed   []model.PvpFeedItem
 
 	// gear is the daemon's periodic equipped-gear sweep, keyed by GUID.
 	// Replaced wholesale by SetGear on every sweep (it is DB truth, not
@@ -187,6 +193,7 @@ func New(cfg Config, anomalies *ringbuf.RingBuffer) *Store {
 		xpTracks:  make(map[uint32]*xpTrack),
 		activity:  make(map[uint32]*botActivityState),
 		gear:      make(map[uint32]model.BotGear),
+		dungeonMobs: dungeonMobsState{runs: make(map[string]dungeonMobsEntry)},
 	}
 }
 
@@ -373,6 +380,7 @@ func (s *Store) Snapshot() model.SnapshotPayload {
 		}
 		snap.Activity = s.activityForLocked(snap.GUID)
 		snap.Gear = s.gearForLocked(snap.GUID)
+		snap.WorldPvpFighting = s.worldPvpFightingLocked(snap.GUID, now)
 		bots = append(bots, snap)
 	}
 	sort.Slice(bots, func(i, j int) bool { return bots[i].Name < bots[j].Name })
@@ -584,6 +592,9 @@ func (s *Store) grindingLocked(bots []model.BotSnapshot, now time.Time) model.Gr
 	rates := make([]float64, 0, n)
 	for _, b := range bots {
 		rates = append(rates, b.XpPerHour)
+		if b.WorldPvpSeeker {
+			out.WorldPvpSeekers++
+		}
 		if b.XpGainAgeSec >= 0 && now.Sub(s.lastSnapshotAt) <= 10*time.Minute {
 			// Counted as gaining when the last positive delta is recent.
 			// 10 min matches the "died in last 5 min" scale below.

@@ -189,14 +189,6 @@ void TankWarriorStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     );
     triggers.push_back(
         new TriggerNode(
-            "high aoe",
-            {
-                NextAction("challenging shout", ACTION_HIGH + 3)
-            }
-        )
-    );
-    triggers.push_back(
-        new TriggerNode(
             "concussion blow",
             {
                 NextAction("concussion blow", ACTION_INTERRUPT)
@@ -216,14 +208,6 @@ void TankWarriorStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
             "shield bash on enemy healer",
             {
                 NextAction("shield bash on enemy healer", ACTION_INTERRUPT)
-            }
-        )
-    );
-    triggers.push_back(
-        new TriggerNode(
-            "sword and board",
-            {
-                NextAction("shield slam", ACTION_INTERRUPT)
             }
         )
     );

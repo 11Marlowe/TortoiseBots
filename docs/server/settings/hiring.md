@@ -23,6 +23,7 @@ These settings configure mercenary companion hiring, party cost scaling, raid pr
 | [`AiPlayerbot.HireMaxBotsPerPlayer`](#aiplayerbothiremaxbotsperplayer) | `4` | Maximum number of hired companions a single player may lead. |
 | [`AiPlayerbot.HireMaxLevelAboveHirer`](#aiplayerbothiremaxlevelabovehirer) | `0` | Maximum character levels a hired companion may exceed its employer. |
 | [`AiPlayerbot.HireAnywhere`](#aiplayerbothireanywhere) | `0` | Allows hiring companions from anywhere via chat command. |
+| [`AiPlayerbot.ShamanTankEnabled`](#aiplayerbotshamantankenabled) | `1` | Offers the experimental 7.3 shaman tank build at recruiters, by `.bot hire`, and to random pool shamans. |
 | [`AiPlayerbot.HireBaseCostCopper`](#aiplayerbothirebasecostcopper) | `15000` | Base copper fee used for level-scaled party companion hiring. |
 | [`AiPlayerbot.HirePartyMult2`](#aiplayerbothirepartymult2) | `1.66` | Cost multiplier applied when hiring a second party companion. |
 | [`AiPlayerbot.HirePartyMult3`](#aiplayerbothirepartymult3) | `2.66` | Cost multiplier applied when hiring a third party companion. |
@@ -37,6 +38,7 @@ These settings configure mercenary companion hiring, party cost scaling, raid pr
 | [`AiPlayerbot.HireGearAllQuestsAvailable`](#aiplayerbothiregearallquestsavailable) | `0` | Offers all seven gear unlock quests simultaneously rather than sequentially. |
 | [`AiPlayerbot.HireGearOptionalMaps`](#aiplayerbothiregearoptionalmaps) | `""` | Comma-separated map IDs automatically credited for gear tier unlock quests. |
 | [`AiPlayerbot.HireGearTierCostMultipliers`](#aiplayerbothiregeartiercostmultipliers) | `1,1.5,2,3,4,5,6,6` | Eight cost multipliers applied to hiring fees per gear tier. |
+| [`AiPlayerbot.HireGearMaxItemLevelAboveLevel`](#aiplayerbothiregearmaxitemlevelabovelevel) | `5` | Item-level allowance above a standard (tier 0) hire's own level. |
 | [`AiPlayerbot.WorldBuffsEnabled`](#aiplayerbotworldbuffsenabled) | `1` | Master toggle for purchasing world buffs at capital inn recruiters. |
 | [`AiPlayerbot.WorldBuffsKeepInRaids`](#aiplayerbotworldbuffskeepinraids) | `0` | Preserves active world buffs when zoning into raid instances. |
 | [`AiPlayerbot.WorldBuffsMinLevel`](#aiplayerbotworldbuffsminlevel) | `60` | Minimum character level required to access recruiter world buffs. |
@@ -128,6 +130,17 @@ Controls whether players can hire companions from any location or only at recrui
 When set to `0`, companions may only be hired while interacting in person with a `<Mercenary Hire>` recruiter NPC.
 
 When set to `1`, players may execute `.bot hire` from anywhere in the world. Calculated hire fees and limits remain identical regardless of location.
+
+</details>
+
+### `AiPlayerbot.ShamanTankEnabled`
+Controls whether the experimental 7.3 shaman tank build (Enhancement (Tank)) is offered for hire and in the random pool.
+**Default:** `1` · **Values:** `1` offered, `0` withheld · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+When set to `0`, the recruiter spec menu omits the tank option, `.bot hire shaman tank` is refused, and random pool shamans never roll the `7.3` premade (its `AiPlayerbot.PremadeSpecProb.7.3` weight counts as 0). Shamans already on the build keep it.
 
 </details>
 
@@ -310,6 +323,19 @@ Specifies eight comma-separated cost multipliers applied to base hiring fees for
 Scales the quoted and charged hire fee based on the chosen gear tier of the companion.
 
 The fee charged equals the base hire fee multiplied by the multiplier for that tier. The string must contain exactly eight non-negative numbers; invalid strings log an error and use default multipliers.
+
+</details>
+
+### `AiPlayerbot.HireGearMaxItemLevelAboveLevel`
+Caps generated standard-kit hire gear relative to the companion's own level.
+**Default:** `5` · **Values:** integer item levels · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+The randomly generated kit a tier 0 companion arrives in must not exceed `hire level + this value`, and never exceeds `AiPlayerbot.RandomGearMaxLevel`. The default `5` sits a little above the pool-bot rule (`AiPlayerbot.RandomGearMaxItemLevelAboveLevel`, `1`): a level-60 standard hire tops out at item level 65, the tier-1 curated ceiling and below the tier-2 kit at 71.
+
+Only the standard (tier 0) kit is affected. The curated tiers 1-7 (`tortoise_bots_hire_gear`) and gear the companion earns itself are not capped. `0` keeps `AiPlayerbot.RandomGearMaxLevel` as the only ceiling.
 
 </details>
 

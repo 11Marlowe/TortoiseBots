@@ -10,9 +10,9 @@ class OutfitItemParserTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("g++"), "g++ unavailable")
     def test_long_saved_outfit(self):
         root = pathlib.Path(__file__).resolve().parents[1]
-        source = (root / "ai/playerbot/PlayerbotAI.cpp").read_text()
+        source = (root / "ai/playerbot/PlayerbotAIItems.cpp").read_text()
         start = source.index("ItemIds PlayerbotAI::InventoryParseOutfitItems(std::string text)")
-        method = source[start:source.index("void PlayerbotAI::Ping(", start)]
+        method = source[start:source.index("Item* PlayerbotAI::FindPoison()", start)]
         harness = r'''
 #include <cassert>
 #include <cstdint>

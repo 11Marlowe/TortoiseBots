@@ -189,8 +189,15 @@ namespace ai
                 creators["inner focus for heal"] = [](PlayerbotAI* ai) { return new InnerFocusForHealTrigger(ai); };
                 creators["party member low health loose pack"] = [](PlayerbotAI* ai) { return new PartyMemberLowHealthLoosePackTrigger(ai); };
                 creators["party member medium health loose pack"] = [](PlayerbotAI* ai) { return new PartyMemberMediumHealthLoosePackTrigger(ai); };
+                creators["party member fast damage"] = [](PlayerbotAI* ai) { return new PartyMemberFastDamageTrigger(ai); };
                 creators["low health loose pack"] = [](PlayerbotAI* ai) { return new LowHealthLoosePackTrigger(ai); };
                 creators["ascendance"] = [](PlayerbotAI* ai) { return new AscendanceTrigger(ai); };
+                // Fade rows arm only while the spell is trained and off
+                // cooldown, instead of queueing an impossible cast every
+                // tick through the 30 s window.
+                creators["fade ready"] = [](PlayerbotAI* ai) { return new FadeReadyTrigger(ai); };
+                creators["fade ready and target of attacker"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "fade ready", "target of attacker"); };
+                creators["fade ready and medium threat"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "fade ready", "medium threat"); };
                 creators["shadow protection"] = [](PlayerbotAI* ai) { return new ShadowProtectionTrigger(ai); };
                 creators["shadow protection on party"] = [](PlayerbotAI* ai) { return new ShadowProtectionOnPartyTrigger(ai); };
                 creators["prayer of shadow protection on party"] = [](PlayerbotAI* ai) { return new PrayerOfShadowProtectionOnPartyTrigger(ai); };

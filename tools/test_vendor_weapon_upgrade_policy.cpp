@@ -1,4 +1,4 @@
-#include "../ai/playerbot/strategy/values/VendorWeaponUpgradePolicy.h"
+#include "../ai/playerbot/policy/gear/VendorWeaponUpgradePolicy.h"
 
 #include <cstdlib>
 #include <iostream>

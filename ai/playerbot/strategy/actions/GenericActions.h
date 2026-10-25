@@ -5,6 +5,7 @@
 #include "ChooseTargetActions.h"
 #include "MovementActions.h"
 #include "RemoveAuraAction.h"
+#include "../../../runtime/policy/pet/StoredPetLookupPolicy.h"
 
 namespace ai
 {
@@ -148,6 +149,12 @@ namespace ai
         InitializePetAction(PlayerbotAI* ai) : Action(ai, "initialize pet") {}
         bool Execute(Event& event) override;
         bool isUseful() override;
+
+    private:
+        // Per-bot throttle for the synchronous character_pet lookup in
+        // isUseful (issue #1178); the context keeps this action for the
+        // bot's session, so the cache lives as long as the bot.
+        TortoiseBots::StoredPetLookupCache storedPetLookup;
     };
 
     class SetPetAction : public Action

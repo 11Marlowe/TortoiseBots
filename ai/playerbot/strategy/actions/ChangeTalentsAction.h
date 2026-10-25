@@ -38,7 +38,7 @@ namespace ai
          static std::vector<TalentPath*> getPremadePaths(Player* bot, TalentSpec* oldSpec);
          static TalentPath* getPremadePath(uint8 cls, int id);
          static void listPremadePaths(uint8 cls, std::vector<TalentPath*> paths, std::ostringstream* out);
-         static TalentPath* PickPremadePath(std::vector<TalentPath*> paths, bool useProbability);
+         static TalentPath* PickPremadePath(uint8 cls, std::vector<TalentPath*> paths, bool useProbability);
     };
 
     class AutoSetTalentsAction : public ChangeTalentsAction

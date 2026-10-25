@@ -29,6 +29,7 @@
 #include "generic/FocusStrategy.h"
 #include "generic/TellTargetStrategy.h"
 #include "generic/AttackEnemyPlayersStrategy.h"
+#include "generic/WorldPvpStrategy.h"
 #include "generic/MarkRtiStrategy.h"
 #include "generic/MeleeCombatStrategy.h"
 #include "generic/PullStrategy.h"
@@ -103,6 +104,7 @@ namespace ai
             creators["focus"] = [](PlayerbotAI* ai) { return new FocusStrategy(ai); };
             creators["tell target"] = [](PlayerbotAI* ai) { return new TellTargetStrategy(ai); };
             creators["pvp"] = [](PlayerbotAI* ai) { return new AttackEnemyPlayersStrategy(ai); };
+            creators["world pvp"] = [](PlayerbotAI* ai) { return new WorldPvpStrategy(ai); };
             creators["return"] = [](PlayerbotAI* ai) { return new ReturnStrategy(ai); };
             creators["custom"] = [](PlayerbotAI* ai) { return new CustomStrategy(ai); };
             creators["reveal"] = [](PlayerbotAI* ai) { return new RevealStrategy(ai); };

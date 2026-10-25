@@ -15,7 +15,7 @@ import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CMD = (ROOT / "commands/BotCommands.cpp").read_text()
+CMD = (ROOT / "commands/Commander.cpp").read_text()
 EMIT = (ROOT / "runtime/ObservabilityEmitter.cpp").read_text()
 HOST = (ROOT / "host/BotHostAdapter.cpp").read_text()
 

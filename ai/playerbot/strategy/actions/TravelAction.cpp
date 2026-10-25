@@ -7,8 +7,8 @@
 #include "Maps/GridNotifiers.h"
 #include "Maps/GridNotifiersImpl.h"
 #include "Maps/CellImpl.h"
-#include "playerbot/QuestGiverStallPolicy.h"
-#include "playerbot/QuestStallPolicy.h"
+#include "playerbot/policy/quest/QuestGiverStallPolicy.h"
+#include "playerbot/policy/quest/QuestStallPolicy.h"
 #include <cstdlib>
 #include "AcceptQuestAction.h"
 #include "playerbot/TravelMgr.h"

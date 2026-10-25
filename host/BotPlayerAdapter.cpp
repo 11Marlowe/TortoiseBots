@@ -67,9 +67,10 @@ uint8 BotPlayerAdapter::GetBotRoles(Player* who)
             botAi->GetForcedRole() == 0)
         {
             // TANK: installed only by a tank click (`+protection`,
-            // `+tank feral`) or install-time prot/feral defaults.
+            // `+tank feral`, `+tank shaman`) or install-time prot/feral/tank defaults.
             if (botAi->HasStrategy("protection", BotState::BOT_STATE_COMBAT) ||
                 botAi->HasStrategy("tank feral", BotState::BOT_STATE_COMBAT) ||
+                botAi->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT) ||
                 botAi->HasStrategy("bear", BotState::BOT_STATE_COMBAT) ||
                 botAi->HasStrategy("tank", BotState::BOT_STATE_COMBAT))
                 return static_cast<uint8>(ai::BOT_ROLE_TANK);
@@ -236,11 +237,20 @@ void BotUnitAdapter::OnUnitDeath(Unit* unit, Unit* killer)
 
     Player* player = unit->ToPlayer();
     PlayerbotAI* ai = GET_PLAYERBOT_AI(player);
-    if (!ai)
-        return;
-
-    ai->SetLastKiller(killer);
+    Player* killerPlayer = killer ? killer->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr;
+    if (ai)
+    {
+        ai->SetLastKiller(killer);
+        if (killerPlayer)
+            ai->NotePvpDeath(killerPlayer);
+    }
     AltBotService::Instance().OnDeath(player);
+
+    if (killerPlayer && killerPlayer != player)
+    {
+        if (PlayerbotAI* killerAi = GET_PLAYERBOT_AI(killerPlayer))
+            killerAi->NotePvpKill(player);
+    }
 }
 
 void BotUnitAdapter::OnDamage(Unit* attacker, Unit* victim, uint32& /*damage*/)

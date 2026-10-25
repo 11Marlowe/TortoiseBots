@@ -1,4 +1,4 @@
-#include "../ai/playerbot/LedgeStepDownPolicy.h"
+#include "../ai/playerbot/policy/dungeon/LedgeStepDownPolicy.h"
 
 #include <cmath>
 #include <cstdlib>

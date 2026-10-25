@@ -22,7 +22,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MOVES = (ROOT / "ai/playerbot/strategy/actions/MovementActions.cpp").read_text()
 TRIGGERS = (ROOT / "ai/playerbot/strategy/triggers/RangeTriggers.h").read_text()
-COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
+COMMANDS = (ROOT / "commands/Commander.cpp").read_text()
 WORLDPOS = (ROOT / "ai/playerbot/WorldPosition.cpp").read_text()
 
 
@@ -104,9 +104,9 @@ class MagmaGuardWiringTest(unittest.TestCase):
 
     def test_formation_station_skips_a_slot_in_magma(self):
         f = body(TRIGGERS, "class FormationStationTrigger", "\n    };\n")
-        wanted = at(f, "if (!FormationStationWanted(distance))")
-        magma = at(f, "!(MagmaGuardApplies(bot->GetMap()->IsDungeon()) && WorldPosition(loc).isInMagma())")
-        self.assertLess(wanted, magma)
+        magma = at(f, "if (MagmaGuardApplies(bot->GetMap()->IsDungeon()) && WorldPosition(loc).isInMagma())")
+        step = at(f, "return FormationStationStep(memory, formation->GetSerial(),")
+        self.assertLess(magma, step)
 
     def test_run_leader_holds_the_lead_while_resting(self):
         f = body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")

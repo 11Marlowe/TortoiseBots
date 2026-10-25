@@ -6,7 +6,7 @@
 #include "EmoteAction.h"
 #include "RpgSubActions.h"
 #include "playerbot/TravelMgr.h"
-#include "playerbot/RpgRelevanceWeightPolicy.h"
+#include "playerbot/policy/rpg/RpgRelevanceWeightPolicy.h"
 
 using namespace ai;
 

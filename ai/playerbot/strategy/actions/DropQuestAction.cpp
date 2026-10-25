@@ -1,7 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "DropQuestAction.h"
-#include "playerbot/QuestLogPolicy.h"
+#include "playerbot/policy/quest/QuestLogPolicy.h"
 #include "../../../../runtime/AltBotService.h"
 #include "../../../../runtime/AltBotPolicy.h"
 #include <algorithm>

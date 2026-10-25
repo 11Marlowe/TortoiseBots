@@ -1,4 +1,5 @@
 #include "../ai/playerbot/strategy/shaman/ShamanTotemCommandPolicy.h"
+#include "../ai/playerbot/policy/class/ShamanRecallPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -14,6 +15,7 @@ using ai::NormalizeTotemOrder;
 using ai::OrderedTotemForSlot;
 using ai::ParseTotemDropMode;
 using ai::TotemAutoRowsFire;
+using ai::TotemicRecallShouldFire;
 using ai::TotemDropMode;
 using ai::TotemDropModeName;
 using ai::TotemDropWantsSlot;
@@ -86,15 +88,38 @@ int main()
     CHECK(OrderedTotemForSlot("") == "");
     std::puts("  [PASS] explicit orders win, auto falls back");
 
-    // Auto rows: auto always fires; prepull OOC-imminent + combat; manual never.
-    CHECK(TotemAutoRowsFire(TotemDropMode::Auto, false, false));
+    // Auto rows: combat or the pre-pull window; never OOC otherwise.
+    // auto and prepull share the rule (owner decision 2026-10-21: no totems
+    // out of combat in the default mode); manual never fires.
+    CHECK(!TotemAutoRowsFire(TotemDropMode::Auto, false, false));
     CHECK(TotemAutoRowsFire(TotemDropMode::Auto, true, false));
+    CHECK(TotemAutoRowsFire(TotemDropMode::Auto, false, true));
+    CHECK(TotemAutoRowsFire(TotemDropMode::Auto, true, true));
     CHECK(TotemAutoRowsFire(TotemDropMode::Prepull, false, true));
     CHECK(TotemAutoRowsFire(TotemDropMode::Prepull, true, false));
     CHECK(!TotemAutoRowsFire(TotemDropMode::Prepull, false, false));
     CHECK(!TotemAutoRowsFire(TotemDropMode::Manual, true, true));
     CHECK(!TotemAutoRowsFire(TotemDropMode::Manual, false, false));
     std::puts("  [PASS] auto rows fire per mode");
+
+    // The rows and the recall refund never fight over the same set: while the
+    // rows are armed (combat or the pre-pull window) the refund stands down,
+    // and out of combat with no fight imminent the rows are quiet, so the
+    // recalled set is not rebuilt until the next fight — no drop/recall loop
+    // for any mode, and nothing latches on combat for a flicker to clear.
+    for (TotemDropMode mode : {TotemDropMode::Auto, TotemDropMode::Prepull, TotemDropMode::Manual})
+    {
+        for (bool inCombat : {false, true})
+        {
+            for (bool imminent : {false, true})
+            {
+                bool const rows = TotemAutoRowsFire(mode, inCombat, imminent);
+                bool const recall = TotemicRecallShouldFire(true, true, false, inCombat, false, !inCombat && imminent);
+                CHECK(!(rows && recall));
+            }
+        }
+    }
+    std::puts("  [PASS] armed rows and the recall refund never fight over the set");
 
     // Drop queues free slots with a wanted totem, skips occupied/none.
     CHECK(TotemDropWantsSlot(false, "mana spring totem"));

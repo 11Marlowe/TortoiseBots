@@ -15,7 +15,7 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_world_buff_policy.cpp -o /tmp/test_world_buff_policy
 //   /tmp/test_world_buff_policy
 
-#include "../runtime/WorldBuffPolicy.h"
+#include "../runtime/policy/pvp/WorldBuffPolicy.h"
 #include "../runtime/WorldBuffService.h"
 #include "../runtime/WorldBuffRaidKeeper.h"
 
