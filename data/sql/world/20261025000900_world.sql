@@ -30,7 +30,9 @@
 -- its floor (the tank's 20 yd stand -5784.08 -4272.06 235.36 is 0x1 from it, 19.8 yd from the pack). Every point is ground
 -- (Floors 234.99/236.39/239.19/239.66) and every hop is server "ok" (0x1) in order from the group-1 pull row
 -- -5778.9 -4297.66 239.04; the exporter's two longest hops are cut along that route's corners (Floors-checked, 0x1 in the
--- exported order). 12 legs, 781 steps (794 rows; was 770 steps): leg 1's group-7 chalk rows and leg 1's approach add 11.
+-- exported order). 12 legs, 781 steps (794 rows; was 770 steps): leg 1's group-2 approach and the exporter's two cuts
+-- of its long hops add 16 rows and leg 4 group 7's five cut rows become three (-5). In these rows the step-31 pack is
+-- step 47 (approach 39-41 and 46) and leg 4's group-7 approach is steps 187-189 (pull 190; groups 8-11 at 191-194).
 -- plan-check (server): 2 of 533 points fail, the same two pre-existing (leg 6's `to`, leg 9's boss 62661 needs_walk), and
 -- 4 detour warnings (leg 1 group 3, leg 2 groups 5 and 9, leg 4 group 2: checkLeg's look walks each leg from its `to`,
 -- not via the approach); 170 run-leader-hop notices, was 180. Eldermaw (leg 9 boss 62661) is unchanged: the pit has no
