@@ -159,7 +159,7 @@ class SwimHandoffWiringTest(unittest.TestCase):
         self.assertIn("static void LogSwimHandoffRefused(", MOVES)
         for reason in ('"core path", "clipped"', '? "core line" : "swim out", "clipped"',
             '? "core line" : "swim out", "slime"', '? "core line" : "swim out", "magma"',
-            '"model on the line"', '"over 100 yd"'):
+            '? "core line" : "swim out", "route too long to check"', '"model on the line"', '"over 100 yd"'):
             self.assertIn(reason, h)
         refused = body(MOVES, "static void LogSwimHandoffRefused(", "\n}\n")
         self.assertIn("lastMove.swimHandoffLogAt = now;", refused)

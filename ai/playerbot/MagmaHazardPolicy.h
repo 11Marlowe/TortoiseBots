@@ -226,6 +226,33 @@ namespace ai
         return static_cast<std::size_t>(std::ceil(length / kMagmaSampleStepYd)) - 1;
     }
 
+    // How far (yards) the interior-sample budget reaches at full density:
+    // kMagmaMaxInteriorSamples samples at kMagmaSampleStepYd spacing. A route
+    // longer than this needs more interior samples than the budget holds, past
+    // which only the path points are looked at. The swim hand-off refuses such
+    // a route (Codex HIGH 2026-10-25) instead of checking it sparsely; other
+    // callers keep the shared budget as is.
+    constexpr float kMagmaFullSampleCoveredYd = kMagmaMaxInteriorSamples * kMagmaSampleStepYd;
+
+    // Whether the route `line` (first point the bot's spot) is too long to
+    // check at the guard's full density: its total length exceeds what the
+    // interior-sample budget covers, past which only path points are looked
+    // at, so slime/magma between two safe late waypoints would be missed.
+    inline bool MagmaRouteTooLongToCheck(std::vector<MagmaPoint> const& line)
+    {
+        float total = 0.0f;
+        for (std::size_t i = 1; i < line.size(); ++i)
+        {
+            float const dx = line[i].x - line[i - 1].x;
+            float const dy = line[i].y - line[i - 1].y;
+            float const dz = line[i].z - line[i - 1].z;
+            total += std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (total > kMagmaFullSampleCoveredYd)
+                return true;
+        }
+        return false;
+    }
+
     // The route from `start` (the bot) along `path`, sampled at each path
     // point and every kMagmaSampleStepYd between them (at most
     // `maxInteriorSamples` of those, nearest the bot first), is cut at its

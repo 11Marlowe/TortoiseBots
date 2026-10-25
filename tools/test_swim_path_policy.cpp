@@ -484,6 +484,35 @@ static void TestSlimeCrossingIsRefused()
     CHECK(!CutPathBeforeMagma(start, { MagmaPoint{ 30.0f, 0.0f, 0.0f } }, inMagmaOnly).cut);
 }
 
+// Round 3 (Codex HIGH 2026-10-25): CutPathBeforeMagma spends one route-wide
+// budget of kMagmaMaxInteriorSamples interior samples (~96 yd); past it later
+// legs are checked only at their endpoints, so slime between two safe late
+// waypoints is missed. A swim hand-off route longer than the budget covers at
+// full density is refused instead (the bot keeps the old behaviour); a short
+// clean route stays allowed. Pure shape on a fake slime strip (x = 120..130).
+static void TestLongHandoffRouteIsRefused()
+{
+    CHECK(kMagmaFullSampleCoveredYd == kMagmaMaxInteriorSamples * kMagmaSampleStepYd);
+    CHECK(kMagmaFullSampleCoveredYd == 96.0f);
+    auto const inHazard = [](MagmaPoint const& m)
+    {
+        std::uint32_t const flags = (m.x >= 120.0f && m.x <= 130.0f) ? kLiquidTypeSlime : 0;
+        std::uint32_t const status = flags ? kLiquidInWater : kLiquidNoWater;
+        return ClassifyLiquidHazard(flags, status, true) != LiquidHazard::None;
+    };
+    MagmaPoint const start{ 0.0f, 0.0f, 0.0f };
+    // A multi-leg 0x1 path: three 50 yd legs (150 yd total); the first two
+    // spend all 48 samples (to x = 98), so the last leg sees only its
+    // endpoint (150) and the slime between the safe 100 and 150 is missed.
+    std::vector<MagmaPoint> const legs{ MagmaPoint{ 50.0f, 0.0f, 0.0f }, MagmaPoint{ 100.0f, 0.0f, 0.0f },
+        MagmaPoint{ 150.0f, 0.0f, 0.0f } };
+    CHECK(!CutPathBeforeMagma(start, legs, inHazard).cut); // the hole: past the budget only endpoints are seen
+    CHECK(MagmaRouteTooLongToCheck({ start, legs[0], legs[1], legs[2] })); // ...so the hand-off refuses the route
+    // A short clean route stays allowed.
+    CHECK(!MagmaRouteTooLongToCheck({ start, MagmaPoint{ 30.0f, 0.0f, 0.0f } }));
+    CHECK(!CutPathBeforeMagma(start, { MagmaPoint{ 30.0f, 0.0f, 0.0f } }, inHazard).cut);
+}
+
 static void TestFirstFailingSampleIsNamed()
 {
     std::uint32_t status = 99, flags = 99;
@@ -527,6 +556,7 @@ int main()
     TestSwimOutNeedsGroundUnderTheEnd();
     TestSlimeHazardNeedsSlimeAndLiquid();
     TestSlimeCrossingIsRefused();
+    TestLongHandoffRouteIsRefused();
     TestFirstFailingSampleIsNamed();
     TestSwimOutRises();
     std::cout << "swim path policy: all tests passed\n";

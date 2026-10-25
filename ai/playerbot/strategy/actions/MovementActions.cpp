@@ -1261,6 +1261,29 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
             return SwimHandoffResult::Refused;
         }
     }
+    // Round 3 (Codex HIGH 2026-10-25): CutPathBeforeMagma spends one
+    // route-wide budget of kMagmaMaxInteriorSamples interior samples (~96
+    // yd); past it later legs are checked only at their endpoints, so
+    // slime/magma between two safe late waypoints is missed. A hand-off route
+    // longer than the budget covers at full density is refused instead (the
+    // bot keeps the old behaviour); other callers keep the shared budget.
+    std::vector<ai::MagmaPoint> guardRoute;
+    guardRoute.reserve(linePoints.size());
+    for (WorldPosition const& p : linePoints)
+    {
+        ai::MagmaPoint m;
+        m.x = p.getX();
+        m.y = p.getY();
+        m.z = p.getZ();
+        guardRoute.push_back(m);
+    }
+    if (ai::MagmaGuardApplies(map->IsDungeon()) && ai::MagmaRouteTooLongToCheck(guardRoute))
+    {
+        LogSwimHandoffRefused(bot, lastMove,
+            kind == ai::SwimHandoff::CoreLine ? "core line" : "swim out", "route too long to check", endPos,
+            f.coreType, route.size(), f.routeEndFromBot);
+        return SwimHandoffResult::Refused;
+    }
     TravelPath line;
     line.addPath(linePoints);
     WorldPosition hazardAt;
