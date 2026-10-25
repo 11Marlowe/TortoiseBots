@@ -768,11 +768,11 @@ static void TestApproachNotReadIsNotNoPath()
     f.approachY = 132.8f;
     f.approachZ = -46.7f;
     CHECK(Tick(r, f) == "move -249.9 132.8 -46.7");
-    // Read and no path at all: the pause stays.
+    // Read and no path at all: the stand search comes first.
     Run n = Start(&plan, 1);
     f.approachKnown = false;
     Tick(n, f);
-    CHECK(n.state == State::Paused && Has(n.note, "no walkable path toward the pack"));
+    CHECK(n.state == State::Running && n.approachStandWanted && Has(n.note, "no walkable path toward the pack"));
 }
 
 // Zul'Farrak's Bly hold (r14-19z32 slot 2, leg bly, steps 223-225): a hold
@@ -905,6 +905,89 @@ static void TestBlyHoldFoughtOnItsFirstTickEnds()
     CHECK(z.step == 1 && !z.eventOn && !z.eventStarted);
 }
 
+
+// Scarlet Monastery's Mograine 3976 and Whitemane 3977 as one hold (SM-CATHEDRAL-MOGRAINE-2026-10-23 fix 3, the plan
+// shape turtle-agent writes for a boss hold with a value): instance data 1, value 4, flag 8 alone, timeout 600 s. The
+// pair's data keeps its own numbers (1 in progress, 2 Mograine died once, 3 revived, 4 both dead): 2 is no FAIL, 3 is
+// no DONE, 0 is no reset; only 4 ends the hold. The fight is the hold's: it is bounded by the 600 s timeout, not by
+// the boss ceiling, and an unattackable unit (Mograine's fake death) never ends it.
+static PlanStep MograineHold()
+{
+    PlanStep s;
+    s.kind = PlanStepKind::Hold;
+    s.entry = 1;
+    s.param = 4;
+    s.flags = ai::kPlanFlagDoneData;
+    s.timeoutS = 600;
+    s.radius = 35.0f;
+    s.entries = {3976, 3977};
+    CHECK(ai::NormalizePlanStep(s) == PlanStepRefusal::None);
+    return s;
+}
+
+static void TestMograineWhitemaneHoldWaitsForValueFour()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(-30), MograineHold(), DoorWait()};
+    Run r = Start(&plan, 1);
+    Facts f = Party();
+    f.units = {Unit(3976, 14, 0, true)};
+    // 0 (not started), 1, 2 (died once), 3 (revived), and 0 again: none ends or fails the hold.
+    for (long long data : {0LL, 1LL, 2LL, 3LL, 0LL, 2LL})
+    {
+        f.eventData = data;
+        for (int i = 0; i < 40; ++i)
+            Tick(r, f);
+        CHECK(r.state == State::Running && r.step == 1);
+        CHECK(!Has(r.note, "event failed") && !Has(r.note, "event done"));
+        CHECK(r.eventMs < 600000u);
+    }
+    // In a fight past the boss ceiling (420 s): the hold's 600 s bound it, and an unattackable engaged unit (Mograine
+    // unselectable in his fake death) does not end it.
+    f.eventData = 2;
+    f.anyInCombat = true;
+    f.engagedRead = true;
+    UnitFact mograine = Unit(3976, 14, 0, true);
+    mograine.engaged = true;
+    mograine.attackable = false;
+    f.engagedUnits = {mograine};
+    r.fighting = true;
+    r.fightMs = kBossFightCapMs + 10000;
+    for (int i = 0; i < 20; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && r.fighting);
+    CHECK(!UnattackableFightLetGo(r, f));
+    // 4: both dead, the hold is done, in the fight too.
+    f.eventData = 4;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 2); // the fight's note follows on the same tick
+    // ... and out of a fight, with its note.
+    Run d = Start(&plan, 1);
+    Facts h = Party();
+    h.units = {Unit(3976, 14, 0, true)};
+    h.eventData = 3;
+    Tick(d, h);
+    CHECK(d.step == 1);
+    h.eventData = 4;
+    Tick(d, h);
+    CHECK(d.state == State::Running && d.step == 2); // the door wait runs on the same tick
+    CHECK(HoldDoneNote(MograineHold(), h) == "event done: data 1 reads 4");
+    h.eventData = 3;
+    CHECK(HoldDoneNote(MograineHold(), h).empty());
+    // The same row with the encounter flag (the default boss hold) would have failed on data 2.
+    DungeonPlan enc;
+    PlanStep e = MograineHold();
+    e.param = 3;
+    e.flags = ai::kPlanFlagDoneData | ai::kPlanFlagEncounter;
+    enc.steps = {Move(-30), e, DoorWait()};
+    Run x = Start(&enc, 1);
+    Facts g = Party();
+    g.units = {Unit(3976, 14, 0, true)};
+    g.eventData = 2;
+    Tick(x, g);
+    CHECK(x.state == State::Paused && Has(x.note, "event failed"));
+}
+
 int main()
 {
     TestHoldDoneSeenFromAway();
@@ -922,6 +1005,7 @@ int main()
     TestBlyHoldEndsWhenTheFightKilledTheCrew();
     TestFightDoesNotStartADataHold();
     TestBlyHoldFoughtOnItsFirstTickEnds();
+    TestMograineWhitemaneHoldWaitsForValueFour();
     std::cout << "test_dungeon_hold_policy: ok\n";
     return 0;
 }

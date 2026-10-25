@@ -183,6 +183,20 @@ Not covered yet, though they have qualifying casts (a real cast and the 0x02 int
 
 What needs a live check (not verified in game): that the kicks land on Velratha's 9-22 s Healing Wave and Sezzziz's heals, that Antusul's Flash Heal/Healing Wave/Healing Ward casts are interrupted in time, and that the DPS bots switch to the servants in both waves before the boss dies.
 
+
+## Scholomance rows (map 289)
+
+Rows added 2026-10-24 (`data/sql/world/20261024153900_world.sql`), read from `tortoise-wow` 5d79486. Map 289 had no rows before, so the `boss tactics` strategy now also activates for a bound party on map 289; only these two bosses have rows.
+
+| Boss (entry) | Row | Data behind it |
+| :--- | :--- | :--- |
+| Vectus (10432) | `kill_first` Marduk Blackpool 10433, priority 1; `interrupt` Flamestrike 18399 | One creature group (`creature_groups` (48805,48806,0,0,2), flags 2 `OPTION_AGGRO_TOGETHER`): Vectus and Marduk aggro together with no distance limit, so the boss row fights both. Marduk first: his Defiling Aura 17695 (EventAI 1043302, on aggro; aura 133, -100 shadow resistance on enemies, radius index 10) and Shadow Bolt Volley 17228 (spell list 104330, every 6-14 s, instant, radius index 10) reach the whole party and the aura amplifies the Volley, while Vectus' Blast Wave 16046 (instant, around himself) and melee hit the tank and the melee only; Marduk also has less health (22970 vs 24420). Interrupt: Flamestrike 18399 every 30 s (castingTimeIndex 14, preventionType 1, interruptFlags 15, so kickable by the boss-tactics rule); Blast Wave 16046 is instant and gets no row, and there is no `behind` row (no frontal cone). |
+| Marduk Blackpool (10433) | `kill_first` Marduk Blackpool 10433, priority 1 | Same row under Marduk: it is active while only he is on the attacker list. No interrupt row (Shadow Bolt Volley 17228 and Cleave 15284 are instant; Shadow Shield 12040 is self-cast). |
+
+Kill order reason: the whole-party shadow damage of Marduk (Volley plus aura, hitting even the 4.1k hp priest) runs longer if Vectus dies first. No CC on either (both undead, immune masks; the plan's `cc_priority` never applies to a boss row).
+
+What needs a live check: that Marduk dies first with Vectus on the tank, that Flamestrike is kicked in time.
+
 ## Adding a boss
 
 1. Read the boss from the core: `creature_template` (`spell_list_id`, `ai_name`), `creature_spells`, the `creature_ai_events`/`creature_ai_scripts` rows or the `src/scripts` boss file, and `spell_template` for each spell. Do not use another core's ids.

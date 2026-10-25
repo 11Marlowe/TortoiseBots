@@ -7,6 +7,7 @@
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/ServerFacade.h"
 #include "../ai/playerbot/strategy/Engine.h"
+#include "../ai/playerbot/strategy/values/LastMovementValue.h"
 #include "../ai/playerbot/strategy/Action.h"
 #include "../ai/playerbot/strategy/AiObjectContext.h"
 #include "../ai/playerbot/PullExecutorPolicy.h"
@@ -444,6 +445,8 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
         ai::PositionEntry stayPos = posMap["stay"];
         stayPos.Set(stand.getX(), stand.getY(), stand.getZ(), stand.GetMapId());
         posMap["stay"] = stayPos;
+        // An explicit order is a fresh stay walk, even to the same spot (StayWalkOrdered).
+        TortoiseBots::StayWalkOrdered(ai->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get().stayWalk);
         ai::PositionEntry holdPos = posMap["pull hold"];
         holdPos.Set(stand.getX(), stand.getY(), stand.getZ(), stand.GetMapId());
         posMap["pull hold"] = holdPos;

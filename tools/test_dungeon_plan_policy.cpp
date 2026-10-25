@@ -119,6 +119,19 @@ static void TestNormalize()
     graveOpen.entry = 128403;
     graveOpen.flags = kPlanFlagGoneIsDone;
     CHECK(NormalizePlanStep(graveOpen) == PlanStepRefusal::None);
+    // ... and a wait_object row (Shadowfang Keep's Courtyard Door 18895: the escort removes it after it was active).
+    PlanStep goneWait = Step(0, 13, PlanStepKind::WaitObject, -242.58f, 2159.05f, 90.62f);
+    goneWait.entry = 18895;
+    goneWait.param = 1;
+    goneWait.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(goneWait) == PlanStepRefusal::None && (goneWait.flags & kPlanFlagGoneIsDone));
+    PlanStep goneWaitClear = Step(0, 13, PlanStepKind::WaitClear, 1.0f, 2.0f, 3.0f);
+    goneWaitClear.radius = 10.0f;
+    goneWaitClear.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(goneWaitClear) == PlanStepRefusal::BadParam);
+    PlanStep goneWaitBadState = goneWait;
+    goneWaitBadState.param = 3;
+    CHECK(NormalizePlanStep(goneWaitBadState) == PlanStepRefusal::BadParam);
     PlanStep goneMove = Step(0, 14, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
     goneMove.flags = kPlanFlagGoneIsDone;
     CHECK(NormalizePlanStep(goneMove) == PlanStepRefusal::BadParam);
@@ -153,6 +166,37 @@ static void TestNormalize()
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
     talk.flags = 0;
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::None && talk.timeoutS == kPlanDefaultTimeoutS);
+    // no_defer (1024, kPlanFlagNoDefer): a pull row keeps the run leader's pause for a pack not reachable from this
+    // floor (DungeonRunPolicy.h PullMayBeDeferred); on any other kind it is refused (the gossip refuses every other flag).
+    CHECK(kPlanFlagNoDefer == 1024);
+    PlanStep keepPull = Step(0, 23, PlanStepKind::Pull);
+    keepPull.entries = {7286};
+    keepPull.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(keepPull) == PlanStepRefusal::None && (keepPull.flags & kPlanFlagNoDefer));
+    PlanStep keepBoss = Step(0, 24, PlanStepKind::Boss);
+    keepBoss.entry = 7271;
+    keepBoss.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(keepBoss) == PlanStepRefusal::BadParam);
+    PlanStep keepMove = Step(0, 25, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    keepMove.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(keepMove) == PlanStepRefusal::BadParam);
+    talk.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    // skip_unreachable (4096, kPlanFlagSkipUnreachable): a boss row keeps it (Stormwrought Ruins' Eldermaw 62661 swims a
+    // pool whose bed navmesh is cut off from the shore); on any other kind it is refused.
+    CHECK(kPlanFlagSkipUnreachable == 4096);
+    PlanStep skipBoss = Step(0, 26, PlanStepKind::Boss);
+    skipBoss.entry = 62661;
+    skipBoss.flags = kPlanFlagSkipUnreachable;
+    CHECK(NormalizePlanStep(skipBoss) == PlanStepRefusal::None && (skipBoss.flags & kPlanFlagSkipUnreachable));
+    PlanStep skipPull = Step(0, 27, PlanStepKind::Pull);
+    skipPull.entries = {62648};
+    skipPull.flags = kPlanFlagSkipUnreachable;
+    CHECK(NormalizePlanStep(skipPull) == PlanStepRefusal::BadParam);
+    PlanStep skipMove = Step(0, 28, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    skipMove.flags = kPlanFlagSkipUnreachable;
+    CHECK(NormalizePlanStep(skipMove) == PlanStepRefusal::BadParam);
+    talk.flags = 0;
     // The flag belongs to a gossip row only: on any other kind it is a row the exporter got wrong, refused, not ignored.
     CHECK(kPlanFlagDeadNpcIsDone == 512);
     PlanStep deadMove = Step(0, 20, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
@@ -221,18 +265,18 @@ static void TestNormalize()
 
     // move_hop_exact: a MoveDirect with exactLaunch, and back to its text.
     PlanStepKind kind = PlanStepKind::None;
-    bool exactLaunch = false;
-    ParsePlanStepRowKind("move_hop_exact", kind, exactLaunch);
-    CHECK(kind == PlanStepKind::MoveDirect && exactLaunch);
+    bool exactLaunch = false, openProof = false;
+    ParsePlanStepRowKind("move_hop_exact", kind, exactLaunch, openProof);
+    CHECK(kind == PlanStepKind::MoveDirect && exactLaunch && !openProof);
     PlanStep landing = Step(0, 11, kind, -287.5f, 5.0f, -63.6f);
     landing.exactLaunch = exactLaunch;
     CHECK(NormalizePlanStep(landing) == PlanStepRefusal::None);
     CHECK(std::string(PlanStepRowKindName(landing)) == "move_hop_exact");
     CHECK(std::string(PlanStepKindName(landing.kind)) == "move_direct");
-    ParsePlanStepRowKind("move_direct", kind, exactLaunch);
-    CHECK(kind == PlanStepKind::MoveDirect && !exactLaunch);
-    ParsePlanStepRowKind("move", kind, exactLaunch);
-    CHECK(kind == PlanStepKind::Move && !exactLaunch);
+    ParsePlanStepRowKind("move_direct", kind, exactLaunch, openProof);
+    CHECK(kind == PlanStepKind::MoveDirect && !exactLaunch && !openProof);
+    ParsePlanStepRowKind("move", kind, exactLaunch, openProof);
+    CHECK(kind == PlanStepKind::Move && !exactLaunch && !openProof);
     // exactLaunch on anything but a MoveDirect is refused.
     PlanStep wrong = Step(0, 12, PlanStepKind::Move, 1, 1, 1);
     wrong.exactLaunch = true;
@@ -415,8 +459,210 @@ static void TestBossRows()
     CHECK(table.BossCount() == 3);
 }
 
+// The Codex review of d7aca6b5: the run leader's deferral gate cannot see ai_boss_tactic, so the load joins each boss
+// step's tactic rows (keyed on the plan's map and the step's boss or one of its entries) into PlanStep::tacticEntries.
+static void TestBossStepsJoinTheirTacticSubjects()
+{
+    BossTacticTable tactics;
+    auto row = [](std::uint32_t map, std::uint32_t boss, BossTacticKind kind, std::uint32_t target, std::uint32_t spell,
+        float param)
+    {
+        BossTacticRow r;
+        r.map = map;
+        r.bossEntry = boss;
+        r.kind = kind;
+        r.targetEntry = target;
+        r.spellId = spell;
+        r.param = param;
+        return r;
+    };
+    CHECK(tactics.Add(row(70, 100, BossTacticKind::KillFirst, 555, 0, 0)));
+    CHECK(tactics.Add(row(70, 101, BossTacticKind::Interrupt, 0, 7, 0))); // the caster: the add 101 itself
+    CHECK(tactics.Add(row(70, 100, BossTacticKind::Behind, 0, 0, 5)));     // the boss itself
+    CHECK(tactics.Add(row(71, 100, BossTacticKind::KillFirst, 777, 0, 0))); // another map
+    CHECK(tactics.Add(row(70, 101, BossTacticKind::KillFirst, 555, 0, 0))); // 555 again, through the add: once
+    DungeonPlanTable table;
+    CHECK(table.AddPlan("p", 70));
+    CHECK(table.AddPlan("q", 71)); // the same boss on map 71: that map's rows only
+    PlanStep other = Step(0, 1, PlanStepKind::Boss);
+    other.entry = 100;
+    CHECK(table.AddStep("q", other) == PlanStepRefusal::None);
+    PlanStep boss = Step(0, 2, PlanStepKind::Boss);
+    boss.entry = 100;
+    boss.entries = {101};
+    CHECK(table.AddStep("p", boss) == PlanStepRefusal::None);
+    PlanStep pull = Step(0, 1, PlanStepKind::Pull);
+    pull.entries = {555};
+    CHECK(table.AddStep("p", pull) == PlanStepRefusal::None);
+    CHECK(table.JoinBossTactics(tactics) == 0); // the tactic table not sealed yet: nothing
+    tactics.Seal();
+    CHECK(table.JoinBossTactics(tactics) == 4); // p: 555, 101, 100 (555 once); q: 777
+    table.Seal();
+    CHECK(table.JoinBossTactics(tactics) == 0); // after the plans' seal: nothing
+    const DungeonPlan* q = table.Find("q");
+    CHECK(q && q->steps.size() == 1);
+    std::vector<std::uint32_t> got71 = q->steps[0].tacticEntries;
+    std::sort(got71.begin(), got71.end());
+    CHECK((got71 == std::vector<std::uint32_t>{777}));
+    // A table sealed before any join stays as it was.
+    DungeonPlanTable late;
+    CHECK(late.AddPlan("p", 70));
+    CHECK(late.AddStep("p", boss) == PlanStepRefusal::None);
+    late.Seal();
+    CHECK(late.JoinBossTactics(tactics) == 0 && late.Find("p")->steps[0].tacticEntries.empty());
+    const DungeonPlan* p = table.Find("p");
+    CHECK(p && p->steps.size() == 2 && p->steps[0].kind == PlanStepKind::Pull && p->steps[0].tacticEntries.empty());
+    // In entry order whatever order the rows came in (the add's rows first here): a reload reading the same rows in
+    // another order is no change (DungeonPlanReloadPolicy.h SamePlanStep compares the lists).
+    CHECK((p->steps[1].tacticEntries == std::vector<std::uint32_t>{100, 101, 555}));
+}
+
+// open_proof (a use of object `entry` done by a spawned proof object, or with
+// kPlanFlagProofCreature a living creature, of the one entry in `entries`
+// within `radius` of x,y,z): the kind text parses to Open with openProof set,
+// and NormalizePlanStep takes the row only under its own rules. The
+// proof-creature flag is the next free bit (2048): 1024 is kPlanFlagNoDefer
+// (a pull only) on this line, kept as it is.
+static PlanStep StatueProofStep()
+{
+    PlanStep s = Step(0, 100, PlanStepKind::Open, -515.553f, 95.2582f, -148.74f);
+    s.entry = 148830;
+    s.entries = {148883};
+    s.radius = 10.0f;
+    s.openProof = true;
+    return s;
+}
+
+static void TestOpenProofRowParses()
+{
+    PlanStepKind kind = PlanStepKind::None;
+    bool exact = true, proof = false;
+    ParsePlanStepRowKind("open_proof", kind, exact, proof);
+    CHECK(kind == PlanStepKind::Open && !exact && proof);
+    ParsePlanStepRowKind("open", kind, exact, proof);
+    CHECK(kind == PlanStepKind::Open && proof == false);
+    PlanStep statue = StatueProofStep();
+    CHECK(std::string(PlanStepRowKindName(statue)) == "open_proof");
+    PlanStep plain = Step(0, 101, PlanStepKind::Open, 1.0f, 2.0f, 3.0f);
+    plain.entry = 124371;
+    CHECK(std::string(PlanStepRowKindName(plain)) == "open");
+}
+
+static void TestOpenProofIsNoPlainKind()
+{
+    // The kind-only parser (all an old module has) does not know the text, so
+    // that loader refuses the row as UnknownKind instead of loading it as a
+    // plain open.
+    CHECK(ParsePlanStepKind("open_proof") == PlanStepKind::None);
+    DungeonPlanTable old;
+    CHECK(old.AddPlan("sunken_temple", 109));
+    PlanStep oldRow = Step(0, 200, ParsePlanStepKind("open_proof"), -515.553f, 95.2582f, -148.74f);
+    CHECK(old.AddStep("sunken_temple", oldRow) == PlanStepRefusal::UnknownKind);
+}
+
+static void TestOpenProofNormalize()
+{
+    PlanStep good = StatueProofStep();
+    CHECK(NormalizePlanStep(good) == PlanStepRefusal::None);
+    CHECK(good.timeoutS == kPlanDefaultTimeoutS);
+    PlanStep noEntry = StatueProofStep();
+    noEntry.entry = 0;
+    CHECK(NormalizePlanStep(noEntry) == PlanStepRefusal::MissingEntry);
+    PlanStep noProof = StatueProofStep();
+    noProof.entries.clear();
+    CHECK(NormalizePlanStep(noProof) == PlanStepRefusal::MissingEntry);
+    PlanStep twoProof = StatueProofStep();
+    twoProof.entries = {148883, 148884};
+    CHECK(NormalizePlanStep(twoProof) == PlanStepRefusal::BadEntries);
+    PlanStep flat = StatueProofStep();
+    flat.radius = 0.0f;
+    CHECK(NormalizePlanStep(flat) == PlanStepRefusal::BadRadius);
+    PlanStep wide = StatueProofStep();
+    wide.radius = kPlanMaxProofRadius + 0.5f;
+    CHECK(NormalizePlanStep(wide) == PlanStepRefusal::BadRadius);
+    PlanStep noPoint = StatueProofStep();
+    noPoint.x = noPoint.y = noPoint.z = 0.0f;
+    CHECK(NormalizePlanStep(noPoint) == PlanStepRefusal::BadPoint);
+    PlanStep withParam = StatueProofStep();
+    withParam.param = 1;
+    CHECK(NormalizePlanStep(withParam) == PlanStepRefusal::BadParam);
+    PlanStep badFlag = StatueProofStep();
+    badFlag.flags = 256;
+    CHECK(NormalizePlanStep(badFlag) == PlanStepRefusal::BadParam);
+    PlanStep reserved = StatueProofStep();
+    reserved.flags = 128;
+    CHECK(NormalizePlanStep(reserved) == PlanStepRefusal::BadParam);
+    PlanStep itself = StatueProofStep();
+    itself.entries = {148830};
+    CHECK(NormalizePlanStep(itself) == PlanStepRefusal::BadParam);
+    PlanStep withTimeout = StatueProofStep();
+    withTimeout.timeoutS = 30;
+    CHECK(NormalizePlanStep(withTimeout) == PlanStepRefusal::BadTimeout);
+    // A creature of the same number is not the used object itself.
+    PlanStep creatureSame = StatueProofStep();
+    creatureSame.entries = {148830};
+    creatureSame.flags = kPlanFlagProofCreature;
+    CHECK(NormalizePlanStep(creatureSame) == PlanStepRefusal::None);
+    // openProof on anything but an open is a row the exporter got wrong.
+    PlanStep wrongKind = Step(0, 201, PlanStepKind::Pull);
+    wrongKind.entries = {4851};
+    wrongKind.openProof = true;
+    CHECK(NormalizePlanStep(wrongKind) == PlanStepRefusal::BadParam);
+}
+
+static void TestProofCreatureFlagOnlyOnOpenProof()
+{
+    PlanStep open = Step(0, 202, PlanStepKind::Open, 1.0f, 2.0f, 3.0f);
+    open.entry = 124371;
+    open.flags = kPlanFlagProofCreature;
+    CHECK(NormalizePlanStep(open) == PlanStepRefusal::BadParam);
+    PlanStep pull = Step(0, 203, PlanStepKind::Pull);
+    pull.entries = {7286};
+    pull.flags = kPlanFlagProofCreature;
+    CHECK(NormalizePlanStep(pull) == PlanStepRefusal::BadParam);
+    // The pull's own 1024 (kPlanFlagNoDefer) is untouched by the proof rules.
+    PlanStep keepPull = Step(0, 204, PlanStepKind::Pull);
+    keepPull.entries = {7286};
+    keepPull.flags = kPlanFlagNoDefer;
+    CHECK(NormalizePlanStep(keepPull) == PlanStepRefusal::None);
+}
+
+static void TestStandPullFlagOnlyOnBoss()
+{
+    CHECK(kPlanFlagStandPull == 8192);
+    PlanStep boss = Step(0, 30, PlanStepKind::Boss);
+    boss.entry = 62661;
+    boss.flags = kPlanFlagStandPull;
+    CHECK(NormalizePlanStep(boss) == PlanStepRefusal::None && (boss.flags & kPlanFlagStandPull));
+    PlanStep pull = Step(0, 31, PlanStepKind::Pull);
+    pull.entries = {62648};
+    pull.flags = kPlanFlagStandPull;
+    CHECK(NormalizePlanStep(pull) == PlanStepRefusal::BadParam);
+    PlanStep move = Step(0, 32, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    move.flags = kPlanFlagStandPull;
+    CHECK(NormalizePlanStep(move) == PlanStepRefusal::BadParam);
+}
+
+static void TestPlainOpenUnchanged()
+{
+    // A plain open with a radius, extra entries and no param still loads: none
+    // of the proof rules touches it.
+    PlanStep open = Step(0, 205, PlanStepKind::Open, 1858.7f, 1053.8f, 8.9f);
+    open.entry = 128403;
+    open.radius = 12.0f;
+    open.entries = {5};
+    CHECK(NormalizePlanStep(open) == PlanStepRefusal::None);
+}
+
 int main()
 {
+    TestOpenProofRowParses();
+    TestOpenProofIsNoPlainKind();
+    TestOpenProofNormalize();
+    TestProofCreatureFlagOnlyOnOpenProof();
+    TestPlainOpenUnchanged();
+    TestStandPullFlagOnlyOnBoss();
+    TestBossStepsJoinTheirTacticSubjects();
     TestPlanUnits();
     TestKinds();
     TestEntries();

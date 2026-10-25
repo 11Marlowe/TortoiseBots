@@ -6,6 +6,7 @@
 #include "playerbot/CombatSpreadPolicy.h"
 #include "playerbot/TravelRouteCachePolicy.h"
 #include "playerbot/MagmaHazardPolicy.h"
+#include "../../../../runtime/StayArrivalPolicy.h"
 
 namespace ai
 {
@@ -79,8 +80,12 @@ namespace ai
             lastSpreadStepMs = other.lastSpreadStepMs;
             fleeNoSpotMs = other.fleeNoSpotMs;
             moveFailReason = other.moveFailReason;
+            movePathType = other.movePathType;
+            positionMoveFailMs = other.positionMoveFailMs;
+            moveTries = other.moveTries;
             magmaLogAt = other.magmaLogAt;
             magmaRefusal = other.magmaRefusal;
+            stayWalk = other.stayWalk;
             moveEvent = Event();
         }
 
@@ -101,6 +106,8 @@ namespace ai
             lastMoveShort = WorldPosition();
             nextTeleport = 0;
             moveFailReason = 0;
+            movePathType = 0;
+            positionMoveFailMs = 0;
             moveEvent = Event();
         }
 
@@ -147,6 +154,18 @@ namespace ai
         // `return false` so the TravelMoveFailed row can say more than the
         // navmesh probe bucket; cleared on success paths.
         uint32 moveFailReason;
+        // The core PathFinder's type for MoveTo2's own route on its last try
+        // (WorldPosition::LastPathStepType; 0 = no pathfinding on that try, the
+        // route was reused). The FAILED action-log line shows it (MoveFailNotePolicy.h).
+        uint32 movePathType = 0;
+        // WorldTimer ms of the last "move to position" (a stay, guard or pull
+        // anchor) that failed; 0 = the last one did not. The run leader reads it
+        // for the lead bot (DungeonRun::Facts::leadMoveFailed, PositionMoveFailing).
+        uint32 positionMoveFailMs = 0;
+        // MoveTo2 / MoveTo(Unit*) tries so far (each resets moveFailReason and movePathType
+        // first); the FAILED line's note shows a reason only when a try happened during
+        // that Execute (MoveFailNoteReason). clear() leaves it alone.
+        uint32 moveTries = 0;
         // Wall-clock of the last "move refused: magma" log line (one per bot
         // per 10 s, MovementActions.cpp); clear() leaves it alone.
         time_t magmaLogAt = 0;
@@ -154,6 +173,10 @@ namespace ai
         // MoveTo2 refuses it again from memory, without terrain queries, for
         // kMagmaRefusalSeconds. clear() leaves it alone too.
         MagmaRefusal magmaRefusal;
+        // The stay walk's failures and back-off (StayArrivalPolicy.h StayWalkBackoff), read by
+        // "return to stay position" and its trigger; clear() leaves it alone (a move's clear
+        // must not end a back-off the stay walk earned).
+        TortoiseBots::StayWalkBackoff stayWalk;
         Event moveEvent;
     };
 

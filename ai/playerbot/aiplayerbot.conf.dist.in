@@ -540,6 +540,13 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 #   7604 Sergeant Bly (Zul'Farrak): after the pyramid event his one option starts
 #        his fight (he and his crew turn hostile and attack the bot that asked).
 # To allow both: AiPlayerbot.BotGossipNpcs = 7607,7604
+# Since fix/plan-gossip-allow (SFK r27 slot7 stopped at step 130/313 when its
+# plan's gossip step was refused Deathstalker Adamant, 3849), a dungeon run did
+# not need this list for its own gossip steps: a bot of a running or paused run
+# was let talk to the NPC entry the run's CURRENT gossip step names (the step's
+# `entry` only), read from the loaded plan, and to no other. A manual
+# order outside a run, another NPC, or a run at any other step still needed the
+# entry listed here.
 #AiPlayerbot.BotGossipNpcs =
 
 # Bounded AH market population through the native bot/session auction path. Default off.
@@ -849,9 +856,56 @@ AiPlayerbot.DungeonTactics = 0
 # Needs AiPlayerbot.RemoteCommander = 1 and a binding (.bot commander bind).
 # Bots then clear without a player giving each order, so it is off by default
 # (docs/play/dungeon-run-leader.md).
+# `.reload config` reads this key and the AiPlayerbot.DungeonRun* keys below again
+# (only those; every other setting here needs a restart).
 # 0 - `.bot run` is refused (Default)
 # 1 - a bound commander may start a run
 AiPlayerbot.DungeonSelfClear = 0
+
+# The run leader's walk back after a guarded fight. When the tank left its stand
+# to take mobs off the party, the run used to walk the tank and the party back to
+# that stand after every fight, then forward again to the next pack or boss.
+# 0 - once the step's pack is cleared (or on a move step) the run goes on from
+#     where the tank stands; a pack with units left is still pulled from the
+#     stand, so the tank goes back to it first (Default)
+# 1 - walk back to the stand after every guarded fight, as before 2026-10-22
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunWalkBackAfterWonFight = 0
+
+# The run leader's retreat at two dead. In a fight with two members dead, the lead
+# bot alive and no engaged unit losing hp for 15 s, the living walk back to the
+# run's last stand (at most 40 yd away) once, for at most 20 s, before a third
+# death makes it a wipe. Never in a scripted event or against an event boss.
+# 0 - off: the party fights on as before (Default)
+# 1 - on
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunRetreatAt2Dead = 0
+
+# The run leader's rescue of a stuck walk back. A walk back whose lead bot is stuck
+# short of its point after its tries, and a placed run's lead bot revived behind
+# the run's start step, are teleported to a safe point on the run's way (out of
+# every live pack's reach), out of combat, once a step.
+# 0 - off: the stuck walk back pauses as before
+# 1 - on (Default)
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunWalkBackRescue = 1
+
+# The run leader's fight forward. After a won fight, the next pack within 30 yd
+# of the tank is pulled from where the tank stands instead of walking the plan's
+# rows back to its stand, when the navmesh path to it is direct, the tank sees it
+# and no live hostile stands by the way.
+# 0 - off: the plan's rows as before
+# 1 - on (Default)
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunFightForward = 1
+
+# The run leader's light rest lines. Before a small pull (or with no fight ahead)
+# the party rests only under 60 % health / 35 % healer mana / 25 % mana and to
+# 75 / 60 / 45; before a boss, an event or a big pull the full lines stay.
+# 0 - off: the full lines everywhere, as before
+# 1 - on (Default)
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunLightRest = 1
 
 # The run leader's time limit, in minutes from `.bot run start` (a pause counts).
 # At the limit the run ends and its status line says "time limit reached (3h)".
@@ -907,6 +961,28 @@ AiPlayerbot.DungeonRunPullStand = 0
 # Only read while AiPlayerbot.DungeonSelfClear = 1.
 AiPlayerbot.DungeonRunLootFfa = 0
 
+# Player-led runs (owner 2026-10-23). A player who leads his own party of bots
+# (up to three other players may be in it) starts `.bot run start [plan] player
+# [tank <Bot>]`: he walks wherever he wants, and the run leader pulls the plan's
+# packs near him with the tank bot, marks, crowd controls, rests and revives.
+# Plain `.bot run start` stays bot-led. Needs AiPlayerbot.DungeonSelfClear = 1 and
+# AiPlayerbot.RemoteCommander = 1 too (the run's orders are `.bot cmd` orders).
+# 0 - `.bot run start ... player` is refused (Default)
+# 1 - a player who leads his party may start a player-led run
+AiPlayerbot.DungeonRunPlayerLed = 0
+
+# How close (yards, straight line) the leading player must stand to a plan pack
+# or boss for the player-led run to pull it.
+# 40 - default; 5 to 100. Only read while AiPlayerbot.DungeonRunPlayerLed = 1.
+AiPlayerbot.DungeonRunPlayerLedPullYd = 40
+
+# How long (minutes) the leading player of a player-led run may be out of the
+# plan's dungeon. Meanwhile the bots that stayed inside hold where they stand;
+# back in time, they follow him again and the run goes on. Past it the run
+# stops with a note and its binding ends (the bots keep holding).
+# 10 - default; 1 to 60. Only read while AiPlayerbot.DungeonRunPlayerLed = 1.
+AiPlayerbot.DungeonRunPlayerLedAwayMinutes = 10
+
 # Scripted area triggers for bots (an audited allowlist of trigger ids, off by default).
 # A bot has no game client, so it never tells the server it walked into an area
 # trigger, and a trigger script never ran for it: Zul'Farrak's Witch Doctor
@@ -927,6 +1003,13 @@ AiPlayerbot.DungeonRunLootFfa = 0
 #   962 - Zul'Farrak, at_zumrah: if Witch Doctor Zum'rah is alive within 30 yd,
 #         he turns hostile, yells, and his encounter is marked in progress
 #         (nothing else). Opt in with: AiPlayerbot.BotAreaTriggers = 962
+# Since fix/plan-gossip-allow a dungeon run did not need this list for its own
+# plan: a move or move_direct step whose `entry` names a trigger armed it for the
+# run's bots from that step on until it fired once for the run (Zul'Farrak's walk
+# into 962), and no other unlisted trigger. A refused script (at_zumrah with
+# Zum'rah farther than 30 yd) kept it armed and was tried again every 2 s while
+# the bot stood inside. A run started past that move step never armed it: when
+# the event had not happened, the run was started again from before the step.
 # Comma-separated trigger ids; empty (the default) turns the feature off.
 # New automation, so it is off by default.
 # Default: (empty)

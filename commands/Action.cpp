@@ -906,6 +906,15 @@ bool HandleAction(ChatHandler* handler, char const* args)
     std::string intent;
     std::string option;
     bool const parsed = requester && ParseAction(Trim(args ? args : ""), intent, option);
+    // Another player of a bound party (in-party binding): its bots take no `.bot action` of his.
+    if (parsed)
+        if (uint64 const owner = BoundForeignCommander(requester))
+        {
+            Player* commander = FindCharacter(owner);
+            SendActionError(handler, "action " + intent, "run-bound",
+                RemoteCommander::RunBoundRefusalText(commander ? commander->GetName() : "its commander").c_str());
+            return true;
+        }
     if (parsed)
         PauseDungeonRunForPlayer(requester->GetObjectGuid().GetRawValue(), "action " + intent);
     if (!parsed)

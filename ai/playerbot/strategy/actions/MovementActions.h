@@ -20,6 +20,14 @@ namespace ai
     public:
         MovementAction(PlayerbotAI* ai, std::string name) : Action(ai, name) {}
 
+        // The FAILED line's detail: the move's fail reason, the bot's water state
+        // and the path type of its own route (MoveFailNotePolicy.h).
+        std::string GetFailNote() override;
+        void BeforeExecute() override;
+    private:
+        uint32 failNoteMark = 0; // LastMovement::moveTries before this Execute
+    public:
+
         static bool MinimalMove(PlayerbotAI* ai);
         static bool UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition dockPosition, WorldPosition exitPosition, bool doTeleport);
 

@@ -243,15 +243,19 @@ int main()
     // still in its window, or when its standing point is in magma.
     {
         MagmaRefusal r = MagmaRefusalFor(389, -205.5f, -16.4f, -65.7f, 100);
-        CHECK(MagmaNudgeBlocked(true, true, r, 101, false));
-        CHECK(!MagmaNudgeBlocked(true, true, r, 110, false));        // window over
-        CHECK(!MagmaNudgeBlocked(true, false, r, 101, false));       // the last move failed otherwise or worked
-        CHECK(!MagmaNudgeBlocked(true, true, MagmaRefusal(), 101, false)); // nothing refused
+        CHECK(MagmaNudgeBlocked(true, r, 389, 101, false));
+        CHECK(!MagmaNudgeBlocked(true, r, 389, 110, false));         // window over
+        // Codex review 2026-10-23: a magma refusal, then a later try that failed for another
+        // reason (MoveTo2 resets the last-try reason), then the nudge: still blocked by the
+        // memory alone (the call takes no last-try reason any more).
+        CHECK(MagmaNudgeBlocked(true, r, 389, 105, false));
+        CHECK(!MagmaNudgeBlocked(true, r, 1, 101, false));           // the memory is of another map
+        CHECK(!MagmaNudgeBlocked(true, MagmaRefusal(), 389, 101, false)); // nothing refused
         MagmaRefusal cleared = r;
         cleared.set = false;
-        CHECK(!MagmaNudgeBlocked(true, true, cleared, 101, false));  // a cleared memory
-        CHECK(MagmaNudgeBlocked(true, false, MagmaRefusal(), 101, true));  // the stand is in magma
-        CHECK(!MagmaNudgeBlocked(false, true, r, 101, true));        // open world: unchanged
+        CHECK(!MagmaNudgeBlocked(true, cleared, 389, 101, false));   // a cleared memory
+        CHECK(MagmaNudgeBlocked(true, MagmaRefusal(), 389, 101, true));  // the stand is in magma
+        CHECK(!MagmaNudgeBlocked(false, r, 389, 101, true));         // open world: unchanged
         std::cout << "  [PASS] the task walk nudge waits after a magma refusal\n";
     }
 

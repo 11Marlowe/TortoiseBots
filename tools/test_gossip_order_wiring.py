@@ -84,21 +84,33 @@ class GossipOrderWiringTest(unittest.TestCase):
 
     def test_act_refuses_unlisted_npc_before_anything_reaches_it(self):
         act = function(COMMANDS, "ActStart BeginGossipAct(")
-        start, statement = guard(act, "GossipOrder::IsAllowedNpc(sPlayerbotAIConfig.botGossipNpcs, npc->GetEntry())")
+        start, statement = guard(act, "BotMayGossipWith(bot, npc->GetEntry())")
         self.assertRegex(squash(statement),
-            r"^if \(npc && !GossipOrder::IsAllowedNpc\(.*\)\) return RefuseAct\(task, ActStart::Failed, GossipOrder::kCodeNotAllowed,")
+            r"^if \(npc && !BotMayGossipWith\(bot, npc->GetEntry\(\)\)\) return RefuseAct\(task, ActStart::Failed, GossipOrder::kCodeNotAllowed,")
         # The gate is the first statement after the npc is read; the hello comes after it.
         self.assertEqual(squash(act[:start]), "{ Creature* npc = target.creature;")
         self.assertLess(start, act.index("HandleGossipHelloOpcode("))
 
     def test_order_refuses_unlisted_npc_before_search_and_walk(self):
         order = function(COMMANDS, "static bool CommanderGossip(")
-        start, statement = guard(order, "GossipOrder::IsAllowedNpc(sPlayerbotAIConfig.botGossipNpcs, request.entry)")
+        start, statement = guard(order, "BotMayGossipWith(bot, request.entry)")
         self.assertRegex(squash(statement),
-            r"^if \(!GossipOrder::IsAllowedNpc\(.*\)\) \{ SendActionError\(handler, intent, GossipOrder::kCodeNotAllowed, .*\); return true; \}$")
+            r"^if \(!BotMayGossipWith\(bot, request\.entry\)\) \{ SendActionError\(handler, intent, GossipOrder::kCodeNotAllowed, .*\); return true; \}$")
         self.assertEqual(squash(order[:start]), "{")
         for later in ("CommanderTaskGuard(", "FindGossipNpc(", "LaunchCommanderTask("):
             self.assertLess(start, order.index(later), later)
+
+    def test_gate_is_allowlist_or_the_current_run_gossip_step(self):
+        # Both gates ask one function: the allowlist, or the current gossip step of the bot's active
+        # run (running or paused), read from the loaded plan. No other path calls the bare allowlist.
+        gate = function(COMMANDS, "static bool BotMayGossipWith(")
+        self.assertEqual(squash(gate),
+            "{ return GossipOrder::MayTalkTo(sPlayerbotAIConfig.botGossipNpcs, RunGossipStepOfBot(bot), entry); }")
+        step = function(COMMANDS, "static GossipOrder::RunGossipStep RunGossipStepOfBot(")
+        self.assertEqual(squash(step), "{ return TortoiseBots::DungeonRun::RunGossipStepOf(RunningRunOf(bot, true)); }")
+        self.assertEqual(len(re.findall(r"\bBotMayGossipWith\(", COMMANDS)), 3)  # definition, two gates
+        self.assertNotIn("IsAllowedNpc(", COMMANDS)
+        self.assertEqual(COMMANDS.count("RunGossipStepOf("), 1)
 
     def test_order_is_dispatched(self):
         handler = function(COMMANDS, "bool HandleCommanderOrder(")

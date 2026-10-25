@@ -93,7 +93,12 @@ class BossListWiring(unittest.TestCase):
             fn = body(CMD, name)
             self.assertNotIn("BuildBossSpawnCache", fn, name)
             self.assertNotIn("DoCreatureData", fn, name)
-        self.assertEqual(CMD.count("BuildBossSpawnCache()"), 1, "only its definition: nothing in the commands layer calls it")
+        # Besides its definition, only `.bot run reloadplans` builds it again, after the plan tables were replaced
+        # (tools/test_reload_plans_wiring.py): never a snapshot or a tick.
+        self.assertEqual(CMD.count("BuildBossSpawnCache()"), 2, "its definition and RebuildBossSpawnCache only")
+        self.assertIn("BuildBossSpawnCache();", body(CMD, "static bool RebuildBossSpawnCache(uint32& ms, uint32& maps)\n{"))
+        self.assertEqual(CMD.count("RebuildBossSpawnCache(ms, maps)"), 1)
+        self.assertIn("RebuildBossSpawnCache(ms, maps)", body(CMD, "static bool HandleReloadPlans("))
         fn = body(CMD, "static std::vector<CommanderTelemetry::BossEntrySpawns> const* DashBossSpawnsOn(")
         self.assertRegex(fn, r"if \(!cache\.built\)\s*return nullptr;")
 

@@ -87,6 +87,11 @@ namespace ai
         bool IsPossible() { return isPossible(); }
         bool IsUseful() { return isUseful(); }
         virtual bool isUsefulWhenStunned() { return false; }
+        // Appended to the action log's "FAILED" line (Engine.cpp): why Execute
+        // returned false, when the action knows (MovementAction: MoveFailNotePolicy.h).
+        virtual std::string GetFailNote() { return std::string(); }
+        // Called by the engine right before Execute, for GetFailNote's bookkeeping.
+        virtual void BeforeExecute() {}
         virtual NextAction** getPrerequisites() { return NULL; }
         virtual NextAction** getAlternatives() { return NULL; }
         virtual NextAction** getContinuers() { return NULL; }

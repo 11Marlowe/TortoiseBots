@@ -45,6 +45,8 @@ void BuildBossSpawnCache();
 void CollectDungeonMobs(std::vector<DungeonMobTelemetry::RunRef>& runs);
 // Any order a player gives the party pauses its run (`.bot run`); the run's own orders never pause it. Does nothing without a run.
 void PauseDungeonRunForPlayer(uint64_t commanderRaw, std::string const& order);
+// Another real player of a run-bound party: the run's commander (players in the party, 2026-10-23), else 0.
+uint64_t BoundForeignCommander(Player* player);
 // True when bot is in the group the commander is bound to: master-relative
 // conveniences (the summon out of a dungeon when the master leaves it) leave
 // such a bot with its lead bot.

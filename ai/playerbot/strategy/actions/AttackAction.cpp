@@ -10,6 +10,7 @@
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/GroupMembers.h"
+#include "playerbot/policy/combat/RunnerFinishPolicy.h"
 #include "GenericActions.h"
 #include "../../../../runtime/AttackOrderPolicy.h"
 #include "../../../../runtime/PetEngagePolicy.h"
@@ -34,6 +35,8 @@ void CommitExplicitAttackTarget(PlayerbotAI* ai, ObjectGuid guid)
     // when the five minutes ran out. If the mob really is out of reach, the
     // reach action gives up on it again after 15 s.
     context->GetValue<std::map<ObjectGuid, uint32>&>("unreachable targets")->Get().erase(guid);
+    // ... and the ledge rule's let-go of that target (AttackersValue::RunnerLetGoAtLedge).
+    context->GetValue<std::map<ObjectGuid, RunnerLedgeEntry>&>("runners let go")->Get().erase(guid);
     // The order also lifts a creature aura keep-out set-aside: the bot holds
     // outside the ring on it (or, on the keep-out creature itself, fights it).
     context->GetValue<std::map<ObjectGuid, uint32>&>("keepout set aside")->Get().erase(guid);

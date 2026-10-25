@@ -82,7 +82,10 @@ class MagmaGuardWiringTest(unittest.TestCase):
 
     def test_task_walk_nudge_waits_after_a_magma_refusal(self):
         f = body(COMMANDS, "void NudgeTaskWalk(CommanderTask& task, Player* bot, uint32 diff)", "\n}\n")
-        blocked = at(f, "if (ai::MagmaNudgeBlocked(guard, lastMove.moveFailReason == ai::MOVE_FAIL_MAGMA, lastMove.magmaRefusal,")
+        blocked = at(f, "if (ai::MagmaNudgeBlocked(guard, lastMove.magmaRefusal, bot->GetMapId(),")
+        # The refusal memory alone decides (Codex review 2026-10-23): MoveTo2 resets the
+        # last-try reason, so a later non-magma try must not unblock the nudge.
+        self.assertNotIn("moveFailReason", f)
         self.assertIn("bool const guard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());", f)
         self.assertIn("guard && ai::WorldPosition(bot->GetMapId(), task.stand.x, task.stand.y, task.stand.z).isInMagma(", f)
         walk = at(f, "bot->GetMotionMaster()->MovePoint(0, task.stand.x, task.stand.y, task.stand.z,")
@@ -115,7 +118,10 @@ class MagmaGuardWiringTest(unittest.TestCase):
         issue = at(f, "IssueRunOrder(commander, order, answer,")
         self.assertTrue(tick < due < issue)
         hold = f[due:issue]
-        self.assertIn('leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT), lead->IsInMagma()))', hold)
+        self.assertIn('leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT), lead->IsInMagma(), facts.staleCombat))',
+                      hold)
+        # The stale flag is this tick's facts (THREAT F1 review round).
+        self.assertLess(at(f, "ReadRunFacts(slot, lead, bots, facts);"), due)
         self.assertIn("FormUpOnLead(commander, lead, std::vector<Player*>{ lead }, true);", hold)
         self.assertIn("leadAi->StopMoving();", hold)
 
