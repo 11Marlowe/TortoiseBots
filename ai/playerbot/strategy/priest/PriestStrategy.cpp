@@ -122,13 +122,16 @@ void PriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "fade ready and target of attacker",
         NextAction::array(0, new NextAction("fade", ACTION_CRITICAL_HEAL + 3), NULL)));
 
-    // Drop aggro while climbing the threat table in a group (donor
-    // GenericPriestStrategy fires fade at 55 here; the raid-only node below
-    // keeps its EMERG-adjacent slot). Fade needs a group to shed to - the
-    // action's usefulness already requires one - so solo priests keep
-    // burning the GCD on heals instead of fading into nothing.
+    // Drop aggro while climbing the threat table in a group (the raid-only
+    // node below keeps its EMERG-adjacent slot). Fade needs a group to shed
+    // to - the action's usefulness already requires one - so solo priests
+    // keep burning the GCD on heals instead of fading into nothing. The
+    // threat ratio reads 100 while the tank holds nothing, so the Fade waits
+    // for the tank to hold the mob; a mob on the priest sheds through the
+    // row above instead.
+
     triggers.push_back(new TriggerNode(
-        "fade ready and medium threat",
+        "fade ready and priest fade threat",
         NextAction::array(0, new NextAction("fade", ACTION_HIGH), NULL)));
 
     // Each Turtle wand shot renews the GCD, so a running wand keeps every
@@ -217,7 +220,7 @@ void PriestRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     ClassRaidStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "fade ready and medium threat",
+        "fade ready and priest fade threat",
         NextAction::array(0, new NextAction("fade", ACTION_DISPEL), NULL)));
 }
 

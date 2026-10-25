@@ -198,6 +198,8 @@ namespace ai
                 creators["fade ready"] = [](PlayerbotAI* ai) { return new FadeReadyTrigger(ai); };
                 creators["fade ready and target of attacker"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "fade ready", "target of attacker"); };
                 creators["fade ready and medium threat"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "fade ready", "medium threat"); };
+                creators["priest fade threat"] = [](PlayerbotAI* ai) { return new PriestFadeThreatTrigger(ai); };
+                creators["fade ready and priest fade threat"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "fade ready", "priest fade threat"); };
                 creators["shadow protection"] = [](PlayerbotAI* ai) { return new ShadowProtectionTrigger(ai); };
                 creators["shadow protection on party"] = [](PlayerbotAI* ai) { return new ShadowProtectionOnPartyTrigger(ai); };
                 creators["prayer of shadow protection on party"] = [](PlayerbotAI* ai) { return new PrayerOfShadowProtectionOnPartyTrigger(ai); };

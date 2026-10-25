@@ -38,7 +38,8 @@ Direct heals are downranked to match target wounds per [shared downranking rules
 The bot verifies that the target does not have the *Weakened Soul* debuff before casting *Power Word: Shield*. If present, the shield is skipped in favor of direct heals.
 
 ### Threat Drops & Loose Adds
-- **Fade:** Casts *Fade* at high priority when accumulating high threat without holding aggro, or immediately when attacked by a mob in a group.
+- **Fade:** Casts *Fade* at high priority when climbing toward the tank's threat on a mob the tank holds, or immediately when attacked by a mob in a group.
+
 - **Loose Add Priority:** If loose mobs attack non-tanks, Holy and Discipline priests prioritize fast *Flash Heal* casts over slow *Greater Heal* casts to prevent drawing further aggro.
 
 ### Shadow DPS Rotation
