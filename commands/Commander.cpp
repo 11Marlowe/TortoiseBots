@@ -8865,13 +8865,33 @@ static bool SpeedCheatOn(Player* bot)
     return ai && ai->HasCheat(BotCheatMask::movespeed);
 }
 
-void ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)
+// Karazhan Crypt shaft dive (2026-10-25): do not change a bot's run or walk
+// rate while it is in water and its spline is still moving. The change would
+// re-launch DispatchMovement's stale PointMovementGenerator, whose Initialize
+// drops the module's dive spline. A bot in water always swims
+// (MovementAction::UpdateMovementState), so the test speed never changes the
+// swim speed: waiting costs nothing. The caller keeps the bot listed and
+// retries on the next tick.
+static bool SpeedChangeWaitsFor(Player* bot)
 {
+    if (!bot)
+        return false;
+    bool const inWater = bot->IsInWater() || bot->IsUnderwater() ||
+        bot->HasMovementFlag(MOVEFLAG_SWIMMING);
+    bool const splineMoving = !bot->movespline->Finalized();
+    return TortoiseBots::DungeonRun::SpeedChangeWaits(inWater, splineMoving);
+}
+
+bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)
+{
+    if (SpeedChangeWaitsFor(bot))
+        return false;
     bot->UpdateSpeed(MOVE_RUN, true, rate);
     bot->UpdateSpeed(MOVE_WALK, true, rate);
     entry.rate = rate;
     entry.appliedRun = bot->GetSpeedRate(MOVE_RUN);
     entry.appliedWalk = bot->GetSpeedRate(MOVE_WALK);
+    return true;
 }
 
 // A following pet out of combat slower than its bot (reset by an aura of its own) gets the rate too. A pet that is
@@ -8897,9 +8917,12 @@ void CatchUpPet(Player* bot, float rate)
     }
 }
 
-// The bot and its pet back to their own rates (the auras' and the template's, ratio 1).
-void RestoreBotSpeed(Player* bot)
+// The bot and its pet back to their own rates (the auras' and the template's, ratio 1). When the rule above says
+// wait, neither is touched (the pet waits with its bot) and the caller keeps the bot listed for the next retry.
+bool RestoreBotSpeed(Player* bot)
 {
+    if (SpeedChangeWaitsFor(bot))
+        return false;
     bot->UpdateSpeed(MOVE_RUN, true, 1.0f);
     bot->UpdateSpeed(MOVE_WALK, true, 1.0f);
     if (Pet* const pet = bot->GetPet())
@@ -8907,6 +8930,7 @@ void RestoreBotSpeed(Player* bot)
         pet->UpdateSpeed(MOVE_RUN, true, 1.0f);
         pet->UpdateSpeed(MOVE_WALK, true, 1.0f);
     }
+    return true;
 }
 
 // Same Map object (same instance), not just the same map id: a bot in another instance of the map stays 1.0
@@ -8958,7 +8982,7 @@ void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const
                 }
                 else
                 {
-                    RestoreBotSpeed(bot);
+                    if (!RestoreBotSpeed(bot)) continue;
                     listed.erase(entry);
                 }
             }
@@ -9033,8 +9057,7 @@ void SyncRunSpeed()
             it = listed.erase(it);
             continue;
         }
-        if (bot)
-            RestoreBotSpeed(bot);
+        if (bot && !RestoreBotSpeed(bot)) { ++it; continue; }
         it = listed.erase(it);
     }
     for (uint64 commanderRaw : playerBlocked)
@@ -9065,7 +9088,9 @@ void SyncRunSpeed()
             continue;
         }
         if (Player* bot = FindCharacter(it->first))
-            RestoreBotSpeed(bot);
+        {
+            if (bot && !RestoreBotSpeed(bot)) { ++it; continue; }
+        }
         it = listed.erase(it);
     }
 }

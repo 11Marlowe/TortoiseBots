@@ -19487,6 +19487,17 @@ static void TestSpeedCappedOnTheTickThatReachesAPullStep()
 }
 
 
+// Karazhan Crypt shaft dive (2026-10-25): the test speed must wait while a bot
+// swims a spline. A rate change re-launches DispatchMovement's stale
+// PointMovementGenerator, whose Initialize drops the module's dive spline.
+static void TestSpeedChangeWaitsWhileSwimmingASpline()
+{
+    CHECK(SpeedChangeWaits(true, true) == true);
+    CHECK(SpeedChangeWaits(true, false) == false);
+    CHECK(SpeedChangeWaits(false, true) == false);
+    CHECK(SpeedChangeWaits(false, false) == false);
+}
+
 static void TestSpeedShowsInTheLines()
 {
     DungeonPlan plan;
@@ -21057,6 +21068,7 @@ int main()
     TestSpeedRealPlayerBlocksTheRestOfTheRun();
     TestSpeedCappedOnTheTickThatReachesAPullStep();
     TestSpeedShowsInTheLines();
+    TestSpeedChangeWaitsWhileSwimmingASpline();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

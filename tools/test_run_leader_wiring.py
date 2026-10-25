@@ -1197,11 +1197,11 @@ class RunTestSpeedWiringTest(unittest.TestCase):
 
     def test_the_rate_is_forced_and_goes_back(self):
         code = strip_comments(COMMANDS)
-        apply = body(code, "void ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
+        apply = body(code, "bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
         self.assertIn("bot->UpdateSpeed(MOVE_RUN, true, rate);", apply)
         self.assertIn("bot->UpdateSpeed(MOVE_WALK, true, rate);", apply)
         self.assertNotIn("MOVE_SWIM", apply)
-        restore = body(code, "void RestoreBotSpeed(Player* bot)", "\n}\n")
+        restore = body(code, "bool RestoreBotSpeed(Player* bot)", "\n}\n")
         self.assertIn("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);", restore)
         self.assertIn("pet->UpdateSpeed(MOVE_RUN, true, 1.0f);", restore)
         each = body(code, "void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)\n{", "\n}\n")
@@ -1234,16 +1234,37 @@ class RunTestSpeedWiringTest(unittest.TestCase):
         # RestoreBotSpeed on the cheat branch fails a pin.
         self.assertIn("RestoreNonFollowingPet(bot);", each)
         self.assertIn("RestoreNonFollowingPet(bot);", sync)
-        cheat_each = each[each.index("if (SpeedCheatOn(bot))"):each.index("CatchUpPet(bot, rate);")]
-        self.assertNotIn("RestoreBotSpeed(bot);", cheat_each.split("else")[0])
-        self.assertIn("RestoreNonFollowingPet(bot);", cheat_each.split("else")[0])
-        self.assertLess(cheat_each.index("listed.erase(entry);"), cheat_each.index("RestoreBotSpeed(bot);"))
+        cheat_each = each[each.index("if (SpeedCheatOn(bot))"):each.index("RestoreNonFollowingPet(bot);\n                    listed.erase(entry);")]
+        self.assertNotIn("RestoreBotSpeed(bot);", cheat_each)
+        self.assertLess(each.index("listed.erase(entry);"), each.index("if (!RestoreBotSpeed(bot))"))
         cheat_at = sync.index("if (bot && SpeedCheatOn(bot))")
         cheat_sync = sync[cheat_at:sync.index("continue;", cheat_at)]
         self.assertNotIn("RestoreBotSpeed(bot);", cheat_sync)
         self.assertIn("RestoreNonFollowingPet(bot);", cheat_sync)
         self.assertNotIn("SetSpeedRatePersistance", code)
         self.assertNotIn("UpdateSpeed(MOVE_RUN, false", apply + restore + each)
+
+    def test_speed_change_waits_for_a_swimming_spline(self):
+        code = strip_comments(COMMANDS)
+        apply = body(code, "bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
+        self.assertIn("SpeedChangeWaitsFor(bot)", apply)
+        self.assertLess(apply.index("SpeedChangeWaitsFor(bot)"), apply.index("bot->UpdateSpeed(MOVE_RUN, true, rate);"))
+        self.assertIn("return false;", apply)
+        restore = body(code, "bool RestoreBotSpeed(Player* bot)", "\n}\n")
+        self.assertIn("SpeedChangeWaitsFor(bot)", restore)
+        self.assertLess(restore.index("SpeedChangeWaitsFor(bot)"), restore.index("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);"))
+        self.assertLess(restore.index("SpeedChangeWaitsFor(bot)"), restore.index("pet->UpdateSpeed"))
+        self.assertIn("return false;", restore)
+        gate = body(code, "static bool SpeedChangeWaitsFor(Player* bot)", "\n}\n")
+        self.assertIn("bot->IsInWater() || bot->IsUnderwater() ||", gate)
+        self.assertIn("bot->HasMovementFlag(MOVEFLAG_SWIMMING)", gate)
+        self.assertIn("!bot->movespline->Finalized()", gate)
+        self.assertIn("TortoiseBots::DungeonRun::SpeedChangeWaits(", gate)
+        each = body(code, "void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)\n{", "\n}\n")
+        self.assertIn("if (!RestoreBotSpeed(bot))", each)
+        sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
+        self.assertEqual(sync.count("if (bot && !RestoreBotSpeed(bot))"), 2)
+        self.assertEqual(each.count("if (!RestoreBotSpeed(bot))"), 1)
 
     def test_every_clear_of_the_runs_syncs_the_speed(self):
         code = strip_comments(COMMANDS)
