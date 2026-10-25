@@ -1970,25 +1970,26 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (349) AND `entry` IN (13282, 12258, 12203, 13601, 13596, 12201);", text)
 
     def test_blackrock_depths_is_the_plan_with_the_angerforge_hall_first(self):
-        # 20261024154600 (turtle-agent brd-fix1 1c42ba1, 2026-10-24, after r37 slot5 reached step 451/1134, passed the
-        # old step-377/395 blocker and stopped at the Angerforge boss step with 11 of 15 wipes; paused at steps 93 and
-        # 240, both passed on resume): leg 3 clears the z-45 hall (8911/8898) and Angerforge before g3, g3 opens leg 4
-        # from the boss's hall and the old leg-3 lower hall follows it. The g9 approach starts on the party's real z-65
-        # stand, g45 gets the descent to its own z-72 floor, and the Angerforge approach stands 25.0 yd from the boss
-        # (the four linked 8901 guards cannot be split: creature_linking flag 1031).
-        # No row hand-set, with the boss rows of map 230. 10 legs, 1124 steps (30 + 60 + 6 + 11 + 30 + 26 + 14 + 8
+        # 20261025000500 (turtle-agent brd-fix1 dbc3edb, 2026-10-25, after r38 slotB2 ran to step 679/1124 and stalled
+        # for 10+ minutes on the last pull of leg 5, 12 cycles of 'no firing stand found'/'firing stands used up (2)'):
+        # leg 5's gallery pulls are gone (see below) and the Incendius boss has the only served descent, so the leg
+        # ends on the boss. The rest is 20261024154600's: leg 3 clears the z-45 hall (8911/8898) and Angerforge before
+        # g3, g3 opens leg 4 from the boss's hall, g9 starts on the party's real z-65 stand, g45 descends to its own
+        # z-72 floor, and the Angerforge approach stands 25.0 yd from the boss (the four linked 8901 guards cannot be
+        # split: creature_linking flag 1031).
+        # No row hand-set, with the boss rows of map 230. 10 legs, 1136 steps (30 + 60 + 6 + 11 + 30 + 23 + 14 + 8
         # + 67 + 8 pulls), bosses in leg order. The lava points are out of the pulls, leg 7's start is on
         # Flamelash's platform, the packs that stand at five bosses are those boss rows' entries, the four rares
         # are pulls of their own, and no pull reaches beyond its own spread.
         name, text = newest_plan_text("blackrock_depths")
-        self.assertEqual(name, "20261024154600_world.sql")
-        self.assertIn("('blackrock_depths', 230, '8903,8892,8890,8891', '8903', '8894,8898,8896,8904,8900', 'turtle-agent 1c42ba1 dungeons/blackrock_depths.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025000500_world.sql")
+        self.assertIn("('blackrock_depths', 230, '8903,8892,8890,8891', '8903', '8894,8898,8896,8904,8900', 'turtle-agent dbc3edb dungeons/blackrock_depths.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "blackrock_depths")), 10)
         rows = [r for r in self.step_rows(text) if r["plan"] == "blackrock_depths"]
-        self.assertEqual(len(rows), 1124)
+        self.assertEqual(len(rows), 1136)
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
-                         [30, 60, 6, 11, 30, 26, 14, 8, 67, 8])
+                         [30, 60, 6, 11, 30, 23, 14, 8, 67, 8])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
                          ["9018", "9319", "9016", "9033", "8983", "9017", "9056", "9156", "9938", "9019"])
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
@@ -2052,6 +2053,30 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("9042,9041", rarity)
         self.assertIn("8923", rarity)
         self.assertIn("9025", rarity)
+        # The r38 stall: the gallery above the Incendius pit (leg 5 groups 23-25, 18 spawns at 898-940 -227..-292
+        # z -49.85) is a walkable island no route of the leg reaches (server path-check: 1030-1310 yd and 16-47 yd short
+        # from every floor the leg holds), so the three pulls are gone and the leg ends with g22, then the boss descent
+        # the plan could not walk before: the boss stands 22.0 yd below the ring and the direct hop refuses (1215.2 yd,
+        # 33.0 yd short); the approach walks the arena's south-east door, every hop server path-checked from the stand
+        # the party really holds (884 -301 -48.8), and stops 25.6 yd from the boss on the arena floor.
+        leg5 = leg_steps(rows, 5)
+        self.assertFalse([r for r in leg5 if 890 <= float(r["x"]) <= 950 and -300 <= float(r["y"]) <= -220
+                          and abs(float(r["z"]) + 49.85) < 4])
+        self.assertEqual([r["comment"] for r in leg5[-2:]], ["boss approach", "boss"])
+        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg5 if r["comment"] == "boss approach"],
+                         [("900", "-325", "-49.9"), ("911.7", "-383.2", "-49.8"),
+                          ("976.3", "-370.4", "-64.7"), ("905", "-290", "-71.8")])
+        # No other pull changes floor without a move row to walk it: between two adjacent pulls the only jump over 10 yd
+        # in legs 5 and 6 is leg 5's group 6 -> group 7 (+21.8 yd from the arena floor up to the ring), which r38 walked
+        # on the 399 yd ring loop and cleared from 853 -252 -49.5 (steps 646-654); leg 6's biggest adjacent-pull rise is
+        # 6.48 yd (group 0 to group 1) and the 54.0 yd drop to its lava-lake groups is 108 move rows.
+        def floor_jumps(leg):
+            steps = leg_steps(rows, leg)
+            return [round(abs(float(a["z"]) - float(b["z"])), 2)
+                    for a, b in zip(steps, steps[1:]) if a["kind"] == "pull" and b["kind"] == "pull"
+                    and abs(float(a["z"]) - float(b["z"])) > 10]
+        self.assertEqual(floor_jumps(5), [21.81])
+        self.assertEqual(floor_jumps(6), [])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["blackrock_depths"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (230) AND `entry` IN (9018, 9319, 9016, 9033, 8983, 9017, 9056, 9156, 9938, 9019);", text)
 
