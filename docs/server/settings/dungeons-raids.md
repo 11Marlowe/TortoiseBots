@@ -22,7 +22,7 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.AvoidCreatureAuras`](#aiplayerbotavoidcreatureauras) | `1` | Steers bots away from permanent damaging creature auras and hazardous monsters. |
 | [`AiPlayerbot.BombRunoutDistance`](#aiplayerbotbombrunoutdistance) | `30.0` | Distance in yards bomb debuff carriers run clear of the living group. |
 | [`AiPlayerbot.BotAreaTriggers`](#aiplayerbotbotareatriggers) | *(empty)* | Audited allowlist of scripted area triggers a bot party may fire (off when empty; opt in with `962`). |
-| [`AiPlayerbot.BotGossipNpcs`](#aiplayerbotbotgossipnpcs) | *(empty)* | Creature entries `.bot cmd gossip` may talk to (empty: every gossip order is refused). |
+| [`AiPlayerbot.BotLfgGroups`](#aiplayerbotbotlfggroups) | `1` | The server's own bot LFG dungeon groups clear a dungeon with the run leader (needs `AiPlayerbot.DungeonSelfClear`). |
 | [`AiPlayerbot.DungeonRunAggroCeiling`](#aiplayerbotdungeonrunaggroceiling) | `6` | Joiners above which the run leader rests the party before a pull (needs the estimate on). |
 | [`AiPlayerbot.DungeonRunAggroEstimate`](#aiplayerbotdungeonrunaggroestimate) | `0` | The run leader estimates how many creatures a pull brings and rests first when it is many. |
 | [`AiPlayerbot.DungeonRunFightForward`](#aiplayerbotdungeonrunfightforward) | `1` | After a won fight the next pack within 30 yd is pulled from where the tank stands when the way there is direct and clear. |
@@ -37,7 +37,7 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.DungeonRunRetreatAt2Dead`](#aiplayerbotdungeonrunretreatat2dead) | `0` | `1`: with two dead in a fight the party is losing, the living pull back to the run's last stand once before a third death makes it a wipe. |
 | [`AiPlayerbot.DungeonRunWalkBackRescue`](#aiplayerbotdungeonrunwalkbackrescue) | `1` | A stuck walk back, and a placed run's lead bot revived behind its start step, are teleported to a safe point on the run's way. |
 | [`AiPlayerbot.DungeonRunWalkBackAfterWonFight`](#aiplayerbotdungeonrunwalkbackafterwonfight) | `0` | `1` walks the tank and party back to the stand after every guarded fight (the old way); `0` goes on from where the tank stands once the pack is cleared. |
-| [`AiPlayerbot.DungeonSelfClear`](#aiplayerbotdungeonselfclear) | `0` | Lets a bound remote commander start the opt-in run leader (`.bot run`). |
+| [`AiPlayerbot.DungeonSelfClear`](#aiplayerbotdungeonselfclear) | `1` | Turns on the run leader (`.bot run`) for in-party, player-led and server-owned runs. |
 | [`AiPlayerbot.DungeonTactics`](#aiplayerbotdungeontactics) | `0` | Applies the per-boss tactics table (`ai_boss_tactic`) to every bot, not only commanded parties. |
 | [`AiPlayerbot.EnableCustomRaidTactics`](#aiplayerbotenablecustomraidtactics) | `1` | Gates scripted encounter tactics and transition strategies for custom raids. |
 | [`AiPlayerbot.HazardEvasionDistance`](#aiplayerbothazardevasiondistance) | `12.0` | Cap in yards on the step bots take when spreading for spacing. |
@@ -94,6 +94,18 @@ Allowlist of creature entries the `.bot cmd gossip` order may talk to (issue #10
 <summary>How it works in detail</summary>
 
 **Bot gossip allowlist (issue #1012):** comma-separated creature entries that `.bot cmd gossip` may talk to. A gossip option can do anything its script says (take money, give items, teleport), so list only NPCs whose scripts you have read. Empty: every gossip order is refused with `not-allowed` before anything is sent to the NPC, except a dungeon run's own gossip step: since fix/plan-gossip-allow a bot of a running or paused run was let talk to the NPC entry its run's current gossip step names (the step's `entry` only), read from the loaded plan, so a shipped plan did not need its NPC listed here (Shadowfang Keep r27 had stopped on Deathstalker Adamant, 3849). Audited: `7604` Sergeant Bly (starts his fight after the Zul'Farrak pyramid event) and `7607` Weegli Blastfuse (blows the End Door after it), so `7607,7604` opens both. See [`.bot cmd gossip`](../../play/commands/commander.md#bot-cmd-gossip).
+
+</details>
+
+
+### `AiPlayerbot.BotLfgGroups`
+The server's own bot LFG dungeon groups clear a dungeon with the run leader.
+**Default:** `1` · **Values:** `0` off, `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+<details>
+<summary>How it works in detail</summary>
+
+**Bot LFG groups:** world bots of a dungeon's level band form a group and clear the dungeon with the run leader. So far only the server's own run of a bot-only party exists (a GameMaster starts one with `.bot run system start <plan>`, the lead bot targeted). Needs [`AiPlayerbot.DungeonSelfClear`](#aiplayerbotdungeonselfclear) (`0` there keeps the groups dormant); the remote commander is not needed. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
 
 </details>
 
@@ -169,8 +181,7 @@ Lets a player who leads his own party of bots start a player-led run of a dungeo
 
 <details>
 <summary>How it works in detail</summary>
-
-**Player-led runs:** `.bot run start [plan] player [tank <Bot>]` from a player who leads a party (not a raid) whose every bot is his to control; up to three other real players may be in it. The start makes its own binding: the player stays the party's leader and the bots keep following him, the named tank bot (else the first tank-role bot) is the run's lead bot and puller. Needs `AiPlayerbot.DungeonSelfClear = 1` and `AiPlayerbot.RemoteCommander = 1` too. Plain `.bot run start` stays bot-led. See [Dungeon Run Leader](../../play/dungeon-run-leader.md#player-led-runs).
+**Player-led runs:** `.bot run start [plan] player [tank <Bot>]` from a player who leads a party (not a raid) whose every bot is his to control; up to three other real players may be in it. The start makes its own binding: the player stays the party's leader and the bots keep following him, the named tank bot (else the first tank-role bot) is the run's lead bot and puller. Needs `AiPlayerbot.DungeonSelfClear = 1` too. Plain `.bot run start` stays bot-led. See [Dungeon Run Leader](../../play/dungeon-run-leader.md#player-led-runs).
 
 </details>
 
@@ -250,15 +261,13 @@ Whether the run leader walks the tank and the party back to the guard's stand po
 **Walk back after a won fight:** only read while `AiPlayerbot.DungeonSelfClear = 1`. When the tank leaves its stand during a fight to take a mob off the party (or engages one on its arrival), the run notes that stand. Up to 2026-10-22 it walked the tank, and the party with it, back to the stand after every such fight (status note `back to the stand point after picking up the party's attackers`), then on to the next pack or boss: in the Frostmane Hollow run r20-19z39 of 2026-10-22 the party ran 2-3 s back from each pack and boss and then forward again. With `0`, once the fight is over the walk back is left out when the step is a pull or a boss with none of its units left to pull (the step says `pack cleared` or `boss down` and the next one starts from where the tank stands; its own approach, firing stand or gather places the party, and a tank left on another floor or without a path still gathers back at the last stand) and on a move step (its walk goes on forward). It is kept when a pull or boss step has units left (they are pulled from the same stand) and on every other step (a wait, a rest, an object or item step: those act where the party stood). Nothing changes during a fight (the walk back is only ordered out of combat) or in a scripted event (a hold returns to its own spot). With `1` the walk back goes out after every guarded fight, as before. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
 
 </details>
-
 ### `AiPlayerbot.DungeonSelfClear`
-Allows the opt-in run leader: a bound remote commander's party clears a stored dungeon plan by itself.
-**Default:** `0` · **Values:** `0` off (every `.bot run` refused), `1` on (needs `AiPlayerbot.RemoteCommander = 1`) · **Restart:** not needed (`.reload config` applies it on the next world tick)
+Turns on the run leader (`.bot run`) for in-party, player-led and server-owned runs.
+**Default:** `1` · **Values:** `0` off (every `.bot run` refused), `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
 
 <details>
 <summary>How it works in detail</summary>
-
-**Dungeon self-clear (run leader):** a `.reload config` reads this key and the `AiPlayerbot.DungeonRun*` keys again from `aiplayerbot.conf` on the next world tick (only those: every other bot setting, `AiPlayerbot.RemoteCommander` included, still needs a restart; until 2026-10-22 none of them was read again before a restart). Set to `0` by a reload, every run ends with a last status line. With `1` (and `AiPlayerbot.RemoteCommander = 1`) a bound remote commander may start `.bot run start [plan]`: its party walks a dungeon plan from the world tables `ai_dungeon_plan`/`ai_dungeon_leg`/`ai_dungeon_step` and pulls, fights, rests, loots and opens doors by itself, using the commander's own `.bot cmd` orders. With 3 or more dead it regroups by itself once the fight is over (the safety rules are in the run leader page); it pauses on any player order and at every wait's ceiling. Bots then clear without a player giving each order, so it is off by default; with `0` every `.bot run` is refused. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
+**Dungeon self-clear (run leader):** a `.reload config` reads this key and the `AiPlayerbot.DungeonRun*` keys again from `aiplayerbot.conf` on the next world tick (only those: every other bot setting, `AiPlayerbot.RemoteCommander` included, still needs a restart; until 2026-10-22 none of them was read again before a restart). Set to `0` by a reload, every run ends with a last status line. With `1` a bound party may start `.bot run start [plan]`: its party walks a dungeon plan from the world tables `ai_dungeon_plan`/`ai_dungeon_leg`/`ai_dungeon_step` and pulls, fights, rests, loots and opens doors by itself, using the commander's own `.bot cmd` orders. With 3 or more dead it regroups by itself once the fight is over (the safety rules are in the run leader page); it pauses on any player order and at every wait's ceiling. With `0` every `.bot run` is refused. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
 
 </details>
 
