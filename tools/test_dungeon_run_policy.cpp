@@ -5823,6 +5823,20 @@ static void TestUnsupportedPausesAndSkip()
     CHECK(Tick(r, f) == "move 10.0 0.0 0.0");
 }
 
+static void TestCommanderSummonKeepsTheRunGoing()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), PullStep(30, {1})};
+    Run r = Start(&plan);
+    CHECK(!PauseForPlayer(r, "cmd summon") && r.state == State::Running);
+    CHECK(PauseForPlayer(r, "cmd move") && r.state == State::Paused && PausedByPlayer(r));
+    CHECK(r.note == "player order (cmd move): .bot run resume to go on");
+    CHECK(Resume(r));
+    CHECK(PauseForPlayer(r, "cmd revive") && r.state == State::Paused);
+    CHECK(Resume(r));
+    CHECK(PauseForPlayer(r, "chat 'summon' to Tanky") && r.state == State::Paused);
+}
+
 static void TestPlayerOrderAndRefusalPause()
 {
     DungeonPlan plan;
@@ -20723,6 +20737,7 @@ int main()
     TestTaskResendKeepsTheLootBot();
     TestWaitObjectTimeoutIsBounded();
     TestUnsupportedPausesAndSkip();
+    TestCommanderSummonKeepsTheRunGoing();
     TestPlayerOrderAndRefusalPause();
     TestStepIdleCeiling();
     TestWaitClearCountsEveryHostileInRadius();
