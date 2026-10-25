@@ -68,7 +68,7 @@ Logs out an active companion bot.
 .bot remove <CharacterName>
 ```
 
-Aliases include `.bot logout`. When used on an **owned alt**, the character safely logs out and retains all progress. When used on a **hired companion**, the hire agreement ends and the temporary character is deleted immediately.
+Aliases include `.bot logout` and `.bot rm`. When used on an **owned alt**, the character safely logs out and retains all progress. When used on a **hired companion**, the hire agreement ends and the temporary character is deleted immediately.
 
 ### `.bot hire`
 
@@ -121,6 +121,7 @@ Overrides party role assignments used by the AI strategy engine to select specs 
 
 - `<Name>`: Sets the role for a specific companion bot and rebuilds its combat strategy kit. You may use your own character name instead of `self`. `.bot role self` sets the requesting player's own runtime role override and does not target a bot.
 - `tank`, `healer` (alias `heal`), `dps`: Sets the designated combat role. `tank` on a shaman bot installs the shaman tank kit.
+- Class-spec ids (`bm`, `mm`, `survival`, `combat`, `assa`, `subtlety`, `hybrid`, `ele`, `enh`, `frost`, `fire`, `arcane`, `affliction`, `demonology`, `destruction`, `cat`, `boomkin`, plus `tank`/`dps`/`heal` spec names): map to the role and apply that spec's strategies on the bot. Rejected when the bot has no such spec.
 - `clear` (aliases `none`, `reset`): Clears the override and restores automatic role inference based on talents and gear.
 
 ### `.bot invite`
