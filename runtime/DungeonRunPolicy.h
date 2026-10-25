@@ -1139,6 +1139,11 @@ struct Run
     // A boss step past kBossSearchMs with the boss neither alive nor dead in sight asked the glue for the
     // instance-wide search (Facts::bossSearchRead, next tick); one per window (ResetStep clears it).
     bool bossSearchWanted = false;
+    // A stand-pull boss step: time waited out of combat with the boss in the radius but out of the tank's shot
+    // (kStandPullWaitMs ceiling); cumulative across pauses, resumes and wipe recoveries of the SAME step: NextStep
+    // and Skip move it on (standPullStep), Resume and the wipe recoveries keep it. standPullShot holds the pull
+    // across HoldForShot's skip; the wait paths clear it.
+    std::size_t standPullStep = static_cast<std::size_t>(-1);
     std::uint32_t standPullMs = 0;
     bool standPullShot = false;
     std::uint32_t patrolWaitMs = 0; // a pull step: time spent waiting for a patroller outside the radius (WaitForPatroller)
@@ -1973,7 +1978,13 @@ inline void ResetStep(Run& r)
     r.bossWaitMs = 0;
     r.bossSeenAlive = false;
     r.bossSearchWanted = false;
-    r.standPullMs = 0;
+    // The 600 s is cumulative per step across pauses/resumes and wipe recoveries: Resume (and every wipe path above)
+    // calls ResetStep on the SAME step, so the timer stays; NextStep moves on, so a new step starts it over.
+    if (r.step != r.standPullStep)
+    {
+        r.standPullStep = r.step;
+        r.standPullMs = 0;
+    }
     r.standPullShot = false;
     r.hpWatch.clear();
     ClearFightProgress(r);
@@ -6215,13 +6226,17 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     // between.
     if (f.dead > 0 && !InEvent(r))
     {
+        r.standPullShot = false; // the pull never went out (a death came in between)
         r.note = WaitNote(r, f) + ": no pull while a party member is dead";
         return;
     }
     // A Sap sent before this pull: wait for it, before any gather (that would
     // call the rogue back from its mob).
     if (SapWait(r, f, dt, order))
+    {
+        r.standPullShot = false; // the pull never went out
         return;
+    }
     if (!r.hopWaiveUnits.empty() && !r.hopWaiveUnits.count(u.guid))
         DropHopWaiver(r); // another target than the units the hop was abandoned for: gather as usual
     if (r.shotStandPrep && r.shotHoldGuid != u.guid)
@@ -6232,6 +6247,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     AnchorState const anchor = r.gatherWaived || r.shotStandPrep ? AnchorState::On : CheckAnchor(r, f);
     if (anchor == AnchorState::Unknown && r.phase != Phase::Gather)
     {
+        r.standPullShot = false; // the pull never went out (the way back is read first)
         r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);
         return; // the glue reads the path next tick
     }
@@ -6253,6 +6269,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
             GatherCeiling(r, f, order, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
                 " s (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
         }
+        r.standPullShot = false; // the pull never went out (gather first)
         return;
     }
     if (!walkBack && r.pulls >= kMaxPullsPerStep)
@@ -6286,6 +6303,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         r.note = "crowd control on " + std::to_string(cc->entry) + " (" + ccPick.bot + ": " +
             RunCcOf(ccPick.family)->spell + ") before the pull";
         order = "cc " + ccPick.mark + " " + std::to_string(cc->guid) + " " + ccPick.bot;
+        r.standPullShot = false; // the pull never went out (the mark goes out first)
         return;
     }
     // The pull stand (off: false at once, nothing changed): before the gather
@@ -8584,6 +8602,7 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
                             " yd of the stand in 600 s");
                         return;
                     }
+                    r.standPullShot = false; // the pull never went out: a later pull of another unit pulls as before
                     r.note = "boss " + std::to_string(s.entry) + " patrols: waiting at the stand for him to come within " +
                         Num(inShot) + " yd (now " + Num(pick->distLead) + " yd" + (pick->losLead ? std::string() : ", out of sight") + ")";
                     r.stepIdleMs = dt > r.stepIdleMs ? 0 : r.stepIdleMs - dt;

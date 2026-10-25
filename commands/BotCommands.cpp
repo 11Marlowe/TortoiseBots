@@ -11348,10 +11348,27 @@ void ReadRezRoster(Player* lead, std::vector<Player*> const& bots, TortoiseBots:
 // one request is read once) the firing stand on its navmesh path to that unit (DungeonRun::ShotStandOnPath:
 // the path walked back from the unit end to the first point within range less kShotMarginYd that sees it).
 // One path and a few sight rays, for that one unit, on that one tick.
+// For a stand-pull boss step (kPlanFlagStandPull, specs/sw-eldermaw.md Spec B) the key is off: the glue reads
+// leadShotYd and losLead whatever the key says (the key governs ordinary pulls only). StandThisBoss: the current
+// step is such a boss with its stand (the move row right before it in the same leg).
+inline bool StandThisBoss(DungeonRunSlot const& slot)
+{
+    using namespace TortoiseBots::DungeonRun;
+    const ai::DungeonPlan* plan = slot.run.plan;
+    if (!plan || slot.run.step >= plan->steps.size())
+        return false;
+    const ai::PlanStep& s = plan->steps[slot.run.step];
+    if (!(s.flags & ai::kPlanFlagStandPull) || s.kind != ai::PlanStepKind::Boss || slot.run.step == 0)
+        return false;
+    const ai::PlanStep& prev = plan->steps[slot.run.step - 1];
+    return prev.kind == ai::PlanStepKind::Move && prev.leg == s.leg;
+}
+
 void ReadPullStand(DungeonRunSlot const& slot, Player* lead, TortoiseBots::DungeonRun::Facts& f)
 {
     using namespace TortoiseBots::DungeonRun;
-    if (!f.pullStand || !lead->IsAlive() || !lead->IsInWorld())
+    bool const standStep = StandThisBoss(slot);
+    if ((!f.pullStand && !standStep) || !lead->IsAlive() || !lead->IsInWorld())
         return;
     PlayerbotAI* const leadAi = PlayerbotAIStorage::Instance().GetAI(lead);
     PullStrategy* const pull = leadAi ? PullStrategy::Get(leadAi) : nullptr;
@@ -11783,8 +11800,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.creatureType = creature->GetCreatureType(); // which run cc fits it (DungeonRun::CcFits)
                     unit.ccImmune = RunCcImmune(creature);
                     unit.attackable = GroupCanAttack(judge, creature); // never pulled when it cannot be attacked
-                    // The pull stand: can the tank shoot it from where it stands (one ray, key on only).
-                    if (f.pullStand)
+                    // The pull stand: can the tank shoot it from where it stands (one ray, key on only, or any
+                    // stand-pull boss step whatever the key says).
+                    if (f.pullStand || StandThisBoss(slot))
                         unit.losLead = lead->IsWithinLOSInMap(creature);
                     f.units.push_back(unit);
                 }
