@@ -3282,6 +3282,15 @@ inline bool SpeedWalking(const Run& r, const Facts& f)
         return false;
     return true;
 }
+// A tick that advanced onto a pull or boss step never starts fast: f.seen was read on the step before, for a pack
+// the party may already stand in sight of. The glue calls this after Tick with the step Tick saw (round 1, Opus).
+inline bool SpeedCapAfterTick(const Run& r, std::size_t stepBefore)
+{
+    if (r.step == stepBefore)
+        return false;
+    const PlanStep* s = Current(r);
+    return s && (s->kind == PlanStepKind::Pull || s->kind == PlanStepKind::Boss);
+}
 
 // The rate the glue gives the party this tick (after Tick, before its order goes out): testSpeed once SpeedWalking has
 // held kSpeedSettleMs without a break, else 1.0 at once. A real player in the party blocks it for the rest of the run.

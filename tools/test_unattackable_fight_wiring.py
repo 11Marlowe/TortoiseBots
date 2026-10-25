@@ -94,13 +94,18 @@ class UnattackableFightWiringTest(unittest.TestCase):
         self.assertNotIn(", true);", party)
 
     def test_combat_drop_runs_after_tick_on_rechecked_bots_only(self):
-        # The test-speed apply (2026-10-25) sits between the tick and the drop: order, not adjacency.
-        self.assertLess(CODE.index(": TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"),
-                        CODE.index("DropUnattackableCombat(lead, bots, slot.run.combatDrops);"))
+        # The test-speed apply (2026-10-25) sits between the tick and the drop: Tick, then the apply, then the
+        # drop, then the order (round 1 restores the stronger pin).
+        tick = body(CODE, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"),
+                        tick.index("ApplyRunSpeed(commanderRaw, lead, bots, speedRate);"))
+        self.assertLess(tick.index("ApplyRunSpeed(commanderRaw, lead, bots, speedRate);"),
+                        tick.index("DropUnattackableCombat(lead, bots, slot.run.combatDrops);"))
+        self.assertLess(tick.index("DropUnattackableCombat(lead, bots, slot.run.combatDrops);"),
+                        tick.index("bool const accepted = IssueRunOrder(commander, order, answer,"))
         drop = body(CODE, "void DropUnattackableCombat(Player* lead, std::vector<Player*> const& bots,")
         self.assertIn("if (!bot->IsAlive() || !bot->IsInWorld() ||", drop)
         self.assertIn("ReadMemberEngaged(lead, judge, bot, now);", drop)
-        # ... or held by far units only, with the bot's distance to the lead bot read for it (r36 slot D).
         self.assertIn("now.yd = bot == lead ? 0.0f : bot->GetMap() == lead->GetMap() ? bot->GetDistance(lead) : 1000.0f;",
                       drop)
         self.assertIn("if (!TortoiseBots::DungeonRun::HeldByUnattackable(now) && "

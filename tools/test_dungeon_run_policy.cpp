@@ -18650,6 +18650,47 @@ static void TestSpeedRealPlayerBlocksTheRestOfTheRun()
         CHECK(SpeedRateNow(r, f, kTickMs) == 1.0f);   // he left: still 1.0
     CHECK(SpeedLabel(r) == "speed 2.0 (test; 1.0 since a real player joined)");
 }
+// Round 1 (Opus): a tick that advances onto a pull or boss step never starts fast. f.seen was read on the step
+// before Tick, so one tick of fast approach could go out when Tick moves onto a pull/boss step whose pack is
+// already in sight. The glue caps the rate to 1.0 on such a tick (SpeedCapAfterTick).
+static void TestSpeedCappedOnTheTickThatReachesAPullStep()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 50), PullStep(60, {1})};
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.testSpeed = 2.0f;
+    Facts f = Party(0);
+    CHECK(Tick(r, f) == "move 50.0 0.0 0.0" && r.phase == Phase::Walk);
+    // Settled fast walk while approaching the move point.
+    r.speedOnMs = kSpeedSettleMs;
+    CHECK(SpeedRateNow(r, f, kTickMs) == 2.0f);
+    // The lead bot reaches the move point; Tick advances onto the pull step. The pack is already in sight of
+    // the new step's point (as the next tick's facts will say), but this tick's facts were read on the move.
+    f.leadX = 50;
+    std::size_t const stepBefore = r.step;
+    CHECK(stepBefore == 0);
+    Tick(r, f);
+    CHECK(r.step == 1);
+    CHECK(SpeedCapAfterTick(r, stepBefore));
+    // Same step: no cap (the seen rule in SpeedWalking judges the current step).
+    Run same = Start(&plan);
+    same.restDue = false;
+    CHECK(!SpeedCapAfterTick(same, same.step));
+    // Advancing onto a move step: no cap either.
+    DungeonPlan moves;
+    moves.steps = {Step(PlanStepKind::Move, 50), Step(PlanStepKind::Move, 400)};
+    Run m = Start(&moves);
+    m.restDue = false;
+    Facts g = Party(0);
+    CHECK(Tick(m, g) == "move 50.0 0.0 0.0");
+    g.leadX = 50;
+    std::size_t const moveBefore = m.step;
+    Tick(m, g);
+    CHECK(m.step == 1);
+    CHECK(!SpeedCapAfterTick(m, moveBefore));
+}
+
 
 static void TestSpeedShowsInTheLines()
 {
@@ -20192,6 +20233,7 @@ int main()
     TestSpeedWalkingRule();
     TestSpeedSettleNeedsAnUnbrokenWalk();
     TestSpeedRealPlayerBlocksTheRestOfTheRun();
+    TestSpeedCappedOnTheTickThatReachesAPullStep();
     TestSpeedShowsInTheLines();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;

@@ -1186,6 +1186,13 @@ class RunTestSpeedWiringTest(unittest.TestCase):
                         tick.index("TortoiseBots::DungeonRun::SpeedRateNow(slot.run, facts, dt);"))
         self.assertLess(tick.index("ApplyRunSpeed(commanderRaw, lead, bots, speedRate);"),
                         tick.index("bool const accepted = IssueRunOrder(commander, order, answer,"))
+        # Round 1: the tick that advances onto a pull or boss step never starts fast (f.seen was read on the
+        # step before). The cap sits between the rate read and the apply, before the order goes out.
+        self.assertLess(tick.index("stepBeforeTick"), tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"))
+        self.assertLess(tick.index("SpeedCapAfterTick(slot.run, stepBeforeTick)"),
+                        tick.index("ApplyRunSpeed(commanderRaw, lead, bots, speedRate);"))
+        self.assertLess(tick.index("ApplyRunSpeed(commanderRaw, lead, bots, speedRate);"),
+                        tick.index("DropUnattackableCombat(lead, bots, slot.run.combatDrops);"))
 
     def test_the_rate_is_forced_and_goes_back(self):
         code = strip_comments(COMMANDS)
@@ -1200,10 +1207,26 @@ class RunTestSpeedWiringTest(unittest.TestCase):
         self.assertIn("!MemberInCombat(bot)", each)
         self.assertIn("bot->GetSpeedRate(MOVE_RUN) != entry->second.appliedRun", each)
         self.assertIn("CatchUpPet(bot, rate);", each)
+        # Round 1: a slowed bot (Frostbolt, Crippling Poison) is never sped up; a bot in another instance of the
+        # map stays 1.0; a bot with the movespeed cheat is left alone.
+        self.assertIn("HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED)", COMMANDS)
+        self.assertIn("!SpeedSlowed(bot)", each)
+        self.assertIn("SpeedSameInstance(bot, lead)", each)
+        self.assertNotIn("bot->GetMapId() == lead->GetMapId()", each)
+        self.assertIn("!SpeedCheatOn(bot)", each)
+        self.assertIn("BotCheatMask::movespeed", COMMANDS)
+        catchup = body(code, "void CatchUpPet(Player* bot, float rate)", "\n}\n")
+        self.assertIn("IsFollowing()", catchup)
+        self.assertIn("SpeedSlowed(pet)", catchup)
         sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
         self.assertIn("run->second.run.speedNow > 1.0f", sync)
         self.assertIn("MemberInCombat(bot)", sync)
         self.assertIn("TortoiseBots::DungeonRun::SpeedFightSeen(run->second.run);", sync)
+        self.assertIn("SpeedSameInstance(bot, lead)", sync)
+        self.assertIn("!SpeedSlowed(bot)", sync)
+        # Round 1: a real player joining mid-run latches the run blocked and sends the party back in the same update.
+        self.assertIn("speedPlayerBlocked = true;", sync)
+        self.assertIn("playerBlocked.insert(it->second.commanderRaw)", sync)
         self.assertNotIn("SetSpeedRatePersistance", code)
         self.assertNotIn("UpdateSpeed(MOVE_RUN, false", apply + restore + each)
 

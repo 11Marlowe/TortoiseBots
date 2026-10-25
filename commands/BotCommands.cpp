@@ -12895,20 +12895,29 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     // The real players of the party (the commander and others): deaths, wipes, the regroup, the pull hold, health.
     ReadRunPlayers(slot, commanderRaw, lead, group, bots, facts);
     TortoiseBots::DungeonRun::ApplyPlayerFacts(facts);
+    // The step Tick saw: facts (and f.seen) were read for it, but the order below walks the step after it.
+    std::size_t const stepBeforeTick = slot.run.step;
     std::string const order = slot.playerLed.on
         ? TortoiseBots::PlayerLed::Tick(slot.run, slot.playerLed, facts, anchor, dt)
         : TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
     // The test speed (`.bot run start ... speed=`): the party's rate for this tick, before the tick's order goes out,
-    // so a walk launches at it and a pull at 1.0 (DungeonRun::SpeedRateNow; a 1.0 run touches nothing).
+    // so a walk launches at it and a pull at 1.0 (DungeonRun::SpeedRateNow; a 1.0 run touches nothing). A tick that
+    // advanced onto a pull or boss step never starts fast: f.seen was read on the step before, for a pack the party
+    // may already stand in sight of (DungeonRun::SpeedCapAfterTick, round 1, Opus).
     float const speedBefore = slot.run.speedNow;
-    float const speedRate = TortoiseBots::DungeonRun::SpeedRateNow(slot.run, facts, dt);
+    float speedRate = TortoiseBots::DungeonRun::SpeedRateNow(slot.run, facts, dt);
+    if (speedRate > 1.0f && TortoiseBots::DungeonRun::SpeedCapAfterTick(slot.run, stepBeforeTick))
+    {
+        slot.run.speedOnMs = 0;
+        slot.run.speedNow = 1.0f;
+        speedRate = 1.0f;
+    }
     if (speedRate != speedBefore)
         TB_LOG_DETAIL("TortoiseBots: run leader of %s: test speed %s", commander->GetName(),
             speedRate > 1.0f ? (TortoiseBots::DungeonRun::Num(speedRate) + " (walking)").c_str() : "1.0 (a fight, a pull, a rest or an event)");
     ApplyRunSpeed(commanderRaw, lead, bots, speedRate);
     // A bot held in combat by units the group cannot attack only past the grace leaves it (CombatDropTick).
     DropUnattackableCombat(lead, bots, slot.run.combatDrops);
-    // The walk after a rest sent again: a seated lead bot stands up before the order below.
     if (slot.run.leadWalkReset)
     {
         slot.run.leadWalkReset = false;
@@ -13190,6 +13199,21 @@ void SyncRunHealOnly()
 // stays the bot's own: MovementAction::UpdateMovementState recomputes it on every move). The rates read back are kept
 // to see a later reset. Its pet: a following one took the bot's rate with it (Unit::SetSpeedRateReal); any other is
 // brought up here.
+// A bot slowed down (SPELL_AURA_MOD_DECREASE_SPEED: Frostbolt, Crippling Poison) is never sped up: UpdateSpeed scales
+// the slow by the ratio, so a slowed bot would crawl. Such a bot is put back to 1.0 instead (round 1, Opus).
+static bool SpeedSlowed(Unit* unit)
+{
+    return unit && unit->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED);
+}
+
+// The bot's own movespeed cheat (PlayerbotAI.cpp: the movespeed cheat sets a 10x rate every update) wins: the test
+// speed leaves such a bot alone (round 1, Opus).
+static bool SpeedCheatOn(Player* bot)
+{
+    PlayerbotAI* ai = bot ? PlayerbotAIStorage::Instance().GetAI(bot) : nullptr;
+    return ai && ai->HasCheat(BotCheatMask::movespeed);
+}
+
 void ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)
 {
     bot->UpdateSpeed(MOVE_RUN, true, rate);
@@ -13199,12 +13223,22 @@ void ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)
     entry.appliedWalk = bot->GetSpeedRate(MOVE_WALK);
 }
 
-// A pet out of combat slower than its bot (not following, or reset by an aura of its own) gets the rate too.
+// A following pet out of combat slower than its bot (reset by an aura of its own) gets the rate too. A pet that is
+// not following its owner (on stay, moving to a point) is left at its own rate: re-applying every tick would
+// re-launch its move each second (round 1, Opus). A slowed pet is put back to 1.0 like a slowed bot.
 void CatchUpPet(Player* bot, float rate)
 {
     Pet* const pet = bot->GetPet();
     if (!pet || !pet->IsAlive() || !pet->IsInWorld() || pet->IsInCombat())
         return;
+    if (!pet->GetCharmInfo() || !pet->GetCharmInfo()->IsFollowing())
+        return;
+    if (SpeedSlowed(pet))
+    {
+        pet->UpdateSpeed(MOVE_RUN, true, 1.0f);
+        pet->UpdateSpeed(MOVE_WALK, true, 1.0f);
+        return;
+    }
     if (pet->GetSpeedRate(MOVE_RUN) + 0.01f < bot->GetSpeedRate(MOVE_RUN))
     {
         pet->UpdateSpeed(MOVE_RUN, true, rate);
@@ -13224,9 +13258,17 @@ void RestoreBotSpeed(Player* bot)
     }
 }
 
+// Same Map object (same instance), not just the same map id: a bot in another instance of the map stays 1.0
+// (round 1, Codex).
+static bool SpeedSameInstance(Player* bot, Player* lead)
+{
+    return bot && lead && bot->GetMap() && bot->GetMap() == lead->GetMap();
+}
+
 // In the run's tick, after DungeonRun::Tick and before its order goes out (a walk launches at the rate, a pull at 1.0):
-// rate above 1.0 for every commanded bot alive, in the world, on the lead bot's map and out of combat (applied on a
-// change of rate or a reset seen); every other listed bot of the run goes back. Nothing at all on a 1.0 run.
+// rate above 1.0 for every commanded bot alive, in the world, on the lead bot's map instance, unslowed and out of
+// combat (applied on a change of rate or a reset seen); every other listed bot of the run goes back. A slowed bot is
+// never eligible: it is restored to 1.0 and not raised until the aura is gone. Nothing at all on a 1.0 run.
 void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)
 {
     auto& listed = RunSpeedBots();
@@ -13237,7 +13279,7 @@ void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const
         uint64 const botRaw = bot->GetObjectGuid().GetRawValue();
         auto entry = listed.find(botRaw);
         bool const eligible = rate > 1.0f && bot->IsAlive() && bot->IsInWorld() &&
-            bot->GetMapId() == lead->GetMapId() && !MemberInCombat(bot);
+            SpeedSameInstance(bot, lead) && !SpeedSlowed(bot) && !SpeedCheatOn(bot) && !MemberInCombat(bot);
         if (!eligible)
         {
             if (entry != listed.end())
@@ -13257,10 +13299,12 @@ void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const
     }
 }
 
-// Every world update: a listed bot keeps the rate only while its run is running at a rate above 1.0, its binding's
-// lead bot is in the world, and it is alive, on that map and one of the lead bot's commanded bots; else it goes back.
-// A listed bot (or its pet) in a fight sends every listed bot of its run back at once (DungeonRun::SpeedFightSeen:
-// the settle starts again), not on the next tick.
+// Every world update: a listed bot keeps the rate only while its run is running at a rate above 1.0 and not blocked
+// by a real player, its binding's lead bot is in the world, and it is alive, on that map instance, unslowed and one
+// of the lead bot's commanded bots; else it goes back. A listed bot (or its pet) in a fight sends every listed bot
+// of its run back at once (DungeonRun::SpeedFightSeen: the settle starts again), not on the next tick. A real player
+// in the bound group latches the run blocked and sends every listed bot of the run back in the same update
+// (round 1, Codex): no fast tick leaks between his join and the next run tick.
 void SyncRunSpeed()
 {
     auto& listed = RunSpeedBots();
@@ -13268,6 +13312,7 @@ void SyncRunSpeed()
         return;
     static std::vector<Player*> members;
     std::unordered_set<uint64> fought;
+    std::unordered_set<uint64> playerBlocked;
     for (auto it = listed.begin(); it != listed.end();)
     {
         Player* bot = FindCharacter(it->first);
@@ -13276,11 +13321,25 @@ void SyncRunSpeed()
         Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
         bool keep = bot && run != DungeonRuns().end() &&
             run->second.run.state == TortoiseBots::DungeonRun::State::Running && run->second.run.speedNow > 1.0f &&
-            lead && lead->IsInWorld() && bot->IsInWorld() && bot->IsAlive() && bot->GetMapId() == lead->GetMapId();
+            !run->second.run.speedPlayerBlocked &&
+            lead && lead->IsInWorld() && bot->IsInWorld() && bot->IsAlive() && SpeedSameInstance(bot, lead) &&
+            !SpeedSlowed(bot) && !SpeedCheatOn(bot);
         if (keep)
         {
             FillCommandedBots(lead->GetGroup(), lead, members);
             keep = std::find(members.begin(), members.end(), bot) != members.end();
+        }
+        if (keep && lead && lead->GetGroup())
+        {
+            for (Group::MemberSlot const& member : lead->GetGroup()->GetMemberSlots())
+            {
+                if (member.guid.GetRawValue() == binding->commanderGuid ||
+                    BotManager::Instance().IsBot(member.guid))
+                    continue;
+                playerBlocked.insert(it->second.commanderRaw);
+                keep = false;
+                break;
+            }
         }
         bool const fight = keep && MemberInCombat(bot);
         if (fight)
@@ -13294,14 +13353,26 @@ void SyncRunSpeed()
             RestoreBotSpeed(bot);
         it = listed.erase(it);
     }
-    if (fought.empty())
+    for (uint64 commanderRaw : playerBlocked)
+    {
+        auto const run = DungeonRuns().find(commanderRaw);
+        if (run != DungeonRuns().end())
+        {
+            run->second.run.speedPlayerBlocked = true;
+            TortoiseBots::DungeonRun::SpeedFightSeen(run->second.run);
+        }
+    }
+    if (fought.empty() && playerBlocked.empty())
         return;
     for (uint64 commanderRaw : fought)
     {
+        if (playerBlocked.count(commanderRaw))
+            continue;
         auto const run = DungeonRuns().find(commanderRaw);
         if (run != DungeonRuns().end())
             TortoiseBots::DungeonRun::SpeedFightSeen(run->second.run);
     }
+    fought.insert(playerBlocked.begin(), playerBlocked.end());
     for (auto it = listed.begin(); it != listed.end();)
     {
         if (!fought.count(it->second.commanderRaw))
