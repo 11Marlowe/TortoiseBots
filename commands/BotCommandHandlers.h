@@ -19,7 +19,7 @@ bool HandleCommander(ChatHandler* handler, char const* args);
 bool HandleCommanderOrder(ChatHandler* handler, char const* args);
 bool HandleTrace(ChatHandler* handler, char const* args);
 bool HandleDungeonRun(ChatHandler* handler, char const* args);
-uint64_t BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::string& code, std::string& message);
+uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::string& code, std::string& message);
 bool HandleAdd(ChatHandler* handler, char const* args);
 bool HandleRemove(ChatHandler* handler, char const* args);
 bool HandleLogout(ChatHandler* handler, char const* args);
