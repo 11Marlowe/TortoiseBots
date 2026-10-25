@@ -355,9 +355,9 @@ bool BattlegroundQueueService::TryQueue(::Player* bot, uint32 queueTypeValue)
     uint8 joinAsGroup = (bot->GetGroup() && bot->GetGroup()->IsLeader(bot->GetObjectGuid())) ? 1 : 0;
     if (bot->GetGroup() && !joinAsGroup)
         return false;
-    // Hires never ride a group queue into a battleground: a master-joined
-    // queue would otherwise lodge them in the BG queue/BG via the core's
-    // group path. Queued solo instead, never as a group member.
+    // The module's own auto-queue never starts a queue from a party with a
+    // hire in it: the core's group path would queue its members, and the
+    // HireLifecycle sweep owns hires queued any other way (human master).
     if (!sPlayerbotAIConfig.hireAllowPvP && bot->GetGroup())
         for (auto const& slot : bot->GetGroup()->GetMemberSlots())
             if (HireLifecycle::Instance().IsHired(slot.guid))

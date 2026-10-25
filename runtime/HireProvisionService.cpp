@@ -12,6 +12,7 @@
 #include "../ai/playerbot/RandomItemMgr.h"
 #include "HireLevelPolicy.h"
 #include "HireFeePolicy.h"
+#include "runtime/policy/hire/HirePvpPolicy.h"
 #include "HireTierRequestPolicy.h"
 #include "HireUnlockPolicy.h"
 #include "runtime/policy/provision/BotAppearancePolicy.h"
@@ -23,7 +24,6 @@
 #include "../host/BotSessionAdapter.h"
 #include "../host/ModuleLog.h"
 #include "../ai/playerbot/PlayerbotAI.h"
-#include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "../ai/playerbot/PlayerbotFactory.h"
 #include "../ai/playerbot/AiFactory.h"
 #include "../ai/playerbot/ChatHelper.h"
@@ -153,8 +153,8 @@ bool HireProvisionService::CheckHireAllowed(Player* requester, bool fromGossip, 
         outcome.message = "Your account may not hire companions.";
         return false;
     }
-    if (!sPlayerbotAIConfig.hireAllowPvP &&
-        (requester->InBattleGround() || requester->InBattleGroundQueue()))
+    if (!TortoiseBots::MayHireForPvpState(sPlayerbotAIConfig.hireAllowPvP,
+        requester->InBattleGround(), requester->InBattleGroundQueue()))
     {
         outcome.status = HireStatus::Failed;
         outcome.message = "Hired companions are PvE-only and cannot join you in a battleground. Leave the queue to hire.";

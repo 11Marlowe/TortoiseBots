@@ -6,6 +6,7 @@
 #include "CharacterCleanup.h"
 #include "runtime/policy/hire/HireDeletionPolicy.h"
 #include "runtime/policy/hire/HireDeparturePolicy.h"
+#include "runtime/policy/hire/HirePvpPolicy.h"
 #include "PlayerbotAIStorage.h"
 #include "RandomBotAccountRegistry.h"
 #include "RandomBotPoolReset.h"
@@ -25,7 +26,12 @@
 #include "Maps/Map.h"
 #include "Database/DatabaseEnv.h"
 #include "Log.h"
-
+// pi-lens-ignore: clang:pp_file_not_found
+#include "Battlegrounds/BattleGroundMgr.h"
+#include "Battlegrounds/BattleGround.h"
+// pi-lens-ignore: clang:pp_file_not_found
+#include "Opcodes.h"
+#include "../ai/playerbot/ServerFacade.h"
 #include <algorithm>
 #include <cstddef>
 #include <ctime>
@@ -359,53 +365,63 @@ void HireLifecycle::WarnMasterOnQueueEntry(Player* master)
     master->GetSession()->SendPacket(&data);
 }
 
+void HireLifecycle::LeaveBattlegroundQueue(Player* bot)
+{
+    if (!bot || !bot->InBattleGroundQueue() || !bot->GetSession() || bot->InBattleGround())
+        return;
+    for (uint32 i = 1; i < MAX_BATTLEGROUND_QUEUE_TYPES; ++i)
+    {
+        BattleGroundQueueTypeId queueType = BattleGroundQueueTypeId(i);
+        if (!bot->InBattleGroundQueueForBattleGroundQueueType(queueType))
+            continue;
+        BattleGroundTypeId bgType = sServerFacade.BGTemplateId(queueType);
+        BattleGround* bg = sBattleGroundMgr.GetBattleGroundTemplate(bgType);
+        uint32 mapId = bg ? bg->GetMapId() : 0;
+        if (!mapId)
+            continue;
+        WorldPacket packet(CMSG_BATTLEFIELD_PORT, 8);
+        packet << mapId << uint8(0);
+        bot->GetSession()->HandleBattleFieldPortOpcode(packet);
+    }
+}
+
 void HireLifecycle::SweepBattlegroundBoundary()
 {
-    if (sPlayerbotAIConfig.hireAllowPvP || m_hired.empty())
-        return;
-    std::unordered_map<uint32_t, std::vector<HiredRecord>> byMaster;
-    for (auto const& kv : m_hired)
-        byMaster[kv.second.masterGuid.GetCounter()].push_back(kv.second);
-    for (auto& pair : byMaster)
+    bool hireAllowPvP = sPlayerbotAIConfig.hireAllowPvP;
+    for (auto& kv : m_hired)
     {
-        Player* master = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, pair.first));
+        HiredRecord& record = kv.second;
+        Player* master = sObjectAccessor.FindPlayer(record.masterGuid);
+        Player* bot = sObjectAccessor.FindPlayer(record.botGuid);
+        bool masterInQueue = master && master->InBattleGroundQueue();
+        bool masterInside = master && master->InBattleGround();
+        bool botQueued = bot && bot->InBattleGroundQueue();
+        bool botInside = bot && bot->InBattleGround();
+        if (ShouldDismissHireOnBattleground(hireAllowPvP, masterInside, botInside))
+        {
+            QueueDismissal(record, DismissalReason::EnteredBattleground);
+            if (master && master->IsInWorld() && master->GetSession() && masterInside)
+            {
+                WorldPacket data;
+                ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM,
+                    "Your hired companions were dismissed: they are PvE-only.",
+                    LANG_UNIVERSAL, CHAT_TAG_NONE, master->GetObjectGuid());
+                master->GetSession()->SendPacket(&data);
+            }
+            continue;
+        }
+        if (ShouldDequeueHireFromBgQueue(hireAllowPvP, botQueued, botInside, masterInside))
+            LeaveBattlegroundQueue(bot);
         if (!master)
             continue;
-        bool masterQueued = master->InBattleGroundQueue();
-        bool masterInside = master->InBattleGround();
-        if (masterInside)
+        if (ShouldWarnMasterOnBgQueue(hireAllowPvP, masterInQueue, masterInside, record.bgQueueWarned))
         {
-            for (HiredRecord const& record : pair.second)
-            {
-                auto it = m_hired.find(record.botGuid.GetCounter());
-                if (it == m_hired.end())
-                    continue;
-                QueueDismissal(it->second, DismissalReason::EnteredBattleground);
-            }
-            WorldPacket data;
-            ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM,
-                "Your hired companions were dismissed: they are PvE-only.",
-                LANG_UNIVERSAL, CHAT_TAG_NONE, master->GetObjectGuid());
-            if (master->IsInWorld() && master->GetSession())
-                master->GetSession()->SendPacket(&data);
-            continue;
-        }
-        if (!masterQueued)
-        {
-            for (HiredRecord const& record : pair.second)
-                if (auto it = m_hired.find(record.botGuid.GetCounter()); it != m_hired.end())
-                    it->second.bgQueueWarned = false;
-            continue;
-        }
-        for (HiredRecord const& record : pair.second)
-        {
-            auto it = m_hired.find(record.botGuid.GetCounter());
-            if (it == m_hired.end() || it->second.bgQueueWarned)
-                continue;
-            it->second.bgQueueWarned = true;
+            record.bgQueueWarned = true;
             WarnMasterOnQueueEntry(master);
-            break;
+            continue;
         }
+        if (!masterInQueue)
+            record.bgQueueWarned = false;
     }
 }
 
@@ -997,8 +1013,12 @@ void HireLifecycle::Update(uint32_t diff)
     SweepDeletions(now);
 
     m_updateElapsedMs += diff;
-    if (m_updateElapsedMs < 5000)
+    m_bgElapsedMs += diff;
+    if (m_bgElapsedMs >= 1000)
+    {
+        m_bgElapsedMs = 0;
         SweepBattlegroundBoundary();
+    }
     if (m_updateElapsedMs < 5000)
         return;
     m_updateElapsedMs = 0;

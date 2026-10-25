@@ -7,10 +7,11 @@
 //   g++ -std=c++17 -Wall -Wextra tools/test_hire_pvp_policy.cpp -o /tmp/test_hire_pvp
 //   /tmp/test_hire_pvp
 
-#include "../runtime/HirePvpPolicy.h"
+#include "../runtime/policy/hire/HirePvpPolicy.h"
 
 #include <cstdio>
 #include <cstdlib>
+
 
 using namespace TortoiseBots;
 
@@ -33,23 +34,26 @@ static void TestEntryDismisses()
 static void TestAllowKeepsToday()
 {
     CHECK(!ShouldDismissHireOnBattleground(true, true, true));
-    CHECK(!ShouldWarnMasterOnBgQueue(true, true, false));
-    CHECK(!ShouldDequeueHireFromBgQueue(true, true, false));
+    CHECK(!ShouldWarnMasterOnBgQueue(true, true, false, false));
+    CHECK(!ShouldDequeueHireFromBgQueue(true, true, false, false));
+    CHECK(!ShouldRefuseBattlegroundInvite(true, true));
     CHECK(MayHireForPvpState(true, true, true));
 }
 
 static void TestQueueWarnsOnce()
 {
-    CHECK(ShouldWarnMasterOnBgQueue(false, true, false));
-    CHECK(!ShouldWarnMasterOnBgQueue(false, false, false));
-    CHECK(!ShouldWarnMasterOnBgQueue(false, true, true));
+    CHECK(ShouldWarnMasterOnBgQueue(false, true, false, false));
+    CHECK(!ShouldWarnMasterOnBgQueue(false, false, false, false));
+    CHECK(!ShouldWarnMasterOnBgQueue(false, true, true, false));
+    CHECK(!ShouldWarnMasterOnBgQueue(false, true, false, true));
 }
 
 static void TestQueueDequeuesHire()
 {
-    CHECK(ShouldDequeueHireFromBgQueue(false, true, false));
-    CHECK(!ShouldDequeueHireFromBgQueue(false, false, false));
-    CHECK(!ShouldDequeueHireFromBgQueue(false, true, true));
+    CHECK(ShouldDequeueHireFromBgQueue(false, true, false, false));
+    CHECK(!ShouldDequeueHireFromBgQueue(false, false, false, false));
+    CHECK(!ShouldDequeueHireFromBgQueue(false, true, true, false));
+    CHECK(!ShouldDequeueHireFromBgQueue(false, true, false, true));
 }
 
 static void TestHiringRefused()
@@ -59,6 +63,13 @@ static void TestHiringRefused()
     CHECK(!MayHireForPvpState(false, false, true));
 }
 
+static void TestInviteRefused()
+{
+    CHECK(ShouldRefuseBattlegroundInvite(false, true));
+    CHECK(!ShouldRefuseBattlegroundInvite(false, false));
+    CHECK(!ShouldRefuseBattlegroundInvite(true, true));
+}
+
 int main()
 {
     TestEntryDismisses();
@@ -66,6 +77,6 @@ int main()
     TestQueueWarnsOnce();
     TestQueueDequeuesHire();
     TestHiringRefused();
+    TestInviteRefused();
     std::printf("PASS hire pvp policy (%d checks)\n", checks);
-    return 0;
 }

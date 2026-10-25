@@ -150,6 +150,8 @@ private:
     // entered masters, once per queue stay / entry.
     void SweepBattlegroundBoundary();
     void WarnMasterOnQueueEntry(Player* master);
+    // Native leave-queue path for a queued hire (action=0 port packet).
+    void LeaveBattlegroundQueue(Player* bot);
 
     void Dismiss(HiredRecord const& record, char const* reason, bool removeFromGroup = true);
     bool MasterOnline(HiredRecord const& record) const;
@@ -177,6 +179,7 @@ private:
     time_t m_recoveryRetryAt = 0;
     uint32_t m_updateElapsedMs = 0;
     uint32_t m_restockElapsedMs = 0;
+    uint32_t m_bgElapsedMs = 0;
 };
 
 } // namespace TortoiseBots

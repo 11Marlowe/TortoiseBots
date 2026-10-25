@@ -9,7 +9,7 @@ namespace TortoiseBots
 {
 
 // A hire ends when its master is inside a battleground, or when the hire
-// itself is (a group queue can carry it in before the sweep dequeues it).
+// itself is (backstop: the queue sweep below normally dequeues it first).
 inline bool ShouldDismissHireOnBattleground(bool hireAllowPvP, bool masterInBattleground,
     bool hireInBattleground)
 {
@@ -20,18 +20,20 @@ inline bool ShouldDismissHireOnBattleground(bool hireAllowPvP, bool masterInBatt
 
 // Warn the master once per queue entry; never while already inside (the entry
 // notice owns that case).
-inline bool ShouldWarnMasterOnBgQueue(bool hireAllowPvP, bool masterInQueue, bool masterInBattleground)
+inline bool ShouldWarnMasterOnBgQueue(bool hireAllowPvP, bool masterInQueue, bool masterInBattleground,
+    bool warned)
 {
-    if (hireAllowPvP || masterInBattleground)
+    if (hireAllowPvP || masterInBattleground || warned)
         return false;
     return masterInQueue;
 }
 
 // A queued hire leaves the queue again; one already inside is dismissed, not
-// dequeued.
-inline bool ShouldDequeueHireFromBgQueue(bool hireAllowPvP, bool hireQueued, bool hireInBattleground)
+// dequeued. A hire whose master is inside is dismissed by the master rule.
+inline bool ShouldDequeueHireFromBgQueue(bool hireAllowPvP, bool hireQueued, bool hireInBattleground,
+    bool masterInBattleground)
 {
-    if (hireAllowPvP || hireInBattleground)
+    if (hireAllowPvP || hireInBattleground || masterInBattleground)
         return false;
     return hireQueued;
 }
@@ -42,6 +44,12 @@ inline bool MayHireForPvpState(bool hireAllowPvP, bool requesterInBattleground, 
     if (hireAllowPvP)
         return true;
     return !requesterInBattleground && !requesterInQueue;
+}
+
+// A hire never answers a battleground invite.
+inline bool ShouldRefuseBattlegroundInvite(bool hireAllowPvP, bool isHire)
+{
+    return !hireAllowPvP && isHire;
 }
 
 } // namespace TortoiseBots
