@@ -13,6 +13,8 @@ relates_to:
 
 # Boss Tactics Table
 
+> Work in progress. These features are not officially released and not supported yet. Enable them at your own risk. Until the official release, bug reports and feedback about them are not handled through the issue tracker; contact Hypeer directly.
+
 A boss fight has a few mechanics that generic combat AI cannot know: which spell to interrupt, which add to kill first, where not to stand. This page describes the data table that holds them, the strategy that applies them, and the first content (Uldaman up to Ironaya, plus the Obsidian Sentinel).
 
 It is **off by default**. A normal player's bots play exactly as before.

@@ -13,6 +13,8 @@ relates_to:
 
 # Run Trace
 
+> Work in progress. These features are not officially released and not supported yet. Enable them at your own risk. Until the official release, bug reports and feedback about them are not handled through the issue tracker; contact Hypeer directly.
+
 The run trace answers "what did the bots actually do in that run" with data instead of a watched replay. A GM, or the owner of the bots, starts a **run** with a name (the **run id**); the server writes one JSONL **trace** of the party's bots until the run is stopped, plus a small **summary** file. `tools/trace_score.py` scores a trace offline and writes its verdicts into the summary, so a build can be compared with the next one on the same scenario.
 
 It is **off by default** (`AiPlayerbot.RunTrace.Enabled = 0`) and costs nothing while no run is active. The schema is `bt-trace` version 1; an external driver (the turtle-agent) writes the same shape from its own observations and passes its run id to `.bot trace start`, so both sides of one run share the id.

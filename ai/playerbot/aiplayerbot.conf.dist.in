@@ -499,6 +499,8 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # the bots already track; no extra world scan. Clamped to 250..60000.
 #AiPlayerbot.RemoteCommanderViewMs = 1000
 
+# Work in progress. These features are not officially released and not supported yet. Enable them at your own risk.
+# Until the official release, bug reports and feedback about them are not handled through the issue tracker; contact Hypeer directly.
 # Run trace (opt-in, off by default). A GM, or the owner of the bots, runs
 # `.bot trace start <run_id> [party|bot <Name>]` and the server records what the
 # party's bots do - hp/power/position/target/strategy, the hostiles they see and
@@ -824,6 +826,8 @@ AiPlayerbot.PaladinJudgementUpkeep = 1
 # 1 - whelp duty and egg avoidance (Default)
 AiPlayerbot.OnyxiaWhelpsAndEggs = 1
 
+# Work in progress. These features are not officially released and not supported yet. Enable them at your own risk.
+# Until the official release, bug reports and feedback about them are not handled through the issue tracker; contact Hypeer directly.
 # Dungeon boss tactics.
 # Per-boss rows from the world table ai_boss_tactic (map + boss entry) that bots
 # apply while they fight that boss: interrupt a listed spell, kill a listed add
