@@ -191,6 +191,8 @@ bool HandleHire(ChatHandler* handler, char const* args)
     if (input.empty())
     {
         handler->PSendSysMessage("Usage: .bot hire <class> [dps/tank/healer] [race] [male/female] [tier] [level=<1-60>], or .bot hire raid <preset|3t 12h 24d> [tier]");
+        if (!sPlayerbotAIConfig.hireAllowPvP)
+            handler->PSendSysMessage("Hired companions are PvE-only: they leave you when you enter a battleground.");
         return true;
     }
     // Split on whitespace; class/race/gender/role/spec/tier tokens in any order.

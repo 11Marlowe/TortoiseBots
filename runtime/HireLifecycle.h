@@ -119,6 +119,8 @@ private:
         // transition (regroupOnReturn set) until it is back, but not longer
         // than this.
         time_t regroupDeadline = 0;
+        // Battleground queue entry was warned once for the current queue stay.
+        bool bgQueueWarned = false;
     };
 
     // A dismissed hire whose character is waiting for its asynchronous
@@ -134,7 +136,7 @@ private:
         bool stopRequested = false;
     };
 
-    enum class DismissalReason { MasterLeft, Disbanded, Removed };
+    enum class DismissalReason { MasterLeft, Disbanded, Removed, EnteredBattleground };
     struct PendingDismissal
     {
         ObjectGuid botGuid;
@@ -144,6 +146,10 @@ private:
     // Group hooks run inside core group iteration; never log out there.
     void QueueDismissal(HiredRecord const& record, DismissalReason reason);
     void DrainDismissals();
+    // Battleground boundary: warned queue-entry masters and dismissed
+    // entered masters, once per queue stay / entry.
+    void SweepBattlegroundBoundary();
+    void WarnMasterOnQueueEntry(Player* master);
 
     void Dismiss(HiredRecord const& record, char const* reason, bool removeFromGroup = true);
     bool MasterOnline(HiredRecord const& record) const;

@@ -341,6 +341,70 @@ void HireLifecycle::DrainDismissals()
                 if (MasterLeftGroup(record))
                     Dismiss(record, "master left the group", false);
                 break;
+            case DismissalReason::EnteredBattleground:
+                Dismiss(record, "entered a battleground", false);
+                break;
+        }
+    }
+}
+
+void HireLifecycle::WarnMasterOnQueueEntry(Player* master)
+{
+    if (!master || !master->IsInWorld())
+        return;
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM,
+        "Your hired companions are PvE-only and will be dismissed when you enter the battleground.",
+        LANG_UNIVERSAL, CHAT_TAG_NONE, master->GetObjectGuid());
+    master->GetSession()->SendPacket(&data);
+}
+
+void HireLifecycle::SweepBattlegroundBoundary()
+{
+    if (sPlayerbotAIConfig.hireAllowPvP || m_hired.empty())
+        return;
+    std::unordered_map<uint32_t, std::vector<HiredRecord>> byMaster;
+    for (auto const& kv : m_hired)
+        byMaster[kv.second.masterGuid.GetCounter()].push_back(kv.second);
+    for (auto& pair : byMaster)
+    {
+        Player* master = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, pair.first));
+        if (!master)
+            continue;
+        bool masterQueued = master->InBattleGroundQueue();
+        bool masterInside = master->InBattleGround();
+        if (masterInside)
+        {
+            for (HiredRecord const& record : pair.second)
+            {
+                auto it = m_hired.find(record.botGuid.GetCounter());
+                if (it == m_hired.end())
+                    continue;
+                QueueDismissal(it->second, DismissalReason::EnteredBattleground);
+            }
+            WorldPacket data;
+            ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM,
+                "Your hired companions were dismissed: they are PvE-only.",
+                LANG_UNIVERSAL, CHAT_TAG_NONE, master->GetObjectGuid());
+            if (master->IsInWorld() && master->GetSession())
+                master->GetSession()->SendPacket(&data);
+            continue;
+        }
+        if (!masterQueued)
+        {
+            for (HiredRecord const& record : pair.second)
+                if (auto it = m_hired.find(record.botGuid.GetCounter()); it != m_hired.end())
+                    it->second.bgQueueWarned = false;
+            continue;
+        }
+        for (HiredRecord const& record : pair.second)
+        {
+            auto it = m_hired.find(record.botGuid.GetCounter());
+            if (it == m_hired.end() || it->second.bgQueueWarned)
+                continue;
+            it->second.bgQueueWarned = true;
+            WarnMasterOnQueueEntry(master);
+            break;
         }
     }
 }
@@ -933,6 +997,8 @@ void HireLifecycle::Update(uint32_t diff)
     SweepDeletions(now);
 
     m_updateElapsedMs += diff;
+    if (m_updateElapsedMs < 5000)
+        SweepBattlegroundBoundary();
     if (m_updateElapsedMs < 5000)
         return;
     m_updateElapsedMs = 0;

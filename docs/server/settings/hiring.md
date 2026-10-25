@@ -20,10 +20,8 @@ These settings configure mercenary companion hiring, party cost scaling, raid pr
 | [`AiPlayerbot.HireEnabled`](#aiplayerbothireenabled) | `1` | Master toggle for companion hiring commands and inn recruiters. |
 | [`AiPlayerbot.HireMinAccountSecurity`](#aiplayerbothireminaccountsecurity) | `0` | Minimum account security level required to hire mercenary companions. |
 | [`AiPlayerbot.HireFreeMinSecurity`](#aiplayerbothirefreeminsecurity) | `0` | Minimum account security level that receives free mercenary hiring. |
-| [`AiPlayerbot.HireMaxBotsPerPlayer`](#aiplayerbothiremaxbotsperplayer) | `4` | Maximum number of hired companions a single player may lead. |
-| [`AiPlayerbot.HireMaxLevelAboveHirer`](#aiplayerbothiremaxlevelabovehirer) | `0` | Maximum character levels a hired companion may exceed its employer. |
 | [`AiPlayerbot.HireAnywhere`](#aiplayerbothireanywhere) | `0` | Allows hiring companions from anywhere via chat command. |
-| [`AiPlayerbot.ShamanTankEnabled`](#aiplayerbotshamantankenabled) | `1` | Offers the experimental 7.3 shaman tank build at recruiters, by `.bot hire`, and to random pool shamans. |
+| [`AiPlayerbot.HireAllowPvP`](#aiplayerbothireallowpvp) | `0` | Allows hired companions into battlegrounds (off = PvE-only). |
 | [`AiPlayerbot.HireBaseCostCopper`](#aiplayerbothirebasecostcopper) | `15000` | Base copper fee used for level-scaled party companion hiring. |
 | [`AiPlayerbot.HirePartyMult2`](#aiplayerbothirepartymult2) | `1.66` | Cost multiplier applied when hiring a second party companion. |
 | [`AiPlayerbot.HirePartyMult3`](#aiplayerbothirepartymult3) | `2.66` | Cost multiplier applied when hiring a third party companion. |
@@ -130,6 +128,19 @@ Controls whether players can hire companions from any location or only at recrui
 When set to `0`, companions may only be hired while interacting in person with a `<Mercenary Hire>` recruiter NPC.
 
 When set to `1`, players may execute `.bot hire` from anywhere in the world. Calculated hire fees and limits remain identical regardless of location.
+
+</details>
+
+### `AiPlayerbot.HireAllowPvP`
+Controls whether hired companions may enter battlegrounds.
+**Default:** `0` · **Values:** `0` PvE-only, `1` allowed in · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+When set to `0`, hired companions are PvE-only: queueing for a battleground warns the master once, entering dismisses the companions, hiring is refused while queued or inside, and hired companions never join the battleground queue on their own or through a group queue.
+
+When set to `1`, hires may go to battlegrounds as before.
 
 </details>
 

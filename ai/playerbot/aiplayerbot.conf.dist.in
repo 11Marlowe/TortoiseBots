@@ -379,6 +379,10 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # command points players to one); 1 = .bot hire also works anywhere. Fees are
 # the same either way.
 #AiPlayerbot.HireAnywhere = 0
+# HireAllowPvP: 0 = hired companions are PvE-only (queueing for a battleground
+# warns once, entering dismisses them, hiring is refused while queued or
+# inside). 1 = today's behaviour (hires may go to battlegrounds).
+#AiPlayerbot.HireAllowPvP = 0
 # ShamanTankEnabled: 1 = the experimental 7.3 shaman tank build (Enhancement
 # (Tank)) is offered at recruiters and by `.bot hire`, and random pool shamans
 # may roll it. 0 = withheld everywhere. Shamans already on the build keep it.

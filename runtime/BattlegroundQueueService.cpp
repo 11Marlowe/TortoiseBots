@@ -5,6 +5,7 @@
 
 // pi-lens-ignore: clang:pp_file_not_found
 #include "BotManager.h"
+#include "HireLifecycle.h"
 #include "RandomBotService.h"
 #include "PlayerbotAIStorage.h"
 #include "../ai/playerbot/PlayerbotAI.h"
@@ -181,8 +182,12 @@ bool BattlegroundQueueService::IsEligible(::Player* bot) const
         return false;
     // In-memory live Headless/random selection: only random bots discovered
     // via RandomBotService's RNDBOT pool (pinned included). Owned/manual bots
-    // remain human-driven.
+    // remain human-driven. Hired companions never queue on their own: with
+    // HireAllowPvP they ride only in their master's group queue.
     if (!BotManager::Instance().IsRandomBot(bot->GetObjectGuid()))
+        return false;
+    if (!sPlayerbotAIConfig.hireAllowPvP &&
+        HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
         return false;
     if (bot->InBattleGround())
         return false;
@@ -350,6 +355,13 @@ bool BattlegroundQueueService::TryQueue(::Player* bot, uint32 queueTypeValue)
     uint8 joinAsGroup = (bot->GetGroup() && bot->GetGroup()->IsLeader(bot->GetObjectGuid())) ? 1 : 0;
     if (bot->GetGroup() && !joinAsGroup)
         return false;
+    // Hires never ride a group queue into a battleground: a master-joined
+    // queue would otherwise lodge them in the BG queue/BG via the core's
+    // group path. Queued solo instead, never as a group member.
+    if (!sPlayerbotAIConfig.hireAllowPvP && bot->GetGroup())
+        for (auto const& slot : bot->GetGroup()->GetMemberSlots())
+            if (HireLifecycle::Instance().IsHired(slot.guid))
+                return false;
     // AV cannot queue as group in core (BattleGroundHandler returns early
     // for bgTypeId==BATTLEGROUND_AV && joinAsGroup). Force solo to avoid
     // silent failure and never report success for joinAsGroup AV.

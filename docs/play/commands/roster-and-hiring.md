@@ -88,7 +88,7 @@ By default (`AiPlayerbot.HireAnywhere = 0`), the `.bot hire` chat command always
 - **Intro & Respec:** Once it is grouped with you (and in world), it posts its spec/spell intro once in party chat. Hiring a tier kit respecs talents and refits equipment.
 - **Equipment Tiers:** Level 60 companions can be hired in fixed Best-in-Slot gear sets (Tiers 0 through 7). Tiers unlock per character via recruiter quests (or account-wide if [`AiPlayerbot.HireGearUnlockAccountWide`](../../server/settings/hiring.md#aiplayerbothiregearunlockaccountwide) is enabled): Tier 0 (Standard), Tier 1 (Pre-raid), Tier 2 (Zul'Gurub), Tier 3 (Molten Core), Tier 4 (Blackwing Lair), Tier 5 (Ahn'Qiraj), Tier 6 (Naxxramas), Tier 7 (Karazhan).
 - **Temporary Character:** Hires exist while you are online, plus a disconnect grace period ([`AiPlayerbot.HireDisconnectGracePeriod`](../../server/settings/hiring.md#aiplayerbothiredisconnectgraceperiod)). Removing them deletes the temporary character.
-
+- **PvE-only:** Hired companions leave you when you enter a battleground ([`AiPlayerbot.HireAllowPvP`](../../server/settings/hiring.md#aiplayerbothireallowpvp) = `1` keeps today's behaviour).
 </details>
 
 ### `.bot hire raid`

@@ -153,6 +153,13 @@ bool HireProvisionService::CheckHireAllowed(Player* requester, bool fromGossip, 
         outcome.message = "Your account may not hire companions.";
         return false;
     }
+    if (!sPlayerbotAIConfig.hireAllowPvP &&
+        (requester->InBattleGround() || requester->InBattleGroundQueue()))
+    {
+        outcome.status = HireStatus::Failed;
+        outcome.message = "Hired companions are PvE-only and cannot join you in a battleground. Leave the queue to hire.";
+        return false;
+    }
     if (!fromGossip && !sPlayerbotAIConfig.hireAnywhere)
     {
         outcome.status = HireStatus::RecruiterRequired;
