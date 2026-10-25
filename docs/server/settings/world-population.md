@@ -947,11 +947,11 @@ Automates quest reward item selection when bots complete quests.
 <details>
 <summary>How it works in detail</summary>
 
-Controls how bots handle quest rewards:
+Controls how alt bots handle a quest with a choice of rewards. Other bots always pick themselves.
 
-- `yes`: The bot automatically evaluates choices and picks the highest-value equipment upgrade.
-- `no`: The bot lists all available reward options in chat without selecting one.
-- `ask`: The bot selects an upgrade if obvious, or asks its master if multiple competitive choices exist.
+- `yes`: The bot always picks the best item itself.
+- `no`: The bot always lists every reward in chat and waits for you to choose with `r [item]`.
+- `ask`: The bot takes the reward itself when only one is useful to it, and lists the useful ones and waits for `r [item]` only when more than one is useful. In the same party, some bots may ask while others pick right away.
 
 </details>
 
