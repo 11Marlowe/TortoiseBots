@@ -27,6 +27,7 @@
 #include "playerbot/MagmaHazardPolicy.h"
 #include "playerbot/MoveFailNotePolicy.h"
 #include "host/ModuleLog.h"
+#include "vmap/VMapFactory.h"
 #include "playerbot/BotActionLog.h"
 #include "Database/DBCStores.h"
 
@@ -38,9 +39,20 @@ using namespace ai;
 // subterranean terrain fallback is not.
 static constexpr float kMaxWaypointDrop = 4.0f;
 
+// Thin floor over magma (specs/dmr-step453.md Fix B): collision (vmap-only)
+// floor confirmation, in yards — probe from navmeshZ + 1.0, accept within 1.0,
+// search down 2.0. VMapManager2::getHeight is a pure vmap raycast (StaticMapTree):
+// VMAP_INVALID_HEIGHT_VALUE when nothing is hit (IVMapManager.h). Map::GetHeight
+// is banned here: it mixes .map terrain and dynamic trees and retries a failed
+// vmap lookup with a 10000 yd search.
+static constexpr float kMagmaFloorProbeAboveZ = 1.0f;
+static constexpr float kMagmaFloorWindowZ = 1.0f;
+static constexpr float kMagmaFloorSearchDistZ = 2.0f;
+
 // MagmaHazardPolicy.h mirrors the core's liquid values (it has no core
 // includes); these pin the copies to GridMapDefines.h.
 static_assert(ai::kMagmaLiquidTypeFlag == MAP_LIQUID_TYPE_MAGMA, "magma type flag differs from the core");
+static_assert(ai::kSlimeLiquidTypeFlag == MAP_LIQUID_TYPE_SLIME, "slime type flag differs from the core");
 static_assert(ai::kLiquidStatusWaterWalk == static_cast<uint32>(LIQUID_MAP_WATER_WALK), "water-walk status differs from the core");
 static_assert(ai::kLiquidStatusInWater == static_cast<uint32>(LIQUID_MAP_IN_WATER), "in-water status differs from the core");
 static_assert(ai::kLiquidStatusUnderWater == static_cast<uint32>(LIQUID_MAP_UNDER_WATER), "under-water status differs from the core");
@@ -997,20 +1009,86 @@ bool MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bo
     {
         bool normalizeZ = true;
 
+        // Hoisted for the magma floor guard below: the loop runs per path
+        // point, the two liquid lookups only on a lowered point.
+        TerrainInfo const* dispatchTerrain = bot->GetMap()->GetTerrain();
+        bool const dispatchMagmaGuard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());
+        LastMovement& dispatchMove = AI_VALUE(LastMovement&, "last movement");
+
         for (auto& p : pointPath)
         {
             if (bot->GetTransport())
                 bot->GetTransport()->CalculatePassengerPosition(p.x, p.y, p.z);
             float const navmeshZ = p.z;
             bot->UpdateAllowedPositionZ(p.x, p.y, p.z);
+            // ORIGINAL clamp, before either restore path below: the magma/slime
+            // classification must see what the core produced, not what the
+            // stair workaround already restored.
+            float const clampedZ = p.z;
+            bool const magmaFloorLowered = clampedZ < navmeshZ;
+            // Cheap first: the clamped point's liquid status is usually dry, so
+            // it gates the navmesh lookup and the vmap query behind it. Both
+            // WorldPosition overloads are null-terrain safe.
+            bool magmaFloorClampedWet = false;
+            bool magmaFloorNavmeshWet = false;
+            if (!bot->GetTransport() && magmaFloorLowered && dispatchMagmaGuard &&
+                (WorldPosition(bot->GetMapId(), p.x, p.y, clampedZ).isInMagma(dispatchTerrain) ||
+                    WorldPosition(bot->GetMapId(), p.x, p.y, clampedZ).isInSlime(dispatchTerrain)))
+            {
+                magmaFloorClampedWet = true;
+                magmaFloorNavmeshWet =
+                    WorldPosition(bot->GetMapId(), p.x, p.y, navmeshZ).isInMagma(dispatchTerrain);
+            }
             // Crypt stairs (issue #217): a 3D navmesh waypoint carries the true
             // floor elevation. UpdateAllowedPositionZ re-derives the floor with a
             // downward raycast; when that ray starts underneath an uphill step it
             // misses the structure and the waypoint is clamped to the
             // subterranean terrain fallback - the bot then walks through the
-            // floor. Keep the navmesh elevation when the rewrite is a big drop.
-            if (p.z < navmeshZ && navmeshZ - p.z > kMaxWaypointDrop)
+            // floor. Keep the navmesh elevation on a big dry drop only: a big
+            // drop into magma/slime (an unconfirmed polygon over a hole or an
+            // open liquid pool) needs the confirmed-floor path below instead.
+            bool const stairRestore = ai::KeepStairNavmeshZ(magmaFloorLowered,
+                navmeshZ - clampedZ > kMaxWaypointDrop, magmaFloorClampedWet);
+            if (stairRestore)
                 p.z = navmeshZ;
+            // Thin floor over magma (specs/dmr-step453.md Fix B): over a WMO
+            // magma bed under a floor the core's GetWaterOrGroundLevel answers
+            // liquid level - 2 (swim=true, LIQUID_MAP_ABOVE_WATER), inside the
+            // magma; the 2.35 yd drop there is under the stair limit above.
+            // Keep the navmesh floor only when the core's COLLISION (vmap-only,
+            // no .map terrain, no dynamic tree) height confirms a real floor at
+            // the navmesh point: a dry navmesh z alone is no proof (bridged or
+            // eroded point over a hole, or a polygon a little above open lava).
+            // The vmap query runs only on the guard path that would otherwise
+            // restore — small drops want it (the thin floor), big drops too
+            // (the hole the stair path above refused to restore blindly).
+            bool magmaFloorConfirmed = false;
+            bool magmaFloorGuardFire = false;
+            if (!bot->GetTransport() && magmaFloorLowered && dispatchMagmaGuard && magmaFloorClampedWet &&
+                !magmaFloorNavmeshWet && !stairRestore)
+            {
+                // VMapManager2::getHeight is a pure vmap raycast down from
+                // navmeshZ + 1.0 over 2.0 yd: it reaches a thin floor at the
+                // navmesh point but not the lava bed or a deck far below/above.
+                // VMAP_INVALID_HEIGHT_VALUE (IVMapManager.h) means no hit.
+                float const collisionFloor = VMAP::VMapFactory::createOrGetVMapManager()->getHeight(
+                    bot->GetMapId(), p.x, p.y, navmeshZ + kMagmaFloorProbeAboveZ, kMagmaFloorSearchDistZ);
+                magmaFloorConfirmed = collisionFloor > VMAP_INVALID_HEIGHT_VALUE &&
+                    fabs(collisionFloor - navmeshZ) <= kMagmaFloorWindowZ;
+                magmaFloorGuardFire = ai::KeepNavmeshZOverMagma(dispatchMagmaGuard, magmaFloorLowered,
+                    true, false, magmaFloorConfirmed);
+            }
+            if (magmaFloorGuardFire)
+            {
+                p.z = navmeshZ;
+                time_t const now = time(nullptr);
+                if (!dispatchMove.magmaLogAt || now - dispatchMove.magmaLogAt >= kMagmaLogSeconds)
+                {
+                    dispatchMove.magmaLogAt = now;
+                    TB_LOG_DETAIL("TortoiseBots: %s: waypoint kept on the floor over magma at %.1f %.1f %.1f (clamp %.2f)",
+                        bot->GetName(), p.x, p.y, navmeshZ, clampedZ);
+                }
+            }
             if (bot->GetTransport())
                 bot->GetTransport()->CalculatePassengerOffset(p.x, p.y, p.z);
         }

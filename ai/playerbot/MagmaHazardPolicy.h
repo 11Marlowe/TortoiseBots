@@ -27,6 +27,10 @@ namespace ai
 {
     // GridMapDefines.h: MAP_LIQUID_TYPE_MAGMA (a type_flags bit).
     constexpr std::uint32_t kMagmaLiquidTypeFlag = 0x01;
+    // GridMapDefines.h: MAP_LIQUID_TYPE_SLIME (a type_flags bit). Slime rides
+    // along only for the DispatchMovement restore gate below (a clamp sunk in
+    // slime needs a confirmed floor too); route refusal stays magma-only.
+    constexpr std::uint32_t kSlimeLiquidTypeFlag = 0x04;
     // GridMapDefines.h GridMapLiquidStatus: LIQUID_MAP_WATER_WALK,
     // LIQUID_MAP_IN_WATER, LIQUID_MAP_UNDER_WATER.
     constexpr std::uint32_t kLiquidStatusWaterWalk = 0x02;
@@ -245,5 +249,39 @@ namespace ai
             prev = next;
         }
         return result;
+    }
+
+    // DispatchMovement rewrites each path point with UpdateAllowedPositionZ; over a thin floor above WMO
+    // magma the core answers liquid level - 2 (GetWaterOrGroundLevel, swim=true, on LIQUID_MAP_ABOVE_WATER),
+    // which is inside the magma (Dragonmaw Retreat r39s2/r41s2, specs/dmr-step453.md). Keep the navmesh
+    // floor then — but only when the core's COLLISION (vmap) height query confirms a real floor at the
+    // navmesh point (round 1): a bridged/eroded navmesh point over an open hole reads dry but has no
+    // floor, so restoring its z would float the bot; a polygon a little above open lava reads dry but
+    // the bot would walk on the lava surface.
+    inline bool KeepNavmeshZOverMagma(bool guardApplies, bool lowered, bool clampedInMagma, bool navmeshInMagma,
+        bool floorConfirmed)
+    {
+        return guardApplies && lowered && clampedInMagma && !navmeshInMagma && floorConfirmed;
+    }
+    // The DispatchMovement restore gate reads slime too (GridMapLiquidData::
+    // type_flags, same status bits as IsMagmaHazard): a clamp sunk in slime is
+    // no safer a floor signal than one sunk in magma, so the stair-workaround
+    // restore needs a confirmed floor there as well.
+    inline bool IsSlimeHazard(std::uint32_t typeFlags, std::uint32_t status)
+    {
+        if (!(typeFlags & kSlimeLiquidTypeFlag))
+            return false;
+        return (status & (kLiquidStatusUnderWater | kLiquidStatusInWater | kLiquidStatusWaterWalk)) != 0;
+    }
+
+    // The crypt-stair large-drop workaround (MovementActions.cpp) keeps the
+    // navmesh z whenever the clamp dropped more than kMaxWaypointDrop. It keeps
+    // that behaviour only when the ORIGINAL clamp is neither in magma nor in
+    // slime: a big drop into either means the navmesh point may itself sit
+    // over a hole or an open liquid pool, so only the confirmed-floor path
+    // may restore. Pure, so the policy test owns the table.
+    inline bool KeepStairNavmeshZ(bool lowered, bool bigDrop, bool clampedInMagmaOrSlime)
+    {
+        return lowered && bigDrop && !clampedInMagmaOrSlime;
     }
 }
