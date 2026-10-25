@@ -19498,6 +19498,20 @@ static void TestSpeedChangeWaitsWhileSwimmingASpline()
     CHECK(SpeedChangeWaits(false, false) == false);
 }
 
+// The speed-restore wait is bounded (lead decision 2026-10-25): a run a real
+// player joined restores at once, never waits; otherwise a refused restore
+// waits at most kSpeedRestoreWaitMs from the first refusal, then restores anyway.
+static void TestSpeedRestoreWaitIsBounded()
+{
+    CHECK(SpeedRestoreWaits(true, 0) == false);        // a real player latched: restore on the first call
+    CHECK(SpeedRestoreWaits(true, 10000) == false);
+    CHECK(SpeedRestoreWaits(false, 0) == true);
+    CHECK(SpeedRestoreWaits(false, 10000) == true);    // 10 s: still waiting
+    CHECK(SpeedRestoreWaits(false, 14999) == true);
+    CHECK(SpeedRestoreWaits(false, 15000) == false);   // 15 s: restore anyway
+    CHECK(SpeedRestoreWaits(false, 16000) == false);   // 16 s: restored
+}
+
 static void TestSpeedShowsInTheLines()
 {
     DungeonPlan plan;
@@ -21069,6 +21083,7 @@ int main()
     TestSpeedCappedOnTheTickThatReachesAPullStep();
     TestSpeedShowsInTheLines();
     TestSpeedChangeWaitsWhileSwimmingASpline();
+    TestSpeedRestoreWaitIsBounded();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

@@ -1201,7 +1201,7 @@ class RunTestSpeedWiringTest(unittest.TestCase):
         self.assertIn("bot->UpdateSpeed(MOVE_RUN, true, rate);", apply)
         self.assertIn("bot->UpdateSpeed(MOVE_WALK, true, rate);", apply)
         self.assertNotIn("MOVE_SWIM", apply)
-        restore = body(code, "bool RestoreBotSpeed(Player* bot)", "\n}\n")
+        restore = body(code, "bool RestoreBotSpeed(Player* bot, RunSpeedEntry& entry,", "\n}\n")
         self.assertIn("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);", restore)
         self.assertIn("pet->UpdateSpeed(MOVE_RUN, true, 1.0f);", restore)
         each = body(code, "void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)\n{", "\n}\n")
@@ -1236,7 +1236,7 @@ class RunTestSpeedWiringTest(unittest.TestCase):
         self.assertIn("RestoreNonFollowingPet(bot);", sync)
         cheat_each = each[each.index("if (SpeedCheatOn(bot))"):each.index("RestoreNonFollowingPet(bot);\n                    listed.erase(entry);")]
         self.assertNotIn("RestoreBotSpeed(bot);", cheat_each)
-        self.assertLess(each.index("listed.erase(entry);"), each.index("if (!RestoreBotSpeed(bot))"))
+        self.assertLess(each.index("listed.erase(entry);"), each.index("if (!RestoreBotSpeed(bot, entry->second, WorldTimer::getMSTime()))"))
         cheat_at = sync.index("if (bot && SpeedCheatOn(bot))")
         cheat_sync = sync[cheat_at:sync.index("continue;", cheat_at)]
         self.assertNotIn("RestoreBotSpeed(bot);", cheat_sync)
@@ -1250,7 +1250,8 @@ class RunTestSpeedWiringTest(unittest.TestCase):
         self.assertIn("SpeedChangeWaitsFor(bot)", apply)
         self.assertLess(apply.index("SpeedChangeWaitsFor(bot)"), apply.index("bot->UpdateSpeed(MOVE_RUN, true, rate);"))
         self.assertIn("return false;", apply)
-        restore = body(code, "bool RestoreBotSpeed(Player* bot)", "\n}\n")
+        self.assertIn("waitSinceMs = 0;", apply)
+        restore = body(code, "bool RestoreBotSpeed(Player* bot, RunSpeedEntry& entry,", "\n}\n")
         self.assertIn("SpeedChangeWaitsFor(bot)", restore)
         self.assertLess(restore.index("SpeedChangeWaitsFor(bot)"), restore.index("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);"))
         self.assertLess(restore.index("SpeedChangeWaitsFor(bot)"), restore.index("pet->UpdateSpeed"))
@@ -1261,10 +1262,29 @@ class RunTestSpeedWiringTest(unittest.TestCase):
         self.assertIn("!bot->movespline->Finalized()", gate)
         self.assertIn("TortoiseBots::DungeonRun::SpeedChangeWaits(", gate)
         each = body(code, "void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)\n{", "\n}\n")
-        self.assertIn("if (!RestoreBotSpeed(bot))", each)
+        self.assertIn("if (!RestoreBotSpeed(bot, entry->second, WorldTimer::getMSTime()))", each)
         sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
-        self.assertEqual(sync.count("if (bot && !RestoreBotSpeed(bot))"), 2)
-        self.assertEqual(each.count("if (!RestoreBotSpeed(bot))"), 1)
+        self.assertEqual(sync.count("if (bot && !RestoreBotSpeed(bot, it->second, WorldTimer::getMSTime()))"), 2)
+        self.assertEqual(each.count("if (!RestoreBotSpeed(bot, entry->second, WorldTimer::getMSTime()))"), 1)
+
+    def test_speed_restore_wait_is_bounded(self):
+        code = strip_comments(COMMANDS)
+        restore = body(code, "bool RestoreBotSpeed(Player* bot, RunSpeedEntry& entry,", "\n}\n")
+        # The restore wait is bounded (lead decision 2026-10-25): a run a real
+        # player joined restores at once, never waits; otherwise at most 15 s
+        # from the first refused restore per bot, stamped in the speed entry.
+        self.assertIn("speedPlayerBlocked", restore)
+        self.assertIn("waitSinceMs", restore)
+        self.assertIn("TortoiseBots::DungeonRun::SpeedRestoreWaits(", restore)
+        self.assertIn("WorldTimer::getMSTime()", code)
+        self.assertLess(restore.index("SpeedChangeWaitsFor(bot)"), restore.index("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);"))
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        self.assertIn("kSpeedRestoreWaitMs = 15000", policy)
+        self.assertIn("inline bool SpeedRestoreWaits(bool playerBlocked", policy)
+        entry = body(code, "struct RunSpeedEntry", "\n};")
+        self.assertIn("waitSinceMs", entry)
+        apply = body(code, "bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
+        self.assertIn("waitSinceMs = 0;", apply)
 
     def test_every_clear_of_the_runs_syncs_the_speed(self):
         code = strip_comments(COMMANDS)

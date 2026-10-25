@@ -1235,8 +1235,8 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
     f.coreType = static_cast<uint32>(path.getPathType());
     Vector3 const coreEnd = path.getActualEndPosition();
     Map* const map = bot->GetMap();
-    bool const swimShortcutWanted = f.coreType == (ai::kPathTypeNormal | ai::kPathTypeNotUsingPath);
-    f.coreLineHitsModel = swimShortcutWanted
+    bool const isShortcut0x11 = f.coreType == (ai::kPathTypeNormal | ai::kPathTypeNotUsingPath);
+    f.coreLineHitsModel = isShortcut0x11
         ? map->FindCollisionModel(startPos.getX(), startPos.getY(), startPos.getZ(),
             coreEnd.x, coreEnd.y, coreEnd.z + 0.5f) != nullptr
         : map->FindCollisionModel(startPos.getX(), startPos.getY(), startPos.getZ(),
@@ -1270,6 +1270,7 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
             startPos.getX(), startPos.getY(), surfaceZ, true) &&
         map->isInLineOfSight(startPos.getX(), startPos.getY(), surfaceZ,
             endPos.getX(), endPos.getY(), endPos.getZ() + 0.5f, true);
+    ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);
     // Round 1: name the stall the hand-off will not take (the brief's "model on the line, over
     // 100 yd" cases), rate-limited on the hand-off stamp. Anything else silent stays silent: it is
     // the old behaviour (on land, walking, a land line, a partial path), not a stall. Fix 2 covers the
@@ -1410,7 +1411,8 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
         return SwimHandoffResult::Refused;
     }
 
-    std::string const why = swimShortcut
+    // The taken line only: a 0x11 that fell to SwimOut logs the swim-out line, never the refused shortcut.
+    std::string const why = kind == ai::SwimHandoff::CoreLine && swimShortcut
         ? WorldPosition::SwimLineWhy({ startPos, linePoints.back() }, bot) : std::string("-");
     MotionMaster& mm = *bot->GetMotionMaster();
     mm.Clear();

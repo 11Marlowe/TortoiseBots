@@ -320,6 +320,7 @@ struct RunSpeedEntry
     float rate = 1.0f;
     float appliedRun = 1.0f;
     float appliedWalk = 1.0f;
+    uint32 waitSinceMs = 0; // the first refused restore while a bot swims a spline (0: none latched; WorldTimer::getMSTime)
 };
 
 std::unordered_map<uint64, RunSpeedEntry>& RunSpeedBots()
@@ -8891,6 +8892,7 @@ bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)
     entry.rate = rate;
     entry.appliedRun = bot->GetSpeedRate(MOVE_RUN);
     entry.appliedWalk = bot->GetSpeedRate(MOVE_WALK);
+    entry.waitSinceMs = 0;
     return true;
 }
 
@@ -8919,10 +8921,19 @@ void CatchUpPet(Player* bot, float rate)
 
 // The bot and its pet back to their own rates (the auras' and the template's, ratio 1). When the rule above says
 // wait, neither is touched (the pet waits with its bot) and the caller keeps the bot listed for the next retry.
-bool RestoreBotSpeed(Player* bot)
+// The wait is bounded (lead decision 2026-10-25): a run a real player joined restores at once, never waits;
+// otherwise the wait lasts at most kSpeedRestoreWaitMs from the first refused restore, stamped in the entry.
+bool RestoreBotSpeed(Player* bot, RunSpeedEntry& entry, std::uint32_t nowMs)
 {
+    auto const run = DungeonRuns().find(entry.commanderRaw);
+    bool const playerBlocked = run != DungeonRuns().end() && run->second.run.speedPlayerBlocked;
     if (SpeedChangeWaitsFor(bot))
-        return false;
+    {
+        if (entry.waitSinceMs == 0)
+            entry.waitSinceMs = nowMs == 0 ? 1 : nowMs;
+        if (TortoiseBots::DungeonRun::SpeedRestoreWaits(playerBlocked, nowMs - entry.waitSinceMs))
+            return false;
+    }
     bot->UpdateSpeed(MOVE_RUN, true, 1.0f);
     bot->UpdateSpeed(MOVE_WALK, true, 1.0f);
     if (Pet* const pet = bot->GetPet())
@@ -8930,6 +8941,7 @@ bool RestoreBotSpeed(Player* bot)
         pet->UpdateSpeed(MOVE_RUN, true, 1.0f);
         pet->UpdateSpeed(MOVE_WALK, true, 1.0f);
     }
+    entry.waitSinceMs = 0;
     return true;
 }
 
@@ -8982,7 +8994,7 @@ void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const
                 }
                 else
                 {
-                    if (!RestoreBotSpeed(bot)) continue;
+                    if (!RestoreBotSpeed(bot, entry->second, WorldTimer::getMSTime())) continue;
                     listed.erase(entry);
                 }
             }
@@ -9057,7 +9069,7 @@ void SyncRunSpeed()
             it = listed.erase(it);
             continue;
         }
-        if (bot && !RestoreBotSpeed(bot)) { ++it; continue; }
+        if (bot && !RestoreBotSpeed(bot, it->second, WorldTimer::getMSTime())) { ++it; continue; }
         it = listed.erase(it);
     }
     for (uint64 commanderRaw : playerBlocked)
@@ -9089,7 +9101,7 @@ void SyncRunSpeed()
         }
         if (Player* bot = FindCharacter(it->first))
         {
-            if (bot && !RestoreBotSpeed(bot)) { ++it; continue; }
+            if (bot && !RestoreBotSpeed(bot, it->second, WorldTimer::getMSTime())) { ++it; continue; }
         }
         it = listed.erase(it);
     }

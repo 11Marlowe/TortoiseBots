@@ -121,7 +121,15 @@ class SwimHandoffWiringTest(unittest.TestCase):
         self.assertIn("coreEnd.z + 0.5f", h)
         self.assertIn("bool const swimShortcut =", h)
         self.assertIn("if (kind == ai::SwimHandoff::SwimOut || swimShortcut)", h)
-        self.assertIn("std::string const why = swimShortcut", h)
+        self.assertIn("std::string const why = kind == ai::SwimHandoff::CoreLine && swimShortcut", h)
+
+    def test_handoff_asks_the_policy_for_kind(self):
+        # The glue feeds every filled fact through the policy: pin the call
+        # statement feeding `kind` (a declaration grep would miss a deletion).
+        h = self.hand
+        self.assertIn("ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);", h)
+        self.assertLess(h.index("f.surfaceLineClear ="), h.index("ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);"))
+        self.assertLess(h.index("ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);"), h.index("if (kind == ai::SwimHandoff::None)"))
 
     def test_handoff_round1_clip_magma_slime_ground(self):
         h = self.hand
