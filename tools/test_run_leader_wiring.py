@@ -1286,6 +1286,25 @@ class RunTestSpeedWiringTest(unittest.TestCase):
         apply = body(code, "bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
         self.assertIn("waitSinceMs = 0;", apply)
 
+    def test_player_scan_runs_before_keep_is_decided(self):
+        code = strip_comments(COMMANDS)
+        sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
+        # Round 2 (Codex): the bound group's real-player scan runs for EVERY listed entry with a
+        # live run/binding, BEFORE keep is decided and BEFORE any restore. A real player joining
+        # after keep already went false (fight, pause, stop, speedNow back at 1.0) still latches
+        # the run blocked on that same call, so a bot already waiting out a swim-spline restore
+        # (waitSinceMs set) goes back at once instead of up to 15 s later.
+        loop = sync[sync.index("for (auto it = listed.begin(); it != listed.end();)"):]
+        self.assertLess(loop.index("GetMemberSlots()"), loop.index("speedNow > 1.0f"))
+        self.assertLess(loop.index("GetMemberSlots()"), loop.index("RestoreBotSpeed(bot, it->second"))
+        # The scan is not gated on keep: the first keep gate comes after the scan.
+        self.assertLess(loop.index("GetMemberSlots()"), loop.index("if (keep)"))
+        self.assertIn("playerBlocked.insert(it->second.commanderRaw)", loop)
+        # Latched at once: the flag is set before any same-call restore, so RestoreBotSpeed
+        # (which restores at once when speedPlayerBlocked is set) does not wait out the swim.
+        self.assertLess(loop.index("speedPlayerBlocked = true;"), loop.index("RestoreBotSpeed(bot, it->second"))
+
+
     def test_every_clear_of_the_runs_syncs_the_speed(self):
         code = strip_comments(COMMANDS)
         update = body(code, "static void UpdateDungeonRuns(uint32 diff)", "\n}\n")

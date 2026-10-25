@@ -9015,8 +9015,9 @@ void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const
 // cheatless and one of the lead bot's commanded bots; else it goes back (on the movespeed-cheat branch it is
 // erased without restoring: the cheat owns the rate; round 2, Codex). A listed bot (or its pet) in a fight sends
 // every listed bot of its run back at once (DungeonRun::SpeedFightSeen: the settle starts again), not on the next
-// tick. A real player in the bound group latches the run blocked and sends every listed bot of the run back in the
-// same update (round 1, Codex): no fast tick leaks between his join and the next run tick.
+// tick. A real player in the bound group latches the run blocked at the top of the loop and sends every listed
+// bot of the run back in the same update (round 1, Codex; scan hoisted round 2): no fast tick leaks between his
+// join and the next run tick.
 void SyncRunSpeed()
 {
     auto& listed = RunSpeedBots();
@@ -9031,6 +9032,24 @@ void SyncRunSpeed()
         auto const run = DungeonRuns().find(it->second.commanderRaw);
         RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(it->second.commanderRaw);
         Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+        // Round 2 (Codex): the bound group's real-player scan runs for every listed entry with a live
+        // run/binding, BEFORE keep is decided and before any restore. A player joining after keep
+        // already went false (fight, pause, stop, speedNow back at 1.0) still latches the run
+        // blocked on that same call, so a bot waiting out a swim-spline restore goes back at once.
+        if (run != DungeonRuns().end() && binding && lead && lead->GetGroup() &&
+            !run->second.run.speedPlayerBlocked)
+        {
+            for (Group::MemberSlot const& member : lead->GetGroup()->GetMemberSlots())
+            {
+                if (member.guid.GetRawValue() == binding->commanderGuid ||
+                    BotManager::Instance().IsBot(member.guid))
+                    continue;
+                run->second.run.speedPlayerBlocked = true;
+                TortoiseBots::DungeonRun::SpeedFightSeen(run->second.run);
+                playerBlocked.insert(it->second.commanderRaw);
+                break;
+            }
+        }
         bool keep = bot && run != DungeonRuns().end() &&
             run->second.run.state == TortoiseBots::DungeonRun::State::Running && run->second.run.speedNow > 1.0f &&
             !run->second.run.speedPlayerBlocked &&
@@ -9040,18 +9059,6 @@ void SyncRunSpeed()
         {
             FillCommandedBots(lead->GetGroup(), lead, members);
             keep = std::find(members.begin(), members.end(), bot) != members.end();
-        }
-        if (keep && lead && lead->GetGroup())
-        {
-            for (Group::MemberSlot const& member : lead->GetGroup()->GetMemberSlots())
-            {
-                if (member.guid.GetRawValue() == binding->commanderGuid ||
-                    BotManager::Instance().IsBot(member.guid))
-                    continue;
-                playerBlocked.insert(it->second.commanderRaw);
-                keep = false;
-                break;
-            }
         }
         bool const fight = keep && MemberInCombat(bot);
         if (fight)
