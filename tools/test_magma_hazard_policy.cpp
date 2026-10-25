@@ -27,6 +27,7 @@ using ai::MagmaRefusalFor;
 using ai::MagmaRouteRefusalFor;
 using ai::MagmaNudgeBlocked;
 using ai::kMagmaMaxInteriorSamples;
+using ai::KeepNavmeshZOverMagma;
 using ai::kMagmaRefusalSeconds;
 
 // GridMapDefines.h, mirrored for the test (the static_asserts in
@@ -258,6 +259,33 @@ int main()
         CHECK(!MagmaNudgeBlocked(false, r, 389, 101, true));         // open world: unchanged
         std::cout << "  [PASS] the task walk nudge waits after a magma refusal\n";
     }
+    // The DispatchMovement clamp rewrite (specs/dmr-step453.md Fix B): the
+    // core's UpdateAllowedPositionZ can lower a navmesh path point into WMO
+    // magma while the navmesh floor is dry (Dragonmaw Retreat r39s2/r41s2:
+    // navmesh 72.6, clamp 70.25 in lava). Keep the navmesh z then.
+    {
+        int kept = 0;
+        for (int guard = 0; guard <= 1; ++guard)
+            for (int lowered = 0; lowered <= 1; ++lowered)
+                for (int clamped = 0; clamped <= 1; ++clamped)
+                    for (int navmesh = 0; navmesh <= 1; ++navmesh)
+                    {
+                        bool const want = guard && lowered && clamped && !navmesh;
+                        bool const got = KeepNavmeshZOverMagma(guard, lowered, clamped, navmesh);
+                        if (got)
+                            ++kept;
+                        if (want != got)
+                        {
+                            std::cerr << "KeepNavmeshZOverMagma(" << guard << "," << lowered << "," << clamped << "," << navmesh
+                                << ") = " << got << ", want " << want << "\n";
+                        }
+                        CHECK(got == want);
+                    }
+        CHECK(kept == 1);
+        CHECK(KeepNavmeshZOverMagma(true, true, true, false)); // lowered into magma, navmesh floor dry: keep the floor
+        std::cout << "  [PASS] the clamp keeps the navmesh floor over magma only\n";
+    }
+
 
     std::cout << "All magma hazard policy tests passed.\n";
     return 0;
