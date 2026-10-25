@@ -177,10 +177,14 @@ namespace ai
     // path up it. Stormwrought Ruins r41 steps 717/719: the lead on Eldermaw's pool bed, cut off from the
     // shore, had no path at all to the apron at the waterline. Now a bot in water whose own route makes no
     // progress (fewer than 2 points, or ending within kSwimNoProgressYd of it) hands the move to the
-    // core when the core answers a complete path (0x1) or its swim line (0x81, no static model on it, at
-    // most kSwimHandoffMaxLineYd), or swims up and out to a shore point at the waterline within
-    // kSwimOutMaxGroundYd. Never a real player's character, a transport, a flight; never 0x11 (the
-    // core's straight line on land), a shortcut, a partial or failed path.
+    // core when the core answers a complete path (0x1), its swim line (0x81, no static model on it, at
+    // most kSwimHandoffMaxLineYd), or its mid-water shortcut (0x11) when BOTH ends are in water (the bot's
+    // spot swimmable and the end, raised 0.5 yd, water or ocean), no model on the line, at most
+    // kSwimHandoffMaxLineYd: Karazhan Crypt refast slot7 step 204, the lead 22 yd over the shaft floor with
+    // no polygon in reach (the core's PathFinder.cpp:231-233 swim shortcut is 0x11, not 0x81). On land 0x11
+    // stays refused (the core's straight line through terrain). A refused 0x11 falls through to the swim-out
+    // below, or swims up and out to a shore point at the waterline within kSwimOutMaxGroundYd. Never a real
+    // player's character, a transport, a flight; never a shortcut, a partial or failed path.
     constexpr float kSwimNoProgressYd = 2.0f;
     constexpr float kSwimHandoffMaxLineYd = 100.0f;
     constexpr float kSwimOutMaxGroundYd = 30.0f;
@@ -211,6 +215,7 @@ namespace ai
         bool coreLineHitsModel = false;  // a static model on the line bot -> the core's actual end
         bool swimmableHere = false;      // the core's IsSwimmable at the bot's spot
         bool endSwimmable = false;       // the core's IsSwimmable at the end
+        bool endInWater = false;         // the move's end raised 0.5 yd: water or ocean under the surface
         bool endHasGround = false;       // a floor within 1 yd below the end (the swim-out lands on it)
         float endGroundYd = 0.0f;        // bot -> end on the ground plane
         float endFromSurfaceYd = 0.0f;   // end z minus the water level over the bot
@@ -228,6 +233,13 @@ namespace ai
         if (f.coreType == (kPathTypeNormal | kPathTypeUnderwater))
             return !f.coreLineHitsModel && f.endFromBot <= kSwimHandoffMaxLineYd ? SwimHandoff::CoreLine
                                                                                   : SwimHandoff::None;
+        // Karazhan Crypt refast slot7 step 204: mid-water the core answers 0x11 for a floor point 22 yd below
+        // (no polygon in reach, swimmable start; PathFinder.cpp:231-233). That shortcut is a straight swim line,
+        // but only when BOTH ends are in water: on land 0x11 is the core's straight line through terrain.
+        // Otherwise it falls through to the swim-out below (Stormwrought's pool-bed stall still needs that).
+        if (f.coreType == (kPathTypeNormal | kPathTypeNotUsingPath) && f.swimmableHere && f.endInWater &&
+            !f.coreLineHitsModel && f.endFromBot <= kSwimHandoffMaxLineYd)
+            return SwimHandoff::CoreLine;
         if (f.swimmableHere && !f.endSwimmable && f.endHasGround && f.endGroundYd <= kSwimOutMaxGroundYd &&
             std::fabs(f.endFromSurfaceYd) <= kSwimOutSurfaceBandYd && f.surfaceLineClear)
             return SwimHandoff::SwimOut;

@@ -1206,11 +1206,11 @@ static bool SwimHandoffLegClear(PlayerbotAI* ai, Unit* mover, bool ignoreEnemyTa
 }
 
 // SwimPathPolicy.h ChooseSwimHandoff: a bot in water whose own route makes no progress hands the move to the
-// core's own swim (0x81 via MovePoint with pathfinding, 0x1 by walking the module's spline over the core's
-// clipped points) or swims up and out to a shore point at the waterline. Round 1 runs every hand-off
-// route through the SAME ClipPath (hostile/hazard + packHold) as an ordinary route, guards the walked
-// 0x1 path (not the chord) against magma, and refuses slime and groundless swim-out ends. The cheap
-// gates come first: a route that walks never costs a path query.
+// core's own swim (0x81 or the mid-water 0x11 shortcut via MovePoint with pathfinding, 0x1 by walking the
+// module's spline over the core's clipped points) or swims up and out to a shore point at the waterline.
+// Round 1 runs every hand-off route through the SAME ClipPath (hostile/hazard + packHold) as an ordinary route,
+// guards the walked 0x1 path (not the chord) against magma, and refuses slime and groundless swim-out ends. The
+// cheap gates come first: a route that walks never costs a path query.
 MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPosition& startPos, const WorldPosition& endPos,
     TravelPath& movePath, LastMovement& lastMove, PackHoldResult* packHold, bool ignoreEnemyTargets)
 {
@@ -1235,12 +1235,25 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
     f.coreType = static_cast<uint32>(path.getPathType());
     Vector3 const coreEnd = path.getActualEndPosition();
     Map* const map = bot->GetMap();
-    f.coreLineHitsModel = map->FindCollisionModel(startPos.getX(), startPos.getY(), startPos.getZ(),
-        coreEnd.x, coreEnd.y, coreEnd.z) != nullptr;
+    bool const swimShortcutWanted = f.coreType == (ai::kPathTypeNormal | ai::kPathTypeNotUsingPath);
+    f.coreLineHitsModel = swimShortcutWanted
+        ? map->FindCollisionModel(startPos.getX(), startPos.getY(), startPos.getZ(),
+            coreEnd.x, coreEnd.y, coreEnd.z + 0.5f) != nullptr
+        : map->FindCollisionModel(startPos.getX(), startPos.getY(), startPos.getZ(),
+            coreEnd.x, coreEnd.y, coreEnd.z) != nullptr;
     TerrainInfo const* const terrain = map->GetTerrain();
     GridMapLiquidData here{};
     f.swimmableHere = terrain->IsSwimmable(startPos.getX(), startPos.getY(), startPos.getZ(), 1.5f, &here);
     f.endSwimmable = terrain->IsSwimmable(endPos.getX(), endPos.getY(), endPos.getZ());
+    // Karazhan Crypt shaft dive (Fix 2): for the mid-water 0x11 shortcut, the end must be in water too.
+    // Sampled at +0.5 yd like SwimPathFits' sight test, so the floor under the end is not read as a wall.
+    if (f.coreType == (ai::kPathTypeNormal | ai::kPathTypeNotUsingPath))
+    {
+        GridMapLiquidData endData{};
+        std::uint32_t const endStatus = terrain->getLiquidStatus(endPos.getX(), endPos.getY(), endPos.getZ() + 0.5f,
+            ai::kSwimLiquidRequest, &endData);
+        f.endInWater = ai::SwimSampleInWater(endStatus, endData.type_flags);
+    }
     f.endGroundYd = std::sqrt(startPos.sqDistance2d(endPos));
     float const surfaceZ = here.level - ai::kSwimOutSurfaceDepthYd;
     f.endFromSurfaceYd = f.swimmableHere ? endPos.getZ() - here.level : 1000.0f;
@@ -1257,15 +1270,16 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
             startPos.getX(), startPos.getY(), surfaceZ, true) &&
         map->isInLineOfSight(startPos.getX(), startPos.getY(), surfaceZ,
             endPos.getX(), endPos.getY(), endPos.getZ() + 0.5f, true);
-    ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);
     // Round 1: name the stall the hand-off will not take (the brief's "model on the line, over
     // 100 yd" cases), rate-limited on the hand-off stamp. Anything else silent stays silent: it is
-    // the old behaviour (on land, walking, a land line, a partial path), not a stall.
+    // the old behaviour (on land, walking, a land line, a partial path), not a stall. Fix 2 covers the
+    // 0x11 shortcut too when both ends are in water; a refused 0x11 falls through to the swim-out below.
+    bool const swimShortcutWanted = f.coreType == (ai::kPathTypeNormal | ai::kPathTypeUnderwater) ||
+        (f.coreType == (ai::kPathTypeNormal | ai::kPathTypeNotUsingPath) && f.swimmableHere && f.endInWater);
     if (kind == ai::SwimHandoff::None)
     {
         if (f.inWater && !f.excluded && f.endFromBot > ai::kSwimNoProgressYd &&
-            f.routeEndFromBot <= ai::kSwimNoProgressYd &&
-            f.coreType == (ai::kPathTypeNormal | ai::kPathTypeUnderwater))
+            f.routeEndFromBot <= ai::kSwimNoProgressYd && swimShortcutWanted)
         {
             if (f.coreLineHitsModel)
                 LogSwimHandoffRefused(bot, lastMove, "core line", "model on the line", endPos, f.coreType,
@@ -1327,8 +1341,11 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
             linePoints.push_back(WorldPosition(bot->GetMapId(), startPos.getX(), startPos.getY(), surfaceZ));
         linePoints.push_back(endPos);
     }
-    // Round 1 (c): the 0x81 line and the swim-out legs go through the same ClipPath; a cut refuses.
-    if (kind == ai::SwimHandoff::SwimOut || f.coreType == (ai::kPathTypeNormal | ai::kPathTypeUnderwater))
+    // Fix 2: the 0x11 shortcut is a straight swim line like 0x81: same ClipPath, and the magma/slime guard below
+    // runs for it too.
+    bool const swimShortcut = f.coreType == (ai::kPathTypeNormal | ai::kPathTypeUnderwater) || f.coreType ==
+        (ai::kPathTypeNormal | ai::kPathTypeNotUsingPath);
+    if (kind == ai::SwimHandoff::SwimOut || swimShortcut)
     {
         if (!SwimHandoffLegClear(ai, bot, ignoreEnemyTargets, packHold, linePoints))
         {
@@ -1393,7 +1410,7 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
         return SwimHandoffResult::Refused;
     }
 
-    std::string const why = f.coreType == (ai::kPathTypeNormal | ai::kPathTypeUnderwater)
+    std::string const why = swimShortcut
         ? WorldPosition::SwimLineWhy({ startPos, linePoints.back() }, bot) : std::string("-");
     MotionMaster& mm = *bot->GetMotionMaster();
     mm.Clear();
