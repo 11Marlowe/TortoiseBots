@@ -774,6 +774,17 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (129) AND `entry` IN (7357, 8567, 62679, 7358);", text)
 
     def test_stormwrought_ruins_is_the_census_fixed_draft(self):
+        # 20261025000900 (turtle-agent 7e3d371, 2026-10-25): SW-FIX5 adds leg 4 group 7's approach down to the floor of
+        # groups 8-11 and a step-31 approach in leg 1. RUN-LESSONS r39s2 stormwrought_ruins slotB stopped at step 183
+        # (leg 4 chieftain_stormsong, pull group 11): the exporter's cut for group 7 ended at -6048.5 -4167.5 220.0, a
+        # stacked point (Floors 222.79 and 219.99, no link), the party landed on the 222.3-223.3 shelf (live lead
+        # -6058.5 -4166.2 224.5), the packs stand at z217.6-218.4 and every pullback refused "no safe stand
+        # 15.0-25.0 yd". r37 slot6 walked the same rows and cleared the leg: its party rested at -6057.9 -4136.5 217.5
+        # and pulled groups 8-11 from there, so that spot is the group-7 approach's stand (26.7/41.0/22.4/50.9 yd from
+        # the four packs). Step 31's pack 62540 (-5765.28 -4278.17 235.33) is 235.2 yd by the only route (the ledge and
+        # the pit are cut by a 12 yd void); the r39 party was left 104 yd out on an off-mesh rock (-5868.7 -4267.7
+        # 239.7, no floor). Group 2 now carries the four-point corridor route to the pit rim -5795.73 -4268.27 239.66.
+        # 12 legs, 781 steps (224 pulls; 794 rows).
         # 20261025000100 (turtle-agent 6cf1575, 2026-10-25): SW-FIX4 re-exports the 20261024154300 plan with leg 5
         # group 14's authored approach. RUN-LESSONS r37 stormwrought_ruins slot6 had stopped at the lake shore: the
         # exporter's cut from group 13 (pull -6389.38 -3947.89 218.72) to group 14 walked y -3947 across the 8 yd
@@ -788,16 +799,17 @@ class DungeonPlanSql(unittest.TestCase):
         # 54.7 yd short), the floors are there (215.43 launch, 215.88 mid-gap, 216.88 landing). Leg 7 is split:
         # mycellakos_west keeps the route and pull groups 0-9; leg 8 mycellakos starts with the exact move to
         # the island edge and the 6.3 yd move_hop_exact to the east shelf, then the packs 10-18 (its groups 0-8)
-        # and the boss. 12 legs, 770 steps (224 pulls; the seam's three rows, then SW-FIX4's four approach rows in
-        # place of five cut rows), bosses in leg order, no boss.first, no
+        # and the boss. 12 legs, 781 steps (224 pulls; the seam's three rows, then SW-FIX4's four approach rows in
+        # place of five cut rows, SW-FIX5's three for leg 4 group 7 in place of eight and four for leg 1 group 2),
+        # bosses in leg order, no boss.first, no
         # door or event step. Every other row is 20261024151200's, shifted (legs 8-10 are 9-11). Leg 5 keeps the
         # SW-FIX1 south-shore order and the SW-FIX2 ledge approach rows (groups 10-11); the 12 water-only
         # z207.06 Razormaw singles, leg 6's 62660 single, leg 7's eight 62655 singles and leg 8's six 62648
         # groups are gone. The nine packs inside a boss's 18 yd detection are still their leg's last pull, and
         # Remains of the Innocent 62670 (boss-grade trash) is still in leg 11 and in kill_first.
         name, text = newest_plan_text("stormwrought_ruins")
-        self.assertEqual(name, "20261025000100_world.sql")
-        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 6cf1575 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025000900_world.sql")
+        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 7e3d371 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "stormwrought_ruins"),
                          {0: ("dagar_the_glutton", ""), 1: ("oronok_torn-heart", ""),
                           2: ("librarian_theodorus", ""), 3: ("duke_balor_the_iv", ""),
@@ -806,7 +818,7 @@ class DungeonPlanSql(unittest.TestCase):
                           8: ("mycellakos", ""), 9: ("eldermaw_the_primordial", ""),
                           10: ("lady_drazare", ""), 11: ("ighal'for", "")})
         rows = [r for r in self.step_rows(text) if r["plan"] == "stormwrought_ruins"]
-        self.assertEqual(len(rows), 770)
+        self.assertEqual(len(rows), 781)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(12)],
                          [11, 28, 18, 19, 19, 31, 27, 10, 9, 10, 30, 12])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
@@ -889,6 +901,44 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["kind"], r["x"], r["y"], r["z"], r["entries"]) for r in steps8[3:5]],
                          [("pull", "-6012.28", "-3784.58", "218.45", "62645,62650"),
                           ("pull", "-5990.5", "-3783.86", "219.37", "62650,62645")])
+        # SW-FIX5: leg 4 group 7's approach ends on the floor of groups 8-11 and they are pulled from it with no move row
+        # between (r39s2: the party stood on the 222.3-223.3 shelf and each pullback refused). The stand is the r37
+        # slot6 rest spot (-6057.9 -4136.5 217.5), 26.7/41.0/22.4/50.9 yd from groups 8/9/10/11.
+        steps4 = leg_steps(rows, 4)
+        pulls4 = [r for r in steps4 if r["kind"] == "pull"]
+        i7 = steps4.index(pulls4[7])
+        self.assertEqual([(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in steps4[i7 - 3:i7]],
+                         [("move", "-6056.2666", "-4184.8", "222.789", "pull group 7 approach"),
+                          ("move", "-6055.7334", "-4179.4663", "220.189", "pull group 7 approach"),
+                          ("move", "-6057.9", "-4136.5", "217.5", "pull group 7 approach")])
+        self.assertEqual([r["kind"] for r in steps4[i7:i7 + 5]],
+                         ["pull"] * 5, "groups 7-11 pulled from the approach's stand with no move between")
+        stand4 = (float(steps4[i7 - 1]["x"]), float(steps4[i7 - 1]["y"]), float(steps4[i7 - 1]["z"]))
+        self.assertEqual(stand4, (-6057.9, -4136.5, 217.5))
+        for n in range(8, 12):
+            p = pulls4[n]
+            self.assertLessEqual(math.dist(stand4, (float(p["x"]), float(p["y"]), float(p["z"]))), 60.0, n)
+        # SW-FIX5: leg 1 group 2 (step 31's pack, 62540 at -5765.28 -4278.17 235.33) walks the corridor route to the pit
+        # rim, 32.4 yd from the pack, instead of the run leader's 8 hops (r39s2 stopped 104 yd out on an off-mesh rock).
+        steps1 = leg_steps(rows, 1)
+        approach1 = [r for r in steps1 if r["comment"] == "pull group 2 approach"]
+        self.assertEqual([(r["kind"], r["x"], r["y"], r["z"]) for r in approach1],
+                         [("move", "-5869.87", "-4303.2", "234.99"),
+                          ("move", "-5874.93", "-4283.47", "236.39"),
+                          ("move", "-5873.07", "-4268.8", "239.19"),
+                          ("move", "-5795.73", "-4268.27", "239.66")])
+        pull2 = [r for r in steps1 if r["kind"] == "pull"][2]
+        self.assertEqual(steps1[steps1.index(pull2) - 1], approach1[-1], "the rim is the last move before the pull")
+        self.assertLessEqual(math.dist((float(approach1[-1]["x"]), float(approach1[-1]["y"]), float(approach1[-1]["z"])),
+                                       (float(pull2["x"]), float(pull2["y"]), float(pull2["z"]))), 60.0)
+        self.assertLessEqual(math.dist((float(approach1[-1]["x"]), float(approach1[-1]["y"]), float(approach1[-1]["z"])),
+                                       (float(pull2["x"]), float(pull2["y"]), float(pull2["z"]))), 32.5)
+        # the route's corners the exporter cut into move rows: all on the corridor floor (z 234.96-239.69), none on the
+        # 239.7 rock the r39 lead was left on (no navmesh floor there).
+        between = steps1[steps1.index([r for r in steps1 if r["kind"] == "pull"][1]) + 1:steps1.index(pull2)]
+        self.assertTrue(between[0]["comment"] == "path")
+        self.assertLessEqual(max(float(r["z"]) for r in between), 241.3)
+        self.assertFalse([r for r in between if -5870 < float(r["x"]) < -5866 and abs(float(r["y"]) + 4267.7) < 2.5])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["stormwrought_ruins"])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_leg` WHERE `plan` = '(\w+)';", text), ["stormwrought_ruins"])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_plan` WHERE `plan` = '(\w+)';", text), ["stormwrought_ruins"])
