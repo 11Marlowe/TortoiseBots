@@ -186,13 +186,20 @@ namespace ai
     constexpr float kSwimOutMaxGroundYd = 30.0f;
     constexpr float kSwimOutSurfaceBandYd = 3.0f;
     constexpr float kSwimOutSurfaceDepthYd = 0.5f;
+    // Round 1 (Codex + Opus review 2026-10-25): the hand-off ran before ClipPath, so it skipped
+    // the pack hold and the enemy/hazard clipping; the 0x1 magma guard read the chord, not the
+    // walked path. Now a follow that holds before packs never hands off; a 0x1 answer walks its
+    // own points through the same ClipPath (a cut route is dispatched, under 2 points refused);
+    // the 0x81 line and the swim-out legs are refused when clipped; slime refuses the line as
+    // magma does; the swim-out needs a floor within 1 yd below its end.
 
     enum class SwimHandoff
     {
         None,     // the bot's own move as before
-        CoreLine, // MovePoint with pathfinding: the core plans and walks it
+        CoreLine, // 0x1: the module's spline over the core's clipped points; 0x81: MovePoint with pathfinding
         SwimOut,  // up to just under the surface, then straight to the end
     };
+    // (The glue clips each hand-off route with the same ClipPath as an ordinary route; see MovementActions.cpp.)
 
     struct SwimHandoffFacts
     {
@@ -204,6 +211,7 @@ namespace ai
         bool coreLineHitsModel = false;  // a static model on the line bot -> the core's actual end
         bool swimmableHere = false;      // the core's IsSwimmable at the bot's spot
         bool endSwimmable = false;       // the core's IsSwimmable at the end
+        bool endHasGround = false;       // a floor within 1 yd below the end (the swim-out lands on it)
         float endGroundYd = 0.0f;        // bot -> end on the ground plane
         float endFromSurfaceYd = 0.0f;   // end z minus the water level over the bot
         bool surfaceLineClear = false;   // bot -> the rise point and the rise point -> the end, both in sight
@@ -220,7 +228,7 @@ namespace ai
         if (f.coreType == (kPathTypeNormal | kPathTypeUnderwater))
             return !f.coreLineHitsModel && f.endFromBot <= kSwimHandoffMaxLineYd ? SwimHandoff::CoreLine
                                                                                   : SwimHandoff::None;
-        if (f.swimmableHere && !f.endSwimmable && f.endGroundYd <= kSwimOutMaxGroundYd &&
+        if (f.swimmableHere && !f.endSwimmable && f.endHasGround && f.endGroundYd <= kSwimOutMaxGroundYd &&
             std::fabs(f.endFromSurfaceYd) <= kSwimOutSurfaceBandYd && f.surfaceLineClear)
             return SwimHandoff::SwimOut;
         return SwimHandoff::None;

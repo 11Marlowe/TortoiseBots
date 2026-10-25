@@ -1,8 +1,10 @@
+#include "../ai/playerbot/MagmaHazardPolicy.h"
 #include "../ai/playerbot/SwimPathPolicy.h"
 
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <vector>
 
 #define CHECK(x) do { \
     if (!(x)) { \
@@ -317,7 +319,7 @@ static SwimHandoffFacts PoolStall()
     f.coreLineHitsModel = false;
     f.swimmableHere = true;
     f.endSwimmable = true;
-    f.endGroundYd = 15.9f;
+    f.endHasGround = false;        // round 1: only the swim-out reads it (a swimmable end is the core's)
     f.endFromSurfaceYd = -20.9f;
     f.surfaceLineClear = true;
     return f;
@@ -373,6 +375,7 @@ static void TestPoolBedSwimsOutToTheApron()
     f.routeEndFromBot = 0.4f;
     f.endFromBot = 13.2f;
     f.endSwimmable = false;
+    f.endHasGround = true;             // the apron: floor under the end
     f.endGroundYd = 8.2f;
     f.endFromSurfaceYd = 0.1f;
     f.surfaceLineClear = true;
@@ -385,6 +388,48 @@ static void TestPoolBedSwimsOutToTheApron()
     g = f; g.surfaceLineClear = false;                     CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);   // a wall in the way
     g = f; g.endSwimmable = true;                          CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);   // a swimmable end is the core's
     g = f; g.swimmableHere = false;                        CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);   // shallow: wade, not swim
+    g = f; g.endHasGround = false;                         CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);   // round 1: no floor under the end
+}
+
+// Round 1 (Codex + Opus 2026-10-25): a curved 0x1 path through magma whose chord is clear is still
+// refused. The glue guards path.getPath(), not the bot->end chord; this pins the guard's input: the
+// walked path's own points, not the two ends. Pure shape: the route bends through a magma basin the
+// straight bot->end chord misses.
+static void TestCurvedPathThroughMagmaIsRefused()
+{
+    MagmaPoint const start{ 0.0f, 0.0f, 0.0f };
+    std::vector<MagmaPoint> const chord{ MagmaPoint{ 30.0f, 10.0f, 0.0f } };
+    std::vector<MagmaPoint> const walked{ MagmaPoint{ 15.0f, -5.0f, 0.0f }, MagmaPoint{ 30.0f, 10.0f, 0.0f } };
+    auto const inMagma = [](MagmaPoint const& m) { return m.x >= 14.0f && m.x <= 16.0f && m.y < 0.0f; };
+    CHECK(!CutPathBeforeMagma(start, chord, inMagma).cut);   // the chord misses the basin
+    CHECK(CutPathBeforeMagma(start, walked, inMagma).cut);   // the walked path crosses it
+}
+
+// Round 1: a 1-point route far away is not "no progress" (the old `route.size() < 2 ? 0` read it as
+// a stall). The glue now measures progress as the last point's distance; a 2.5 yd leg walks.
+static void TestSinglePointRouteFarAwayIsProgress()
+{
+    SwimHandoffFacts f = PoolStall();
+    f.routeEndFromBot = 2.5f;
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);
+}
+
+// Round 1: the swim-out needs a floor within 1 yd below its end (Eldermaw's apron has one; a point
+// over the drop does not).
+static void TestSwimOutNeedsGroundUnderTheEnd()
+{
+    SwimHandoffFacts f = PoolStall();
+    f.coreType = 0x04;
+    f.routeEndFromBot = 0.4f;
+    f.endFromBot = 13.2f;
+    f.endSwimmable = false;
+    f.endHasGround = true;
+    f.endGroundYd = 8.2f;
+    f.endFromSurfaceYd = 0.1f;
+    f.surfaceLineClear = true;
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::SwimOut);
+    SwimHandoffFacts g = f; g.endHasGround = false;
+    CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);
 }
 
 static void TestFirstFailingSampleIsNamed()
@@ -425,6 +470,9 @@ int main()
     TestHandoffGuards();
     TestKarazhanFloorToDryRampHandsTheCorePath();
     TestPoolBedSwimsOutToTheApron();
+    TestCurvedPathThroughMagmaIsRefused();
+    TestSinglePointRouteFarAwayIsProgress();
+    TestSwimOutNeedsGroundUnderTheEnd();
     TestFirstFailingSampleIsNamed();
     TestSwimOutRises();
     std::cout << "swim path policy: all tests passed\n";

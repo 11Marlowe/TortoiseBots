@@ -91,11 +91,11 @@ class SwimHandoffWiringTest(unittest.TestCase):
 
     def test_moveto2_asks_after_the_route_and_in_the_collapse(self):
         resolve = self.move2.index("TravelPath movePath = ResolveMovePath(startPos, endPos, mover, lastMove);")
-        first = self.move2.index("switch (SwimHandoff(startPos, endPos, movePath, lastMove))")
+        first = self.move2.index("switch (SwimHandoff(startPos, endPos, movePath, lastMove, packHold, ignoreEnemyTargets))")
         empty = self.move2.index("lastMove.moveFailReason = MOVE_FAIL_EMPTY_ROUTE;")
         self.assertLess(resolve, first)
         self.assertLess(first, empty)
-        second = self.move2.index("switch (SwimHandoff(startPos, endPos, movePath, lastMove))", first + 1)
+        second = self.move2.index("switch (SwimHandoff(startPos, endPos, movePath, lastMove, packHold, ignoreEnemyTargets))", first + 1)
         self.assertLess(self.move2.index("movePath.makeShortCut(startPos, sPlayerbotAIConfig.reactDistance, bot);"), second)
         self.assertLess(second, self.move2.index("return true; // Path collapsed"))
         self.assertLess(second, self.move2.index("movePath.ClipPath(ai, mover, ignoreEnemyTargets, packHold);"))
@@ -106,7 +106,12 @@ class SwimHandoffWiringTest(unittest.TestCase):
         h = self.hand
         self.assertIn("ai->IsRealPlayer() || bot->GetTransport() || bot->IsFlying() || bot->IsTaxiFlying()", h)
         self.assertIn("bot->IsInWater() || bot->IsUnderwater() || bot->HasMovementFlag(MOVEFLAG_SWIMMING)", h)
-        # The cheap gates before any path query.
+        # Round 1 (a): a follow that holds before packs never hands off.
+        self.assertIn("if (packHold != nullptr)", h)
+        self.assertLess(h.index("if (packHold != nullptr)"), h.index("PathFinder path(bot);"))
+        # Round 1: a 1-point route far away is progress, not a stall.
+        self.assertIn("f.routeEndFromBot = route.empty() ? 0.0f : route.back().distance(startPos);", h)
+        self.assertNotIn("route.size() < 2 ? 0.0f", h)
         self.assertLess(h.index("f.routeEndFromBot > ai::kSwimNoProgressYd"), h.index("PathFinder path(bot);"))
         self.assertIn("map->FindCollisionModel(", h)
         self.assertIn("terrain->IsSwimmable(startPos.getX(), startPos.getY(), startPos.getZ(), 1.5f, &here)", h)
@@ -116,6 +121,44 @@ class SwimHandoffWiringTest(unittest.TestCase):
         self.assertIn("lastMove.setPath(TravelPath()); // not reused", h)
         self.assertIn("WorldPosition::SwimLineWhy(", h)
         self.assertIn("swim hand-off (%s)", MOVES)
+
+    def test_handoff_round1_clip_magma_slime_ground(self):
+        h = self.hand
+        # Round 1 (b)/(2): the 0x1 answer walks its own points (path.getPath()) through the same
+        # ClipPath, and launches exactly that validated spline (no fresh core recompute).
+        self.assertIn("for (G3D::Vector3 const& p : path.getPath())", h)
+        self.assertIn("clipped.ClipPath(ai, bot, ignoreEnemyTargets, nullptr);", h)
+        self.assertIn('Movement::MoveSplineInit init(*bot, "SwimHandoffCore");', h)
+        self.assertIn("WorldPosition().toPointsArray(linePoints)", h)
+        self.assertIn("WorldPosition().GetPathLength(linePoints)", h)
+        # The 0x1 branch launches the validated spline only (no MovePoint recompute beside the 0x81 line).
+        core = h[h.index('if (kind == ai::SwimHandoff::CoreLine && f.coreType == ai::kPathTypeNormal)'):h.index('else if (kind == ai::SwimHandoff::CoreLine)')]
+        self.assertIn('Movement::MoveSplineInit init(*bot, "SwimHandoffCore");', core)
+        self.assertNotIn("mm.MovePoint(", core)
+        self.assertEqual(MOVES.count('"SwimHandoffCore"'), 1)
+        # Round 1 (c): the 0x81 line and the swim-out legs run the same ClipPath; a cut refuses.
+        self.assertIn("static bool SwimHandoffLegClear(", MOVES)
+        self.assertIn("clipped.addPath(leg);", MOVES)
+        self.assertIn("clipped.ClipPath(ai, mover, ignoreEnemyTargets, packHold);", MOVES)
+        self.assertIn("if (!SwimHandoffLegClear(ai, bot, ignoreEnemyTargets, nullptr, linePoints))", h)
+        self.assertIn('"clipped"', h)
+        # Round 1 (2)/(3): the walked path (not the chord) feeds RouteEntersMagma; slime refuses too.
+        self.assertIn("RouteEntersMagma(bot, startPos, line, magmaAt)", h)
+        self.assertIn("MAP_LIQUID_TYPE_SLIME", h)
+        self.assertIn("MAP_ALL_LIQUIDS", h)
+        self.assertIn('"slime"', h)
+        self.assertIn('"magma"', h)
+        # Round 1 (3): the swim-out end needs ground within 1 yd below it.
+        self.assertIn("map->GetHeight(endPos.getX(), endPos.getY(), endPos.getZ() + 0.5f)", h)
+        self.assertIn("INVALID_HEIGHT", h)
+        self.assertIn("f.endHasGround", h)
+        # Round 1 (3): every refused stall logs its reason, rate-limited on the hand-off stamp.
+        self.assertIn("swim hand-off refused (%s: %s)", MOVES)
+        self.assertIn("static void LogSwimHandoffRefused(", MOVES)
+        for reason in ('"core path", "clipped"', '? "core line" : "swim out", "clipped"', '? "core line" : "swim out", "slime"', '? "core line" : "swim out", "magma"'):
+            self.assertIn(reason, h)
+        refused = body(MOVES, "static void LogSwimHandoffRefused(", "\n}\n")
+        self.assertIn("lastMove.swimHandoffLogAt = now;", refused)
 
     def test_policy_has_no_land_line(self):
         choose = body(POLICY, "inline SwimHandoff ChooseSwimHandoff(SwimHandoffFacts const& f)", "\n    }\n")
