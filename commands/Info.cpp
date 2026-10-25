@@ -450,7 +450,7 @@ bool HandleRoster(ChatHandler* handler, char const* /*args*/)
     // inventory = ".bot inv" / ".bot item"; behavior = ".bot behavior" and the
     // BOTSTATE snapshot; dungeon-run = ".bot run" and its TBM:RUN status lines,
     // only while the dungeon run is enabled. Old addons ignore unknown lines and items.
-    bool const dungeonRun = sPlayerbotAIConfig.dungeonSelfClear && sPlayerbotAIConfig.remoteCommander;
+    bool const dungeonRun = RemoteCommander::RunSurfaceOn(CurrentCommanderGates());
     handler->PSendSysMessage("TBM:CAPS|pull-seconds,flee,inventory,behavior,claimed-roster%s",
         dungeonRun ? ",dungeon-run" : "");
     // Transport trailer: the addon sends its next commands over the addon

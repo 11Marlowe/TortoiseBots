@@ -969,7 +969,7 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
         code = strip_comments(COMMANDS)
         self.assertIn("EndRunEarly(slot.run, RunStopNote(rawArg));", body(code, 'if (verb == "stop")', 'if (verb == "status")'))
         self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(slot.run,", body(code, "RunTimeLimitReached(slot.elapsedMs", "return;"))
-        off = body(code, "if (!sPlayerbotAIConfig.dungeonSelfClear || !sPlayerbotAIConfig.remoteCommander)", "SendRunLine(")
+        off = body(code, "if (RemoteCommander::RunAllowed(kind, gates))", "SendRunLine(")
         self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(entry.second.run,", off)
         self.assertNotIn("run.state = TortoiseBots::DungeonRun::State::Done;", code)
         self.assertNotIn("slot.run.state = State::Done;", code)

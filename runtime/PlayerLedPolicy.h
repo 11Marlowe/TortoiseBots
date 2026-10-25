@@ -4,9 +4,8 @@
 // a real player leads his own party of bots (and up to three other players) and walks wherever he wants; the run
 // leader (runtime/DungeonRunPolicy.h) follows where he stands and does the pulls, raid marks, crowd control, boss
 // tactics, rests and revives. Started with `.bot run start [plan] player [tank <Bot>]`, behind
-// AiPlayerbot.DungeonRunPlayerLed (default 0) on top of AiPlayerbot.DungeonSelfClear and AiPlayerbot.RemoteCommander
-// (the run's orders are `.bot cmd` orders).
-//
+// AiPlayerbot.DungeonRunPlayerLed (default 0) on top of AiPlayerbot.DungeonSelfClear (the run's orders are given by the run leader).
+
 // Kept apart from DungeonRunPolicy.h on purpose: the bot-led step machine is unchanged, and this header only adds
 // what the player-led mode decides (the start words, the bind gate, and from slice S2 on how a player's order is
 // classed, from S3 on which plan step is current). Plain data and the standard library only, so
@@ -115,7 +114,7 @@ struct Member
 
 struct BindFacts
 {
-    bool enabled = false;               // DungeonRunPlayerLed, DungeonSelfClear and RemoteCommander all on
+    bool enabled = false;               // DungeonRunPlayerLed and DungeonSelfClear on
     bool commanderIsBot = false;
     bool commanderAlreadyBound = false; // a binding of his stands (a player-led one left over is released first)
     bool grouped = false;               // the commander is in a party
@@ -244,7 +243,7 @@ inline const char* RefusalText(Refusal r)
     switch (r)
     {
         case Refusal::None: return "";
-        case Refusal::Disabled: return "The player-led run is off (AiPlayerbot.DungeonRunPlayerLed = 1, AiPlayerbot.DungeonSelfClear = 1 and AiPlayerbot.RemoteCommander = 1 turn it on).";
+        case Refusal::Disabled: return "The player-led run is off (AiPlayerbot.DungeonRunPlayerLed = 1 and AiPlayerbot.DungeonSelfClear = 1 turn it on).";
         case Refusal::CommanderIsBot: return "A bot cannot lead a player-led run.";
         case Refusal::AlreadyBound: return "You command a bound group already: .bot commander unbind first (a player-led run makes its own binding).";
         case Refusal::NotGrouped: return "A player-led run needs your own party: invite your bots first.";

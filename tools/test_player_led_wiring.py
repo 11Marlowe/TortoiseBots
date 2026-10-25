@@ -39,8 +39,9 @@ class PlayerLedBindWiringTest(unittest.TestCase):
     def test_player_led_bind(self):
         bind = strip_comments(body(COMMANDS, "static bool BindPlayerLed(", "\n}\n"))
         self.assertIn("PL::CheckBind(facts)", bind)
-        self.assertIn("sPlayerbotAIConfig.dungeonRunPlayerLed && sPlayerbotAIConfig.dungeonSelfClear", bind)
-        self.assertIn("sPlayerbotAIConfig.remoteCommander", bind)
+        self.assertIn("sPlayerbotAIConfig.dungeonRunPlayerLed &&", bind)
+        self.assertIn("RemoteCommander::BindingKindEnabled(RemoteCommander::BindingKind::PlayerLed,", bind)
+        self.assertNotIn("sPlayerbotAIConfig.remoteCommander", bind)
         self.assertIn("facts.commanderLeads = group->IsLeader(commander->GetObjectGuid());", bind)
         self.assertIn("binding.playerLed = true;", bind)
         self.assertIn("binding.inParty = true;", bind)

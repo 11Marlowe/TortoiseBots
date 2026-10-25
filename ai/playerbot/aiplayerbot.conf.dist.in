@@ -489,7 +489,12 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # bot-only group of up to five to themselves with `.bot commander bind
 # <LeadBot> [<Bot>...]` and leads it from anywhere (another zone, outside the
 # instance) with `.bot cmd ...` orders that name their target by GUID or a 3D
-# point. Off by default; with 0 both commands answer that the feature is off.
+# point; `.bot commander view` sends the TBM:VIEW feed. This is how an outside
+# program (an AI agent such as turtle-agent) drives a party, so it is off by
+# default: turn it on only if you run such a program. With 0 a player still
+# binds his own party with `inparty` and uses `.bot cmd enter` and `.bot cmd summon`
+# for the run leader (needs AiPlayerbot.DungeonSelfClear = 1); every other
+# commander command answers that the feature is off.
 #AiPlayerbot.RemoteCommander = 0
 
 # Issue #884, phase 2: while a commander is bound and its feed is on (`.bot
@@ -530,8 +535,7 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 #AiPlayerbot.RunTrace.MaxFileMb = 64
 
 # Issue #1012: `.bot cmd gossip <npc entry> <bot> <option>` lets a commanded bot
-# talk to an NPC and pick a gossip option (needs AiPlayerbot.RemoteCommander = 1
-# and a binding). A gossip option can do anything its script says (take money,
+# talk to an NPC and pick a gossip option (a commander's own order needs AiPlayerbot.RemoteCommander = 1; the run leader's gossip steps need only AiPlayerbot.DungeonSelfClear = 1). A gossip option can do anything its script says (take money,
 # give items, teleport), so a bot talks only to the creature entries listed
 # here, comma-separated, after you have read what their scripts do. Empty = the
 # order is refused for every NPC (the default). Audited entries:
@@ -842,25 +846,37 @@ AiPlayerbot.OnyxiaWhelpsAndEggs = 1
 # listed frontal attack. Built from Turtle's own core data; Uldaman up to
 # Ironaya and the Obsidian Sentinel so far (docs/play/boss-tactics.md).
 # This changes how bots play in dungeons, so it is off for everybody by default.
-# Bots in a group that a remote commander has bound get the tactics regardless of
+# Bots of a bound group (a commander's or the run leader's) get the tactics regardless of
 # this key. An explicit target order from a player always wins.
 # 0 - off, except for commander-bound groups (Default)
 # 1 - on for every bot on a map that has rows
 AiPlayerbot.DungeonTactics = 0
 
 # Dungeon self-clear (the run leader).
-# `.bot run start [plan]` lets a remote commander's bound party clear a dungeon
-# plan (world tables ai_dungeon_plan/leg/step) by itself: it walks the route,
-# pulls the packs, kills the bosses and opens the doors with the commander's own
-# orders, and pauses on 3 dead, on any player order and at every wait's ceiling.
-# Needs AiPlayerbot.RemoteCommander = 1 and a binding (.bot commander bind).
-# Bots then clear without a player giving each order, so it is off by default
+# `.bot run start [plan]` lets a bound party clear a dungeon plan (world tables
+# ai_dungeon_plan/leg/step) by itself: it walks the route, pulls the packs, kills
+# the bosses and opens the doors, and pauses on 3 dead, on any player order and
+# at every wait's ceiling. A player starts it for his own party (`.bot commander
+# bind <LeadBot> [<Bot>...] inparty`, then `.bot run start`), and the bot LFG
+# groups (AiPlayerbot.BotLfgGroups) start it for bot-only parties. Leading a
+# party from outside it also needs AiPlayerbot.RemoteCommander = 1
 # (docs/play/dungeon-run-leader.md).
 # `.reload config` reads this key and the AiPlayerbot.DungeonRun* keys below again
 # (only those; every other setting here needs a restart).
-# 0 - `.bot run` is refused (Default)
-# 1 - a bound commander may start a run
-AiPlayerbot.DungeonSelfClear = 0
+# 0 - `.bot run` is refused
+# 1 - the run leader is on (Default)
+AiPlayerbot.DungeonSelfClear = 1
+
+# Bot LFG dungeon groups: world bots of a dungeon's level band form a group and
+# clear the dungeon with the run leader. So far only the server's own run of a
+# bot-only party exists (a GameMaster starts one with `.bot run system start
+# <plan>`, the lead bot targeted); forming the groups is not built yet.
+# Needs AiPlayerbot.DungeonSelfClear = 1 (with it off the server log says the
+# feature stays dormant). Does not need AiPlayerbot.RemoteCommander.
+# `.reload config` reads this key again.
+# 0 - off
+# 1 - on (Default)
+AiPlayerbot.BotLfgGroups = 1
 
 # The run leader's walk back after a guarded fight. When the tank left its stand
 # to take mobs off the party, the run used to walk the tank and the party back to
@@ -965,8 +981,7 @@ AiPlayerbot.DungeonRunLootFfa = 0
 # (up to three other players may be in it) starts `.bot run start [plan] player
 # [tank <Bot>]`: he walks wherever he wants, and the run leader pulls the plan's
 # packs near him with the tank bot, marks, crowd controls, rests and revives.
-# Plain `.bot run start` stays bot-led. Needs AiPlayerbot.DungeonSelfClear = 1 and
-# AiPlayerbot.RemoteCommander = 1 too (the run's orders are `.bot cmd` orders).
+# Plain `.bot run start` stays bot-led. Needs AiPlayerbot.DungeonSelfClear = 1.
 # 0 - `.bot run start ... player` is refused (Default)
 # 1 - a player who leads his party may start a player-led run
 AiPlayerbot.DungeonRunPlayerLed = 0

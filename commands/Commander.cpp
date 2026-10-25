@@ -144,7 +144,7 @@ namespace BotCommands {
 // Remote commander (issue #884, phase 1)
 //
 // `.bot commander bind|unbind|status` and `.bot cmd <order>`, behind
-// AiPlayerbot.RemoteCommander (default 0). A commander (a GM or the owner of
+// AiPlayerbot.RemoteCommander (default 0) for a commander outside the party; an inparty binding and the run leader need only AiPlayerbot.DungeonSelfClear. A commander (a GM or the owner of
 // every bot) binds a bot-only party of up to five, led by one of its bots, and
 // leads it from anywhere: orders name their target by GUID or a 3D point and
 // reach the group through the binding, not through the commander's selection
@@ -479,7 +479,7 @@ std::vector<Player*> CommandedBots(Group* group, Player* lead)
 RemoteCommander::BindingState ReadBindingState(RemoteCommander::Binding const& binding)
 {
     RemoteCommander::BindingState state;
-    state.enabled = sPlayerbotAIConfig.remoteCommander;
+    state.enabled = RemoteCommander::BindingKindEnabled(RemoteCommander::KindOf(binding), CurrentCommanderGates());
     Player* commander = FindCharacter(binding.commanderGuid);
     state.commanderOnline = commander && commander->GetSession() &&
         commander->GetSession()->HasNetworkTransport();
@@ -1243,9 +1243,10 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
     }
 
     uint64 const commanderRaw = commander->GetObjectGuid().GetRawValue();
+    RemoteCommander::FeatureGates const gates = CurrentCommanderGates();
     RemoteCommander::BindFacts facts;
-    facts.enabled = sPlayerbotAIConfig.remoteCommander;
-    facts.commanderIsBot = BotManager::Instance().IsBot(commander->GetObjectGuid());
+    facts.enabled = RemoteCommander::BindingKindEnabled(inParty ? RemoteCommander::BindingKind::InParty : RemoteCommander::BindingKind::Remote, gates);
+    facts.inPartyAllowed = RemoteCommander::BindingKindEnabled(RemoteCommander::BindingKind::InParty, gates);
     // Settle every binding first (a stale one, or a follower that already
     // left its group, must not block this bind).
     for (uint64 other : CommanderBindings().Commanders())
@@ -1518,7 +1519,7 @@ bool HandleCommander(ChatHandler* handler, char const* args)
         SendActionError(handler, intent, "requester", "You must be in-game.");
         return true;
     }
-    if (!sPlayerbotAIConfig.remoteCommander)
+    if (!RemoteCommander::CommanderSurfaceOn(CurrentCommanderGates()))
     {
         SendActionError(handler, intent, "disabled",
             RemoteCommander::BindRefusalText(RemoteCommander::BindRefusal::Disabled));
@@ -1554,6 +1555,11 @@ bool HandleCommander(ChatHandler* handler, char const* args)
 
     if (verb == "view")
     {
+        if (!RemoteCommander::ViewAllowed(CurrentCommanderGates()))
+        {
+            SendActionError(handler, intent, "disabled", "The commander view is the remote commander's feed (AiPlayerbot.RemoteCommander = 1 turns it on).");
+            return true;
+        }
         std::string mode = rest;
         for (char& c : mode)
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -4477,6 +4483,7 @@ static bool CommanderUse(ChatHandler* handler, CommanderOrder const& order, Play
 static bool CommanderRitual(ChatHandler* handler, CommanderOrder const& order,
     RemoteCommander::RitualOrder const& request, std::string const& intent)
 {
+    // The config gate ran above (RemoteCommander::OrderAllowed).
     std::vector<Player*> bots;
     std::vector<PlayerbotAI*> ais;
     for (std::string const& name : request.bots)
@@ -4488,7 +4495,7 @@ static bool CommanderRitual(ChatHandler* handler, CommanderOrder const& order,
             return true;
         }
         BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
-        if (!RemoteCommander::MayIssueOrder(sPlayerbotAIConfig.remoteCommander, true,
+        if (!RemoteCommander::MayIssueOrder(true, true,
             RemoteCommander::OrderTier::OwnerOrGm, record && CanControlBot(order.commander, record)))
         {
             SendActionError(handler, intent, "denied", "Only each bot's owner (or a GameMaster) may do that.");
@@ -4605,7 +4612,7 @@ static bool CommanderEnter(ChatHandler* handler, CommanderOrder const& order,
     for (Player* bot : bots)
     {
         BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
-        if (!RemoteCommander::MayIssueOrder(sPlayerbotAIConfig.remoteCommander, true,
+        if (!RemoteCommander::MayIssueOrder(true, true,
             RemoteCommander::OrderTier::OwnerOrGm, record && CanControlBot(order.commander, record)))
         {
             std::string const message = std::string("Only the owner of ") + bot->GetName() + " (or a GameMaster) may do that.";
@@ -4842,7 +4849,8 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args)
     // A player's own order takes the party over from its run (`state` only reads).
     if (!s_runIssuing && verb != "state")
         PauseDungeonRunForPlayer(order.commander->GetObjectGuid().GetRawValue(), "cmd " + verb);
-    if (!sPlayerbotAIConfig.remoteCommander)
+    RemoteCommander::FeatureGates const gates = CurrentCommanderGates();
+    if (!RemoteCommander::CommanderSurfaceOn(gates))
     {
         SendActionError(handler, intent, "disabled",
             RemoteCommander::BindRefusalText(RemoteCommander::BindRefusal::Disabled));
@@ -4852,6 +4860,11 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args)
     if (!binding)
     {
         SendActionError(handler, intent, "not-bound", "You command no group. Use .bot commander bind <LeadBot> first.");
+        return true;
+    }
+    if (!RemoteCommander::OrderAllowed(RemoteCommander::KindOf(*binding), gates, s_runIssuing, verb))
+    {
+        SendActionError(handler, intent, "disabled", RemoteCommander::OrderOffText(RemoteCommander::KindOf(*binding)));
         return true;
     }
     order.lead = FindCharacter(binding->leadGuid);
@@ -4949,7 +4962,7 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args)
                     ++dead;
                     BotRecord* memberRecord = BotManager::Instance().FindBot(member->GetObjectGuid());
                     PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
-                    if (!memberAi || !RemoteCommander::MayIssueOrder(sPlayerbotAIConfig.remoteCommander, true, tier,
+                    if (!memberAi || !RemoteCommander::MayIssueOrder(true, true, tier,
                             memberRecord && CanControlBot(order.commander, memberRecord)))
                     {
                         ++denied;
@@ -4983,7 +4996,7 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args)
             return true;
         }
         BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
-        if (!RemoteCommander::MayIssueOrder(sPlayerbotAIConfig.remoteCommander, true, tier,
+        if (!RemoteCommander::MayIssueOrder(true, true, tier,
             record && CanControlBot(order.commander, record)))
         {
             SendActionError(handler, intent, "denied", "Only this bot's owner (or a GameMaster) may do that.");
@@ -5013,7 +5026,7 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args)
         {
             return bot && AltBotService::Instance().IsAutonomous(bot->GetObjectGuid());
         }), order.bots.end());
-    if (!RemoteCommander::MayIssueOrder(sPlayerbotAIConfig.remoteCommander, true, tier, false))
+    if (!RemoteCommander::MayIssueOrder(true, true, tier, false))
     {
         SendActionError(handler, intent, "denied", "Order refused.");
         return true;
@@ -5205,8 +5218,7 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args)
 // ---------------------------------------------------------------------------
 // Run leader (`.bot run`, docs/play/dungeon-run-leader.md)
 //
-// Behind AiPlayerbot.DungeonSelfClear (default 0) and a remote commander
-// binding. A commander starts a run of a dungeon plan (ai/playerbot/
+// Behind AiPlayerbot.DungeonSelfClear (default 1) and a binding. A commander starts a run of a dungeon plan (ai/playerbot/
 // DungeonPlanMgr.cpp) for its bound party; once a second the run reads the
 // party and the current step's surroundings into a Facts snapshot and the
 // pure step machine (runtime/DungeonRunPolicy.h) answers with at most one
@@ -9090,27 +9102,34 @@ static void UpdateDungeonRuns(uint32 diff)
         return;
     }
     // Switched off by a config reload: every run ends, with a last status line.
-    if (!sPlayerbotAIConfig.dungeonSelfClear || !sPlayerbotAIConfig.remoteCommander)
+    RemoteCommander::FeatureGates const gates = CurrentCommanderGates();
+    std::vector<uint64> switchedOff;
+    std::vector<uint64> ownBindings; // player-led and system runs: the binding goes with the run
+    for (auto& entry : DungeonRuns())
     {
-        std::vector<uint64> playerLedRuns; // their bindings were the starts': released after the runs are gone
-        for (auto& entry : DungeonRuns())
+        RemoteCommander::Binding const* standing = CommanderBindings().FindByCommander(entry.first);
+        RemoteCommander::BindingKind const kind = standing ? RemoteCommander::KindOf(*standing) : RemoteCommander::BindingKind::Remote;
+        if (RemoteCommander::RunAllowed(kind, gates))
+            continue;
+        switchedOff.push_back(entry.first);
+        if (entry.second.playerLed.on || kind == RemoteCommander::BindingKind::System)
+            ownBindings.push_back(entry.first);
+        TortoiseBots::DungeonRun::EndRunEarly(entry.second.run, RemoteCommander::RunSwitchedOffNote(kind, gates));
+        SendRunLine(FindCharacter(entry.first), entry.second, false);
+        // As `.bot run stop` and the time limit: the bots held on stay (hold stands, places) follow the
+        // lead bot again, and a loot step's free-for-all detour ends (ReleaseRunHold restores the method).
+        if (standing)
         {
-            if (entry.second.playerLed.on)
-                playerLedRuns.push_back(entry.first);
-            TortoiseBots::DungeonRun::EndRunEarly(entry.second.run,
-                "stopped: the run leader was switched off (AiPlayerbot.DungeonSelfClear)");
-            SendRunLine(FindCharacter(entry.first), entry.second, false);
-            // As `.bot run stop` and the time limit: the bots held on stay (hold stands, places) follow the
-            // lead bot again, and a loot step's free-for-all detour ends (ReleaseRunHold restores the method).
-            if (RemoteCommander::Binding const* standing = CommanderBindings().FindByCommander(entry.first))
-            {
-                ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);
-                ClearRunCcIcons(standing->leadGuid, standing->groupId, entry.second); // the run's cc marks go too
-            }
+            ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);
+            ClearRunCcIcons(standing->leadGuid, standing->groupId, entry.second);
         }
-        DungeonRuns().clear();
-        for (uint64 commanderRaw : playerLedRuns)
-            ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Disabled, true);
+    }
+    for (uint64 raw : switchedOff)
+        DungeonRuns().erase(raw);
+    for (uint64 commanderRaw : ownBindings)
+        ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Disabled, true);
+    if (DungeonRuns().empty())
+    {
         s_dungeonRunMs = 0;
         return;
     }
@@ -9239,8 +9258,7 @@ static bool BindPlayerLed(ChatHandler* handler, Player* commander, std::string c
         if (old->playerLed && !DungeonRuns().count(commanderRaw))
             ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Unbound, false);
     PL::BindFacts facts;
-    facts.enabled = sPlayerbotAIConfig.dungeonRunPlayerLed && sPlayerbotAIConfig.dungeonSelfClear &&
-        sPlayerbotAIConfig.remoteCommander;
+    facts.enabled = sPlayerbotAIConfig.dungeonRunPlayerLed && RemoteCommander::BindingKindEnabled(RemoteCommander::BindingKind::PlayerLed, CurrentCommanderGates());
     facts.commanderIsBot = BotManager::Instance().IsBot(commander->GetObjectGuid());
     facts.commanderAlreadyBound = CommanderBindings().FindByCommander(commanderRaw) != nullptr;
     facts.tankName = tankName;
@@ -9351,10 +9369,10 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
         SendActionError(handler, intent, "requester", "You must be in-game.");
         return true;
     }
-    if (!sPlayerbotAIConfig.dungeonSelfClear || !sPlayerbotAIConfig.remoteCommander)
+    if (!RemoteCommander::RunSurfaceOn(CurrentCommanderGates()))
     {
         SendActionError(handler, intent, "disabled",
-            "The run leader is off (AiPlayerbot.DungeonSelfClear = 1 and AiPlayerbot.RemoteCommander = 1 turn it on).");
+            "The run leader is off (AiPlayerbot.DungeonSelfClear = 1 turns it on).");
         return true;
     }
     uint64 const commanderRaw = commander->GetObjectGuid().GetRawValue();
