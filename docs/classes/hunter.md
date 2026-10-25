@@ -47,7 +47,6 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 ### Dead-Zone & Melee Weaving
 - If enemies close inside Auto Shot minimum range (DBC-driven), ranged hunters trade into melee using *Wing Clip*, *Raptor Strike*, and *Mongoose Bite*, then step back out.
 - When space opens or the mob is pulled off the hunter by the tank or pet (or is rooted), the bot switches back to ranged attacks.
-- With two or more mobs on the hunter and a living tank in the party the bot no longer trades into melee: it stays in (or returns to) the ranged kit, *Wing Clips* the mob in reach first and then steps out. In the Ragefire runs of 2026-10-20 a hunter held three mobs for 27 seconds and only used *Mongoose Bite* until she died.
 
 ### Threat drops
 - When the mob the hunter is fighting is on the hunter itself (or about to be) and stands in melee reach, and a living tank is in the group, the hunter casts *Disengage* to drop off the mob's threat list so the tank can take it back. *Disengage* does not move the hunter and is not used as an escape.

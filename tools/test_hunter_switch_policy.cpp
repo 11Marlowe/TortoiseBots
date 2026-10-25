@@ -22,10 +22,6 @@ using ai::HunterKitDwellElapsed;
 using ai::NoteHunterKitSwitch;
 using ai::BeginHunterStepOut;
 using ai::HunterMeleeRowIgnoresThreatBackoff;
-using ai::kHunterSwarmAttackers;
-using ai::HunterSwarmed;
-using ai::HunterSwarmClipWanted;
-using ai::HunterSwarmAttackers;
 using ai::HunterStepOutLength;
 using ai::HunterTrapTargetInReach;
 using ai::kHunterStepOutMaxAttempts;
@@ -212,61 +208,6 @@ int main()
         CHECK(HunterMeleeRowIgnoresThreatBackoff(true));
         CHECK(!HunterMeleeRowIgnoresThreatBackoff(false));
         std::cout << "  [PASS] melee row: exempt from the threat back-off only for a mob on the hunter\n";
-    }
-
-    // Audit F13 (r7 RFC, a hunter held three mobs for 27 s and Mongoose Bite
-    // until dead): with two or more mobs on the hunter the melee trade is not
-    // made and the ranged kit comes back, so Wing Clip and the step-out run
-    // instead of a raptor/mongoose chain on one of the mobs.
-    {
-        CHECK(kHunterSwarmAttackers == 2);
-        CHECK(!HunterSwarmed(0));
-        CHECK(!HunterSwarmed(1));
-        CHECK(HunterSwarmed(2));
-        CHECK(HunterSwarmed(3));
-
-        // One mob on the hunter: today's trade (attackers default 1, and 1).
-        CHECK(ShouldSwitchToMelee(true, true, false, false, 3.0f, true, false, true, 1));
-        // Two mobs: no melee trade, whatever the distance or dwell.
-        CHECK(!ShouldSwitchToMelee(true, true, false, false, 3.0f, true, false, true, 2));
-        CHECK(!ShouldSwitchToMelee(true, true, false, true, 8.0f, true, false, true, 3));
-        // Out of ammo there is nothing to shoot with: melee stays the answer.
-        CHECK(ShouldSwitchToMelee(true, true, false, false, 3.0f, false, false, true, 3));
-
-        // The close kit hands the ranged kit back when swarmed, even though
-        // the current target is on the hunter, after the dwell.
-        CHECK(!ShouldSwitchToRanged(true, false, false, false, 3.0f, true, false, true, 1));
-        CHECK(ShouldSwitchToRanged(true, false, false, false, 3.0f, true, false, true, 2));
-        CHECK(!ShouldSwitchToRanged(true, false, false, false, 3.0f, true, false, false, 2));
-        CHECK(!ShouldSwitchToRanged(false, false, false, false, 3.0f, true, false, true, 2));
-        CHECK(!ShouldSwitchToRanged(true, false, false, false, 3.0f, false, false, true, 2));
-
-        // Wing Clip first, only on a mob that is on the hunter and in reach.
-        CHECK(HunterSwarmClipWanted(2, true, true));
-        CHECK(HunterSwarmClipWanted(4, true, true));
-        CHECK(!HunterSwarmClipWanted(1, true, true));
-        CHECK(!HunterSwarmClipWanted(2, false, true)); // the mob is on the tank
-        CHECK(!HunterSwarmClipWanted(2, true, false)); // out of reach
-        std::cout << "  [PASS] swarmed hunter: no melee trade, ranged kit back, wing clip first\n";
-    }
-
-    // The swarm rules apply only to a hunter grouped with a living tank
-    // (review 2026-10-21): a solo or tankless hunter has no pet-less answer
-    // other than melee in a dead-zone swarm, so it keeps the old rules.
-    {
-        CHECK(HunterSwarmAttackers(3, true) == 3);
-        CHECK(HunterSwarmAttackers(2, true) == 2);
-        CHECK(HunterSwarmAttackers(3, false) == 0);
-        CHECK(HunterSwarmAttackers(0, true) == 0);
-        // Fed through the switch rules: solo with 3 mobs still trades to melee
-        // and the close kit does not bounce back to ranged.
-        CHECK(ShouldSwitchToMelee(true, true, false, false, 3.0f, true, false, true, HunterSwarmAttackers(3, false)));
-        CHECK(!ShouldSwitchToMelee(true, true, false, false, 3.0f, true, false, true, HunterSwarmAttackers(3, true)));
-        CHECK(!ShouldSwitchToRanged(true, false, false, false, 3.0f, true, false, true, HunterSwarmAttackers(3, false)));
-        CHECK(ShouldSwitchToRanged(true, false, false, false, 3.0f, true, false, true, HunterSwarmAttackers(3, true)));
-        CHECK(!HunterSwarmClipWanted(HunterSwarmAttackers(3, false), true, true));
-        CHECK(HunterSwarmClipWanted(HunterSwarmAttackers(3, true), true, true));
-        std::cout << "  [PASS] swarm rules only for a hunter grouped with a living tank\n";
     }
 
     std::cout << "All hunter-switch checks PASSED!\n";

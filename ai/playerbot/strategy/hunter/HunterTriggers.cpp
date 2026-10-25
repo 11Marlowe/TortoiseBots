@@ -238,22 +238,6 @@ bool PetHasAggroTrigger::IsActive()
     return TortoiseBots::ShouldPetCower(cower);
 }
 
-bool HunterSwarmedTrigger::IsActive()
-{
-    // The count first: it is one container size, and a hunter with one mob or
-    // none on it (almost always) stops here.
-    uint32 const attackers = HunterSwarmAttackerCount(ai);
-    if (!HunterSwarmed(attackers))
-        return false;
-
-    Unit* target = AI_VALUE(Unit*, "current target");
-    if (!target)
-        return false;
-    bool const inReach = sServerFacade.IsDistanceLessOrEqualThan(
-        AI_VALUE2(float, "distance", "current target"), sPlayerbotAIConfig.tooCloseDistance);
-    return HunterSwarmClipWanted(attackers, target->GetVictim() == bot, inReach) && ai->HasSpell("wing clip");
-}
-
 // PET-4 (donor GenericHunterStrategy.cpp:72-73): the medium band below
 // MediumHealth (70) — heals chip damage before it becomes the low band.
 // Overlaps low below 40; the low node outranks it so low wins there.

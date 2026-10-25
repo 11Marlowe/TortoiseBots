@@ -267,18 +267,6 @@ private:
             WorldTimer::getMSTime(), HunterTargetInDeadZone(ai, target), target->GetVictim() == bot, moving);
     }
 
-    // Mobs on the hunter that count for the swarm rules (HunterSwarmAttackers):
-    // 0 unless the hunter is grouped with a living tank. The count is read
-    // first, so the group walk only runs for a hunter with two or more on it.
-    inline uint32_t HunterSwarmAttackerCount(PlayerbotAI* ai)
-    {
-        Player* bot = ai->GetBot();
-        uint32_t const attackers = ai->GetAiObjectContext()->GetValue<uint8>("my attacker count")->Get();
-        if (!HunterSwarmed(attackers))
-            return 0;
-        return HunterSwarmAttackers(attackers, bot->GetGroup() && !IsPetTauntAllowed(ai, bot));
-    }
-
     class SwitchToRangedTrigger : public Trigger
     {
     public:
@@ -311,7 +299,7 @@ private:
             HunterKitState* state = GetHunterKitState(ai);
             bool const dwellElapsed = !state || HunterKitDwellElapsed(*state, WorldTimer::getMSTime());
             return ai::ShouldSwitchToRanged(true, targetOffBot, immobilized, tooSlowToFollow, distance, true,
-                false, dwellElapsed, HunterSwarmAttackerCount(ai));
+                false, dwellElapsed);
         }
     };
 
@@ -509,8 +497,7 @@ private:
             HunterKitState* state = GetHunterKitState(ai);
             bool const dwellElapsed = !state || HunterKitDwellElapsed(*state, WorldTimer::getMSTime());
             return ai::ShouldSwitchToMelee(true, target->GetVictim() == bot,
-                IsImmobilizedStateCompat(target), fastOrFinisher, distance, true, false, dwellElapsed,
-                HunterSwarmAttackerCount(ai));
+                IsImmobilizedStateCompat(target), fastOrFinisher, distance, true, false, dwellElapsed);
         }
     };
 
@@ -523,15 +510,6 @@ private:
     public:
         HunterMultiShotTrigger(PlayerbotAI* ai) : SpellCanBeCastedTrigger(ai, "multi-shot") {}
         virtual bool IsActive() override;
-    };
-
-    // Two or more mobs on the hunter itself, the current target one of them and
-    // within reach: the Wing Clip row that runs before the step-out (F13).
-    class HunterSwarmedTrigger : public Trigger
-    {
-    public:
-        HunterSwarmedTrigger(PlayerbotAI* ai) : Trigger(ai, "hunter swarmed", 1) {}
-        bool IsActive() override;
     };
 
     // BM cooldown: intimidation is a self-cast (BUFF_ACTION on self, core

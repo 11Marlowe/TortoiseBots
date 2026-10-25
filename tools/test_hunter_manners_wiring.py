@@ -1,15 +1,16 @@
 """Wiring pins for the hunter and pet manners.
 
-The pure rules live in runtime/PetEngagePolicy.h, ai/playerbot/HunterAoePolicy.h
-and ai/playerbot/HunterSwitchPolicy.h (unit-tested in tools/test_pet_engage_policy.cpp,
-tools/test_hunter_aoe_policy.cpp and tools/test_hunter_switch_policy.cpp). These pins
+The pure rules live in runtime/PetEngagePolicy.h, ai/playerbot/HunterAoePolicy.h,
+ai/playerbot/HunterKitePolicy.h and ai/playerbot/HunterSwitchPolicy.h (unit-tested in
+tools/test_pet_engage_policy.cpp, tools/test_hunter_aoe_policy.cpp,
+tools/test_hunter_kite_policy.cpp and tools/test_hunter_switch_policy.cpp). These pins
 prove the live rows call them: a rule nobody calls changes nothing in the game.
 
  - The pet waits out the tank's lead window in a bot-led party (CanPetAttack, used by
    the "pet attack" row, the pet send inside AttackAction::Attack and the explicit pet
    attack order), and Cowers on its first threat lead over the tank.
- - F13: two or more mobs on the hunter -> no melee trade, ranged kit back, Wing
-   Clip row above the kite step-out.
+ - Two or more mobs on the hunter: the kite owns the fight (Wing Clip the nearest,
+   step out; the melee rows stand down).
  - Multi-Shot flies only when its splash hits a second fighting enemy.
  - Hunter's Mark with a living tank goes only on the tank's mob.
  - The live hunter strategy is HunterStrategy.cpp; GenericHunterStrategy.cpp is
@@ -57,29 +58,22 @@ class PetManners(unittest.TestCase):
 
 
 class HunterManners(unittest.TestCase):
-    def test_swarmed_hunter_does_not_trade_into_melee_and_gets_ranged_back(self):
-        melee = body(H_TRIG_H, "class SwitchToMeleeTrigger", "\n    };")
-        ranged = body(H_TRIG_H, "class SwitchToRangedTrigger", "\n    };")
-        self.assertIn("HunterSwarmAttackerCount(ai)", melee)
-        self.assertIn("HunterSwarmAttackerCount(ai)", ranged)
-        self.assertIn("ai::ShouldSwitchToMelee(", melee)
-        self.assertIn("ai::ShouldSwitchToRanged(", ranged)
+    def test_kite_row_clips_and_steps_out_above_the_melee_chain(self):
+        self.assertRegex(H_STRAT,
+            r'"hunter multiple attackers",\s*NextAction::array\(0, new NextAction\("wing clip on attacker", static_cast<float>\(ACTION_MOVE\) \+ 1\.0f\),\s*'
+            r'new NextAction\("hunter kite step out", static_cast<float>\(ACTION_MOVE\) \+ 0\.5f\), NULL\)')
+        self.assertIn('creators["hunter multiple attackers"]', H_CTX)
 
-    def test_swarm_rules_only_with_a_living_tank_in_the_group(self):
-        fn = body(H_TRIG_H, "inline uint32_t HunterSwarmAttackerCount(PlayerbotAI* ai)")
-        self.assertIn("HunterSwarmAttackers(attackers, bot->GetGroup() && !IsPetTauntAllowed(ai, bot))", fn)
+    def test_kite_trigger_uses_the_policy(self):
+        trig = body(H_TRIG_H, "class HunterMultipleAttackersTrigger", "\n    };")
+        self.assertIn("MyAttackerCountTrigger(ai, kHunterKiteMinAttackers)", trig)
+        self.assertIn('HunterShouldKite(ai, AI_VALUE(uint8, "my attacker count"))', trig)
 
-    def test_wing_clip_row_sits_above_the_kite_step_out(self):
-        self.assertRegex(H_STRAT, r'"hunter swarmed",\s*NextAction::array\(0, new NextAction\("wing clip", ACTION_MOVE\)')
-        # The kite flee row it must outrank stays one below ACTION_MOVE.
-        self.assertRegex(H_STRAT, r'"enemy too close for auto shot",\s*NextAction::array\(0, new NextAction\("flee", static_cast<float>\(ACTION_MOVE\) - 1\.0f\)')
-        self.assertIn('creators["hunter swarmed"]', H_CTX)
-
-    def test_swarmed_trigger_uses_the_policy(self):
-        fn = body(H_TRIG_CPP, "bool HunterSwarmedTrigger::IsActive()")
-        self.assertIn("HunterSwarmAttackerCount(ai)", fn)
-        self.assertIn("HunterSwarmed(attackers)", fn)
-        self.assertIn("HunterSwarmClipWanted(", fn)
+    def test_melee_rows_stand_down_while_the_kite_owns_the_fight(self):
+        melee = body(H_TRIG_H, "class HunterEnemyIsCloseTrigger", "\n    };")
+        self.assertIn('if (HunterShouldKite(ai, AI_VALUE(uint8, "my attacker count")))', melee)
+        switch = body(H_TRIG_H, "class SwitchToMeleeTrigger", "\n    };")
+        self.assertIn('if (HunterShouldKite(ai, AI_VALUE(uint8, "my attacker count")))', switch)
 
     def test_hunters_mark_only_on_the_tanks_mob(self):
         fn = body(H_TRIG_CPP, "bool HuntersMarkTrigger::IsActive()")
