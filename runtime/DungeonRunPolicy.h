@@ -275,6 +275,8 @@ constexpr std::uint32_t kOpenProofWaitMs = 5000; // open_proof: after the task a
 constexpr float kUseOnSummonYd = 150.0f;          // use_on: how far around the lead bot the glue looks for the summoned boss
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
+constexpr std::uint32_t kStandPullWaitMs = 600000;
+constexpr float kStandPullMarginYd = 1.0f;
 // A unit a party member has as its victim that stays at 1 hp (or at 1 % or less, unchanged) this long cannot die
 // now (HpHeldTick; Scarlet Cathedral r23 slot 5: Whitemane sat at 1 hp of 5284 under her script's invincibility,
 // and the fight ceiling paused four times on the same unkillable fight).
@@ -1165,6 +1167,14 @@ struct Run
     // A boss step past kBossSearchMs with the boss neither alive nor dead in sight asked the glue for the
     // instance-wide search (Facts::bossSearchRead, next tick); one per window (ResetStep clears it).
     bool bossSearchWanted = false;
+    // A stand-pull boss step: time waited out of combat with the boss in the radius but out of the tank's shot
+    // (kStandPullWaitMs ceiling); cumulative across pauses, resumes and wipe recoveries of the SAME step: NextStep
+    // and Skip move it on (standPullStep), Resume and the wipe recoveries keep it. standPullShotGuid authorizes
+    // the pull past HoldForShot for the unit the gate judged in shot (0: none); PullUnit skips the stand rule
+    // only for that guid and clears it once a pullback goes out; the wait paths before that clear it too.
+    std::size_t standPullStep = static_cast<std::size_t>(-1);
+    std::uint32_t standPullMs = 0;
+    std::uint64_t standPullShotGuid = 0;
     std::uint32_t patrolWaitMs = 0; // a pull step: time spent waiting for a patroller outside the radius (WaitForPatroller)
     std::unordered_set<std::uint64_t> patrolSeen; // ... the patrollers this step saw (a pass of one is remembered run-wide)
     // A big pack's stand walk (BigPackWalkGate): the walk's unit, stand and
@@ -2014,6 +2024,14 @@ inline void ResetStep(Run& r)
     r.bossWaitMs = 0;
     r.bossSeenAlive = false;
     r.bossSearchWanted = false;
+    // The 600 s is cumulative per step across pauses/resumes and wipe recoveries: Resume (and every wipe path above)
+    // calls ResetStep on the SAME step, so the timer stays; NextStep moves on, so a new step starts it over.
+    if (r.step != r.standPullStep)
+    {
+        r.standPullStep = r.step;
+        r.standPullMs = 0;
+    }
+    r.standPullShotGuid = 0;
     r.hpWatch.clear();
     ClearFightProgress(r);
     r.patrolWaitMs = 0;
@@ -2154,6 +2172,30 @@ inline std::string SpeedLabel(const Run& r)
     return "speed " + Num(r.testSpeed) + (r.speedPlayerBlocked ? " (test; 1.0 since a real player joined)" : " (test)");
 }
 
+// The boss steps the run ended without clearing: still in notCleared (their
+// pull or boss end or a `.bot run skip` put them there), never deferred (a
+// deferral is a pull, listed by DeferredReport instead). A hidden live boss
+// is never fine, so the plan's end line names every step left here: a boss
+// killed later outside his own step is not reconciled (the trace outcome
+// counts kills). "" when there are none. A boss the run comes back to on his
+// own step and clears is out of notCleared again, so he is not named.
+inline std::string UnclearedBosses(const Run& r)
+{
+    if (!r.plan)
+        return std::string();
+    std::string out;
+    for (std::size_t i = 0; i < r.plan->steps.size(); ++i)
+    {
+        if (!r.notCleared.count(i))
+            continue;
+        const PlanStep& s = r.plan->steps[i];
+        if (s.kind != PlanStepKind::Boss)
+            continue; // pulls: a deferral names them in DeferredReport, a skip says so in its own note
+        out += std::string(out.empty() ? "" : ", ") + "boss " + std::to_string(s.entry) + " (step " + std::to_string(i + 1) + ")";
+    }
+    return out;
+}
+
 inline std::string DoneNote(const Run& r)
 {
     std::string const counts = WipeCounts(r);
@@ -2162,9 +2204,11 @@ inline std::string DoneNote(const Run& r)
     std::string const speed = SpeedLabel(r);
     if (!speed.empty())
         all = all.empty() ? speed : speed + "; " + all;
-    return all.empty() ? std::string("plan done") : "plan done (" + all + ")";
+    std::string const bosses = UnclearedBosses(r);
+    std::string const named = bosses.empty() ? std::string() : "boss skipped, not seen killed: " + bosses;
+    std::string const done = all.empty() ? named : named.empty() ? all : all + "; " + named;
+    return done.empty() ? std::string("plan done") : "plan done (" + done + ")";
 }
-
 // Each bot's distance to the lead bot now: the sample a gather's ceiling
 // compares with (taken when the gather goes out and at each ceiling).
 inline void SampleMembers(Run& r, const Facts& f)
@@ -3771,6 +3815,7 @@ inline bool Resume(Run& r)
     r.offMapReturnTries.clear();
     r.offMapNoted.clear();
     ResetStep(r);
+    r.standPullShotGuid = 0; // a resume never keeps a stale in-shot authorization
     // A step that is never skipped starts its refusals over: the next one may
     // search a stand-in from the lead bot's new spot and hop it off an island.
     // A plain move keeps them, so its second refusal skips it (r22-19z40).
@@ -6398,13 +6443,17 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     // between.
     if (f.dead > 0 && !InEvent(r))
     {
+        r.standPullShotGuid = 0; // the pull never went out (a death came in between)
         r.note = WaitNote(r, f) + ": no pull while a party member is dead";
         return;
     }
     // A Sap sent before this pull: wait for it, before any gather (that would
     // call the rogue back from its mob).
     if (SapWait(r, f, dt, order))
+    {
+        r.standPullShotGuid = 0; // the pull never went out
         return;
+    }
     if (!r.hopWaiveUnits.empty() && !r.hopWaiveUnits.count(u.guid))
         DropHopWaiver(r); // another target than the units the hop was abandoned for: gather as usual
     if (r.shotStandPrep && r.shotHoldGuid != u.guid)
@@ -6415,6 +6464,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     AnchorState const anchor = r.gatherWaived || r.shotStandPrep ? AnchorState::On : CheckAnchor(r, f);
     if (anchor == AnchorState::Unknown && r.phase != Phase::Gather)
     {
+        r.standPullShotGuid = 0; // the pull never went out (the way back is read first)
         r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);
         return; // the glue reads the path next tick
     }
@@ -6436,16 +6486,19 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
             GatherCeiling(r, f, order, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
                 " s (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
         }
+        r.standPullShotGuid = 0; // the pull never went out (gather first)
         return;
     }
     if (!walkBack && r.pulls >= kMaxPullsPerStep)
     {
         Pause(r, std::to_string(kMaxPullsPerStep) + " pulls did not clear the step");
+        r.standPullShotGuid = 0; // the pull never went out (the cap paused the step)
         return;
     }
     if (walkBack && r.walkBackPulls >= kMaxWalkBackPulls)
     {
         Pause(r, "walk back: " + std::to_string(kMaxWalkBackPulls) + " pulls on the way did not clear it");
+        r.standPullShotGuid = 0; // the pull never went out (the walk-back cap paused the step)
         return;
     }
     CcPick const ccPick = cc ? PickCcOrder(r, f, u.guid) : CcPick();
@@ -6469,11 +6522,13 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         r.note = "crowd control on " + std::to_string(cc->entry) + " (" + ccPick.bot + ": " +
             RunCcOf(ccPick.family)->spell + ") before the pull";
         order = "cc " + ccPick.mark + " " + std::to_string(cc->guid) + " " + ccPick.bot;
+        r.standPullShotGuid = 0; // the pull never went out (the mark goes out first)
         return;
     }
     // The pull stand (off: false at once, nothing changed): before the gather
-    // waiver is spent, so a stand walk from a hop in sight keeps it.
-    if (f.pullStand)
+    // waiver is spent, so a stand walk from a hop in sight keeps it. The
+    // stand-pull gate's authorization covers only the unit it picked in shot.
+    if (f.pullStand && r.standPullShotGuid != u.guid)
     {
         auto const done = r.pullTries.find(u.guid);
         if ((done == r.pullTries.end() || done->second < kMaxPullsPerTarget) && HoldForShot(r, f, u, dt, order))
@@ -6486,6 +6541,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     if (hop && PullStandOn(r, f) && !ShootableFromLead(f, u))
     {
         r.neverCame.insert(u.guid);
+        r.standPullShotGuid = 0; // the pull never went out (a hop unit the tank cannot shoot is left out)
         r.note = "hop unit " + std::to_string(u.entry) + " " + GuidArg(u.guid) +
             " passed: the tank cannot shoot it from here (" + r.shotHow + "), and a hop pull never walks to it";
         r.shotStandPrep = false;
@@ -6502,6 +6558,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         // Each pull started a fight, yet the unit lives: it evades, leashes
         // home or stands where the party cannot reach. Never loop on it.
         r.unreachable.insert(u.guid);
+        r.standPullShotGuid = 0; // the pull never went out (the target is left out of reach)
         r.note = "unit " + std::to_string(u.entry) + " survived " + std::to_string(kMaxPullsPerTarget) +
             " pulls: left as out of reach";
         return;
@@ -6526,6 +6583,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         r.shotStillMs = 0;
         r.shotHow.clear();
     }
+    r.standPullShotGuid = 0; // the pull went out: the authorization is spent
     // The aggro estimate (Facts::joinerCeiling): the note says how many joiners
     // the estimate expects with this pull, or that the facts carried no count
     // this step (the glue reads it only for units it judged; a unit held or out
@@ -8570,6 +8628,29 @@ inline std::size_t UnitsOutOfReach(const Run& r, const Facts& f)
     return n;
 }
 
+// The stand of a stand-pull boss step: the move row right before it in the same leg, or null (then the flag acts as
+// off: the step pulls as before).
+inline const PlanStep* StandPullStand(const Run& r, const PlanStep& s)
+{
+    if (!(s.flags & ai::kPlanFlagStandPull) || r.step == 0 || !r.plan)
+        return nullptr;
+    const PlanStep& prev = r.plan->steps[r.step - 1];
+    if (prev.kind != PlanStepKind::Move || prev.leg != s.leg)
+        return nullptr;
+    return &prev;
+}
+
+inline void StandPullGiveUp(Run& r, const PlanStep& s, const std::string& why)
+{
+    if (s.flags & ai::kPlanFlagSkipUnreachable)
+    {
+        r.notCleared.insert(r.step);
+        NextStep(r, why + ": skipped, not cleared (the plan marks him out of reach)");
+        return;
+    }
+    Pause(r, why + ": bring him to the party, then .bot run resume, or .bot run skip");
+}
+
 inline FightEnd FightStepEnd(const Run& r, const Facts& f, const PlanStep& s)
 {
     if (!f.seen || OpenUnits(r, f.units) > 0)
@@ -8713,11 +8794,50 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
     if (pick)
     {
         r.bossWaitMs = 0;
+        if (s.kind == PlanStepKind::Boss && !f.anyInCombat && pick->entry == s.entry)
+            if (const PlanStep* st = StandPullStand(r, s))
+            {
+                float const fromStand = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, st->x, st->y, st->z);
+                if (fromStand > kHoldReturnYd)
+                {
+                    if (!WalkTo(r, f, st->x, st->y, st->z, false, dt, order))
+                    {
+                        if (r.state == State::Running)
+                            r.note = "back to the stand for boss " + std::to_string(s.entry);
+                        r.standPullShotGuid = 0; // the pull never went out (walking back to the stand first)
+                        return;
+                    }
+                }
+                if (f.leadShotYd <= kShotMarginYd)
+                {
+                    StandPullGiveUp(r, s, "the tank has no ranged pull for a stand pull");
+                    return;
+                }
+                float const inShot = f.leadShotYd - kStandPullMarginYd;
+                if (pick->losLead && pick->distLead <= inShot)
+                    r.standPullShotGuid = pick->guid;
+                else
+                {
+                    r.standPullMs += dt;
+                    if (r.standPullMs >= kStandPullWaitMs)
+                    {
+                        StandPullGiveUp(r, s, "boss " + std::to_string(s.entry) + " did not come within " + Num(inShot) +
+                            " yd of the stand in 600 s");
+                        return;
+                    }
+                    r.standPullShotGuid = 0; // the pull never went out: a later pull of another unit pulls as before
+                    r.note = "boss " + std::to_string(s.entry) + " patrols: waiting at the stand for him to come within " +
+                        Num(inShot) + " yd (now " + Num(pick->distLead) + " yd" + (pick->losLead ? std::string() : ", out of sight") + ")";
+                    r.stepIdleMs = dt > r.stepIdleMs ? 0 : r.stepIdleMs - dt;
+                    return;
+                }
+            }
         // The way back to the anchor not known yet: read it first (one tick),
         // before this pull counts as one.
         // (A hold for another unit than the pick is caught by PullUnit's own check of the way back.)
         if (r.phase != Phase::Gather && !r.gatherWaived && !r.shotStandPrep && CheckAnchor(r, f) == AnchorState::Unknown)
         {
+            r.standPullShotGuid = 0; // the pull never went out (the way back is read first)
             r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);
             return;
         }
@@ -8735,6 +8855,7 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
             {
                 r.joinerHeld.insert(pick->guid);
                 r.joinerRest = true;
+                r.standPullShotGuid = 0; // the pull never went out (the joiner rest holds this tick)
                 r.joinerNote = std::to_string(pick->joiners) + " joiners expected" +
                     (pick->joinersPatrol ? " (a patrol is the cause)" : "");
                 r.note = r.joinerNote;
@@ -8835,10 +8956,16 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
             if (u.entry == s.entry && u.hostile && r.passed.count(u.guid))
             {
                 auto const tries = r.pullTries.find(u.guid);
-                Pause(r, "boss " + std::to_string(s.entry) + " is alive by his spot, " +
+                std::string const noFight = "boss " + std::to_string(s.entry) + " is alive by his spot, " +
                     FromLeadBot(u.distLead, u.z - f.leadZ) + ", and " +
-                    std::to_string(tries == r.pullTries.end() ? 0u : tries->second) + " pulls drew no fight with him: " +
-                    "bring the party where it can reach him, then .bot run resume, or .bot run skip");
+                    std::to_string(tries == r.pullTries.end() ? 0u : tries->second) + " pulls drew no fight with him";
+                if (s.flags & ai::kPlanFlagSkipUnreachable)
+                {
+                    r.notCleared.insert(r.step);
+                    NextStep(r, noFight + ": skipped, not cleared (the plan marks him out of reach)");
+                    return;
+                }
+                Pause(r, noFight + ": bring the party where it can reach him, then .bot run resume, or .bot run skip");
                 return;
             }
         // Not seen alive and not seen dead: he is away (a patrol, Theka in
@@ -8871,12 +8998,18 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         {
             // Alive elsewhere: the party is not sent after him (he may be on a patrol, or in another part of the
             // instance); the pause says where he stands.
-            Pause(r, "boss " + std::to_string(s.entry) + " is alive at " + Num(f.bossAliveX) + " " + Num(f.bossAliveY) +
+            std::string const aliveAt = "boss " + std::to_string(s.entry) + " is alive at " + Num(f.bossAliveX) + " " + Num(f.bossAliveY) +
                 " " + Num(f.bossAliveZ) + ", " + Num(ai::PlanDistance(f.bossAliveX, f.bossAliveY, f.bossAliveZ, s.x, s.y, s.z)) +
                 " yd from his spot (an instance search after " + std::to_string(kBossSearchMs / 1000) + " s), " +
                 FromLeadBot(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, f.bossAliveX, f.bossAliveY, f.bossAliveZ),
-                    f.bossAliveZ - f.leadZ) +
-                ": bring the party to him or wait for him, then .bot run resume, or .bot run skip");
+                    f.bossAliveZ - f.leadZ);
+            if (s.flags & ai::kPlanFlagSkipUnreachable)
+            {
+                r.notCleared.insert(r.step);
+                NextStep(r, aliveAt + ": skipped, not cleared (the plan marks him out of reach)");
+                return;
+            }
+            Pause(r, aliveAt + ": bring the party to him or wait for him, then .bot run resume, or .bot run skip");
             return;
         }
         if (f.bossSearchRead && f.bossSearchDead)

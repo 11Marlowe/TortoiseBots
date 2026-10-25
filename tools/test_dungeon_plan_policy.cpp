@@ -182,6 +182,20 @@ static void TestNormalize()
     CHECK(NormalizePlanStep(keepMove) == PlanStepRefusal::BadParam);
     talk.flags = kPlanFlagNoDefer;
     CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    // skip_unreachable (4096, kPlanFlagSkipUnreachable): a boss row keeps it (Stormwrought Ruins' Eldermaw 62661 swims a
+    // pool whose bed navmesh is cut off from the shore); on any other kind it is refused.
+    CHECK(kPlanFlagSkipUnreachable == 4096);
+    PlanStep skipBoss = Step(0, 26, PlanStepKind::Boss);
+    skipBoss.entry = 62661;
+    skipBoss.flags = kPlanFlagSkipUnreachable;
+    CHECK(NormalizePlanStep(skipBoss) == PlanStepRefusal::None && (skipBoss.flags & kPlanFlagSkipUnreachable));
+    PlanStep skipPull = Step(0, 27, PlanStepKind::Pull);
+    skipPull.entries = {62648};
+    skipPull.flags = kPlanFlagSkipUnreachable;
+    CHECK(NormalizePlanStep(skipPull) == PlanStepRefusal::BadParam);
+    PlanStep skipMove = Step(0, 28, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    skipMove.flags = kPlanFlagSkipUnreachable;
+    CHECK(NormalizePlanStep(skipMove) == PlanStepRefusal::BadParam);
     talk.flags = 0;
     // The flag belongs to a gossip row only: on any other kind it is a row the exporter got wrong, refused, not ignored.
     CHECK(kPlanFlagDeadNpcIsDone == 512);
@@ -613,6 +627,22 @@ static void TestProofCreatureFlagOnlyOnOpenProof()
     CHECK(NormalizePlanStep(keepPull) == PlanStepRefusal::None);
 }
 
+static void TestStandPullFlagOnlyOnBoss()
+{
+    CHECK(kPlanFlagStandPull == 8192);
+    PlanStep boss = Step(0, 30, PlanStepKind::Boss);
+    boss.entry = 62661;
+    boss.flags = kPlanFlagStandPull;
+    CHECK(NormalizePlanStep(boss) == PlanStepRefusal::None && (boss.flags & kPlanFlagStandPull));
+    PlanStep pull = Step(0, 31, PlanStepKind::Pull);
+    pull.entries = {62648};
+    pull.flags = kPlanFlagStandPull;
+    CHECK(NormalizePlanStep(pull) == PlanStepRefusal::BadParam);
+    PlanStep move = Step(0, 32, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    move.flags = kPlanFlagStandPull;
+    CHECK(NormalizePlanStep(move) == PlanStepRefusal::BadParam);
+}
+
 static void TestPlainOpenUnchanged()
 {
     // A plain open with a radius, extra entries and no param still loads: none
@@ -631,6 +661,7 @@ int main()
     TestOpenProofNormalize();
     TestProofCreatureFlagOnlyOnOpenProof();
     TestPlainOpenUnchanged();
+    TestStandPullFlagOnlyOnBoss();
     TestBossStepsJoinTheirTacticSubjects();
     TestPlanUnits();
     TestKinds();

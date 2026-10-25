@@ -17411,6 +17411,513 @@ static void TestAliveSearchPauseSaysWhereTheLeadBotIs()
     CHECK(a.note == "boss 3976 is alive at 30.0 0.0 43.0, 43.0 yd from his spot (an instance search after 60 s), 44.6 yd "
         "from the lead bot (33.0 yd above it): bring the party to him or wait for him, then .bot run resume, or .bot run skip");
 }
+// Stormwrought Ruins leg 9 (specs/sw-eldermaw.md, Spec A): Eldermaw 62661 swims a pool whose bed navmesh is cut off
+// from the shore, so the boss row carries kPlanFlagSkipUnreachable. Where the step would pause on him ALIVE it ends
+// "not cleared" with a note instead, and the run goes on.
+static void TestSkipUnreachableBossAliveElsewhereEndsNotCleared()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 30);
+    boss.entry = 3976;
+    ai::NormalizePlanStep(boss);
+    boss.flags |= ai::kPlanFlagSkipUnreachable;
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    Run a = Start(&plan);
+    Facts f = Party(0);
+    f.leadZ = 10.0f;
+    for (std::uint32_t i = 0; i < kBossSearchMs / kTickMs + 2 && !a.bossSearchWanted && a.state == State::Running; ++i)
+        Tick(a, f);
+    Facts alive = f;
+    alive.bossSearchRead = true;
+    alive.bossSearchAlive = true;
+    alive.bossAliveX = 30.0f;
+    alive.bossAliveZ = 43.0f;
+    Tick(a, alive);
+    CHECK(a.state == State::Running);
+    CHECK(a.step == 1);
+    CHECK(a.notCleared.count(0));
+    CHECK(a.note == "boss 3976 is alive at 30.0 0.0 43.0, 43.0 yd from his spot (an instance search after 60 s), 44.6 yd "
+        "from the lead bot (33.0 yd above it): skipped, not cleared (the plan marks him out of reach)");
+}
+
+static void TestSkipUnreachableBossPassedBySpotEndsNotCleared()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 0, 0, 0);
+    boss.entry = 3976;
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    // Today's behaviour without the flag: the step pauses and says the pulls drew no fight with him.
+    Run p = Start(&plan);
+    Facts f = Party(0);
+    UnitFact seen = Unit(7, 3976, 33.1f);
+    seen.hostile = true;
+    f.seen = true;
+    f.units = {seen};
+    p.passed.insert(7);
+    p.pullTries[7] = 3;
+    Tick(p, f);
+    CHECK(p.state == State::Paused);
+    CHECK(p.note.find("and 3 pulls drew no fight with him") != std::string::npos);
+    // With the flag: not cleared with a note, and the run goes on.
+    plan.steps[0].flags |= ai::kPlanFlagSkipUnreachable;
+    Run a = Start(&plan);
+    a.passed.insert(7);
+    a.pullTries[7] = 3;
+    Tick(a, f);
+    CHECK(a.state == State::Running);
+    CHECK(a.step == 1);
+    CHECK(a.notCleared.count(0));
+    CHECK(a.note.size() >= 56 && a.note.compare(a.note.size() - 56, 56,
+        ": skipped, not cleared (the plan marks him out of reach)") == 0);
+    CHECK(a.note.find("and 3 pulls drew no fight with him") != std::string::npos);
+}
+
+// Spec B: a boss row with StandPull holds at the move row right before it (the stand) and pulls from there once the
+// boss is in the tank's shot. Setup shared by the tests below.
+static DungeonPlan StandPullPlan(bool skip)
+{
+    DungeonPlan plan;
+    PlanStep stand = Step(PlanStepKind::Move, -5842.0f, -3807.0f, 200.7f);
+    stand.leg = 0;
+    PlanStep boss = Step(PlanStepKind::Boss, -5820.0f, -3797.19f, 201.241f);
+    boss.leg = 0;
+    boss.entry = 3976;
+    boss.radius = 95.0f;
+    boss.flags = ai::kPlanFlagStandPull | (skip ? ai::kPlanFlagSkipUnreachable : 0);
+    ai::NormalizePlanStep(boss);
+    plan.steps = {stand, boss, Step(PlanStepKind::Move, 60)};
+    return plan;
+}
+
+// A stand-pull add: seen by the tank, so the stand rule ranks it when it is nearer than the boss.
+static UnitFact StandPullAdd(std::uint64_t guid, std::uint32_t entry, float dist)
+{
+    UnitFact u = Unit(guid, entry, dist);
+    u.losLead = true;
+    return u;
+}
+
+// A stand-pull boss step with two adds (entries 3979/3980): with the adds nearer than the boss, the
+// stand rule ranks a shootable unit first, so a pull of another unit leaves the boss's for the next tick.
+static DungeonPlan StandPullPlanWithAdds()
+{
+    DungeonPlan plan;
+    PlanStep stand = Step(PlanStepKind::Move, -5842.0f, -3807.0f, 200.7f);
+    stand.leg = 0;
+    PlanStep boss = Step(PlanStepKind::Boss, -5820.0f, -3797.19f, 201.241f);
+    boss.leg = 0;
+    boss.entry = 3976;
+    boss.entries = {3979, 3980};
+    boss.radius = 95.0f;
+    boss.flags = ai::kPlanFlagStandPull;
+    ai::NormalizePlanStep(boss);
+    plan.steps = {stand, boss, Step(PlanStepKind::Move, 60)};
+    return plan;
+}
+static Facts StandPullFacts(float dist, bool los = true, float shot = 30.0f)
+{
+    Facts f = Party(0);
+    f.leadX = -5842.0f;
+    f.leadY = -3807.0f;
+    f.leadZ = 200.7f;
+    f.seen = true;
+    f.pullStand = true;
+    f.leadShotYd = shot;
+    UnitFact u = Unit(9, 3976, dist);
+    u.hostile = true;
+    u.losLead = los;
+    f.units = {u};
+    return f;
+}
+
+// Out of shot (50 yd): the step waits at the stand, no order, no firing-stand read.
+static void TestStandPullWaitsAtTheStandOutOfShot()
+{
+    DungeonPlan plan = StandPullPlan(false);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(50.0f);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(r.note == "boss 3976 patrols: waiting at the stand for him to come within 29.0 yd (now 50.0 yd)");
+    CHECK(r.shotStandFor == 0);
+}
+
+// In shot (28 yd): the pullback goes out on the first tick.
+static void TestStandPullPullsFromTheStandInShot()
+{
+    DungeonPlan plan = StandPullPlan(false);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(28.0f);
+    CHECK(Tick(r, f) == "pullback 9");
+}
+
+// In range but out of sight: wait, saying so.
+static void TestStandPullWaitsWhileOutOfSight()
+{
+    DungeonPlan plan = StandPullPlan(false);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(20.0f, false);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.note == "boss 3976 patrols: waiting at the stand for him to come within 29.0 yd (now 20.0 yd, out of sight)");
+}
+
+// Out of combat 12 yd from the stand: the order walks back to the stand.
+static void TestStandPullWalksBackToTheStand()
+{
+    DungeonPlan plan = StandPullPlan(false);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(50.0f);
+    f.leadX = -5830.0f;
+    f.leadY = -3807.0f;
+    f.leadZ = 200.7f;
+    CHECK(Tick(r, f) == "move -5842.0 -3807.0 200.7");
+}
+
+// 600 s out of shot: with the skip flag the step is not cleared and the run goes on; without it the run pauses.
+// One tick before the ceiling the step still waits (a 599 s wait is not 600 s: kStandPullWaitMs 600000, not 2000).
+static void TestStandPullCeilingSkipsWithTheSkipFlag()
+{
+    DungeonPlan plan = StandPullPlan(true);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(50.0f);
+    std::string order;
+    for (std::uint32_t i = 0; i < kStandPullWaitMs / kTickMs - 1 && r.step == 1 && r.state == State::Running; ++i)
+        order = Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(order.empty());
+    CHECK(r.note == "boss 3976 patrols: waiting at the stand for him to come within 29.0 yd (now 50.0 yd)");
+    CHECK(r.standPullMs == kStandPullWaitMs - kTickMs);
+    Tick(r, f);
+    CHECK(r.state == State::Running);
+    CHECK(r.step == 2);
+    CHECK(r.notCleared.count(1));
+    CHECK(r.note == "boss 3976 did not come within 29.0 yd of the stand in 600 s: skipped, not cleared (the plan marks him out of reach)");
+    DungeonPlan plain = StandPullPlan(false);
+    Run p = Start(&plain, 1);
+    for (std::uint32_t i = 0; i < kStandPullWaitMs / kTickMs && p.step == 1 && p.state == State::Running; ++i)
+        Tick(p, f);
+    CHECK(p.state == State::Paused);
+    CHECK(p.note == "boss 3976 did not come within 29.0 yd of the stand in 600 s: bring him to the party, then .bot run resume, or .bot run skip");
+}
+
+// The 600 s is cumulative per step across pauses, resumes and wipe recoveries of the SAME step: 300 s waited, a
+// pause without the flag, a resume, 299 s more still waits, the 300th s after it ends (not later). Skipping the
+// flag waits without one, so the run pauses there.
+static void TestStandPullCeilingAccumulatesAcrossPauseAndResume()
+{
+    // The ceiling pause cannot be resumed directly (Tick would pause again at once on the same step), so the
+    // resume leg goes through a no-flag plan: the timer it carries is what the test pins.
+    DungeonPlan plain = StandPullPlan(false);
+    Run r = Start(&plain, 1);
+    Facts f = StandPullFacts(50.0f);
+    for (std::uint32_t i = 0; i < 300 && r.state == State::Running; ++i)
+        Tick(r, f);
+    CHECK(r.standPullMs == 300 * kTickMs);
+    Pause(r, "test pause");
+    CHECK(Resume(r));
+    for (std::uint32_t i = 0; i < 299 && r.state == State::Running; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(r.standPullMs == 599 * kTickMs);
+    CHECK(r.note == "boss 3976 patrols: waiting at the stand for him to come within 29.0 yd (now 50.0 yd)");
+    Tick(r, f);
+    CHECK(r.state == State::Paused);
+    CHECK(r.standPullMs == kStandPullWaitMs);
+    CHECK(r.note == "boss 3976 did not come within 29.0 yd of the stand in 600 s: bring him to the party, then .bot run resume, or .bot run skip");
+    // The same 300 + 301 with the skip flag ends it instead.
+    DungeonPlan plan = StandPullPlan(true);
+    Run s = Start(&plan, 1);
+    for (std::uint32_t i = 0; i < 300 && s.state == State::Running; ++i)
+        Tick(s, f);
+    Pause(s, "test pause");
+    CHECK(Resume(s));
+    for (std::uint32_t i = 0; i < 300 && s.state == State::Running && s.step == 1; ++i)
+        Tick(s, f);
+    CHECK(s.state == State::Running && s.step == 2 && s.notCleared.count(1));
+    CHECK(s.note == "boss 3976 did not come within 29.0 yd of the stand in 600 s: skipped, not cleared (the plan marks him out of reach)");
+    CHECK(s.standPullStep == 2); // NextStep moved on: the timer belongs to the new step
+    DungeonPlan two;
+    {
+        PlanStep stand = Step(PlanStepKind::Move, -5842.0f, -3807.0f, 200.7f);
+        stand.leg = 0;
+        PlanStep first = Step(PlanStepKind::Boss, -5820.0f, -3797.19f, 201.241f);
+        first.leg = 0;
+        first.entry = 3976;
+        first.radius = 95.0f;
+        first.flags = ai::kPlanFlagStandPull | ai::kPlanFlagSkipUnreachable;
+        ai::NormalizePlanStep(first);
+        PlanStep back = Step(PlanStepKind::Move, -5842.0f, -3807.0f, 200.7f);
+        back.leg = 0;
+        PlanStep second = Step(PlanStepKind::Boss, -5820.0f, -3797.19f, 201.241f);
+        second.leg = 0;
+        second.entry = 3977;
+        second.radius = 95.0f;
+        second.flags = ai::kPlanFlagStandPull | ai::kPlanFlagSkipUnreachable;
+        ai::NormalizePlanStep(second);
+        two.steps = {stand, first, back, second, Step(PlanStepKind::Move, 60)};
+    }
+    Run t = Start(&two, 1);
+    for (std::uint32_t i = 0; i < 300 && t.state == State::Running && t.step == 1; ++i)
+        Tick(t, f);
+    CHECK(t.standPullMs == 300 * kTickMs);
+    NextStep(t, "test past the boss");
+    CHECK(t.step == 2 && t.standPullMs == 0 && t.standPullStep == 2);
+}
+
+// A stand-pull read with the key off still waits and pulls: for a stand-pull boss step the glue reads leadShotYd
+// and losLead whatever the key says (the key governs ordinary pulls only). Wired at the policy level: the gate
+// uses leadShotYd 30 with pullStand false, not the shipped default's 'no ranged pull'.
+static void TestStandPullGateReadsShotWithTheKeyOff()
+{
+    DungeonPlan plan = StandPullPlan(false);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(50.0f);
+    f.pullStand = false; // the shipped default: ReadPullStand returns early for ordinary pulls
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && r.step == 1);
+    CHECK(r.note == "boss 3976 patrols: waiting at the stand for him to come within 29.0 yd (now 50.0 yd)");
+    Facts in = StandPullFacts(28.0f);
+    in.pullStand = false;
+    CHECK(Tick(r, in) == "pullback 9");
+}
+
+// The no-ranged branch with the key off: leadShotYd 0 still gives up at once.
+static void TestStandPullNoRangedPullKeyOff()
+{
+    DungeonPlan plan = StandPullPlan(true);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(50.0f, true, 0.0f);
+    f.pullStand = false;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 2 && r.notCleared.count(1));
+    CHECK(r.note == "the tank has no ranged pull for a stand pull: skipped, not cleared (the plan marks him out of reach)");
+}
+
+// No ranged pull (leadShotYd 0): the give-up comes at once, skip and pause variants.
+static void TestStandPullNoRangedPull()
+{
+    DungeonPlan plan = StandPullPlan(true);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(50.0f, true, 0.0f);
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 2 && r.notCleared.count(1));
+    CHECK(r.note == "the tank has no ranged pull for a stand pull: skipped, not cleared (the plan marks him out of reach)");
+    DungeonPlan plain = StandPullPlan(false);
+    Run p = Start(&plain, 1);
+    Tick(p, f);
+    CHECK(p.state == State::Paused);
+    CHECK(p.note == "the tank has no ranged pull for a stand pull: bring him to the party, then .bot run resume, or .bot run skip");
+}
+
+// Without a stand (boss as step 0): the step pulls as before (the stand read is asked).
+static void TestStandPullWithoutStandPullsAsBefore()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, -5820.0f, -3797.19f, 201.241f);
+    boss.entry = 3976;
+    boss.radius = 95.0f;
+    boss.flags = ai::kPlanFlagStandPull;
+    ai::NormalizePlanStep(boss);
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.seen = true;
+    f.pullStand = true;
+    f.leadShotYd = 30.0f;
+    UnitFact u = Unit(9, 3976, 28.0f);
+    u.hostile = true;
+    u.losLead = true;
+    f.units = {u};
+    CHECK(Tick(r, f).empty());
+    CHECK(r.shotStandFor == 9);
+}
+
+// The move row before the boss in another leg is no stand (prev.leg != s.leg): the old path, the stand read asked.
+static void TestStandPullStandInAnotherLegPullsAsBefore()
+{
+    DungeonPlan plan;
+    PlanStep stand = Step(PlanStepKind::Move, -5842.0f, -3807.0f, 200.7f);
+    stand.leg = 1;
+    PlanStep boss = Step(PlanStepKind::Boss, -5820.0f, -3797.19f, 201.241f);
+    boss.leg = 0;
+    boss.entry = 3976;
+    boss.radius = 95.0f;
+    boss.flags = ai::kPlanFlagStandPull;
+    ai::NormalizePlanStep(boss);
+    plan.steps = {stand, boss, Step(PlanStepKind::Move, 60)};
+    Run r = Start(&plan, 1);
+    Facts f = Party(0);
+    f.leadX = -5842.0f;
+    f.leadY = -3807.0f;
+    f.leadZ = 200.7f;
+    f.seen = true;
+    f.pullStand = true;
+    f.leadShotYd = 30.0f;
+    UnitFact u = Unit(9, 3976, 28.0f);
+    u.hostile = true;
+    u.losLead = true;
+    f.units = {u};
+    CHECK(Tick(r, f).empty());
+    CHECK(r.shotStandFor == 9);
+}
+
+// The gate needs a quiet party: with the combat flag up (here stale: nothing engaged after the last kill) the
+// fight block owns the tick (note "fighting", empty order) and no stand wait accrues, instead of the gate's wait.
+static void TestStandPullGateOffWhileInCombat()
+{
+    DungeonPlan plan = StandPullPlan(false);
+    Run r = Start(&plan, 1);
+    Facts f = StandPullFacts(28.0f);
+    f.anyInCombat = true;
+    f.staleCombat = true;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.fighting && r.note == "fighting" && r.standPullMs == 0);
+}
+// The authorization clears on a held-up pull path: with it set for the boss (a stale guid from an earlier
+// in-shot tick), a gather first clears it, then the boss in shot still pulls from the stand (shotStandFor stays 0).
+static void TestStandPullShotLatchClearsOnGather()
+{
+    DungeonPlan plan = StandPullPlan(false);
+    Run r = Start(&plan, 1);
+    Facts wait = StandPullFacts(28.0f);
+    wait.maxMemberYd = kGatherYd + 1.0f;
+    r.standPullShotGuid = 9; // a stale authorization: the wait path clears it since the pull never went out
+    std::string gather = Tick(r, wait);
+    CHECK(!gather.empty() && r.note == "gathering before a pull");
+    CHECK(r.standPullShotGuid == 0);
+    Facts back = StandPullFacts(28.0f);
+    CHECK(Tick(r, back) == "pullback 9");
+    CHECK(r.standPullShotGuid == 0);
+}
+
+// The in-shot authorization covers only the judged unit: the boss in shot sets it, the way-back read holds the
+// tick and clears it (the pull never went out), then the nearer add becomes the pick and HoldForShot runs for
+// it (on the bool latch the add pulled from its spot).
+static void TestStandPullAuthAnchorReadThenOtherUnitHolds()
+{
+    DungeonPlan plan = StandPullPlanWithAdds();
+    Run r = Start(&plan, 1);
+    r.anchorKnown = true; // the way back not read yet: the anchor on the stand's floor, 10 yd off
+    r.anchorX = -5832.0f;
+    r.anchorY = -3807.0f;
+    r.anchorZ = 200.7f;
+    Facts read = StandPullFacts(28.0f); // the boss alone in shot: the gate judges him, the way-back read holds
+    CHECK(Tick(r, read).empty());
+    CHECK(Has(r.note, "checking the way back"));
+    CHECK(r.standPullShotGuid == 0); // cleared on the hold: the pull never went out
+    Facts next = StandPullFacts(28.0f);
+    next.anchorPathRead = true;
+    next.anchorReachable = true;
+    next.units.push_back(StandPullAdd(10, 3979, 40.0f)); // too far to shoot: the stand rule holds for the nearer add
+    next.units.push_back(StandPullAdd(11, 3980, 41.0f));
+    CHECK(Tick(r, next).empty()); // not "pullback 10": the stand rule holds for the nearer add first
+    CHECK(Has(r.note, "reading a firing stand for 3979"));
+    CHECK(r.shotStandFor == 10);
+}
+
+// The same through the joiner rest: the boss in shot sets the authorization, the rest holds the tick and clears
+// it, then the nearer add becomes the pick and HoldForShot runs for it.
+static void TestStandPullAuthJoinerRestThenOtherUnitHolds()
+{
+    DungeonPlan plan = StandPullPlanWithAdds();
+    Run r = Start(&plan, 1);
+    r.anchorKnown = true; // the way back known: the anchor is the stand itself
+    r.anchorX = -5842.0f;
+    r.anchorY = -3807.0f;
+    r.anchorZ = 200.7f;
+    Facts loud = StandPullFacts(28.0f); // the boss alone in shot: the gate judges him, the rest holds the tick
+    loud.joinerCeiling = 6;
+    loud.units[0].joiners = 7;
+    loud.units[0].joinersRead = true;
+    loud.minHealthPct = 85;
+    CHECK(Tick(r, loud).empty());
+    CHECK(r.note == "7 joiners expected");
+    CHECK(r.standPullShotGuid == 0); // cleared on the hold: the pull never went out
+    Facts next = StandPullFacts(28.0f);
+    next.joinerCeiling = 6;
+    next.minHealthPct = 100; // rested: the rest wait is moot, the nearer add is judged for its own pull
+    next.units.push_back(StandPullAdd(10, 3979, 40.0f)); // too far to shoot: the stand rule holds for the nearer add
+    next.units.push_back(StandPullAdd(11, 3980, 41.0f));
+    CHECK(Tick(r, next).empty()); // not "pullback 10": the stand rule holds for the nearer add first
+    CHECK(Has(r.note, "reading a firing stand for 3979"));
+    CHECK(r.shotStandFor == 10);
+}
+// The final line must not hide a skipped boss: the flagged boss's step ends
+// "not cleared", the run finishes the rest of the plan, and the done note
+// names him. (Stormwrought Ruins leg 9: Eldermaw swims out of reach; the run
+// goes on to legs 10-11 while he stays alive.)
+static void TestSkippedBossNamedInDoneNoteAliveElsewhere()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 30);
+    boss.entry = 3976;
+    ai::NormalizePlanStep(boss);
+    boss.flags |= ai::kPlanFlagSkipUnreachable;
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadZ = 10.0f;
+    for (std::uint32_t i = 0; i < kBossSearchMs / kTickMs + 2 && !r.bossSearchWanted && r.state == State::Running; ++i)
+        Tick(r, f);
+    Facts alive = f;
+    alive.bossSearchRead = true;
+    alive.bossSearchAlive = true;
+    alive.bossAliveX = 30.0f;
+    alive.bossAliveZ = 43.0f;
+    Tick(r, alive);
+    CHECK(r.state == State::Running && r.step == 1 && r.notCleared.count(0));
+    Facts g = Party(60);
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Done);
+    CHECK(r.note == "plan done (boss skipped, not seen killed: boss 3976 (step 1))");
+    Run w = r;
+    w.wipes = 1;
+    CHECK(DoneNote(w) == "plan done (1 wipe; boss skipped, not seen killed: boss 3976 (step 1))");
+    // Both features in one note (merge of test-speed and skip-unreachable): speed label first, skipped bosses last.
+    w.testSpeed = 2.0f;
+    CHECK(DoneNote(w) == "plan done (speed 2.0 (test); 1 wipe; boss skipped, not seen killed: boss 3976 (step 1))");
+    Run sp = r;
+    sp.testSpeed = 2.0f;
+    CHECK(DoneNote(sp) == "plan done (speed 2.0 (test); boss skipped, not seen killed: boss 3976 (step 1))");
+}
+
+static void TestSkippedBossNamedInDoneNotePassedBySpot()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 0, 0, 0);
+    boss.entry = 3976;
+    ai::NormalizePlanStep(boss);
+    boss.flags |= ai::kPlanFlagSkipUnreachable;
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    UnitFact seen = Unit(7, 3976, 33.1f);
+    seen.hostile = true;
+    f.seen = true;
+    f.units = {seen};
+    r.passed.insert(7);
+    r.pullTries[7] = 3;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && r.notCleared.count(0));
+    Facts g = Party(60);
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Done);
+    CHECK(r.note == "plan done (boss skipped, not seen killed: boss 3976 (step 1))");
+}
+
+static void TestDoneNoteUnchangedWithNoSkippedBoss()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 50, 0, 0), Step(PlanStepKind::Move, 60)};
+    Run r = Start(&plan);
+    Facts f = Party(50);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && r.step == 1);
+    Facts g = Party(60);
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Done && r.note == "plan done");
+    CHECK(!r.notCleared.count(0) && !r.notCleared.count(1));
+}
 
 // Scarlet Cathedral r23 slot 5, step 97 (fix 6): the party killed Mograine at the door, 290 yd from his spot, and the
 // boss step paused "not found" three times until the corpse decay moved him home 600 s later. After kBossSearchMs at
@@ -20214,6 +20721,26 @@ int main()
     TestBossNotAtHisSpotIsSearchedForInTheInstance();
     TestPassedBossAtHisSpotPausesAtOnce();
     TestAliveSearchPauseSaysWhereTheLeadBotIs();
+    TestSkipUnreachableBossAliveElsewhereEndsNotCleared();
+    TestSkipUnreachableBossPassedBySpotEndsNotCleared();
+    TestStandPullWaitsAtTheStandOutOfShot();
+    TestStandPullPullsFromTheStandInShot();
+    TestStandPullWaitsWhileOutOfSight();
+    TestStandPullWalksBackToTheStand();
+    TestStandPullCeilingSkipsWithTheSkipFlag();
+    TestStandPullCeilingAccumulatesAcrossPauseAndResume();
+    TestStandPullGateReadsShotWithTheKeyOff();
+    TestStandPullNoRangedPullKeyOff();
+    TestStandPullNoRangedPull();
+    TestStandPullWithoutStandPullsAsBefore();
+    TestStandPullStandInAnotherLegPullsAsBefore();
+    TestStandPullGateOffWhileInCombat();
+    TestStandPullShotLatchClearsOnGather();
+    TestStandPullAuthAnchorReadThenOtherUnitHolds();
+    TestStandPullAuthJoinerRestThenOtherUnitHolds();
+    TestSkippedBossNamedInDoneNoteAliveElsewhere();
+    TestSkippedBossNamedInDoneNotePassedBySpot();
+    TestDoneNoteUnchangedWithNoSkippedBoss();
     TestSpawnEventsOffReadsEveryAssociation();
     TestUnitThatCannotDieNowPauses();
     TestSlowSteadyBossFightNeverPausesBeforeTheHardCap();
