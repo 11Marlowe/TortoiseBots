@@ -39,7 +39,7 @@ bool BankAction::ExecuteCommand(Player* requester, const std::string& text, Unit
         for (std::list<Item*>::iterator i = found.begin(); i != found.end(); i++)
         {
             Item* item = *i;
-            result &= Withdraw(requester, item->GetProto()->ItemId);
+            result |= Withdraw(requester, item->GetProto()->ItemId);
         }
     }
     else
@@ -54,7 +54,7 @@ bool BankAction::ExecuteCommand(Player* requester, const std::string& text, Unit
             if (!item)
                 continue;
 
-            result &= Deposit(requester, item);
+            result |= Deposit(requester, item);
         }
     }
 
