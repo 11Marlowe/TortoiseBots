@@ -63,11 +63,19 @@ class TbmServerIntentsTest(unittest.TestCase):
         self.assertIn("strategy reset", COMMANDS)
 
     def test_spec_role_ids(self):
-        for spec in ["bm", "mm", "survival", "combat", "assa", "subtlety",
-                     "hybrid", "ele", "enh", "frost", "fire", "arcane",
-                     "affliction", "demonology", "destruction", "cat", "boomkin"]:
+        for spec in ["arms", "fury", "retribution", "discipline", "shadow",
+                     "restoration", "balance", "bm", "mm", "survival",
+                     "combat", "assa", "subtlety", "hybrid", "ele", "enh",
+                     "frost", "fire", "arcane", "affliction", "demonology",
+                     "destruction", "cat", "boomkin"]:
             self.assertIn('{ "%s",' % spec, PARTY)
+        for dead in ["tank", "dps", "heal"]:
+            self.assertNotIn('{ "%s",' % dead, PARTY)
         self.assertIn("SpecRoleChange(roleToken, role)", PARTY)
+
+    def test_bare_cc_answers_invalid(self):
+        block = PARTY[PARTY.index("bool HandleCc("):PARTY.index("bool HandleRole(")]
+        self.assertIn('SendActionError(handler, "cc", "invalid"', block)
 
     def test_sap_in_botstate(self):
         send = PARTY[PARTY.index("void SendBotStateLine("):PARTY.index("bool HandleBehavior(")]

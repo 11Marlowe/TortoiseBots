@@ -718,7 +718,7 @@ bool HandleCc(ChatHandler* handler, char const* args)
     BotCommandContext context = BuildContext(requester);
     if (input.empty())
     {
-        handler->PSendSysMessage("Usage: .bot cc <mark> [bot] | .bot cc clear [bot]");
+        SendActionError(handler, "cc", "invalid", "Usage: .bot cc <mark> [bot] | .bot cc clear [bot]");
         return true;
     }
     std::string lowered = input;
@@ -780,9 +780,13 @@ static std::string SpecRoleChange(std::string const& id, uint8& role)
 {
     struct SpecRow { char const* id; uint8 role; char const* change; };
     static SpecRow const rows[] = {
-        { "tank", 1, "+protection,-arms,-fury,+tank feral,-dps feral" },
-        { "dps", 4, "+arms,-protection" },
-        { "heal", 2, "+holy,-protection,-retribution" },
+        { "arms", 4, "+arms,-protection,-fury" },
+        { "fury", 4, "+fury,-protection,-arms" },
+        { "retribution", 4, "+retribution,-protection,-holy" },
+        { "discipline", 2, "+discipline,-holy,-shadow" },
+        { "shadow", 4, "+shadow,-holy,-discipline,-offdps" },
+        { "restoration", 2, "+restoration,-elemental,-enhancement" },
+        { "balance", 4, "+balance,-tank feral,-dps feral,-restoration" },
         { "bm", 4, "+beast mastery,-marksmanship,-survival" },
         { "mm", 4, "+marksmanship,-beast mastery,-survival" },
         { "survival", 4, "+survival,-beast mastery,-marksmanship" },
