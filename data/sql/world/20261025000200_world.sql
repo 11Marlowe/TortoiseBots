@@ -1,6 +1,6 @@
--- Dire Maul West (map 429): the plan for the run leader (.bot run), exported from turtle-agent 4b64803d
+-- Dire Maul West (map 429): the plan for the run leader (.bot run), exported from turtle-agent 695a1a60
 -- (dungeons/dire_maul_west.json) with the options of the header of 20261017130000:
---   turtle-agent plan-export --mmaps <map 429 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 4b64803d \
+--   turtle-agent plan-export --mmaps <map 429 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 695a1a60 \
 --     --stamp 20261025000200 --out <dir> dire_maul_west
 -- Stacks on 20261024154700. Round 5 of the Dire Maul West fixes, for the r38 slotC2 hall (steps 441-442) and step 233.
 --
@@ -72,7 +72,7 @@
 --     cc_always Banish entry would only make the agent's own driver send Polymorphs at an immune elemental (the Zul'Farrak
 --     'nine orders, one cast' case no_cc was added for). cc_priority and cc_always stay empty; no_cc keeps the elementals;
 --     kill_first stays 14303,11473,11470,11484.
---   * Path checks (server-exact: a local build of 06e15644 with origin/dev f38e184 merged, for plan-check/path-check and
+--   * Path checks (server-exact: a local build of 695a1a60 with origin/dev f38e184 merged, for plan-check/path-check and
 --     the object-hold export): plan-check ok, 339 points on the map 429 navmesh, 0 failing points (before: 13, the leg-4
 --     leg-transition queries and the off-mesh boss approach); 44 warnings (40 estimated patrol periods, 4 detours, both
 --     pre-existing) and 48 run-leader hop notes. The hop-by-hop server check of the 617 hops between the rows (from the
@@ -102,7 +102,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'dire_maul_west';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'dire_maul_west';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'dire_maul_west';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 06e15644 dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');
+('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 695a1a60 dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('dire_maul_west', 0, 'tendris_warpwood', ''),
 ('dire_maul_west', 1, 'revanchion', ''),
