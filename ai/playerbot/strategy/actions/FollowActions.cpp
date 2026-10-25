@@ -159,15 +159,15 @@ bool FollowAction::ObserveDungeonFollowStall(Unit* followTarget)
 // partial path, which is where the bot already stands. Uldaman 2026-10-12:
 // four bots stood 50 s at the edge of such an island, "moving" with no motion,
 // 34-36 yd from the leader. Once the watch has seen that (DungeonFollowStallPolicy.h),
-// step down off the ledge if that is the problem, else walk the navmesh path
-// to the leader with the module's MoveTo, at most once per two seconds. A
-// held bot (eating, casting, rooted) is left alone; five walks in a row that
-// cannot start end the rescue for a minute (DungeonFollowStallWatch).
-// Returns false when the normal follow should run.
+// the rescue tries a short step up when the leader is close and in sight on a
+// nearby floor, then the ledge step-down, else the navmesh walk below.
 bool FollowAction::RescueStalledDungeonFollow(Unit* followTarget, bool& moved)
 {
     if (!ObserveDungeonFollowStall(followTarget))
         return false;
+
+    if (StepUpToLeaderInDungeon(followTarget, moved))
+        return true;
 
     // Own clock and throttle (LedgeStepDownPolicy.h): only fires on an island edge.
     if (StepDownOffLedge(followTarget))
@@ -198,6 +198,58 @@ bool FollowAction::RescueStalledDungeonFollow(Unit* followTarget, bool& moved)
     followStallWatch.Walked(nowMs, moved);
     if (moved)
         ai->TellDebug(GetMaster(), "Core follow stood still in a dungeon - walking the path to you", "debug move");
+    return true;
+}
+
+// Same shape as the open-world step, with dungeon caps
+// (OpenFollowStepPolicy.h): toward a close sighted leader whose height
+// differs by a walkable stair, and only when the step target has ground
+// near the leader's feet. Shares the rescue watch with the navmesh walk
+// below: a step counts as a walk for pacing, and the watch's give-up
+// still bounds the whole episode. Returns true when the step was
+// considered (taken or held); `moved` is set only when a step launched.
+bool FollowAction::StepUpToLeaderInDungeon(Unit* followTarget, bool& moved)
+{
+    moved = false;
+    Map* map = bot->GetMap();
+    if (!followTarget || followTarget == bot || !map || !map->IsDungeon() ||
+        !followTarget->IsPlayer() || !followTarget->IsInWorld() ||
+        !bot->IsAlive() || !followTarget->IsAlive() || !ai->IsSafe(followTarget) ||
+        bot->GetTransport() || followTarget->GetTransport() || bot->IsTaxiFlying())
+        return false;
+
+    uint32 const nowMs = WorldTimer::getMSTime();
+    if (!followStallWatch.WalkDue(nowMs))
+        return false;
+
+    float const dx = followTarget->GetPositionX() - bot->GetPositionX();
+    float const dy = followTarget->GetPositionY() - bot->GetPositionY();
+    float const dz = followTarget->GetPositionZ() - bot->GetPositionZ();
+    float const horizontal = std::sqrt(dx * dx + dy * dy);
+    if (!ai::DungeonFollowStepLeaderNear(horizontal, dz))
+        return false;
+
+    ai::OpenFollowStep step = ai::DungeonFollowStepToward(bot->GetPositionX(), bot->GetPositionY(),
+        followTarget->GetPositionX(), followTarget->GetPositionY());
+    float const h = 2.0f;
+    bool const seesLeader = map->isInLineOfSight(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ() + h,
+        followTarget->GetPositionX(), followTarget->GetPositionY(), followTarget->GetPositionZ() + h);
+    if (!ai::DungeonFollowStepAllowed(horizontal, dz, seesLeader))
+        return true;
+
+    float groundZ = map->GetHeight(step.x, step.y, followTarget->GetPositionZ() + 0.5f);
+    if (!MaNGOS::IsValidMapCoord(step.x, step.y, groundZ) ||
+        !ai::DungeonFollowStepGroundNearLeader(groundZ, followTarget->GetPositionZ()))
+        return true;
+
+    float const startDist = bot->GetDistance(followTarget);
+    bot->GetMotionMaster()->MovePoint(bot->GetMapId(), step.x, step.y, groundZ, MOVE_RUN_MODE);
+    WaitForReach(bot->GetDistance(step.x, step.y, groundZ));
+    moved = true;
+    followStallWatch.Walked(nowMs, true);
+    if (WorldPosition(bot->GetMapId(), step.x, step.y, groundZ).distance(WorldPosition(followTarget)) >
+        startDist - ai::kDungeonFollowStepHeadwayYd)
+        followStallWatch.Reset();
     return true;
 }
 
