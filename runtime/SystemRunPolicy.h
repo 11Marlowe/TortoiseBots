@@ -182,6 +182,17 @@ inline JoinStep DecideJoinStep(bool running, bool paused, bool pausedForPlayer, 
     return JoinStep::None;
 }
 
+// The join scan's flag step: a run going with no player in the group holds no
+// stale pause flag (a GM resume after a joined player left, a resumed run
+// rebound), so a later pause the run did not take for a player never counts
+// as the joined player's and never resumes by itself.
+inline bool JoinFlagAfterScan(bool running, bool realPlayerInGroup, bool pausedForPlayer)
+{
+    if (running && !realPlayerInGroup)
+        return false;
+    return pausedForPlayer;
+}
+
 enum class Verb : uint8_t
 {
     Invalid,

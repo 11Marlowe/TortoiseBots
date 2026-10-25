@@ -8658,6 +8658,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                         realPlayer = true;
                         break;
                     }
+        if (slot.run.state == TortoiseBots::DungeonRun::State::Running && !realPlayer)
+            slot.systemPausedForPlayer = false;
         switch (TortoiseBots::SystemRun::DecideJoinStep(slot.run.state == TortoiseBots::DungeonRun::State::Running,
             slot.run.state == TortoiseBots::DungeonRun::State::Paused, slot.systemPausedForPlayer, realPlayer))
         {

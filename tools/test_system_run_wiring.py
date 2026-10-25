@@ -83,7 +83,9 @@ class SystemBindingWiringTest(unittest.TestCase):
                         tick.index("if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)"))
         self.assertIn("TortoiseBots::SystemRun::kPlayerJoinedNote", tick)
         self.assertIn("slot.systemPausedForPlayer", tick)
-
+        guard = "if (slot.run.state == TortoiseBots::DungeonRun::State::Running && !realPlayer)\n            slot.systemPausedForPlayer = false;"
+        self.assertIn(guard, tick)
+        self.assertLess(tick.index(guard), tick.index("TortoiseBots::SystemRun::DecideJoinStep("))
     def test_bind_entry_point(self):
         bind = body(COMMANDS, "uint64 BindSystemParty(", "\n}\n")
         self.assertLess(bind.index("TortoiseBots::SystemRun::CheckBind(facts)"),

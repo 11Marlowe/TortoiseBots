@@ -74,6 +74,19 @@ static void TestJoinStep()
     CHECK(DecideJoinStep(false, false, true, false) == JoinStep::None); // done
 }
 
+static void TestStaleJoinFlag()
+{
+    // join -> paused+flag, GM resume, player leaves before the tick: the tick
+    // clears the stale flag while the run goes with no player in the group,
+    // so a later dead-member pause must NOT auto-resume.
+    CHECK(DecideJoinStep(true, false, false, true) == JoinStep::Pause);
+    bool flag = true; // the tick paused the run for the joined player
+    flag = JoinFlagAfterScan(true /*running*/, false /*realPlayer*/, flag); // GM resumed, player left
+    CHECK(!flag);
+    CHECK(DecideJoinStep(false, true, flag, false) == JoinStep::None); // a dead-member pause stays paused
+    CHECK(DecideJoinStep(false, true, true, false) == JoinStep::Resume); // without the clear it would resume
+}
+
 static void TestParseArgs()
 {
     CHECK(ParseArgs("bind").verb == Verb::Bind && ParseArgs("bind").rest.empty());
@@ -100,6 +113,7 @@ int main()
 {
     TestSystemBindGate();
     TestJoinStep();
+    TestStaleJoinFlag();
     TestParseArgs();
     TestLogLine();
     std::printf("system run policy: %d checks passed\n", checks);
