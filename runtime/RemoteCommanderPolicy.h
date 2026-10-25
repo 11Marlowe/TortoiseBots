@@ -5,7 +5,8 @@
 // `.bot commander bind <LeadBot> [<Bot>...]` and then leads it from anywhere
 // with `.bot cmd <order>`: the orders name their target by GUID or a 3D point,
 // so they need neither the commander's selection nor the commander's presence
-// in the group. `AiPlayerbot.RemoteCommander` (default 0) switches it on.
+// in the group. `AiPlayerbot.RemoteCommander` (default 0) switches on the
+// outside commander and in-party bindings need only `AiPlayerbot.DungeonSelfClear`.
 //
 // Everything that decides here is a pure function of plain facts, so
 // tools/test_remote_commander_policy.cpp exercises it standalone: the binding
@@ -67,6 +68,8 @@ struct Binding
     // Player-led run (`.bot run start ... player`, 2026-10-24; PlayerLedPolicy.h): the binding the start made. The
     // commander leads the party and walks it; the lead bot is the run's tank (the puller). Always inParty too.
     bool playerLed = false;
+    // The server's own binding of a bot-only party (SystemRunPolicy.h): no commander; its key is the lead bot's guid; never inParty or playerLed.
+    bool system = false;
 };
 
 enum class BindResult : uint8_t
@@ -83,8 +86,14 @@ class BindingTable
 public:
     BindResult Bind(Binding const& binding)
     {
-        if (!binding.commanderGuid || !binding.leadGuid || !binding.groupId ||
-            binding.commanderGuid == binding.leadGuid)
+        if (!binding.commanderGuid || !binding.leadGuid || !binding.groupId)
+            return BindResult::Invalid;
+        if (binding.system)
+        {
+            if (binding.commanderGuid != binding.leadGuid || binding.inParty || binding.playerLed)
+                return BindResult::Invalid;
+        }
+        else if (binding.commanderGuid == binding.leadGuid)
             return BindResult::Invalid;
         if (m_byCommander.count(binding.commanderGuid))
             return BindResult::CommanderAlreadyBound;
@@ -233,7 +242,7 @@ inline ReleaseReason CheckBinding(Binding const& binding, BindingState const& st
 {
     if (!state.enabled)
         return ReleaseReason::Disabled;
-    if (!state.commanderOnline)
+    if (!state.commanderOnline && !binding.system)
         return ReleaseReason::CommanderLeft;
     if (!state.leadOnline)
         return ReleaseReason::LeadLeft;
@@ -254,7 +263,7 @@ inline ReleaseReason CheckBinding(Binding const& binding, BindingState const& st
     // An in-party binding holds real players by design; a classic one (the
     // commander outside) ends when another player joins. The commander coming
     // back into his own bound group is no join (the glue does not count him).
-    if (state.realPlayerInGroup && !binding.inParty)
+    if (state.realPlayerInGroup && !binding.inParty && !binding.system)
         return ReleaseReason::PlayerJoined;
     if (state.memberCount > kMaxGroupSize)
         return ReleaseReason::GroupTooLarge;
@@ -363,7 +372,7 @@ inline char const* ReleaseReasonText(ReleaseReason reason)
     switch (reason)
     {
         case ReleaseReason::None: return "bound";
-        case ReleaseReason::Disabled: return "the remote commander is switched off";
+        case ReleaseReason::Disabled: return "switched off in the config";
         case ReleaseReason::CommanderLeft: return "the commander logged out";
         case ReleaseReason::LeadLeft: return "the lead bot left the world";
         case ReleaseReason::GroupChanged: return "the group was disbanded or the lead bot left it";
@@ -404,6 +413,7 @@ inline bool HireBlocksBind(bool isHire, uint64_t hirerGuid, uint64_t commanderGu
 struct BindFacts
 {
     bool enabled = false;
+    bool inPartyAllowed = false; // an inparty bind would be allowed now (BindingKindEnabled(InParty))
     bool commanderIsBot = false;
     bool commanderAlreadyBound = false;
     BindMember lead;
@@ -455,6 +465,7 @@ enum class BindRefusal : uint8_t
     LeadBound,
     NotInParty,
     NotLeader,
+    InPartyOnly,
 };
 
 // The bind is refused (fail closed) unless the commander controls every bot,
@@ -464,7 +475,7 @@ enum class BindRefusal : uint8_t
 inline BindRefusal CheckBind(BindFacts const& facts)
 {
     if (!facts.enabled)
-        return BindRefusal::Disabled;
+        return facts.inPartyAllowed && !facts.inParty ? BindRefusal::InPartyOnly : BindRefusal::Disabled;
     if (facts.commanderIsBot)
         return BindRefusal::CommanderIsBot;
     if (facts.commanderAlreadyBound)
@@ -538,6 +549,7 @@ inline char const* BindRefusalCode(BindRefusal refusal)
         case BindRefusal::LeadBound: return "lead-bound";
         case BindRefusal::NotInParty: return "not-in-party";
         case BindRefusal::NotLeader: return "not-leader";
+        case BindRefusal::InPartyOnly: return "inparty-only";
     }
     return "rejected";
 }
@@ -565,6 +577,7 @@ inline char const* BindRefusalText(BindRefusal refusal)
         case BindRefusal::LeadBound: return "The lead bot has its own saved instance that would replace the group's. Reset it first (.instance unbind for the lead bot) or pick another lead.";
         case BindRefusal::NotInParty: return "With inparty the lead bot must be in your party: invite it first.";
         case BindRefusal::NotLeader: return "With inparty you must lead your party: only its leader can hand the lead to a bot.";
+        case BindRefusal::InPartyOnly: return "The remote commander is off (AiPlayerbot.RemoteCommander = 0): bind your own party with .bot commander bind <LeadBot> [<Bot>...] inparty for the run leader.";
     }
     return "Request rejected.";
 }
@@ -1023,6 +1036,109 @@ inline bool MayIssueOrder(bool enabled, bool boundCommander, OrderTier tier, boo
     if (tier == OrderTier::Tactical)
         return true;
     return controlsTarget;
+}
+
+// ---------------------------------------------------------------------------
+// Feature gates
+// ---------------------------------------------------------------------------
+
+struct FeatureGates
+{
+    bool remoteCommander = false;
+    bool dungeonSelfClear = false;
+    bool botLfgGroups = false;
+};
+
+enum class BindingKind : uint8_t
+{
+    Remote,
+    InParty,
+    PlayerLed,
+    System,
+};
+
+inline BindingKind KindOf(Binding const& binding)
+{
+    if (binding.system)
+        return BindingKind::System;
+    if (binding.playerLed)
+        return BindingKind::PlayerLed;
+    if (binding.inParty)
+        return BindingKind::InParty;
+    return BindingKind::Remote;
+}
+
+inline bool BindingKindEnabled(BindingKind kind, FeatureGates const& gates)
+{
+    switch (kind)
+    {
+        case BindingKind::Remote: return gates.remoteCommander;
+        case BindingKind::InParty: return gates.remoteCommander || gates.dungeonSelfClear;
+        case BindingKind::PlayerLed: return gates.dungeonSelfClear;
+        case BindingKind::System: return gates.dungeonSelfClear && gates.botLfgGroups;
+    }
+    return false;
+}
+
+inline bool CommanderSurfaceOn(FeatureGates const& gates)
+{
+    return gates.remoteCommander || gates.dungeonSelfClear;
+}
+
+inline bool RunSurfaceOn(FeatureGates const& gates)
+{
+    return gates.dungeonSelfClear;
+}
+
+inline bool ViewAllowed(FeatureGates const& gates)
+{
+    return gates.remoteCommander;
+}
+
+inline bool RunAllowed(BindingKind kind, FeatureGates const& gates)
+{
+    return gates.dungeonSelfClear && BindingKindEnabled(kind, gates);
+}
+
+inline bool IsInGameOrder(std::string const& verb)
+{
+    return verb == "enter" || verb == "summon";
+}
+
+inline bool OrderAllowed(BindingKind kind, FeatureGates const& gates, bool fromRun, std::string const& verb)
+{
+    if (!BindingKindEnabled(kind, gates))
+        return false;
+    switch (kind)
+    {
+        case BindingKind::Remote: return true;
+        case BindingKind::System: return fromRun;
+        case BindingKind::InParty:
+        case BindingKind::PlayerLed: return gates.remoteCommander || fromRun || IsInGameOrder(verb);
+    }
+    return false;
+}
+
+inline char const* OrderOffText(BindingKind kind)
+{
+    switch (kind)
+    {
+        case BindingKind::System: return "Only the run leader orders a server-owned party.";
+        case BindingKind::InParty:
+        case BindingKind::PlayerLed:
+            return "With AiPlayerbot.RemoteCommander = 0 only .bot cmd enter and .bot cmd summon work in your own party; the run leader gives the other orders.";
+        case BindingKind::Remote: return BindRefusalText(BindRefusal::Disabled);
+    }
+    return BindRefusalText(BindRefusal::Disabled);
+}
+
+inline char const* RunSwitchedOffNote(BindingKind kind, FeatureGates const& gates)
+{
+    if (!gates.dungeonSelfClear)
+        return "stopped: the run leader was switched off (AiPlayerbot.DungeonSelfClear)";
+    if (kind == BindingKind::System)
+        return "stopped: bot LFG groups were switched off (AiPlayerbot.BotLfgGroups)";
+    return "stopped: the remote commander was switched off (AiPlayerbot.RemoteCommander)";
 }
 
 // ---------------------------------------------------------------------------

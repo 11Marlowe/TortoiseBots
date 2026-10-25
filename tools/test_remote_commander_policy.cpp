@@ -282,6 +282,107 @@ static void TestBindGate()
     CHECK(CheckBind(facts) == BindRefusal::BotInOtherBinding);
 }
 
+static void TestFeatureGates()
+{
+    FeatureGates const off{};
+    FeatureGates const remote{true, false, false};
+    FeatureGates const self{false, true, false};
+    FeatureGates const both{true, true, false};
+    FeatureGates const lfg{false, true, true};
+    FeatureGates const lfgNoSelf{false, false, true};
+    CHECK(BindingKindEnabled(BindingKind::Remote, remote) && !BindingKindEnabled(BindingKind::Remote, self));
+    CHECK(BindingKindEnabled(BindingKind::InParty, self) && BindingKindEnabled(BindingKind::InParty, remote) &&
+        !BindingKindEnabled(BindingKind::InParty, off));
+    CHECK(BindingKindEnabled(BindingKind::PlayerLed, self) && !BindingKindEnabled(BindingKind::PlayerLed, remote));
+    CHECK(BindingKindEnabled(BindingKind::System, lfg) && !BindingKindEnabled(BindingKind::System, self) &&
+        !BindingKindEnabled(BindingKind::System, lfgNoSelf));
+    CHECK(CommanderSurfaceOn(self) && CommanderSurfaceOn(remote) && !CommanderSurfaceOn(off) && !CommanderSurfaceOn(lfgNoSelf));
+    CHECK(RunSurfaceOn(self) && !RunSurfaceOn(remote));
+    CHECK(ViewAllowed(remote) && !ViewAllowed(self));
+    CHECK(!RunAllowed(BindingKind::Remote, remote) && RunAllowed(BindingKind::Remote, both) && !RunAllowed(BindingKind::Remote, self));
+    CHECK(RunAllowed(BindingKind::InParty, self) && RunAllowed(BindingKind::PlayerLed, self));
+    CHECK(RunAllowed(BindingKind::System, lfg) && !RunAllowed(BindingKind::System, self));
+    // A player's own orders without RemoteCommander: only enter and summon; the run's own orders always.
+    CHECK(OrderAllowed(BindingKind::InParty, self, false, "enter") && OrderAllowed(BindingKind::InParty, self, false, "summon"));
+    CHECK(!OrderAllowed(BindingKind::InParty, self, false, "move") && OrderAllowed(BindingKind::InParty, self, true, "move"));
+    CHECK(OrderAllowed(BindingKind::InParty, both, false, "move"));
+    CHECK(!OrderAllowed(BindingKind::PlayerLed, self, false, "attack") && OrderAllowed(BindingKind::PlayerLed, self, false, "summon"));
+    CHECK(!OrderAllowed(BindingKind::System, lfg, false, "enter") && OrderAllowed(BindingKind::System, lfg, true, "move"));
+    CHECK(!OrderAllowed(BindingKind::System, self, true, "move"));
+    CHECK(!OrderAllowed(BindingKind::Remote, self, true, "move") && OrderAllowed(BindingKind::Remote, remote, false, "move"));
+    CHECK(IsInGameOrder("enter") && IsInGameOrder("summon") && !IsInGameOrder("revive"));
+    Binding b = MakeBinding(1, 10, 100);
+    CHECK(KindOf(b) == BindingKind::Remote);
+    b.inParty = true;
+    CHECK(KindOf(b) == BindingKind::InParty);
+    b.playerLed = true;
+    CHECK(KindOf(b) == BindingKind::PlayerLed);
+    Binding s = MakeBinding(10, 10, 100);
+    s.system = true;
+    CHECK(KindOf(s) == BindingKind::System);
+    CHECK(std::string(RunSwitchedOffNote(BindingKind::System, self)) ==
+        "stopped: bot LFG groups were switched off (AiPlayerbot.BotLfgGroups)");
+    CHECK(std::string(RunSwitchedOffNote(BindingKind::System, off)) ==
+        "stopped: the run leader was switched off (AiPlayerbot.DungeonSelfClear)");
+    CHECK(std::string(RunSwitchedOffNote(BindingKind::Remote, self)) ==
+        "stopped: the remote commander was switched off (AiPlayerbot.RemoteCommander)");
+    CHECK(std::string(OrderOffText(BindingKind::System)) == "Only the run leader orders a server-owned party.");
+}
+
+// A system binding: keyed by its own lead bot, no commander to lose, a joined player does not end it.
+static void TestSystemBinding()
+{
+    BindingTable table;
+    Binding s = MakeBinding(10, 10, 100);
+    s.system = true;
+    CHECK(table.Bind(s) == BindResult::Bound);
+    CHECK(table.FindByBot(10) && table.FindByBot(10)->system);
+    Binding other = MakeBinding(11, 12, 200);
+    other.system = true;
+    CHECK(table.Bind(other) == BindResult::Invalid);      // a system key is its own lead
+    Binding inParty = MakeBinding(13, 13, 300);
+    inParty.system = true;
+    inParty.inParty = true;
+    CHECK(table.Bind(inParty) == BindResult::Invalid);
+    CHECK(table.Bind(MakeBinding(14, 14, 400)) == BindResult::Invalid); // a plain binding still needs another commander
+    CHECK(table.Bind(MakeBinding(20, 21, 100)) == BindResult::GroupAlreadyBound);
+
+    BindingState state = Standing(100);
+    state.commanderOnline = false;
+    CHECK(CheckBinding(s, state) == ReleaseReason::None);
+    state.realPlayerInGroup = true;
+    CHECK(CheckBinding(s, state) == ReleaseReason::None);
+    state.leadIsLeader = false;
+    CHECK(CheckBinding(s, state) == ReleaseReason::LeaderChanged);
+    state = Standing(100);
+    state.leadOnline = false;
+    CHECK(CheckBinding(s, state) == ReleaseReason::LeadLeft);
+    state = Standing(100);
+    state.enabled = false;
+    CHECK(CheckBinding(s, state) == ReleaseReason::Disabled);
+    state = Standing(100);
+    state.leadGroupIsRaidOrBg = true;
+    CHECK(CheckBinding(s, state) == ReleaseReason::GroupRaid);
+    state = Standing(100);
+    state.commanderOnline = false;
+    CHECK(CheckBinding(MakeBinding(1, 10, 100), state) == ReleaseReason::CommanderLeft); // classic unchanged
+    CHECK(std::string(ReleaseReasonText(ReleaseReason::Disabled)) == "switched off in the config");
+}
+
+static void TestInPartyOnlyRefusal()
+{
+    BindFacts facts;
+    facts.enabled = false;
+    facts.inPartyAllowed = true;
+    CHECK(CheckBind(facts) == BindRefusal::InPartyOnly);
+    CHECK(std::string(BindRefusalCode(BindRefusal::InPartyOnly)) == "inparty-only");
+    facts.inParty = true;
+    CHECK(CheckBind(facts) == BindRefusal::Disabled);
+    facts.inParty = false;
+    facts.inPartyAllowed = false;
+    CHECK(CheckBind(facts) == BindRefusal::Disabled);
+}
+
 // Tactical orders: the bound commander counts as a group member. Revive and
 // summon: owner-or-GM, as for whispers. Nothing without a binding or the toggle.
 static void TestOrderGate()
@@ -1167,6 +1268,9 @@ int main()
     TestDepartedFollowers();
     TestReleaseRule();
     TestBindGate();
+    TestFeatureGates();
+    TestSystemBinding();
+    TestInPartyOnlyRefusal();
     TestBindGroupPlan();
     TestMasterLeftRule();
     TestCommandedThreatBackoff();
