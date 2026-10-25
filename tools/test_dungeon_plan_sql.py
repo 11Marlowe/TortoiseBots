@@ -1859,23 +1859,27 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (818) AND `entry` IN (62547, 62548, 62552, 62549, 62551, 62550, 62652, 62664, 62661, 62665, 62671);", text)
         self.assertIn("(818, 62671, 'Ighal''for');", text)
 
-    def test_karazhan_crypt_is_the_plan_with_the_census_fixes(self):
-        # 20261024021100 (turtle-agent prep/karazhan_crypt e91b69a, 2026-10-24): the hand-written plan of map 800 with the census fixes
-        # of PREP-KARAZHAN-CRYPT-2026-10-24.md, no row hand-set, with the boss rows of map 800 scoped to its own six entries. 6 legs,
-        # 246 steps (164 pulls, 76 moves, 6 bosses), 253 rows, bosses in leg order, no boss.first but Midnight 91927 on leg 0's boss.
-        # The critters 14881 are out of every pull; the spider room's 7 Tomb Creepers 91930 are three pulls; Skeletal Remains 91924 that
-        # no Remains Trigger can wake are out; the plan row carries kill_first and no cc_priority (the trash is undead).
+    def test_karazhan_crypt_is_the_plan_with_the_shaft_dive(self):
+        # 20261025001100 (turtle-agent feat/offmesh-links 2756955, 2026-10-25): the plan of map 800 (20261024021100, the census fixes of
+        # PREP-KARAZHAN-CRYPT-2026-10-24.md) re-exported after the shaft dive was mapped on the rebuilt tile 8005334
+        # (KARAZHAN-CRYPT-NAVMESH.md, probe tests/r39kc/): plan-check 0 of 195 points fail, 173 of 191 did before. 6 legs, 275 steps
+        # (152 pulls, 117 moves, 6 bosses), 282 rows, bosses in leg order, no boss.first but Midnight 91927 on leg 0's boss. The
+        # critters 14881 are out of every pull; the spider room's 7 Tomb Creepers 91930 are three pulls; Skeletal Remains 91924 that
+        # no Remains Trigger can wake are out; the plan row carries kill_first and no cc_priority (the trash is undead). The 11
+        # Drowned Sinners of the water column and the ledge Crypt Fearfeaster 91922 are out: no stand reaches them (see the next test).
         name, text = newest_plan_text("karazhan_crypt")
-        self.assertEqual(name, "20261024021100_world.sql")
-        self.assertIn("('karazhan_crypt', 800, '', '', '91918,91913,91911,91925', 'turtle-agent e91b69a3 dungeons/karazhan_crypt.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025001100_world.sql")
+        self.assertIn("('karazhan_crypt', 800, '', '', '91918,91913,91911,91925', 'turtle-agent 2756955 dungeons/karazhan_crypt.json', 'plan v1, draft (route mapped for the shaft dive 2026-10-25; leg 5 waits for the swim across the shaft; not live-checked)');", text)
         legs = leg_rows(text, "karazhan_crypt")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["archlich_enkhraz", "marrowspike", "hivaxxis", "guard_captain_gort", "commander_andreon",
                           "corpsemuncher"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "karazhan_crypt"]
-        self.assertEqual(len(rows), 246)
+        self.assertEqual(len(rows), 275)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)],
-                         [23, 26, 4, 42, 43, 26])
+                         [23, 30, 4, 41, 43, 11])
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "move"]) for leg in range(6)],
+                         [27, 22, 3, 10, 20, 35])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["91916", "91920", "91929", "92935", "91919", "91917"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         for leg in range(6):
@@ -1887,12 +1891,95 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertNotIn("91927", entries)      # Enkhraz's cat is his boss.first
         self.assertNotIn("91931", entries)      # the GM-only Alarus trigger
         self.assertEqual(len([r for r in pulls if "91930" in r["entries"].split(",")]), 3)   # the 7 Tomb Creepers, in three pulls
-        self.assertIn("91922", entries)         # the Crypt Fearfeaster is real trash
+        # The Crypt Fearfeaster 91922 stood on an unmeshed ledge 18 yd above the hall floor (no polygon for it): out of the plan.
+        self.assertNotIn("91922", entries)
+        # The 15 Drowned Sinner groups of the old leg 5 are gone: four are pulled in leg 1 at the shaft floor, the rest swim in the
+        # water column where no floor is within the tank's look view.
+        self.assertEqual(len([r for r in pulls if r["entries"] == "91932"]), 5)   # 4 at the shaft floor + 1 on the south ramp
+        self.assertFalse([r for r in pulls if r["leg"] == "5" and "91932" in r["entries"].split(",")])
         self.assertLessEqual(max(float(r["radius"]) for r in pulls), 12.8)
         self.assertGreaterEqual(min(float(r["radius"]) for r in pulls), 5.0)
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["karazhan_crypt"])
-        # Entry-scoped on map 800: only this plan's six bosses are deleted and replaced (the SM-wing rule).
-        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (800) AND `entry` IN (91916, 91917, 91920, 91929, 91919, 92935);", text)
+        # The map 800 ai_dungeon_boss seed stays in 20261024021100 (the six bosses are unchanged): this file must not seed it again.
+        self.assertNotRegex(text, r"(?m)^(?:INSERT|REPLACE) INTO `ai_dungeon_boss`")
+        seeds = [(n, t) for n, t in migrations()
+                 if "DELETE FROM `ai_dungeon_boss` WHERE `map` IN (800)" in t]
+        self.assertEqual([n for n, _t in seeds], ["20261024021100_world.sql"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (800) AND `entry` IN (91916, 91917, 91920, 91929, 91919, 92935);",
+                      seeds[0][1])
+
+    def test_karazhan_crypt_leg1_dives_from_a_dry_stand(self):
+        # The dive route the map-800 navmesh needs (KARAZHAN-CRYPT-NAVMESH.md, probe tests/r39kc/): the party leaves the walkway for a DRY
+        # point on the south ramp above the waterline (the shaft's water surface is 3.046), one move row through the off-mesh dive lands
+        # on the shaft floor (-11221.3 -1560 -45.9); the dive is 56.8 yd straight, inside the run leader's 60 yd sight distance, and it
+        # must start dry (a water-to-water move is refused, BFD C2/C3). The four Drowned Sinners 91932 that swim at the floor are then
+        # pulled from that floor stand before anything else - they killed a bot parked there in 32 s - and the pack of two Risen Crypt
+        # Guards and the Shadowblade Spectre 91918 is pulled from a stand on the lower-crypt slope BEFORE the walk past it (a bot that
+        # walked on was stopped at y -1655 and died there). Leg 5 (corpsemuncher) is the one that waits for the water-to-water swim.
+        _name, text = newest_plan_text("karazhan_crypt")
+        rows = [r for r in self.step_rows(text) if r["plan"] == "karazhan_crypt"]
+        leg1 = leg_steps(rows, 1)
+        # The `to` row is the dry ramp point; the cut rows before it are the walk off the walkway (leg 0's boss stands at z 4.3).
+        to_at = [i for i, r in enumerate(leg1) if r["comment"] == "to"]
+        self.assertEqual(len(to_at), 1)
+        self.assertTrue(all(r["kind"] == "move" for r in leg1[:to_at[0] + 1]))
+        dry_row = leg1[to_at[0]]
+        dry = [float(dry_row[c]) for c in ("x", "y", "z")]
+        self.assertAlmostEqual(dry[0], -11219.96, places=2)
+        self.assertAlmostEqual(dry[1], -1586.82, places=2)
+        self.assertGreater(dry[2], 4.0, "the dive must start on the dry ramp, above the 3.046 water surface")
+        dive = leg1[to_at[0] + 1]
+        self.assertEqual(dive["kind"], "move")
+        self.assertEqual(dive["comment"], "pull group 0 approach")
+        landed = [float(dive[c]) for c in ("x", "y", "z")]
+        self.assertEqual([round(v, 1) for v in landed], [-11221.3, -1560.0, -45.9])
+        self.assertAlmostEqual(math.dist(dry, landed), 56.8, places=1)
+        self.assertLess(math.dist(dry, landed), 60.0, "one cmd move row: a cut would put a move row in mid-water")
+        pulls = [r for r in leg1 if r["kind"] == "pull"]
+        self.assertEqual([r["entries"] for r in pulls[:4]], ["91932"] * 4)
+        # The Sinners of the floor: ambush (stealthed), and on the floor (z -41.2 to -44.7), not in the water column.
+        self.assertTrue(all(int(r["flags"]) & 1 for r in pulls[:4]))
+        self.assertTrue(all(-45.0 < float(r["z"]) < -41.0 for r in pulls[:4]))
+        # The slope pack: the only pull with the Spectre, 9.2 yd from a stand row of its own, before the lower crypt's first pull.
+        spectre = [i for i, r in enumerate(pulls) if "91918" in r["entries"].split(",")]
+        self.assertEqual(len(spectre), 1)
+        self.assertEqual(spectre, [4])
+        self.assertEqual(pulls[4]["entries"], "91925,91918")   # two Risen Crypt Guards and the Spectre, one row
+        stand = [r for r in leg1 if r["kind"] == "move" and r["comment"] == "pull group 4 approach"]
+        self.assertEqual(len(stand), 1)
+        self.assertAlmostEqual(math.dist([float(stand[0][c]) for c in ("x", "y", "z")],
+                                         [float(pulls[4][c]) for c in ("x", "y", "z")]), 9.2, places=1)
+        # The walk on to the lower crypt starts from the slope stand, in one hop under 60 yd, and the crypt's floor gets a stand row
+        # before its first pull (leg 1 group 5: the 91915 at the old `to` point).
+        after_at = [i for i, r in enumerate(leg1) if r["comment"] == "pull group 4"][0] + 1
+        after = leg1[after_at]
+        self.assertEqual(after["kind"], "move")
+        self.assertEqual([round(float(after[c]), 1) for c in ("x", "y", "z")], [-11211.0, -1689.0, -28.5])
+        self.assertLess(math.dist([float(pulls[4][c]) for c in ("x", "y", "z")],
+                                  [float(after[c]) for c in ("x", "y", "z")]), 60.0)
+        crypt_at = [i for i, r in enumerate(leg1) if r["kind"] == "pull" and r["entries"] == "91915"][0]
+        self.assertGreater(crypt_at, after_at)
+        self.assertTrue(all(r["kind"] == "move" for r in leg1[after_at + 1:crypt_at]))
+        self.assertTrue(all(not r["entries"] for r in leg1[after_at + 1:crypt_at]))
+        walk = leg1[after_at:crypt_at + 1]
+        for a, b in zip(walk, walk[1:]):
+            self.assertLess(math.dist([float(a[c]) for c in ("x", "y", "z")],
+                                      [float(b[c]) for c in ("x", "y", "z")]), 60.0,
+                            "every hop of the walk to the lower crypt is under the run leader's 60 yd")
+        # Leg 3 opens by climbing back up through the dive (its first point is the z 4.3 hall) and leg 5's first point is the south wing
+        # behind the swim: the two links the plan needs, and no other leg crosses one.
+        leg3 = leg_steps(rows, 3)
+        self.assertEqual([round(float(leg3[0][c]), 1) for c in ("x", "y", "z")], [-11223.6, -1728.8, 4.3])
+        leg5 = leg_steps(rows, 5)
+        to5_at = [i for i, r in enumerate(leg5) if r["comment"] == "to"][0]
+        self.assertEqual([round(float(leg5[to5_at][c]), 1) for c in ("x", "y", "z")], [-11178.0, -1479.0, 3.6])
+        # The rows before it hold the swim across the shaft (-11213.1 -1572.3 -2.8 -> -11207.3 -1510.4 -3.8), cut into two moves of
+        # 50 yd: water at both ends, which the mover refuses. This is the leg's whole blocker, and it is pinned here on purpose.
+        swim = [[round(float(r[c]), 1) for c in ("x", "y", "z")] for r in leg5 if r["kind"] == "move"]
+        south = swim.index([-11213.1, -1572.3, -2.8])
+        north = swim.index([-11207.3, -1510.4, -3.8])
+        self.assertEqual(north - south, 2, "the 62 yd swim is cut into two moves, both water-to-water")
+        self.assertTrue(-3.8 < swim[south + 1][2] < -2.8, "the cut point is mid-water, no floor under it")
 
     def test_lower_blackrock_spire_is_the_plan_with_the_census_fixes(self):
         # 20261024153100 (turtle-agent ca779b3, RUN-LESSONS r35 slot5, steps 217/222/223 = leg 1): the r33 draft after the
@@ -3576,6 +3663,29 @@ class DungeonPlanSql(unittest.TestCase):
         _name, text = newest_plan_text("scarlet_cathedral")
         rows = [r for r in self.step_rows(text) if r["plan"] == "scarlet_cathedral"]
         lines = ["P\tscarlet_cathedral\t%d" % BOSS_PLANS["scarlet_cathedral"]]
+        for r in rows:
+            lines.append("\t".join(["S", r["plan"], r["leg"], r["seq"], r["kind"], r["entry"], r["x"], r["y"], r["z"], r["radius"], r["item"],
+                                    r["param"], r["flags"], r["timeout_s"], r["entries"]]))
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = os.path.join(tmp, "rows")
+            build = subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", os.path.join(ROOT, "tools/test_dungeon_plan_rows.cpp"), "-o", binary],
+                                   capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([binary], input="\n".join(lines) + "\n", capture_output=True, text=True)
+        self.assertEqual(run.stdout.strip().splitlines()[-1], "rows %d refused 0" % len(rows), run.stdout)
+
+    def test_karazhan_crypt_rows_pass_the_loader_checks(self):
+        # All 275 rows of the dive export go through the loader's own code (DungeonPlanPolicy.h: ParsePlanStepRowKind,
+        # ParsePlanEntries, DungeonPlanTable::AddStep with NormalizePlanStep and the (plan, leg, seq) key), compiled from
+        # tools/test_dungeon_plan_rows.cpp: a row it refuses is skipped at startup and the run pauses before it. The rows the
+        # dive adds are the ones a refusal would hurt most - a 56.8 yd move through an off-mesh link and four ambush pulls
+        # (flag 1) whose stand is a move row, all of them inside the run leader's reach.
+        compiler = shutil.which("g++")
+        if compiler is None:
+            self.skipTest("g++ is not installed")
+        _name, text = newest_plan_text("karazhan_crypt")
+        rows = [r for r in self.step_rows(text) if r["plan"] == "karazhan_crypt"]
+        lines = ["P\tkarazhan_crypt\t%d" % BOSS_PLANS["karazhan_crypt"]]
         for r in rows:
             lines.append("\t".join(["S", r["plan"], r["leg"], r["seq"], r["kind"], r["entry"], r["x"], r["y"], r["z"], r["radius"], r["item"],
                                     r["param"], r["flags"], r["timeout_s"], r["entries"]]))
