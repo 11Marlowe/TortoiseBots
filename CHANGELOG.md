@@ -23,6 +23,9 @@
 - Fixed the run leader dropping a focus skull with no retry and keeping a stale skull across pauses.
 - Fixed bots in deep water standing still on a swim the server allows: their move now goes to the server's own swim, or up and out onto a shore within 30 yd.
 
+### Dungeons & Maps
+- New: the server can run a dungeon with a bot-only party of world bots by itself (behind `AiPlayerbot.BotLfgGroups`); GameMasters test it with `.bot run system`.
+
 ## v1.8.0 (2026-10-22)
 
 ### Classes & Combat

@@ -105,5 +105,31 @@ class SystemSurfaceWiringTest(unittest.TestCase):
         self.assertIn('"the server\'s dungeon run"', COMMANDS)
 
 
+class SystemCommandWiringTest(unittest.TestCase):
+    def test_run_dispatches_system(self):
+        run = body(COMMANDS, "bool HandleDungeonRun(", "\n}\n")
+        dispatch = 'if (verb == "system")\n        return HandleSystemRun(handler, rawArg, intent);'
+        self.assertIn(dispatch, run)
+        self.assertLess(run.index(dispatch), run.index('if (verb != "start" && verb != "pause"'))
+
+    def test_system_run_guards(self):
+        cmd = body(COMMANDS, "static bool HandleSystemRun(", "\n}\n")
+        self.assertLess(cmd.index("IsBotAdministrator("),
+                        cmd.index("RemoteCommander::BindingKindEnabled(RemoteCommander::BindingKind::System,"))
+        self.assertLess(cmd.index("RemoteCommander::BindingKindEnabled(RemoteCommander::BindingKind::System,"),
+                        cmd.index("TortoiseBots::SystemRun::ParseArgs("))
+        self.assertIn("GetSelectionGuid()", cmd)
+        self.assertIn("ServerLogChatHandler", cmd)
+        self.assertIn("BindSystemParty(", cmd)
+        self.assertIn("RemoteCommander::IsKnownOrder(", cmd)
+
+    def test_system_cmd_needs_no_running_run(self):
+        cmd = body(COMMANDS, "static bool HandleSystemRun(", "\n}\n")
+        self.assertLess(cmd.index("State::Running"), cmd.index("IssueRunOrder("))
+
+    def test_system_unbind_releases_quietly(self):
+        cmd = body(COMMANDS, "static bool HandleSystemRun(", "\n}\n")
+        self.assertIn("ReleaseBinding(key, RemoteCommander::ReleaseReason::Unbound, false)", cmd)
+
 if __name__ == "__main__":
     unittest.main()

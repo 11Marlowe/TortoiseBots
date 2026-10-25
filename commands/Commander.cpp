@@ -9567,6 +9567,137 @@ struct PlayerLedStartGuard
     }
 };
 
+// The GameMaster debug command for a server-owned run (SystemRunPolicy.h, L9):
+// `.bot run system bind [<Bot>...] | cmd <order> | start [plan] [from ...] |
+// pause | resume | skip | stop | status | unbind`, with the lead bot targeted.
+// Replies use the intent `run system`.
+static bool HandleSystemRun(ChatHandler* handler, std::string const& args, std::string const& intent)
+{
+    Player* gm = Requester(handler);
+    if (!gm || !gm->GetSession() || !IsBotAdministrator(gm))
+    {
+        SendActionError(handler, intent, "forbidden", "Only a GameMaster may drive a server-owned run.");
+        return true;
+    }
+    if (!RemoteCommander::BindingKindEnabled(RemoteCommander::BindingKind::System, CurrentCommanderGates()))
+    {
+        SendActionError(handler, intent, "disabled",
+            TortoiseBots::SystemRun::RefusalText(TortoiseBots::SystemRun::Refusal::Disabled));
+        return true;
+    }
+    TortoiseBots::SystemRun::Args parsed = TortoiseBots::SystemRun::ParseArgs(args);
+    if (parsed.verb == TortoiseBots::SystemRun::Verb::Invalid)
+    {
+        SendActionError(handler, intent, "invalid",
+            "Usage: .bot run system bind [<Bot>...] / cmd <order> / start [plan] [from ...] / pause / resume / skip / stop / status / unbind (target the lead bot)");
+        return true;
+    }
+    Player* lead = ObjectAccessor::FindPlayer(gm->GetSelectionGuid());
+    if (!lead || !BotManager::Instance().IsBot(lead->GetObjectGuid()))
+    {
+        SendActionError(handler, intent, "no-target", "Target the lead bot of the party.");
+        return true;
+    }
+    uint64 const key = lead->GetObjectGuid().GetRawValue();
+    if (parsed.verb == TortoiseBots::SystemRun::Verb::Bind)
+    {
+        std::vector<Player*> joiners;
+        for (std::string const& name : RemoteCommander::SplitOrderArgs(parsed.rest))
+        {
+            Player* joiner = FindOnlineByName(name);
+            if (!joiner)
+            {
+                SendActionError(handler, intent, "no-bot",
+                    (std::string("No online bot named ") + name + ".").c_str());
+                return true;
+            }
+            joiners.push_back(joiner);
+        }
+        std::string code, message;
+        if (!BindSystemParty(lead, joiners, code, message))
+        {
+            SendActionError(handler, intent, code.c_str(), message.c_str());
+            return true;
+        }
+        std::vector<Player*> bots = CommandedBots(lead->GetGroup(), lead);
+        SendActionAck(handler, intent, "party", static_cast<uint32>(bots.size()), lead->GetName());
+        return true;
+    }
+    if (parsed.verb == TortoiseBots::SystemRun::Verb::Unbind)
+    {
+        if (!IsSystemBinding(key))
+        {
+            SendActionError(handler, intent, "not-bound", "That bot leads no server-owned party.");
+            return true;
+        }
+        if (DungeonRuns().count(key))
+        {
+            ServerLogChatHandler stopEcho(lead, handler);
+            HandleDungeonRun(&stopEcho, "stop");
+        }
+        ReleaseBinding(key, RemoteCommander::ReleaseReason::Unbound, false);
+        SendActionAck(handler, intent, "party", 0, lead->GetName());
+        return true;
+    }
+    if (parsed.verb == TortoiseBots::SystemRun::Verb::Cmd)
+    {
+        if (!IsSystemBinding(key))
+        {
+            SendActionError(handler, intent, "not-bound", "That bot leads no server-owned party.");
+            return true;
+        }
+        auto run = DungeonRuns().find(key);
+        if (run != DungeonRuns().end() &&
+            run->second.run.state == TortoiseBots::DungeonRun::State::Running)
+        {
+            SendActionError(handler, intent, "busy", "The run is going: .bot run system stop first.");
+            return true;
+        }
+        std::string word = parsed.rest.substr(0, parsed.rest.find_first_of(" \t"));
+        for (char& c : word)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (!RemoteCommander::IsKnownOrder(word))
+        {
+            SendActionError(handler, intent, "invalid",
+                "Usage: .bot run system cmd <order> (one of the .bot cmd orders)");
+            return true;
+        }
+        std::string answer;
+        if (IssueRunOrder(lead, parsed.rest, answer))
+        {
+            handler->PSendSysMessage("system run cmd %s: ok", parsed.rest.c_str());
+            SendActionAck(handler, intent, "cmd", 1, "ok");
+            return true;
+        }
+        handler->PSendSysMessage("system run cmd %s: %s", parsed.rest.c_str(), answer.c_str());
+        SendActionError(handler, intent, "refused", answer.c_str());
+        return true;
+    }
+    bool boundNow = false;
+    if (parsed.rest.compare(0, 5, "start") == 0 && !IsSystemBinding(key))
+    {
+        std::string code, message;
+        if (!BindSystemParty(lead, {}, code, message))
+        {
+            SendActionError(handler, intent, code.c_str(), message.c_str());
+            return true;
+        }
+        boundNow = true;
+    }
+    if (!IsSystemBinding(key))
+    {
+        SendActionError(handler, intent, "not-bound", "That bot leads no server-owned party.");
+        return true;
+    }
+    ServerLogChatHandler echo(lead, handler);
+    HandleDungeonRun(&echo, parsed.rest.c_str());
+    if (boundNow && !DungeonRuns().count(key))
+        ReleaseBinding(key, RemoteCommander::ReleaseReason::Unbound, false);
+    if (auto run = DungeonRuns().find(key); run != DungeonRuns().end())
+        handler->PSendSysMessage("%s", TortoiseBots::DungeonRun::StatusLine(run->second.run).c_str());
+    return true;
+}
+
 // .bot run start [plan] [player [tank <Bot>]] | pause | resume | skip | stop | status | mode | list | reloadplans (GameMaster)
 bool HandleDungeonRun(ChatHandler* handler, char const* args)
 {
@@ -9582,9 +9713,12 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     std::string const intent = "run " + (verb.empty() ? std::string("unknown") : ProtocolSafe(verb));
 
+
     // Before the in-game and run-leader checks: a GameMaster reloads from the console too, with the run leader off.
     if (verb == "reloadplans")
         return HandleReloadPlans(handler, intent);
+    if (verb == "system")
+        return HandleSystemRun(handler, rawArg, intent);
 
     if (verb != "start" && verb != "pause" && verb != "resume" && verb != "skip" && verb != "stop" &&
         verb != "status" && verb != "list" && verb != "mode")
