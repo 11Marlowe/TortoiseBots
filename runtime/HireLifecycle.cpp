@@ -388,6 +388,8 @@ void HireLifecycle::LeaveBattlegroundQueue(Player* bot)
 void HireLifecycle::SweepBattlegroundBoundary()
 {
     bool hireAllowPvP = sPlayerbotAIConfig.hireAllowPvP;
+    // One notice per master and pass, however many hires it has.
+    std::unordered_set<uint32_t> notified;
     for (auto& kv : m_hired)
     {
         HiredRecord& record = kv.second;
@@ -400,7 +402,8 @@ void HireLifecycle::SweepBattlegroundBoundary()
         if (ShouldDismissHireOnBattleground(hireAllowPvP, masterInside, botInside))
         {
             QueueDismissal(record, DismissalReason::EnteredBattleground);
-            if (master && master->IsInWorld() && master->GetSession() && masterInside)
+            if (master && master->IsInWorld() && master->GetSession() && masterInside &&
+                notified.insert(record.masterGuid.GetCounter()).second)
             {
                 WorldPacket data;
                 ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM,
@@ -417,7 +420,8 @@ void HireLifecycle::SweepBattlegroundBoundary()
         if (ShouldWarnMasterOnBgQueue(hireAllowPvP, masterInQueue, masterInside, record.bgQueueWarned))
         {
             record.bgQueueWarned = true;
-            WarnMasterOnQueueEntry(master);
+            if (notified.insert(record.masterGuid.GetCounter()).second)
+                WarnMasterOnQueueEntry(master);
             continue;
         }
         if (!masterInQueue)
