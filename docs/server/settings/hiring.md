@@ -20,8 +20,11 @@ These settings configure mercenary companion hiring, party cost scaling, raid pr
 | [`AiPlayerbot.HireEnabled`](#aiplayerbothireenabled) | `1` | Master toggle for companion hiring commands and inn recruiters. |
 | [`AiPlayerbot.HireMinAccountSecurity`](#aiplayerbothireminaccountsecurity) | `0` | Minimum account security level required to hire mercenary companions. |
 | [`AiPlayerbot.HireFreeMinSecurity`](#aiplayerbothirefreeminsecurity) | `0` | Minimum account security level that receives free mercenary hiring. |
+| [`AiPlayerbot.HireMaxBotsPerPlayer`](#aiplayerbothiremaxbotsperplayer) | `4` | Maximum number of hired companions a single player may lead. |
+| [`AiPlayerbot.HireMaxLevelAboveHirer`](#aiplayerbothiremaxlevelabovehirer) | `0` | Maximum character levels a hired companion may exceed its employer. |
 | [`AiPlayerbot.HireAnywhere`](#aiplayerbothireanywhere) | `0` | Allows hiring companions from anywhere via chat command. |
 | [`AiPlayerbot.HireAllowPvP`](#aiplayerbothireallowpvp) | `0` | Allows hired companions into battlegrounds (off = PvE-only). |
+| [`AiPlayerbot.ShamanTankEnabled`](#aiplayerbotshamantankenabled) | `1` | Offers the experimental 7.3 shaman tank build at recruiters, by `.bot hire`, and to random pool shamans. |
 | [`AiPlayerbot.HireBaseCostCopper`](#aiplayerbothirebasecostcopper) | `15000` | Base copper fee used for level-scaled party companion hiring. |
 | [`AiPlayerbot.HirePartyMult2`](#aiplayerbothirepartymult2) | `1.66` | Cost multiplier applied when hiring a second party companion. |
 | [`AiPlayerbot.HirePartyMult3`](#aiplayerbothirepartymult3) | `2.66` | Cost multiplier applied when hiring a third party companion. |
