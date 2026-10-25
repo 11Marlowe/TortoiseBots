@@ -17,6 +17,10 @@
 //
 // Magma only. Slime does no damage in this core (Player.cpp, the DAMAGE_SLIME
 // tick is commented out), and refusing it would strand bots in Undercity.
+// The swim hand-off is the exception (IsSlimeHazard, ClassifyLiquidHazard
+// below): a hand-off route is a swim the route filter (SwimPathFits) already
+// refuses through slime, so the hand-off samples every leg for slime exactly
+// as for magma instead of taking it.
 
 #include <cmath>
 #include <cstddef>
@@ -27,6 +31,8 @@ namespace ai
 {
     // GridMapDefines.h: MAP_LIQUID_TYPE_MAGMA (a type_flags bit).
     constexpr std::uint32_t kMagmaLiquidTypeFlag = 0x01;
+    // GridMapDefines.h: MAP_LIQUID_TYPE_SLIME (a type_flags bit).
+    constexpr std::uint32_t kSlimeLiquidTypeFlag = 0x04;
     // GridMapDefines.h GridMapLiquidStatus: LIQUID_MAP_WATER_WALK,
     // LIQUID_MAP_IN_WATER, LIQUID_MAP_UNDER_WATER.
     constexpr std::uint32_t kLiquidStatusWaterWalk = 0x02;
@@ -65,6 +71,37 @@ namespace ai
         if (!(typeFlags & kMagmaLiquidTypeFlag))
             return false;
         return (status & (kLiquidStatusUnderWater | kLiquidStatusInWater | kLiquidStatusWaterWalk)) != 0;
+    }
+
+    // The same rule for slime (round 2, Codex HIGH 2026-10-25): the liquid
+    // there is slime and the point is under it, in it, or just on its
+    // surface. Only the swim hand-off routes use it (see above); ordinary
+    // moves stay magma-only.
+    inline bool IsSlimeHazard(std::uint32_t typeFlags, std::uint32_t status)
+    {
+        if (!(typeFlags & kSlimeLiquidTypeFlag))
+            return false;
+        return (status & (kLiquidStatusUnderWater | kLiquidStatusInWater | kLiquidStatusWaterWalk)) != 0;
+    }
+
+    // One sampled guard's per-sample verdict: magma always, slime too when
+    // `withSlime` (the 0x81, 0x1 and swim-out hand-off routes); ordinary moves
+    // pass false and see exactly what IsMagmaHazard saw. Magma wins when both
+    // bits are set (one liquid type per point in practice).
+    enum class LiquidHazard
+    {
+        None,
+        Magma,
+        Slime,
+    };
+
+    inline LiquidHazard ClassifyLiquidHazard(std::uint32_t typeFlags, std::uint32_t status, bool withSlime)
+    {
+        if (IsMagmaHazard(typeFlags, status))
+            return LiquidHazard::Magma;
+        if (withSlime && IsSlimeHazard(typeFlags, status))
+            return LiquidHazard::Slime;
+        return LiquidHazard::None;
     }
 
     // Where the guard applies: bots on an instance map (dungeon or raid,

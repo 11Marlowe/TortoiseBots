@@ -116,7 +116,7 @@ class SwimHandoffWiringTest(unittest.TestCase):
         self.assertIn("map->FindCollisionModel(", h)
         self.assertIn("terrain->IsSwimmable(startPos.getX(), startPos.getY(), startPos.getZ(), 1.5f, &here)", h)
         self.assertIn("ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);", h)
-        self.assertLess(h.index("RouteEntersMagma(bot, startPos, line, magmaAt)"), h.index("mm.Clear();"))
+        self.assertLess(h.index("RouteEntersLiquidHazard(bot, startPos, line, hazardAt, true, hazardIsSlime)"), h.index("mm.Clear();"))
         self.assertIn("MOVE_RUN_MODE | MOVE_PATHFINDING", h)
         self.assertIn("lastMove.setPath(TravelPath()); // not reused", h)
         self.assertIn("WorldPosition::SwimLineWhy(", h)
@@ -138,13 +138,16 @@ class SwimHandoffWiringTest(unittest.TestCase):
         self.assertIn("clipped.addPath({ leg[i - 1], leg[i] });", MOVES)
         self.assertIn("clipped.ClipPath(ai, mover, ignoreEnemyTargets, packHold);", MOVES)
         self.assertIn("if (!SwimHandoffLegClear(ai, bot, ignoreEnemyTargets, packHold, linePoints))", h)
-        # Round 1 (2)/(3): the walked path (not the chord) feeds RouteEntersMagma; slime refuses too.
-        self.assertIn("RouteEntersMagma(bot, startPos, line, magmaAt)", h)
-        self.assertLess(h.index("for (G3D::Vector3 const& p : path.getPath())"), h.index("RouteEntersMagma(bot, startPos, line, magmaAt)"))
+        # Round 1 (2): the walked path (not the chord) feeds the sampled guard.
+        # Round 2: ONE sampled liquid-hazard guard for magma AND slime (the old
+        # waypoint-only slime loop missed a leg crossing a pool between two safe
+        # points); the hand-off passes slime on, ordinary moves pass it off.
+        self.assertIn("RouteEntersLiquidHazard(bot, startPos, line, hazardAt, true, hazardIsSlime)", h)
+        self.assertLess(h.index("for (G3D::Vector3 const& p : path.getPath())"), h.index("RouteEntersLiquidHazard(bot, startPos, line, hazardAt, true,"))
+        self.assertIn("hazardIsSlime", h)
+        self.assertNotIn("slimeOnLine", h)
         self.assertIn("linePoints = coreRoute;", h)
         self.assertIn("coreRoute = kept;", h)
-        self.assertIn("MAP_LIQUID_TYPE_SLIME", h)
-        self.assertIn("MAP_ALL_LIQUIDS", h)
         self.assertIn('"slime"', h)
         self.assertIn('"magma"', h)
         # Round 1 (3): the swim-out end needs ground within 1 yd below it.

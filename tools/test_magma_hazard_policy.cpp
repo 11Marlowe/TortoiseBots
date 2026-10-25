@@ -15,8 +15,11 @@
     } \
 } while (0)
 
+using ai::ClassifyLiquidHazard;
 using ai::CutPathBeforeMagma;
 using ai::IsMagmaHazard;
+using ai::IsSlimeHazard;
+using ai::LiquidHazard;
 using ai::MagmaGuardApplies;
 using ai::MagmaInteriorSamples;
 using ai::MagmaPathCut;
@@ -74,6 +77,25 @@ int main()
             CHECK(!IsMagmaHazard(0, status));
         }
         std::cout << "  [PASS] slime, water, ocean and no liquid are no hazard\n";
+    }
+
+    // Round 2: slime by the same rule, for the swim hand-off routes only.
+    // Ordinary moves stay magma-only, so IsMagmaHazard still says no to slime
+    // (the block above); ClassifyLiquidHazard adds slime only with `withSlime`.
+    {
+        CHECK(IsSlimeHazard(kSlime, kIn));
+        CHECK(IsSlimeHazard(kSlime, kUnder));
+        CHECK(IsSlimeHazard(kSlime, kWalk));
+        CHECK(!IsSlimeHazard(kSlime, kAbove));
+        CHECK(!IsSlimeHazard(kSlime, kNoWater));
+        CHECK(!IsSlimeHazard(kMagma, kIn));
+        CHECK(!IsSlimeHazard(kWater, kIn));
+        CHECK(!IsSlimeHazard(0, kIn));
+        CHECK(ClassifyLiquidHazard(kSlime, kIn, true) == LiquidHazard::Slime);
+        CHECK(ClassifyLiquidHazard(kSlime, kIn, false) == LiquidHazard::None);
+        CHECK(ClassifyLiquidHazard(kMagma, kIn, true) == LiquidHazard::Magma);
+        CHECK(ClassifyLiquidHazard(kMagma, kIn, false) == LiquidHazard::Magma);
+        std::cout << "  [PASS] slime is a hazard for the hand-off only, magma for every move\n";
     }
 
     // The guard runs on instance maps only; the open world keeps its old

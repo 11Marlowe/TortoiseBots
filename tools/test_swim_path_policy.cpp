@@ -432,6 +432,58 @@ static void TestSwimOutNeedsGroundUnderTheEnd()
     CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);
 }
 
+// Round 2 (Codex HIGH 2026-10-25): the slime guard looked only at the route's
+// WAYPOINTS, so a leg between two safe points could cross a slime pool. Now
+// one sampled liquid-hazard guard treats slime like magma on the hand-off
+// routes (0x81, 0x1, swim-out): the same CutPathBeforeMagma sampling with the
+// combined predicate. Pure shape on a fake slime strip (x = 10..20).
+static void TestSlimeHazardNeedsSlimeAndLiquid()
+{
+    CHECK(IsSlimeHazard(kLiquidTypeSlime, kLiquidInWater));
+    CHECK(IsSlimeHazard(kLiquidTypeSlime, kLiquidUnderWater));
+    CHECK(IsSlimeHazard(kLiquidTypeSlime, kLiquidWaterWalk));
+    CHECK(!IsSlimeHazard(kLiquidTypeSlime, kLiquidAboveWater));
+    CHECK(!IsSlimeHazard(kLiquidTypeSlime, kLiquidNoWater));
+    CHECK(!IsSlimeHazard(kLiquidTypeWater, kLiquidInWater));
+    CHECK(!IsSlimeHazard(kLiquidTypeMagma, kLiquidInWater));
+    CHECK(ClassifyLiquidHazard(kLiquidTypeSlime, kLiquidInWater, true) == LiquidHazard::Slime);
+    CHECK(ClassifyLiquidHazard(kLiquidTypeSlime, kLiquidInWater, false) == LiquidHazard::None);
+    CHECK(ClassifyLiquidHazard(kLiquidTypeMagma, kLiquidInWater, true) == LiquidHazard::Magma);
+    CHECK(ClassifyLiquidHazard(kLiquidTypeMagma, kLiquidInWater, false) == LiquidHazard::Magma);
+    CHECK(ClassifyLiquidHazard(kLiquidTypeWater, kLiquidInWater, true) == LiquidHazard::None);
+}
+
+static void TestSlimeCrossingIsRefused()
+{
+    // A slime pool from x = 10 to x = 20; the hand-off's combined predicate.
+    auto const inHazard = [](MagmaPoint const& m)
+    {
+        std::uint32_t const flags = (m.x >= 10.0f && m.x <= 20.0f) ? kLiquidTypeSlime : 0;
+        std::uint32_t const status = flags ? kLiquidInWater : kLiquidNoWater;
+        return ClassifyLiquidHazard(flags, status, true) != LiquidHazard::None;
+    };
+    MagmaPoint const start{ 0.0f, 0.0f, 0.0f };
+    // The 0x81 line: start and end safe, the single leg across the pool.
+    CHECK(CutPathBeforeMagma(start, { MagmaPoint{ 30.0f, 0.0f, 0.0f } }, inHazard).cut);
+    // The 0x1 path: two safe waypoints, the leg between them across the pool.
+    CHECK(CutPathBeforeMagma(start, { MagmaPoint{ 4.0f, 0.0f, 0.0f }, MagmaPoint{ 30.0f, 0.0f, 0.0f } },
+        inHazard).cut);
+    // The swim-out legs: up to just under the surface, then straight to the end.
+    MagmaPoint const bed{ 0.0f, 0.0f, -5.0f };
+    CHECK(CutPathBeforeMagma(bed, { MagmaPoint{ 0.0f, 0.0f, -0.5f }, MagmaPoint{ 30.0f, 0.0f, 0.0f } },
+        inHazard).cut);
+    // A clean leg stays allowed.
+    CHECK(!CutPathBeforeMagma(start, { MagmaPoint{ 8.0f, 0.0f, 0.0f } }, inHazard).cut);
+    // Ordinary moves are unchanged: with slime off the same crossings pass.
+    auto const inMagmaOnly = [](MagmaPoint const& m)
+    {
+        std::uint32_t const flags = (m.x >= 10.0f && m.x <= 20.0f) ? kLiquidTypeSlime : 0;
+        std::uint32_t const status = flags ? kLiquidInWater : kLiquidNoWater;
+        return ClassifyLiquidHazard(flags, status, false) != LiquidHazard::None;
+    };
+    CHECK(!CutPathBeforeMagma(start, { MagmaPoint{ 30.0f, 0.0f, 0.0f } }, inMagmaOnly).cut);
+}
+
 static void TestFirstFailingSampleIsNamed()
 {
     std::uint32_t status = 99, flags = 99;
@@ -473,6 +525,8 @@ int main()
     TestCurvedPathThroughMagmaIsRefused();
     TestSinglePointRouteFarAwayIsProgress();
     TestSwimOutNeedsGroundUnderTheEnd();
+    TestSlimeHazardNeedsSlimeAndLiquid();
+    TestSlimeCrossingIsRefused();
     TestFirstFailingSampleIsNamed();
     TestSwimOutRises();
     std::cout << "swim path policy: all tests passed\n";

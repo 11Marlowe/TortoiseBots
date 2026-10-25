@@ -42,6 +42,7 @@ static constexpr float kMaxWaypointDrop = 4.0f;
 // MagmaHazardPolicy.h mirrors the core's liquid values (it has no core
 // includes); these pin the copies to GridMapDefines.h.
 static_assert(ai::kMagmaLiquidTypeFlag == MAP_LIQUID_TYPE_MAGMA, "magma type flag differs from the core");
+static_assert(ai::kSlimeLiquidTypeFlag == MAP_LIQUID_TYPE_SLIME, "slime type flag differs from the core");
 static_assert(ai::kLiquidStatusWaterWalk == static_cast<uint32>(LIQUID_MAP_WATER_WALK), "water-walk status differs from the core");
 static_assert(ai::kLiquidStatusInWater == static_cast<uint32>(LIQUID_MAP_IN_WATER), "in-water status differs from the core");
 static_assert(ai::kLiquidStatusUnderWater == static_cast<uint32>(LIQUID_MAP_UNDER_WATER), "under-water status differs from the core");
@@ -59,9 +60,14 @@ static void LogMagmaRefusal(Player* bot, LastMovement& lastMove, const WorldPosi
         at.getY(), at.getZ(), at.GetMapId(), what);
 }
 
-// MagmaHazardPolicy.h: whether the route walks into magma after dry ground
-// (`magmaAt` then says roughly where: the path point ending the leg).
-static bool RouteEntersMagma(Player* bot, const WorldPosition& startPos, TravelPath& movePath, WorldPosition& magmaAt)
+// MagmaHazardPolicy.h: whether the route walks into a liquid hazard after dry
+// ground (`hazardAt` then says roughly where: the path point ending the leg).
+// ONE sampled guard for magma AND slime (round 2): the predicate asks the
+// core's liquid at every CutPathBeforeMagma sample (same spacing, same
+// traversal), magma always, slime too when `withSlime` (the 0x81, 0x1 and
+// swim-out hand-off routes); `hazardIsSlime` tells a slime hit from magma.
+static bool RouteEntersLiquidHazard(Player* bot, const WorldPosition& startPos, TravelPath& movePath,
+    WorldPosition& hazardAt, bool withSlime, bool& hazardIsSlime)
 {
     TerrainInfo const* terrain = bot->GetMap()->GetTerrain();
     std::vector<PathNodePoint>& points = movePath.GetPath();
@@ -79,15 +85,33 @@ static bool RouteEntersMagma(Player* bot, const WorldPosition& startPos, TravelP
     start.x = startPos.getX();
     start.y = startPos.getY();
     start.z = startPos.getZ();
+    ai::LiquidHazard hazard = ai::LiquidHazard::None;
     uint32 const mapId = bot->GetMapId();
-    ai::MagmaPathCut const cut = ai::CutPathBeforeMagma(start, route, [terrain, mapId](ai::MagmaPoint const& m)
+    ai::MagmaPathCut const cut = ai::CutPathBeforeMagma(start, route, [terrain, mapId, withSlime, &hazard](ai::MagmaPoint const& m)
     {
-        return WorldPosition(mapId, m.x, m.y, m.z).isInMagma(terrain);
+        GridMapLiquidData liquid{};
+        GridMapLiquidStatus const status = terrain->getLiquidStatus(m.x, m.y, m.z + 0.01f, MAP_ALL_LIQUIDS, &liquid);
+        if (status == LIQUID_MAP_NO_WATER)
+            return false;
+        ai::LiquidHazard const at = ai::ClassifyLiquidHazard(liquid.type_flags, static_cast<uint32>(status), withSlime);
+        if (at == ai::LiquidHazard::None)
+            return false;
+        hazard = at;
+        return true;
     });
     if (!cut.cut)
         return false;
-    magmaAt = points[cut.keepPoints].point;
+    hazardIsSlime = hazard == ai::LiquidHazard::Slime;
+    hazardAt = points[cut.keepPoints].point;
     return true;
+}
+
+// Ordinary moves: the same sampled guard, magma only (slime does no damage in
+// this core and refusing it would strand bots in Undercity).
+static bool RouteEntersMagma(Player* bot, const WorldPosition& startPos, TravelPath& movePath, WorldPosition& magmaAt)
+{
+    bool hazardIsSlime = false;
+    return RouteEntersLiquidHazard(bot, startPos, movePath, magmaAt, false, hazardIsSlime);
 }
 
 // The magma guard refuses the whole move: nothing is dispatched (no hop to
@@ -1239,23 +1263,18 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
     }
     TravelPath line;
     line.addPath(linePoints);
-    WorldPosition magmaAt;
-    // Round 1 (3): refuse slime as well as magma on the line (the 0x81 line uses MAP_ALL_LIQUIDS).
-    bool slimeOnLine = false;
-    for (WorldPosition const& p : linePoints)
+    WorldPosition hazardAt;
+    // Round 2: ONE sampled liquid-hazard guard for magma AND slime (Codex HIGH
+    // 2026-10-25): the old waypoint-only slime loop checked only the route's
+    // points, so a leg between two safe points could cross a slime pool. Now
+    // the hand-off routes (0x81, 0x1, swim-out) sample every leg for slime
+    // exactly as for magma (same CutPathBeforeMagma spacing and traversal);
+    // slime off would be the old missed crossing.
+    bool hazardIsSlime = false;
+    if (ai::MagmaGuardApplies(map->IsDungeon()) &&
+        RouteEntersLiquidHazard(bot, startPos, line, hazardAt, true, hazardIsSlime))
     {
-        GridMapLiquidData liquid{};
-        if (terrain->getLiquidStatus(p.getX(), p.getY(), p.getZ(), MAP_ALL_LIQUIDS, &liquid) != LIQUID_MAP_NO_WATER &&
-            (liquid.type_flags & MAP_LIQUID_TYPE_SLIME))
-        {
-            slimeOnLine = true;
-            magmaAt = p;
-            break;
-        }
-    }
-    if (ai::MagmaGuardApplies(map->IsDungeon()) && (slimeOnLine || RouteEntersMagma(bot, startPos, line, magmaAt)))
-    {
-        if (slimeOnLine)
+        if (hazardIsSlime)
         {
             lastMove.setPath(TravelPath());
             lastMove.moveFailReason = MOVE_FAIL_MAGMA;
@@ -1266,7 +1285,7 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
         else
         {
             lastMove.setPath(TravelPath());
-            RefuseMagmaMove(bot, lastMove, endPos, magmaAt, &startPos, "swim");
+            RefuseMagmaMove(bot, lastMove, endPos, hazardAt, &startPos, "swim");
             LogSwimHandoffRefused(bot, lastMove,
                 kind == ai::SwimHandoff::CoreLine ? "core line" : "swim out", "magma", endPos, f.coreType,
                 route.size(), f.routeEndFromBot);
