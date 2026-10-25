@@ -2756,6 +2756,14 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(later, [])
 
     def test_hateforge_quarry_is_the_plan_with_the_census_fixes(self):
+        # 20261025000600 (turtle-agent 5d111ba, 2026-10-25): the r37 slot8b waste audit. The full 479-step plan ran
+        # (124.8 min, 1 death, 0 wipes) but leg 4 looped: it entered the upper shelf at group 0 (892 yd) instead of the
+        # lower floor (307 yd), cleared the lower floor, then climbed 514 yd back to the east shelf, and took the
+        # north spur 59-61 (131+ yd) before returning to the boss room. The leg now enters at lower group 51, clears
+        # 41-54 in one shortest-path visit ending at the group-54 ramp (664 yd), keeps the upper order 0-40, 55-58, 62,
+        # boss, and drops 59-61 (no boss/door needs them, 230+ yd from the boss). Leg-4 server path 5007.7 -> 3734.8 yd
+        # (~8 min with the dropped fights). The hfq-fix8 step-273 magma pair is intact, now rows 300-302 (group 21);
+        # 416 steps, 60 leg-4 pulls.
         # 20261024154800 (turtle-agent 6bc4887, 2026-10-24): the hfq-fix8 magma fix. r38 slotC ran the 478-step plan
         # (0 deaths) and stopped at step 273 the same way: the point -8069 -3442 z164.04 is IN the ADT magma (ground
         # 163.84 under a flat magma surface at 164.00, maps/8084738.map) and MoveTo2 refuses the END point before any
@@ -2797,7 +2805,7 @@ class DungeonPlanSql(unittest.TestCase):
         # -8044.42 -3414.46 z167.67 (16.4 yd), group 12 -8058.8 -3385.2 z171.27 (15.1 yd). Every hop is a
         # server-exact path-check type 0x1 ok from the lead's real position; the leg-5 group-6 stand of
         # hfq-fix4 is unchanged.
-        # 6 legs, 479 steps (314 moves, 2 move_hop_exact, 158 pulls: 54 + 0 + 29 + 5 + 63 + 7, the 5 bosses), bosses in
+        # 6 legs, 416 steps (155 pulls: 54 + 0 + 29 + 5 + 60 + 7, the 5 bosses), bosses in
         # leg order; every leg with a boss ends on it (leg 0 is the trash clear, its boss moved to the terrace leg).
         # The plan row carries the census unit lists; Broody 60715 is Engineer
         # Figgles' boss.first (his lone pull is gone); the boss room is one 7-entry pull, the leg's last, and every pull
@@ -2806,16 +2814,16 @@ class DungeonPlanSql(unittest.TestCase):
         # island), then to the stand 18.8 yd from the boss (ray clear) and the boss approach; corrosis starts with the
         # reverse hop down the same seam (exact launch at the ramp top), then the server-path waypoint.
         name, text = newest_plan_text("hateforge_quarry")
-        self.assertEqual(name, "20261024154800_world.sql")
+        self.assertEqual(name, "20261025000600_world.sql")
         self.assertIn("('hateforge_quarry', 808, '60717,60720,60719,60725', '', '60718,60726,60723,60712,60738', "
-                      "'turtle-agent 6bc4887 dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+                      "'turtle-agent 5d111ba dungeons/hateforge_quarry.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "hateforge_quarry")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["high_foreman_bargul_blackhammer", "bargul_terrace", "corrosis", "har'gesh_doomcaller",
                           "engineer_figgles", "hatereaver_annihilator"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "hateforge_quarry"]
-        self.assertEqual(len(rows), 479)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [54, 0, 29, 5, 63, 7])
+        self.assertEqual(len(rows), 416)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)], [54, 0, 29, 5, 60, 7])
         for leg in range(6):
             # Leg 0 is the trash clear (its boss moved to the terrace leg); every other leg ends on its boss.
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss" if leg else "pull", leg)
@@ -2869,18 +2877,21 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertFalse([r for r in pulls if gone in r["entries"].split(",")], gone)
         # The boss room is one row (the plan's 7 spawns, deduplicated to its 4 entries) and the leg's last pull.
         self.assertEqual([r["entries"] for r in leg_steps(rows, 4) if r["kind"] == "pull"][-1], "60719,60720,60712,60722")
-        # The leg-4 approach stands: group 7's is the hfq-fix8 magma pair (it was -8073.12 -3441.07 z162.52, then
-        # -8069 -3442 z164.04, both in the ADT liquid; now -8076 -3484 z169.7 then -8063 -3449 z169.1, south round
-        # the channel, both dry); group 8 one, groups 10 and 11 two each, group 12 one.
+        # The waste audit enters leg 4 on the lower floor, not the upper shelf: group 0 is the old group 51 (60720).
+        self.assertEqual([r["entries"] for r in leg_steps(rows, 4) if r["kind"] == "pull"][:3],
+                         ["60720", "60724", "60719,60718,60722"])
+        # The leg-4 approach stands: group 21 is the hfq-fix8 magma pair (it was group 7 at -8073.12 -3441.07 z162.52,
+        # then -8069 -3442 z164.04, both in the ADT liquid; now -8076 -3484 z169.7 then -8063 -3449 z169.1, south round
+        # the channel, both dry); group 22 one, groups 24 and 25 two each, group 26 one.
         self.assertEqual([(r["comment"], r["x"], r["y"], r["z"]) for r in leg_steps(rows, 4) if r["kind"] == "move" and r["comment"].endswith(" approach")],
-                         [("pull group 7 approach", "-8076", "-3484", "169.7"),
-                          ("pull group 7 approach", "-8063", "-3449", "169.1"),
-                          ("pull group 8 approach", "-8069.9", "-3459.9", "167.78"),
-                          ("pull group 10 approach", "-8049.48", "-3436.5", "168.37"),
-                          ("pull group 10 approach", "-8041.87", "-3433.57", "170.31"),
-                          ("pull group 11 approach", "-8035.89", "-3428.47", "173.15"),
-                          ("pull group 11 approach", "-8044.42", "-3414.46", "167.67"),
-                          ("pull group 12 approach", "-8058.8", "-3385.2", "171.27")])
+                         [("pull group 21 approach", "-8076", "-3484", "169.7"),
+                          ("pull group 21 approach", "-8063", "-3449", "169.1"),
+                          ("pull group 22 approach", "-8069.9", "-3459.9", "167.78"),
+                          ("pull group 24 approach", "-8049.48", "-3436.5", "168.37"),
+                          ("pull group 24 approach", "-8041.87", "-3433.57", "170.31"),
+                          ("pull group 25 approach", "-8035.89", "-3428.47", "173.15"),
+                          ("pull group 25 approach", "-8044.42", "-3414.46", "167.67"),
+                          ("pull group 26 approach", "-8058.8", "-3385.2", "171.27")])
         self.assertEqual({float(r["radius"]) for r in pulls}, {2.5})
         # The ramp Overseer is pulled at group 22 of leg 0, before the walk up (census order).
         self.assertEqual([r["entries"] for r in leg_steps(rows, 0) if r["kind"] == "pull"][22], "60722")
