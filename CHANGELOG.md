@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.11.0 (2026-10-25)
+
+### Companions & Battlegrounds
+- Taking hired companions into a battleground no longer crashes the server; they are sent home safely instead. [#1241](https://github.com/Sagiroth/TortoiseBots/pull/1241)
+- Hired companions are now for open-world play only and will not join battlegrounds. [#1241](https://github.com/Sagiroth/TortoiseBots/pull/1241)
+- Queuing for a battleground warns you once, and your companions drop out of the queue on their own. [#1241](https://github.com/Sagiroth/TortoiseBots/pull/1241)
+- You cannot hire companions while queued for or inside a battleground, and the recruiter now tells you why. [#1241](https://github.com/Sagiroth/TortoiseBots/pull/1241)
+- Server owners who want companions in player battles can switch this back on with the new hire setting. [#1241](https://github.com/Sagiroth/TortoiseBots/pull/1241)
+
+### Classes & Combat
+- Priests now use Fade to shed threat instead of standing in danger. [#1242](https://github.com/Sagiroth/TortoiseBots/pull/1242)
+
+### Dungeons & World
+- Bots no longer get stuck on the stairs in Shadowfang Keep. [#1223](https://github.com/Sagiroth/TortoiseBots/pull/1223)
+
+### Commands
+- The addon has new commands available. [#1242](https://github.com/Sagiroth/TortoiseBots/pull/1242)
+
+### Server & Database
+- Servers on MySQL 8 now start up cleanly instead of stopping with a database error. [#1245](https://github.com/Sagiroth/TortoiseBots/pull/1245)
+- The quest reward setting's description now explains that bots only ask when more than one reward is useful to them. [#1244](https://github.com/Sagiroth/TortoiseBots/pull/1244)
+
+---
+
 ## v1.10.0 (2026-10-23)
 
 ### World PvP
