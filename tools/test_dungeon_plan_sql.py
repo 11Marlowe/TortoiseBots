@@ -474,6 +474,18 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (34);", text)
 
     def test_dragonmaw_retreat_is_the_plan_with_the_census_fixes(self):
+        # 20261025001800 (turtle-agent 529ab6d, 2026-10-25, after r39s2/r41s2 lost 34 bots in the halgan hall with no mob in
+        # combat, 33 of them on a thin floor over WMO magma): 20261025001600 again, with every stand of the hall on a solid column.
+        # The core's GetWaterOrGroundLevel answers the lava level 72.25 - 2 = 70.25 for a point on the 72.6 floor (its liquid
+        # lookup casts from ground_z and so finds the lava bed below the plane), and DispatchMovement keeps the 2.35 yd clamp, so
+        # the plan's own stand -6328 -3861.5 sank the lead into the magma (rowcheck.py: class D, clamp 70.25, LAVA - the only such
+        # row of the plan). (6) Group 16's last approach is -6322 -3880 72.6: on solid floor, the nearest non-solid cell 9.6 yd
+        # off, 16.9 yd (at most ~22 with the wander) from the bridge 62035 and with sight, inside the 24.5 yd shot rule, and the
+        # -6341.7 -3892.5 hop to it is a complete server path with no non-solid sample. (7) Group 17 got an approach round the
+        # open pool: the turn -6326 -3912, then the stand -6281 -3915.5 72.6 (17.0 and 21.2 yd from its two members, sight to
+        # both, nothing non-solid within 10 yd). (8) The leg-8 pack 62035/62036/62046 at -6260.6 -3936 (r41s2 fought it on
+        # halgan_approach's own walk at steps 456-458) moved into leg 4 right after group 17 with the stand -6264 -3914 72.6
+        # (15.2-22.2 yd off, sight to all three); leg 8 keeps its other 22 packs.
         # 20261025001600 (turtle-agent 529ab6d, 2026-10-25, after live run r39s2 slotA2 stopped at step 614): 20261025001000 again,
         # with (4) the ramp up to the z 290-303 ledge as the approach rows of the two ledge pulls, and (5) the hall_clear landing as
         # a plain direct step (no gm_cross, so plan-export takes the plan without --gm-cross-direct).
@@ -502,9 +514,9 @@ class DungeonPlanSql(unittest.TestCase):
         # (5) The hall_clear landing (-6190.1 -3962.4 215.8) is a plain direct step with a check_skip now: 7.4 yd across and
         # 5.1 yd down over a 9.0 yd navmesh gap (ServerPath answers no route across it), inside the direct limits, and the run
         # walked the same move_direct live at step 200 (from -6191.8 -3954.9 221.6 to -6186.7 -3964.3 215.2, no death).
-        # 10 legs, 825 steps (28+6+12+60+22+17+25+10+23+3 pulls), bosses in leg order, no door or event step.
+        # 10 legs, 827 steps (28+6+12+60+23+17+25+10+22+3 pulls), bosses in leg order, no door or event step.
         name, text = newest_plan_text("dragonmaw_retreat")
-        self.assertEqual(name, "20261025001600_world.sql")
+        self.assertEqual(name, "20261025001800_world.sql")
         self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 529ab6d dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "dragonmaw_retreat")
         self.assertEqual(sorted(legs), list(range(10)))
@@ -513,9 +525,9 @@ class DungeonPlanSql(unittest.TestCase):
                           "zuluhed_approach", "zuluhed_mid", "zuluhed_floor", "zuluhed_the_whacked"])
         self.assertIn("leave (not read by the run leader yet): 62046 at -6190.56 -3919.91", legs[7][1])
         rows = [r for r in self.step_rows(text) if r["plan"] == "dragonmaw_retreat"]
-        self.assertEqual(len(rows), 825)
+        self.assertEqual(len(rows), 827)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
-                         [28, 6, 12, 60, 22, 17, 25, 10, 23, 3])
+                         [28, 6, 12, 60, 23, 17, 25, 10, 22, 3])
         self.assertEqual([(int(r["leg"]), int(r["entry"])) for r in rows if r["kind"] == "boss"],
                          [(0, 62056), (1, 62057), (3, 62072), (5, 62069), (9, 62037)])
         # The landing of leg 2 is the one straight walk of the plan (the run leader has no GM move, and no gm_cross is left in
@@ -595,18 +607,41 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertFalse([r for r in rows
                           if -6416 <= float(r["x"]) <= -6378 and -3970 <= float(r["y"]) <= -3946
                           and 70.7 <= float(r["z"]) <= 72.6], "a row stands in the avoid box (the magma pool)")
-        # The r39s2 step-453 sheet under the hall bridge: no row stands in it either, the rest stand is the trace's dry point
-        # (-6328.0 -3861.5 73.2), and the two packs that stand in the lava are not pulled.
+        # The hall's thin floor over the WMO magma (specs/dmr-step453.md): a stand on it is clamped to the lava level - 2 (70.25,
+        # the lava tick), so every stand is now on a solid column. The group-16 stand is -6322 -3880 72.6 (the nearest non-solid
+        # cell 9.6 yd off), group 17's is -6281 -3915.5 72.6 and the moved leg-8 pack's is -6264 -3914 72.6; the old stands
+        # -6328 -3861.5 (fix 4) and -6332.93 -3863.11 (fix 3) are gone for good: they are what killed the party.
         self.assertFalse([r for r in rows
                           if -6385 <= float(r["x"]) <= -6330.5 and -3870 <= float(r["y"]) <= -3830
                           and 69.9 <= float(r["z"]) <= 73.3], "a row stands in the avoid box (the hall lava sheet)")
+        for old in ((-6328.0, -3861.5), (-6332.93, -3863.11)):
+            self.assertFalse([r for r in rows
+                              if abs(float(r["x"]) - old[0]) < 0.01 and abs(float(r["y"]) - old[1]) < 0.01],
+                             "the stand %s over the magma is back" % (old,))
         halgan = leg_steps(rows, 4)
         stand = [r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6308.27) < 0.01]
-        self.assertEqual(len(stand), 1, "the group-18 62035 pull is missing")
+        self.assertEqual(len(stand), 1, "the group-16 62035 pull is missing")
         i = halgan.index(stand[0])
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in halgan[i - 4:i]],
                          [("-6400", "-3880", "73.2"), ("-6370", "-3890", "73.2"), ("-6341.7", "-3892.5", "72.7"),
-                          ("-6328", "-3861.5", "73.2")], "the south-shore approach chain or the dry rest stand is missing")
+                          ("-6322", "-3880", "72.6")], "the south-shore approach chain or the solid stand is missing")
+        # Group 17's approach round the open pool, then the leg-8 pack right after it: each stand is on solid floor and 15-22 yd
+        # from its pack, inside the run leader's 24.5 yd shot rule (so it shoots from the stand, never walks onto the bridge).
+        g17 = [r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6273.79) < 0.01]
+        self.assertEqual(len(g17), 1, "the group-17 pull is missing")
+        j = halgan.index(g17[0])
+        self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in halgan[j - 2:j]],
+                         [("-6326", "-3912", "72.6", "pull group 17 approach"),
+                          ("-6281", "-3915.5", "72.6", "pull group 17 approach")], "the group-17 approach is missing")
+        moved = [r for r in halgan if r["kind"] == "pull" and (r["x"], r["y"], r["z"]) == ("-6261.17", "-3932.36", "72.6")]
+        self.assertEqual(len(moved), 1, "the moved 62035/62036/62046 pull is missing from leg 4")
+        self.assertEqual((moved[0]["entries"], moved[0]["radius"]), ("62035,62036,62046", "13.7"))
+        m = halgan.index(moved[0])
+        self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in halgan[m - 1:m]],
+                         [("-6264", "-3914", "72.6", "pull group 18 approach")], "the moved pack's stand is missing")
+        self.assertFalse([r for r in leg_steps(rows, 8)
+                          if (r["x"], r["y"], r["z"]) == ("-6261.17", "-3932.36", "72.6")],
+                         "the 62035/62036/62046 pack is still pulled in leg 8")
         self.assertFalse([r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6360.97) < 0.01],
                          "the 62035 that stands in the lava sheet is still a pull")
         self.assertFalse([r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6357.21) < 0.01
