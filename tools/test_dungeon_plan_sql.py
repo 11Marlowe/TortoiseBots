@@ -2374,6 +2374,32 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (230) AND `entry` IN (9018, 9319, 9016, 9033, 8983, 9017, 9056, 9156, 9938, 9019);", text)
 
     def test_dragonmaw_retreat_is_the_plan_with_the_census_fixes(self):
+        # 20261025001900 (turtle-agent 1116b84, 2026-10-25, after live run r41s2 slotA stopped at step 755 with 4 pauses): the
+        # pull of 62073 at -6100.5 -3971.4 (leg zuluhed_floor group 10) had no approach, so the run leader walked the lead from
+        # the group-9 pull (-6103 -4004.5) over the thin floor at -6122.6..-6129 -4000.5..-3988.7, where the core's
+        # GetWaterOrGroundLevel answers the lava level 72.25 - 2 = 70.25; the lead sank into the pocket under the sheet (z 70.3,
+        # dry but 3 yd under the floor) and its own stay walk failed ('stay walk resting after 3 failed walks'). Group 10 now
+        # has three approach rows -6130 -4005, -6135 -3990 and the stand -6119 -3966 72.6: the stand is 19.2 yd from the pull
+        # (inside the 24.5 yd shot rule), class S, the clamp keeps 72.6, it sees the pull, and every hop is a complete server
+        # path with no sinking point (sinkgate.py/standpath.py over specs/dmr-step453-tools). The same scan found one sinking
+        # point at -6275.9 -3967.4 on the group-16 -> group-17 walk (62035 at -6290.9 -4016.7); group 17's two approach rows
+        # -6284 -3968, -6290 -3996 72.6 (20.7 yd, in sight) route round it. The 5 exporter cut rows those replace were on the
+        # sinking line. sinkgate.py over all 10 legs: 0 rows sink below their floor.
+        # 20261025001800 (turtle-agent 5779343, 2026-10-25, after r39s2/r41s2 lost 34 bots in the halgan hall with no mob in
+        # combat, 33 of them on a thin floor over WMO magma): 20261025001600 again, with every stand of the hall on a solid column.
+        # The core's GetWaterOrGroundLevel answers the lava level 72.25 - 2 = 70.25 for a point on the 72.6 floor (its liquid
+        # lookup casts from ground_z and so finds the lava bed below the plane), and DispatchMovement keeps the 2.35 yd clamp, so
+        # the plan's own stand -6328 -3861.5 sank the lead into the magma (rowcheck.py: class D, clamp 70.25, LAVA - the only such
+        # row of the plan). (6) Group 16's last approach is -6322 -3880 72.6: on solid floor, the nearest non-solid cell 9.6 yd
+        # off, 16.9 yd (at most ~22 with the wander) from the bridge 62035 and with sight, inside the 24.5 yd shot rule, and the
+        # -6341.7 -3892.5 hop to it is a complete server path with no non-solid sample. (7) Group 17 got an approach round the
+        # open pool: the turn -6326 -3912, then the stand -6281 -3915.5 72.6 (17.0 and 21.2 yd from its two members, sight to
+        # both, nothing non-solid within 10 yd). (8) The leg-8 pack 62035/62036/62046 at -6260.6 -3936 (r41s2 fought it on
+        # halgan_approach's own walk at steps 456-458) moved into leg 4 right after group 17 with the stand -6264 -3914 72.6
+        # (15.2-22.2 yd off, sight to all three); leg 8 keeps its other 22 packs.
+        # 20261025001600 (turtle-agent 529ab6d, 2026-10-25, after live run r39s2 slotA2 stopped at step 614): 20261025001000 again,
+        # with (4) the ramp up to the z 290-303 ledge as the approach rows of the two ledge pulls, and (5) the hall_clear landing as
+        # a plain direct step (no gm_cross, so plan-export takes the plan without --gm-cross-direct).
         # 20261025001000 (turtle-agent be41b1c, 2026-10-25, after live run r39s2 slotA stopped at step 453): 20261025000700 again,
         # with the corridor camp pulled BEFORE the walk crosses it and the halgan rest stand off the magma sheet.
         # (1) The corridor camp the leg-2 walk crossed (r27 slot5 step 388: 21 units in one fight, 2 wipes; r39s2 steps 226-243: 8
@@ -2388,11 +2414,21 @@ class DungeonPlanSql(unittest.TestCase):
         # along the south shore (-6400 -3880, -6370 -3890, -6341.7 -3892.5); the two packs that stand in the lava are left out; a
         # second avoid box covers the sheet. (3) The four walks that no single hop could carry keep their `via` chains of the
         # server path's own points (halgan_redbrand's climb starts on the east rim at -6387.4668 -3977.3333 72.689), the plan's
-        # needs_walk pack (62046 at -6190.56 -3919.91) stays `leave`d, and plan-check is ok on all 538 points.
-        # 10 legs, 818 steps (28+6+12+60+22+17+25+10+23+3 pulls), bosses in leg order, no door or event step.
+        # needs_walk pack (62046 at -6190.56 -3919.91) stays `leave`d, and plan-check is ok on all 591 points.
+        # (4) r39s2 slotA2 step 614: the four packs on the z 290-303 ledge above the corridor's south end were deferred ('not
+        # reachable from this floor') and the next row's point (-6283.5 -4392.5 302.7) had 'no walkable path' from the lead at
+        # -6282.7 -4325.9 266.2 - the plan had no route up. The ramp the party walks down in leg 4 and climbs in leg 3 is now
+        # pull group 19's approach (4 server-path points, ending on the shelf stand -6330 -4380 290.4) and the second ramp is
+        # group 22's (3 points, ending on the terrace stand -6283.47 -4392.53 302.69); the three z 290 packs pull from the shelf
+        # stand 25.8-29.6 yd off, the z 303 golem from the terrace stand 22.4 yd off, and no point of the way up is within 20 yd
+        # of a pack not pulled yet (the nearest is 24.6 yd).
+        # (5) The hall_clear landing (-6190.1 -3962.4 215.8) is a plain direct step with a check_skip now: 7.4 yd across and
+        # 5.1 yd down over a 9.0 yd navmesh gap (ServerPath answers no route across it), inside the direct limits, and the run
+        # walked the same move_direct live at step 200 (from -6191.8 -3954.9 221.6 to -6186.7 -3964.3 215.2, no death).
+        # 10 legs, 827 steps (28+6+12+60+23+17+25+10+22+3 pulls), bosses in leg order, no door or event step.
         name, text = newest_plan_text("dragonmaw_retreat")
-        self.assertEqual(name, "20261025001000_world.sql")
-        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 90ee5d0 dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025001900_world.sql")
+        self.assertIn("('dragonmaw_retreat', 816, '62077,62036,62047,62046', '62077', '62053,62039,62071,62070,8853', 'turtle-agent 1116b84 dungeons/dragonmaw_retreat.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         legs = leg_rows(text, "dragonmaw_retreat")
         self.assertEqual(sorted(legs), list(range(10)))
         self.assertEqual([legs[i][0] for i in range(10)],
@@ -2400,14 +2436,55 @@ class DungeonPlanSql(unittest.TestCase):
                           "zuluhed_approach", "zuluhed_mid", "zuluhed_floor", "zuluhed_the_whacked"])
         self.assertIn("leave (not read by the run leader yet): 62046 at -6190.56 -3919.91", legs[7][1])
         rows = [r for r in self.step_rows(text) if r["plan"] == "dragonmaw_retreat"]
-        self.assertEqual(len(rows), 818)
+        self.assertEqual(len(rows), 827)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
-                         [28, 6, 12, 60, 22, 17, 25, 10, 23, 3])
+                         [28, 6, 12, 60, 23, 17, 25, 10, 22, 3])
         self.assertEqual([(int(r["leg"]), int(r["entry"])) for r in rows if r["kind"] == "boss"],
                          [(0, 62056), (1, 62057), (3, 62072), (5, 62069), (9, 62037)])
-        # The gm_cross landing of leg 2, exported as the one straight walk (the run leader has no GM move),
+        # The landing of leg 2 is the one straight walk of the plan (the run leader has no GM move, and no gm_cross is left in
+        # the plan: plan-export takes it without --gm-cross-direct), with its own comment;
         # and the server-path `via` of leg 3 (after the corridor camp is clear).
-        self.assertEqual([(r["x"], r["y"], r["z"]) for r in rows if r["kind"] == "move_direct"], [("-6190.1", "-3962.4", "215.8")])
+        self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in rows if r["kind"] == "move_direct"],
+                         [("-6190.1", "-3962.4", "215.8", "via")])
+        # r39s2 slotA2 step 614: the ramp up to the z 290-303 ledge, as pull group 19's and group 22's approach rows, in walk
+        # order, the last point of each on the floor its packs stand on.
+        ledge = [(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg_steps(rows, 6)
+                 if r["comment"] in ("pull group 19 approach", "pull group 22 approach")]
+        self.assertEqual(ledge, [
+            ("move", "-6293.33", "-4349.07", "274.39", "pull group 19 approach"),
+            ("move", "-6329.07", "-4349.33", "278.69", "pull group 19 approach"),
+            ("move", "-6329.6", "-4369.6", "290.69", "pull group 19 approach"),
+            ("move", "-6330", "-4380", "290.4", "pull group 19 approach"),
+            ("move", "-6293.33", "-4380", "294.49", "pull group 22 approach"),
+            ("move", "-6288.5", "-4386", "297.46", "pull group 22 approach"),
+            ("move", "-6283.47", "-4392.53", "302.69", "pull group 22 approach"),
+        ])
+        # Each of the four ledge packs is pulled from a stand 21-30 yd away on its own floor (+/- 2 yd of z), and the approach
+        # row right before it is that stand: the run leader pulls what it sees within 60 yd, so a stand on the ledge is what
+        # makes these pulls reachable (on the corridor they were deferred as 'not reachable from this floor').
+        import math as _math
+        zuluhed = leg_steps(rows, 6)
+        for pack, entries in ((("-6300.44", "-4380.81", "290.84"), "62078"), (("-6305.22", "-4372.68", "290.16"), "62039"),
+                              (("-6304.99", "-4390.02", "290.16"), "62051"), (("-6266.44", "-4407.07", "303.03"), "62078")):
+            i = next(j for j, r in enumerate(zuluhed)
+                     if r["kind"] == "pull" and (r["x"], r["y"], r["z"]) == pack and r["entries"] == entries)
+            stands = [r for r in zuluhed[:i] if r["comment"].startswith("pull group")
+                      and r["comment"].endswith("approach")]
+            self.assertTrue(stands, "the pull at %s has no approach row" % (pack,))
+            stand = stands[-1]
+            d = _math.dist((float(stand["x"]), float(stand["y"]), float(stand["z"])),
+                           tuple(float(v) for v in pack))
+            self.assertTrue(21.0 <= d <= 30.0, "the stand of the pull at %s is %.1f yd off" % (pack, d))
+            self.assertLess(abs(float(stand["z"]) - float(pack[2])), 2.0, "the stand of the pull at %s is not on its floor" % (pack,))
+        # The way up keeps 20 yd clear of every pack pulled after the pull it leads to (the pulls run in row order; a pull's
+        # point is its pack): the nearest such distance on the ascent rows is 24.6 yd, so climbing aggros nothing new.
+        pos = [(j, r) for j, r in enumerate(zuluhed) if r["comment"] in ("pull group 19 approach", "pull group 22 approach")]
+        for j, r in pos:
+            p = tuple(float(r[k]) for k in ("x", "y", "z"))
+            target = next(j2 for j2 in range(j + 1, len(zuluhed)) if zuluhed[j2]["kind"] == "pull")
+            later = [tuple(float(q[k]) for k in ("x", "y", "z")) for q in zuluhed[target + 1:] if q["kind"] == "pull"]
+            near = min(_math.dist(p, q) for q in later)
+            self.assertGreater(near, 20.0, "the ascent row %s passes %.1f yd from a pack still alive" % (p, near))
         leg3 = leg_steps(rows, 3)
         self.assertIn(("move", "-6293.33", "-4373.33", "294.49", "via"),
                       [(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in leg3])
@@ -2441,18 +2518,56 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertFalse([r for r in rows
                           if -6416 <= float(r["x"]) <= -6378 and -3970 <= float(r["y"]) <= -3946
                           and 70.7 <= float(r["z"]) <= 72.6], "a row stands in the avoid box (the magma pool)")
-        # The r39s2 step-453 sheet under the hall bridge: no row stands in it either, the rest stand is the trace's dry point
-        # (-6328.0 -3861.5 73.2), and the two packs that stand in the lava are not pulled.
+        # The hall's thin floor over the WMO magma (specs/dmr-step453.md): a stand on it is clamped to the lava level - 2 (70.25,
+        # the lava tick), so every stand is now on a solid column. The group-16 stand is -6322 -3880 72.6 (the nearest non-solid
+        # cell 9.6 yd off), group 17's is -6281 -3915.5 72.6 and the moved leg-8 pack's is -6264 -3914 72.6; the old stands
+        # -6328 -3861.5 (fix 4) and -6332.93 -3863.11 (fix 3) are gone for good: they are what killed the party.
         self.assertFalse([r for r in rows
                           if -6385 <= float(r["x"]) <= -6330.5 and -3870 <= float(r["y"]) <= -3830
                           and 69.9 <= float(r["z"]) <= 73.3], "a row stands in the avoid box (the hall lava sheet)")
+        for old in ((-6328.0, -3861.5), (-6332.93, -3863.11)):
+            self.assertFalse([r for r in rows
+                              if abs(float(r["x"]) - old[0]) < 0.01 and abs(float(r["y"]) - old[1]) < 0.01],
+                             "the stand %s over the magma is back" % (old,))
         halgan = leg_steps(rows, 4)
         stand = [r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6308.27) < 0.01]
-        self.assertEqual(len(stand), 1, "the group-18 62035 pull is missing")
+        self.assertEqual(len(stand), 1, "the group-16 62035 pull is missing")
         i = halgan.index(stand[0])
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in halgan[i - 4:i]],
                          [("-6400", "-3880", "73.2"), ("-6370", "-3890", "73.2"), ("-6341.7", "-3892.5", "72.7"),
-                          ("-6328", "-3861.5", "73.2")], "the south-shore approach chain or the dry rest stand is missing")
+                          ("-6322", "-3880", "72.6")], "the south-shore approach chain or the solid stand is missing")
+        # Group 17's approach round the open pool, then the leg-8 pack right after it: each stand is on solid floor and 15-22 yd
+        # from its pack, inside the run leader's 24.5 yd shot rule (so it shoots from the stand, never walks onto the bridge).
+        g17 = [r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6273.79) < 0.01]
+        self.assertEqual(len(g17), 1, "the group-17 pull is missing")
+        j = halgan.index(g17[0])
+        self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in halgan[j - 2:j]],
+                         [("-6326", "-3912", "72.6", "pull group 17 approach"),
+                          ("-6281", "-3915.5", "72.6", "pull group 17 approach")], "the group-17 approach is missing")
+        moved = [r for r in halgan if r["kind"] == "pull" and (r["x"], r["y"], r["z"]) == ("-6261.17", "-3932.36", "72.6")]
+        self.assertEqual(len(moved), 1, "the moved 62035/62036/62046 pull is missing from leg 4")
+        self.assertEqual((moved[0]["entries"], moved[0]["radius"]), ("62035,62036,62046", "13.7"))
+        m = halgan.index(moved[0])
+        self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in halgan[m - 1:m]],
+                         [("-6264", "-3914", "72.6", "pull group 18 approach")], "the moved pack's stand is missing")
+        self.assertFalse([r for r in leg_steps(rows, 8)
+                          if (r["x"], r["y"], r["z"]) == ("-6261.17", "-3932.36", "72.6")],
+                         "the 62035/62036/62046 pack is still pulled in leg 8")
+        # r41s2 slotA step 755: the group-10 pull of 62073 has its own approach now, and the group-17 pull's approach replaces
+        # the exporter's 5 cut rows (they lay on the sinking line over the thin floor). Each stand is on solid floor, 19-21 yd
+        # from the pack (inside the 24.5 yd shot rule), and every hop of both chains is a complete server path with no sinking
+        # point (sinkgate.py, standpath.py). Remove a row and this fails: it pins the only stands that keep the lead out of
+        # the pocket.
+        floor = leg_steps(rows, 8)
+        for pack, group, chain in (
+                (("-6100.52", "-3971.36", "73.22"), "10",
+                 [("-6130", "-4005", "72.6"), ("-6135", "-3990", "72.6"), ("-6119", "-3966", "72.6")]),
+                (("-6290.9", "-4016.66", "73.19"), "17",
+                 [("-6284", "-3968", "72.6"), ("-6290", "-3996", "72.6")])):
+            i = next(j for j, r in enumerate(floor) if r["kind"] == "pull" and (r["x"], r["y"], r["z"]) == pack)
+            self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in floor[i - len(chain):i]],
+                             [(x, y, z, "pull group %s approach" % group) for x, y, z in chain],
+                             "the solid-floor approach of the pull at %s is missing" % (pack,))
         self.assertFalse([r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6360.97) < 0.01],
                          "the 62035 that stands in the lava sheet is still a pull")
         self.assertFalse([r for r in halgan if r["kind"] == "pull" and abs(float(r["x"]) + 6357.21) < 0.01
