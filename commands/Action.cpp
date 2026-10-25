@@ -910,7 +910,7 @@ bool HandleAction(ChatHandler* handler, char const* args)
     if (parsed)
         if (uint64 const owner = BoundForeignCommander(requester))
         {
-            Player* commander = FindCharacter(owner);
+            Player* commander = ObjectAccessor::FindPlayerNotInWorld(ObjectGuid(owner)); // FindCharacter is file-local to Commander.cpp
             SendActionError(handler, "action " + intent, "run-bound",
                 RemoteCommander::RunBoundRefusalText(commander ? commander->GetName() : "its commander").c_str());
             return true;
