@@ -27,7 +27,7 @@ bool GuildBankAction::Execute(std::string text, GameObject* bank, Player* reques
     {
         Item* item = *i;
         if (item)
-            result &= MoveFromCharToBank(item, bank, requester);
+            result |= MoveFromCharToBank(item, bank, requester);
     }
 
     return result;

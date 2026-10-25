@@ -28,7 +28,7 @@ grep -q 'scale_32' data/sql/character/20260824090002_char.sql \
     || fail "item-info schema lacks scale_32"
 grep -q 'ai_playerbot_zone_level' data/sql/world/20260824090002_world.sql \
     || fail "zone-level schema is not owned by World migration"
-grep -q 'ADD COLUMN IF NOT EXISTS' data/sql/world/20260824090002_world.sql \
+grep -q 'information_schema' data/sql/world/20260824090002_world.sql \
     || fail "World compatibility migration is not additive"
 grep -q 'scale_32' data/sql/character/20260824090002_char.sql \
     || fail "Char compatibility migration lacks scale_32"

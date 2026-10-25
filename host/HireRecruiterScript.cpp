@@ -216,6 +216,8 @@ void ShowConfirmMenu(Player* player, Creature* creature, uint8 classId, uint8 ra
 
 void ShowClassMenu(Player* player, Creature* creature)
 {
+    if (!sPlayerbotAIConfig.hireAllowPvP)
+        AddItem(player, GOSSIP_ICON_TALK, "Hired companions are for PvE only and leave you when you enter a battleground.", kSenderClass, 0);
     Team team = player ? player->GetTeam() : TEAM_NONE;
     for (uint8 classId : kHireClasses)
     {
@@ -225,7 +227,6 @@ void ShowClassMenu(Player* player, Creature* creature)
     }
     player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
 }
-
 void ShowRaceMenu(Player* player, Creature* creature, uint8 classId)
 {
     Team team = player ? player->GetTeam() : TEAM_NONE;

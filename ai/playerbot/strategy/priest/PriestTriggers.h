@@ -114,6 +114,17 @@ namespace ai
         bool IsActive() override;
     };
 
+    // The threat ratio reads 100 while the tank holds nothing, so the
+    // climbing-threat Fade waits for the tank to hold the mob
+    // (runtime/policy/class/PriestFadePolicy.h). A mob on the priest sheds
+    // through the separate "target of attacker" row instead.
+    class PriestFadeThreatTrigger : public MediumThreatTrigger
+    {
+    public:
+        PriestFadeThreatTrigger(PlayerbotAI* ai) : MediumThreatTrigger(ai, "priest fade threat") {}
+        bool IsActive() override;
+    };
+
     // Fade's 30 s cooldown keeps the aura missing almost the whole window,
     // so the shed-aggro rows ("fade ready and ...") arm only while the spell
     // is trained and the cooldown spent.

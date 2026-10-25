@@ -36,6 +36,7 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
 #include "../ai/playerbot/strategy/values/RtiTargetValue.h"
+#include "../ai/playerbot/strategy/values/Stances.h"
 #include "../ai/playerbot/strategy/values/AttackersValue.h"
 #include "../ai/playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "../ai/playerbot/strategy/values/PositionValue.h"
@@ -304,12 +305,14 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
 
     if (first != "attack" && first != "interrupt" && first != "stop" && first != "pull" &&
         first != "pullback" && first != "come" && first != "stay" &&
-        first != "follow" && first != "auto" && first != "aoe" && first != "hold" &&
+        first != "follow" && first != "auto" && first != "autocc" && first != "aoe" && first != "hold" &&
         first != "comestay" && first != "ready" && first != "loot" &&
         first != "repair" && first != "sell" && first != "rest" &&
         first != "drink" && first != "eat" && first != "release" &&
         first != "corpse run" && first != "corpserun" && first != "learn" &&
-        first != "trade" && first != "raid" && first != "flee" && first != "sap")
+        first != "trade" && first != "raid" && first != "flee" && first != "sap" &&
+        first != "stance" && first != "rebuff" && first != "guard" && first != "free" &&
+        first != "end")
         return false;
 
     if (first == "raid")
@@ -339,7 +342,7 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
             intent = "auto cc";
             return true;
         }
-        if (rest == "cc on" || rest == "cc off")
+        if (rest == "cc on" || rest == "cc off" || rest == "cc status")
         {
             intent = "auto cc";
             option = rest.substr(3);
@@ -347,15 +350,16 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
         }
         return false;
     }
-    else if (first == "aoe" || first == "loot")
+    else if (first == "aoe" || first == "loot" || first == "autocc")
     {
-        // "aoe [on|off]" / "loot [on|off]": bare form toggles, as documented.
+        // "aoe|autocc|loot [on|off|status]": bare form toggles, "status"
+        // answers the current state without changing it.
         std::string rest = remainder;
         for (char& character : rest)
             character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
-        if (!rest.empty() && rest != "on" && rest != "off")
+        if (!rest.empty() && rest != "on" && rest != "off" && rest != "status")
             return false;
-        intent = first;
+        intent = first == "autocc" ? "auto cc" : first;
         option = rest;
         return true;
     }
@@ -383,6 +387,41 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
             return false;
         intent = first;
         option = botToken.empty() ? mode : mode + " " + botToken;
+        return true;
+    }
+    else if (first == "stance")
+    {
+        // "stance <near|tank|turnback|behind>": per-bot combat facing.
+        // "turn" is the mature short form of "turnback". Anything else is
+        // rejected here so the usage line stays the single source of truth.
+        std::string stanceRest = remainder;
+        for (char& character : stanceRest)
+            character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        if (stanceRest != "near" && stanceRest != "tank" && stanceRest != "turnback" &&
+            stanceRest != "turn" && stanceRest != "behind")
+            return false;
+        intent = "stance";
+        option = stanceRest == "turn" ? "turnback" : stanceRest;
+        return true;
+    }
+    else if (first == "end")
+    {
+        // "end pull": abort a running pull maneuver on the dynamic scope.
+        std::string endRest = remainder;
+        for (char& character : endRest)
+            character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        if (endRest != "pull")
+            return false;
+        intent = "end pull";
+        return true;
+    }
+    else if (first == "guard" || first == "free" || first == "rebuff")
+    {
+        // Party/dynamic-scope forms of the single-bot movement verbs and the
+        // mature rebuff pass. Guard captures each bot's current spot.
+        if (!remainder.empty())
+            return false;
+        intent = first;
         return true;
     }
     else if (first == "pull" || first == "pullback")
@@ -928,7 +967,7 @@ bool HandleAction(ChatHandler* handler, char const* args)
             if (intent.empty())
                 intent = "unknown";
         }
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack/interrupt/stop/pull [seconds] [ranged]/pullback [seconds] [ranged]/come/stay/hold/follow/flee/focus skull/cc <mark> [bot]/cc clear [bot]/auto cc [on/off]/sap [on/off] [bot]/aoe [on/off]/loot [on/off]/repair/sell/rest/drink/eat/release/corpse run/learn/trade/ready/raid [status/tankface/douse/custom status/custom on/custom off]");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack/interrupt/stop/pull [seconds] [ranged]/pullback [seconds] [ranged]/end pull/come/stay/hold/follow/flee/guard/free/stance <near|tank|turnback|behind>/rebuff/focus skull/cc <mark> [bot]/cc clear [bot]/auto cc [on/off/status]/autocc [on/off/status]/sap [on/off] [bot]/aoe [on/off/status]/loot [on/off/status]/repair/sell/rest/drink/eat/release/corpse run/learn/trade/ready/raid [status/tankface/douse/custom status/custom on/custom off]");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -1080,7 +1119,8 @@ bool HandleAction(ChatHandler* handler, char const* args)
         // turns, after this order (runtime/QueuedOrderPolicy.h). The tactical
         // orders do the same through RelaxTacticalMovement.
         if (intent == "follow" || intent == "stay" || intent == "flee" ||
-            intent == "come" || intent == "hold" || intent == "comestay")
+            intent == "come" || intent == "hold" || intent == "comestay" ||
+            intent == "guard" || intent == "free")
             ai->DropQueuedMovementOrders();
 
         bool accepted = false;
@@ -1215,31 +1255,48 @@ bool HandleAction(ChatHandler* handler, char const* args)
         {
             // Same switch as `.bot behavior <bot> aoe`: off adds the
             // "no aoe" veto on every area spell, on removes it. Persisted
-            // like the behaviour toggles.
+            // like the behaviour toggles. "status" answers without changing.
             BehaviorToggle const& aoeToggle = *FindBehaviorToggle("aoe");
-            bool enable = option == "on" ||
-                (option.empty() && !IsBehaviorOn(ai, aoeToggle));
-            if (option == "off")
-                enable = false;
-            SetBehavior(ai, aoeToggle, enable);
-            sPlayerbotDbStore.Save(ai);
-            ExecuteQuietNextAction(ai, true);
-            accepted = IsBehaviorOn(ai, aoeToggle) == enable;
+            if (option == "status")
+            {
+                accepted = true;
+                aoeState = IsBehaviorOn(ai, aoeToggle) ? "on" : "off";
+            }
+            else
+            {
+                bool enable = option == "on" ||
+                    (option.empty() && !IsBehaviorOn(ai, aoeToggle));
+                if (option == "off")
+                    enable = false;
+                SetBehavior(ai, aoeToggle, enable);
+                sPlayerbotDbStore.Save(ai);
+                ExecuteQuietNextAction(ai, true);
+                accepted = IsBehaviorOn(ai, aoeToggle) == enable;
+            }
         }
         else if (intent == "auto cc")
         {
             // Opt-in smart auto CC, OFF by default. Persisted like the loot
             // toggle so the choice survives relog; explicit `.bot action cc`
             // marks always win (CcTargetValue returns them first).
-            bool enable = option == "on" ||
-                (option.empty() && !ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT));
-            if (option == "off")
-                enable = false;
-            ai->ChangeStrategy((enable ? "+" : "-") + std::string("auto cc"),
-                BotState::BOT_STATE_COMBAT);
-            sPlayerbotDbStore.Save(ai);
-            ExecuteQuietNextAction(ai, true);
-            accepted = ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT) == enable;
+            // "status" answers without changing.
+            if (option == "status")
+            {
+                accepted = true;
+                aoeState = ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT) ? "on" : "off";
+            }
+            else
+            {
+                bool enable = option == "on" ||
+                    (option.empty() && !ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT));
+                if (option == "off")
+                    enable = false;
+                ai->ChangeStrategy((enable ? "+" : "-") + std::string("auto cc"),
+                    BotState::BOT_STATE_COMBAT);
+                sPlayerbotDbStore.Save(ai);
+                ExecuteQuietNextAction(ai, true);
+                accepted = ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT) == enable;
+            }
         }
         else if (intent == "sap")
         {
@@ -1266,14 +1323,23 @@ bool HandleAction(ChatHandler* handler, char const* args)
         }
         else if (intent == "loot")
         {
-            bool enable = option == "on" ||
-                (option.empty() && !ai->HasStrategy("loot", BotState::BOT_STATE_NON_COMBAT));
-            if (option == "off")
-                enable = false;
-            ai->ChangeStrategy((enable ? "+" : "-") + std::string("loot"),
-                BotState::BOT_STATE_NON_COMBAT);
-            sPlayerbotDbStore.Save(ai);
-            accepted = ai->HasStrategy("loot", BotState::BOT_STATE_NON_COMBAT) == enable;
+            // "status" answers without changing.
+            if (option == "status")
+            {
+                accepted = true;
+                aoeState = ai->HasStrategy("loot", BotState::BOT_STATE_NON_COMBAT) ? "on" : "off";
+            }
+            else
+            {
+                bool enable = option == "on" ||
+                    (option.empty() && !ai->HasStrategy("loot", BotState::BOT_STATE_NON_COMBAT));
+                if (option == "off")
+                    enable = false;
+                ai->ChangeStrategy((enable ? "+" : "-") + std::string("loot"),
+                    BotState::BOT_STATE_NON_COMBAT);
+                sPlayerbotDbStore.Save(ai);
+                accepted = ai->HasStrategy("loot", BotState::BOT_STATE_NON_COMBAT) == enable;
+            }
         }
         else if (intent == "repair")
         {
@@ -1299,6 +1365,37 @@ bool HandleAction(ChatHandler* handler, char const* args)
         {
             accepted = ExecuteQuietAction(ai, "trainer", ai::Event(intent, "learn", requester));
         }
+        else if (intent == "end pull")
+        {
+            // Abort a stuck pull through the same bookkeeping as the state
+            // machine's own pull end. Ordered past the gates: the order put
+            // the bot in the pull, so "no pull running" never refuses it.
+            accepted = ExecuteOrderedAction(ai, "end pull",
+                ai::Event(intent, "", requester));
+        }
+        else if (intent == "stance")
+        {
+            accepted = ExecuteOrderedAction(ai, "stance",
+                ai::Event(intent, option, requester));
+            if (accepted)
+                option = ai->GetAiObjectContext()->GetValue<ai::Stance*>("stance")->Get()->GetName();
+        }
+        else if (intent == "rebuff")
+        {
+            accepted = ExecuteOrderedAction(ai, "force rebuff",
+                ai::Event(intent, "", requester));
+            ExecuteQuietNextAction(ai, true);
+        }
+        else if (intent == "guard")
+        {
+            accepted = ExecuteOrderedAction(ai, "guard chat shortcut",
+                ai::Event(intent, "", requester));
+        }
+        else if (intent == "free")
+        {
+            accepted = ExecuteOrderedAction(ai, "free chat shortcut",
+                ai::Event(intent, "", requester));
+        }
         else if (intent == "trade")
         {
             if (context.selectedBot != bot)
@@ -1309,40 +1406,22 @@ bool HandleAction(ChatHandler* handler, char const* args)
         if (accepted)
         {
             ++succeeded;
+            // Toggle state accumulates into one line: "status" set it per
+            // bot above, the changing forms re-read it here.
+            std::string current;
             if (intent == "aoe")
+                current = IsBehaviorOn(ai, *FindBehaviorToggle("aoe")) ? "on" : "off";
+            else if (intent == "loot")
+                current = ai->HasStrategy("loot", BotState::BOT_STATE_NON_COMBAT) ? "on" : "off";
+            else if (intent == "auto cc")
+                current = ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT) ? "on" : "off";
+            else if (intent == "sap")
+                current = ai->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT) ? "off" : "on";
+            if (!current.empty())
             {
-                std::string current = IsBehaviorOn(ai, *FindBehaviorToggle("aoe"))
-                    ? "on" : "off";
                 if (aoeState.empty())
                     aoeState = current;
-                else if (aoeState != current)
-                    aoeState = "mixed";
-            }
-            if (intent == "loot")
-            {
-                std::string current = ai->HasStrategy("loot", BotState::BOT_STATE_NON_COMBAT)
-                    ? "on" : "off";
-                if (aoeState.empty())
-                    aoeState = current;
-                else if (aoeState != current)
-                    aoeState = "mixed";
-            }
-            if (intent == "auto cc")
-            {
-                std::string current = ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT)
-                    ? "on" : "off";
-                if (aoeState.empty())
-                    aoeState = current;
-                else if (aoeState != current)
-                    aoeState = "mixed";
-            }
-            if (intent == "sap")
-            {
-                std::string current = ai->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT)
-                    ? "off" : "on";
-                if (aoeState.empty())
-                    aoeState = current;
-                else if (aoeState != current)
+                else if (aoeState != current && aoeState != "mixed")
                     aoeState = "mixed";
             }
         }
@@ -1366,7 +1445,8 @@ bool HandleAction(ChatHandler* handler, char const* args)
         : context.selectedBot && scope.size() == 1
         ? "bot:" + std::string(context.selectedBot->GetName()) : "party";
     SendActionAck(handler, intent, scopeName, succeeded,
-        intent == "aoe" || intent == "loot" || intent == "auto cc" || intent == "sap" ? aoeState : "");
+        intent == "aoe" || intent == "loot" || intent == "auto cc" || intent == "sap" ? aoeState
+        : intent == "stance" ? option : "");
     return true;
 }
 
@@ -1440,6 +1520,8 @@ bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& context, Pl
                 }
                 handler->PSendSysMessage("TBM:ACTION_ACK|raid custom status|bot:%s|1|%s",
                     bot->GetName(), active.empty() ? "off" : active.c_str());
+                handler->PSendSysMessage("Custom raid tactics are %s",
+                    active.empty() ? "off" : active.c_str());
                 ++succeeded;
                 continue;
             }

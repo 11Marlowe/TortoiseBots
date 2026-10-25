@@ -159,15 +159,15 @@ bool FollowAction::ObserveDungeonFollowStall(Unit* followTarget)
 // partial path, which is where the bot already stands. Uldaman 2026-10-12:
 // four bots stood 50 s at the edge of such an island, "moving" with no motion,
 // 34-36 yd from the leader. Once the watch has seen that (DungeonFollowStallPolicy.h),
-// step down off the ledge if that is the problem, else walk the navmesh path
-// to the leader with the module's MoveTo, at most once per two seconds. A
-// held bot (eating, casting, rooted) is left alone; five walks in a row that
-// cannot start end the rescue for a minute (DungeonFollowStallWatch).
-// Returns false when the normal follow should run.
+// the rescue tries a short step up when the leader is close and in sight on a
+// nearby floor, then the ledge step-down, else the navmesh walk below.
 bool FollowAction::RescueStalledDungeonFollow(Unit* followTarget, bool& moved)
 {
     if (!ObserveDungeonFollowStall(followTarget))
         return false;
+
+    if (StepUpToLeaderInDungeon(followTarget, moved))
+        return true;
 
     // Own clock and throttle (LedgeStepDownPolicy.h): only fires on an island edge.
     if (StepDownOffLedge(followTarget))
@@ -198,6 +198,79 @@ bool FollowAction::RescueStalledDungeonFollow(Unit* followTarget, bool& moved)
     followStallWatch.Walked(nowMs, moved);
     if (moved)
         ai->TellDebug(GetMaster(), "Core follow stood still in a dungeon - walking the path to you", "debug move");
+    return true;
+}
+
+// Same shape as the open-world step, with dungeon caps
+// (OpenFollowStepPolicy.h): toward a close sighted leader whose height
+// differs by a walkable stair, and only when floor runs along the whole
+// segment near the walked line. A launched step counts as a walk of the
+// rescue watch, so its pacing and give-up bound the episode. A refused step
+// is only re-checked every kDungeonFollowStepRecheckMs and leaves the watch
+// alone: the ledge step-down and the navmesh walk below still run. True
+// only when a step launched; `moved` mirrors it.
+bool FollowAction::StepUpToLeaderInDungeon(Unit* followTarget, bool& moved)
+{
+    moved = false;
+    Map* map = bot->GetMap();
+    if (!followTarget || followTarget == bot || !map || !map->IsDungeon() ||
+        !followTarget->IsPlayer() || !followTarget->IsInWorld() ||
+        !bot->IsAlive() || !followTarget->IsAlive() || !ai->IsSafe(followTarget) ||
+        bot->GetTransport() || followTarget->GetTransport() || bot->IsTaxiFlying())
+        return false;
+
+    uint32 const nowMs = WorldTimer::getMSTime();
+    if (!followStallWatch.WalkDue(nowMs) || nowMs - dungeonStepCheckedMs < ai::kDungeonFollowStepRecheckMs)
+        return false;
+    dungeonStepCheckedMs = nowMs;
+
+    float const dx = followTarget->GetPositionX() - bot->GetPositionX();
+    float const dy = followTarget->GetPositionY() - bot->GetPositionY();
+    float const dz = followTarget->GetPositionZ() - bot->GetPositionZ();
+    float const horizontal = std::sqrt(dx * dx + dy * dy);
+    if (!ai::DungeonFollowStepLeaderNear(horizontal, dz))
+        return false;
+
+    ai::OpenFollowStep step = ai::DungeonFollowStepToward(bot->GetPositionX(), bot->GetPositionY(),
+        followTarget->GetPositionX(), followTarget->GetPositionY());
+    float const h = 2.0f;
+    bool const seesLeader = map->isInLineOfSight(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ() + h,
+        followTarget->GetPositionX(), followTarget->GetPositionY(), followTarget->GetPositionZ() + h);
+    if (!ai::DungeonFollowStepAllowed(horizontal, dz, seesLeader))
+        return false;
+
+    float groundZ = map->GetHeight(step.x, step.y, followTarget->GetPositionZ() + 0.5f);
+    if (!MaNGOS::IsValidMapCoord(step.x, step.y, groundZ) ||
+        !ai::DungeonFollowStepGroundNearLeader(groundZ, followTarget->GetPositionZ()))
+        return false;
+
+    // Floor must run along the whole straight segment: sample ground every
+    // ~1.5 yd and require each sample near the line from the bot's feet to
+    // the step target. A stair hugs the line; a pit or the void between
+    // balconies drops off it, and the step is refused.
+    float const botZ = bot->GetPositionZ();
+    float const sdx = step.x - bot->GetPositionX();
+    float const sdy = step.y - bot->GetPositionY();
+    int const samples = (int)std::ceil(std::sqrt(sdx * sdx + sdy * sdy) / ai::kDungeonFollowStepSampleYd);
+    for (int i = 1; i < samples; ++i)
+    {
+        float const t = (float)i / (float)samples;
+        float const sx = bot->GetPositionX() + sdx * t;
+        float const sy = bot->GetPositionY() + sdy * t;
+        float const sampleZ = map->GetHeight(sx, sy, ai::DungeonFollowStepLineZ(botZ, groundZ, t) + 0.5f);
+        if (!MaNGOS::IsValidMapCoord(sx, sy, sampleZ) ||
+            !ai::DungeonFollowStepSampleOk(true, sampleZ, ai::DungeonFollowStepLineZ(botZ, groundZ, t)))
+            return false;
+    }
+
+    float const startDist = bot->GetDistance(followTarget);
+    bot->GetMotionMaster()->MovePoint(bot->GetMapId(), step.x, step.y, groundZ, MOVE_RUN_MODE);
+    WaitForReach(bot->GetDistance(step.x, step.y, groundZ));
+    moved = true;
+    followStallWatch.Walked(nowMs, true);
+    if (WorldPosition(bot->GetMapId(), step.x, step.y, groundZ).distance(WorldPosition(followTarget)) >
+        startDist - ai::kDungeonFollowStepHeadwayYd)
+        followStallWatch.Reset();
     return true;
 }
 

@@ -457,7 +457,7 @@ static BotCommandEntry const botCommands[] = {
     {"commander", HandleCommander, "commander <bind|unbind|status|view ...>", {}},
     {"cmd", HandleCommanderOrder, "cmd <order>", {}},
     {"add", HandleAdd, "add <characterName>", {}},
-    {"remove", HandleRemove, "remove <characterName>", {}},
+    {"remove", HandleRemove, "remove <characterName>", {"rm"}},
     {"logout", HandleLogout, "logout <online bot name>", {}},
     {"roster", HandleRoster, "roster", {}},
     {"follow", HandleFollow, "follow <botName>", {}},
@@ -470,6 +470,7 @@ static BotCommandEntry const botCommands[] = {
     {"attack", HandleAttack, "attack <online bot name>", {}},
     {"interrupt", HandleInterrupt, "interrupt <online bot name>", {}},
     {"formation", HandleFormation, "formation [botName] <formation>", {}},
+    {"cc", HandleCc, "cc <mark> [bot] | cc clear [bot]", {}},
     {"list", HandleList, "list", {}},
     {"stats", HandleStats, "stats", {}},
     {"status", HandleStatus, "status <online bot name>", {}},
@@ -496,7 +497,7 @@ static BotCommandEntry const botCommands[] = {
     {"item", HandleItem, "item <bot> <trade|equip|unequip|give ...>", {}},
     {"behavior", HandleBehavior, "behavior <bot|party|raid> <behavior> <on|off>", {"behaviour"}},
     {"totem", HandleTotem, "totem <bot|party|raid> ...", {}},
-    {"strategy", HandleStrategy, "strategy <+/-/~><strategy name> [role or botName]", {}},
+    {"strategy", HandleStrategy, "strategy <+/-/~><strategy name> [role or botName] | strategy reset", {}},
     {"help", HandleHelp, "help", {"h"}},
 };
 
