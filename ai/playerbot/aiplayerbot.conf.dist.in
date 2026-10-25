@@ -1274,7 +1274,11 @@ AiPlayerbot.RandomBotSayWithoutMaster = 0
 
 # Automation
 
-# Bots pick their quest reward (yes = picks first useful item, no = list all rewards, ask = pick useful item and lists if multiple)
+# How alt bots pick a quest reward when the quest offers a choice (other bots always pick themselves):
+#   yes = always pick the best item themselves
+#   no  = always list every reward and wait for you to choose with: r [item]
+#   ask = take the reward themselves when only one is useful to them; list the useful ones and wait
+#         for r [item] only when more than one is useful. So in one party some bots ask and some don't.
 AiPlayerbot.AutoPickReward = yes
 
 # Bots equip upgrades (Bots will equip any item obtained from looting or a quest if they are upgrades)
