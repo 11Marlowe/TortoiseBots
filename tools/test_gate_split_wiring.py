@@ -56,6 +56,9 @@ class GateSplitWiringTest(unittest.TestCase):
         self.assertIn(
             "facts.inPartyAllowed = RemoteCommander::BindingKindEnabled(RemoteCommander::BindingKind::InParty, gates);",
             bind)
+        self.assertIn(
+            "facts.commanderIsBot = BotManager::Instance().IsBot(commander->GetObjectGuid());",
+            bind)
 
     def test_commander_gate(self):
         cmd = body(strip_comments(COMMANDER), "bool HandleCommander(", "\n}\n")

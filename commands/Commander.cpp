@@ -1318,6 +1318,7 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
     RemoteCommander::BindFacts facts;
     facts.enabled = RemoteCommander::BindingKindEnabled(inParty ? RemoteCommander::BindingKind::InParty : RemoteCommander::BindingKind::Remote, gates);
     facts.inPartyAllowed = RemoteCommander::BindingKindEnabled(RemoteCommander::BindingKind::InParty, gates);
+    facts.commanderIsBot = BotManager::Instance().IsBot(commander->GetObjectGuid());
     // Settle every binding first (a stale one, or a follower that already
     // left its group, must not block this bind).
     for (uint64 other : CommanderBindings().Commanders())
