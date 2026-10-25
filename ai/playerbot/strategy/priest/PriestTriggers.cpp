@@ -3,6 +3,7 @@
 #include "playerbot/BoostReadinessPolicy.h"
 #include "PriestTriggers.h"
 #include "PriestActions.h"
+#include "../../../runtime/policy/class/PriestFadePolicy.h"
 
 using namespace ai;
 
@@ -40,6 +41,18 @@ bool ai::PriestPackLoose(PlayerbotAI* ai)
             return true;
     }
     return false;
+}
+
+bool PriestFadeThreatTrigger::IsActive()
+{
+    if (!MediumThreatTrigger::IsActive())
+        return false;
+
+    TortoiseBots::PriestFadeInputs in;
+    in.mediumThreat = true;
+    Unit* target = AI_VALUE(Unit*, "current target");
+    in.tankHoldsMob = target && AI_VALUE2(float, "tank threat", "current target") > 0.0f;
+    return TortoiseBots::ShouldPriestFadeOnThreat(in);
 }
 
 bool InnerFireTrigger::IsActive()

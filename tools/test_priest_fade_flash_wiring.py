@@ -34,6 +34,25 @@ class PriestFadeFlashWiringTest(unittest.TestCase):
         actions = (PRIEST / "PriestActions.h").read_text()
         self.assertIn('BUFF_ACTION_U(CastFadeAction, "fade", bot->GetGroup());', actions)
 
+    def test_fade_on_threat_waits_for_tank(self):
+        # The threat ratio reads 100 while the tank holds nothing, so the
+        # climbing-threat rows use the gated trigger (PriestFadePolicy.h)
+        # instead of raw "medium threat". A mob on the priest sheds through
+        # the row above, not this one.
+        self.assertIn(("fade ready and priest fade threat", "fade", "ACTION_HIGH"), rows("PriestStrategy.cpp"))
+        ctx = (PRIEST / "PriestAiObjectContext.cpp").read_text()
+        self.assertIn('creators["fade ready and priest fade threat"]', ctx)
+        trig = (PRIEST / "PriestTriggers.cpp").read_text()
+        fn = trig[trig.index("bool PriestFadeThreatTrigger::IsActive()"):]
+        fn = fn[:fn.index("\n}\n")]
+        self.assertIn("MediumThreatTrigger::IsActive()", fn)
+        self.assertIn('"tank threat"', fn)
+        self.assertIn("ShouldPriestFadeOnThreat", fn)
+        policy = (ROOT / "runtime/policy/class/PriestFadePolicy.h").read_text()
+        self.assertIn("tankHoldsMob", policy)
+        self.assertNotIn(("fade ready and medium threat", "fade", "ACTION_HIGH"), rows("PriestStrategy.cpp"))
+        self.assertNotIn(("fade ready and medium threat", "fade", "ACTION_DISPEL"), rows("PriestStrategy.cpp"))
+
     def test_flash_heal_rows(self):
         self.assertIn(("low health loose pack", "flash heal", "ACTION_MEDIUM_HEAL + 0.5f"), rows("PriestStrategy.cpp"))
         holy = rows("HolyPriestStrategy.cpp")
