@@ -140,6 +140,9 @@ class SwimHandoffWiringTest(unittest.TestCase):
         self.assertIn("if (!SwimHandoffLegClear(ai, bot, ignoreEnemyTargets, packHold, linePoints))", h)
         # Round 1 (2)/(3): the walked path (not the chord) feeds RouteEntersMagma; slime refuses too.
         self.assertIn("RouteEntersMagma(bot, startPos, line, magmaAt)", h)
+        self.assertLess(h.index("for (G3D::Vector3 const& p : path.getPath())"), h.index("RouteEntersMagma(bot, startPos, line, magmaAt)"))
+        self.assertIn("linePoints = coreRoute;", h)
+        self.assertIn("coreRoute = kept;", h)
         self.assertIn("MAP_LIQUID_TYPE_SLIME", h)
         self.assertIn("MAP_ALL_LIQUIDS", h)
         self.assertIn('"slime"', h)
