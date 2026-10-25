@@ -16,7 +16,7 @@
 -- 8/9/10/11 (all inside the run leader's 60). Every hop is server "ok" (0x1) in order from the live r39 lead at
 -- -6017.6 -4201.9 227.9 (group 6's fight) and from the group-6 pull row; a 20 yd firing stand from each of the four packs
 -- (-6058.55 -4129.97, -6064.34 -4126.6, -6060.33 -4136.75, -6087.2 -4141.67) is 0x1 from that stand, so the pullback's
--- 15-25 yd ring is reachable. The exporter's five old cut rows for group 7 (steps 171-178) become three, and groups 8-11
+-- 15-25 yd ring is reachable. The exporter's eight old cut rows for group 7 (steps 171-178) become three, and groups 8-11
 -- keep no approach rows (they stand 22-51 yd from it).
 -- Step 31 (leg 1 oronok_torn-heart, pack 62540 at -5765.28 -4278.17 235.33): r39s2 paused "8 approach hops did not bring
 -- the party within 60 yd"; after Torvin died the party stood at -5868.7 -4267.7 239.7, 104.1 yd from the pack, on a spot
