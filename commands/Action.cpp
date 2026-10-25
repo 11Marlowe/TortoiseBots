@@ -36,6 +36,7 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
 #include "../ai/playerbot/strategy/values/RtiTargetValue.h"
+#include "../ai/playerbot/strategy/values/Stances.h"
 #include "../ai/playerbot/strategy/values/AttackersValue.h"
 #include "../ai/playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "../ai/playerbot/strategy/values/PositionValue.h"
