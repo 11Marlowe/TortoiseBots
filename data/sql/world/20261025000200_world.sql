@@ -59,6 +59,10 @@
 --   * The boss approach point 25.07 891.66 is 8 yd inside the ring (the pit is inside it: the crossing is unavoidable);
 --     the second point -7.05 853.36 takes the navmesh floor -30.95 instead of the 4 yd-above value that the plan check
 --     reported off the mesh.
+--   * The exporter's cuts of the mouth -> west-crystal walk and of the T4 -> T5 walk ran along the Monstrosities' ring (0.6 and
+--     13.4 yd from it), so the west crystal's approach carries the north-aisle waypoint -90 650 and T5's the southern aisle
+--     (-130 930, -40 958, 20 948, then its stand 75 900). With them every hall move row is 29.7 yd or more from the ring
+--     except the boss approach (9.4 yd, the crossing into the pit).
 --   * Step 233's pull (leg 2 group 14) carries a 4-point approach that walks the party down to its own floor: -61 551.4
 --     29.18, 124.8 539.2 28.68 (the balcony east, the 29.18 floor there), 125.07 483.2 -2.32 (the stairs), -57.07 570.67
 --     -4.32 (the hall floor, 44 yd from the pack). The exporter's cut follows the balcony and the stairs.
@@ -68,15 +72,16 @@
 --     cc_always Banish entry would only make the agent's own driver send Polymorphs at an immune elemental (the Zul'Farrak
 --     'nine orders, one cast' case no_cc was added for). cc_priority and cc_always stay empty; no_cc keeps the elementals;
 --     kill_first stays 14303,11473,11470,11484.
---   * Path checks (server-exact: a local build of 4b64803d with origin/dev f38e184 merged, for plan-check/path-check and
---     the object-hold export): plan-check ok, 335 points on the map 429 navmesh, 0 failing points (before: 13, the leg-4
+--   * Path checks (server-exact: a local build of 06e15644 with origin/dev f38e184 merged, for plan-check/path-check and
+--     the object-hold export): plan-check ok, 339 points on the map 429 navmesh, 0 failing points (before: 13, the leg-4
 --     leg-transition queries and the off-mesh boss approach); 44 warnings (40 estimated patrol periods, 4 detours, both
---     pre-existing) and 48 run-leader hop notes. The hop-by-hop server check of the 604 hops between the rows (from the
---     point the row before it leaves the party on, every coordinate as the module's %.1f move order sends it) refuses the
---     same 4 as the unmodified 20261024154700 rows and no more: three zero-length hops where a pull sits on its leg's
---     `to` (leg 0 seq 0/1, leg 2 seq 26/27, leg 5 seq 3/4) and the 11.2 yd 0x4 pull-to-pull hop leg 2 seq 12 -> 13 (all
---     four are counted as reached by the run leader).
--- 6 legs, 605 steps (612 rows): 133 + 22 + 181 + 93 + 94 + 82 rows; pulls 34 + 2 + 18 + 13 + 17 + 4 (88), holds 5,
+--     pre-existing) and 48 run-leader hop notes. The hop-by-hop server check of the 617 hops between the rows (from the
+--     point the row before it leaves the party on, every coordinate as the module's %.1f move order sends it) refuses no
+--     walk: 5 hops answer 0x8 over 0.0-0.1 yd (three are a pull sitting on its leg's `to` - leg 0 seq 0/1, leg 2 seq
+--     26/27, leg 5 seq 3/4 - and two are the cutter's 50 yd point landing on a navmesh corner: leg 4 -127.9 682.6 and
+--     0 960), and the 11.2 yd pull-to-pull hop leg 2 seq 12 -> 13 answers 0x4; the run leader counts all of them as
+--     reached. Every other hop is type 0x1.
+-- 6 legs, 618 steps (625 rows): 133 + 22 + 181 + 93 + 107 + 82 rows; pulls 34 + 2 + 18 + 13 + 17 + 4 (88), holds 5,
 -- bosses 6, in leg order. The census fixes of rounds 1-4 and the plan's other notes are otherwise unchanged.
 -- Dungeon plans for the run leader (.bot run), exported by turtle-agent (plan-export). Plan format v1; the mapping is
 -- docs/guides/dungeon-run-leader.md ("From plan v1 to rows"). The plan file in turtle-agent is the single source: edit it
@@ -85,12 +90,19 @@
 --
 -- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
 
--- dire_maul_west: map 429, 6 legs, 605 steps
+-- Dungeon plans for the run leader (.bot run), exported by turtle-agent (plan-export). Plan format v1; the mapping is
+-- docs/guides/dungeon-run-leader.md ("From plan v1 to rows"). The plan file in turtle-agent is the single source: edit it
+-- there and export again, never these rows by hand. The plan row carries the unit lists cc_priority, cc_always and kill_first
+-- (columns from 20261015200000_world.sql). Never edit this file once applied; export a new one.
+--
+-- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
+
+-- dire_maul_west: map 429, 6 legs, 618 steps
 DELETE FROM `ai_dungeon_step` WHERE `plan` = 'dire_maul_west';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'dire_maul_west';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'dire_maul_west';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 4b64803d dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');
+('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 06e15644 dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('dire_maul_west', 0, 'tendris_warpwood', ''),
 ('dire_maul_west', 1, 'revanchion', ''),
@@ -582,46 +594,59 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('dire_maul_west', 4, 51, 'pull', 0, -17.64, 697.86, -24.58, 30, 0, 0, 0, 0, '11484', 'pull group 6'),
 ('dire_maul_west', 4, 52, 'move', 0, -18, 668, -24.571, 0, 0, 0, 0, 0, '', 'pull group 7 approach'),
 ('dire_maul_west', 4, 53, 'pull', 0, -17.64, 697.86, -24.58, 30, 0, 0, 0, 0, '11484', 'pull group 7'),
-('dire_maul_west', 4, 54, 'move', 0, -67.55207, 694.89606, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 55, 'move', 0, -117.46414, 691.93207, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 56, 'move', 0, -150, 690, -24.52, 0, 0, 0, 0, 0, '', 'pull group 8 approach'),
-('dire_maul_west', 4, 57, 'pull', 0, -130.2, 712.8, -24.58, 18, 0, 0, 0, 0, '11483', 'pull group 8'),
-('dire_maul_west', 4, 58, 'hold', 179505, -150, 690, -24.52, 40, 0, 1, 16, 120, '11483', 'pull group 9 hold: the event''s mobs are fought on the spot until object 179505 is active'),
-('dire_maul_west', 4, 59, 'move', 0, -180, 710, -24.49, 0, 0, 0, 0, 0, '', 'pull group 10 approach'),
-('dire_maul_west', 4, 60, 'pull', 0, -186.57, 741.16, -24.58, 5.5, 0, 0, 0, 0, '14400,14399', 'pull group 10'),
-('dire_maul_west', 4, 61, 'move', 0, -181.21686, 790.8725, -24.515772, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 62, 'move', 0, -181.06674, 792.2666, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 63, 'move', 0, -176.52716, 842.0601, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 64, 'move', 0, -172.53342, 885.8665, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 65, 'move', 0, -170.66675, 889.3332, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 66, 'move', 0, -167.73341, 893.8665, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 67, 'move', 0, -160, 895, -24.47, 0, 0, 0, 0, 0, '', 'pull group 11 approach'),
-('dire_maul_west', 4, 68, 'pull', 0, -136.11, 928.03, -24.58, 5.5, 0, 0, 0, 0, '14400,14399', 'pull group 11'),
-('dire_maul_west', 4, 69, 'move', 0, -86.25257, 924.25696, -24.485695, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 70, 'move', 0, -36.39514, 920.4838, -24.505676, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 71, 'move', 0, -5.3334627, 918.1332, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 72, 'move', 0, 0, 917.3332, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 73, 'move', 0, 48.715897, 906.0745, -24.461287, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 74, 'move', 0, 75, 900, -24.43, 0, 0, 0, 0, 0, '', 'pull group 12 approach'),
-('dire_maul_west', 4, 75, 'pull', 0, 57.2, 929.95, -24.58, 5.5, 0, 0, 0, 0, '14400,14399', 'pull group 12'),
-('dire_maul_west', 4, 76, 'move', 0, 87.99998, 895.9999, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 77, 'move', 0, 90.933304, 892.5332, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 78, 'move', 0, 95.73331, 885.0665, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 79, 'move', 0, 94.933304, 881.0665, -24.218124, 0, 0, 0, 0, 0, '', 'path'),
-('dire_maul_west', 4, 80, 'move', 0, 95, 880, -24.19, 0, 0, 0, 0, 0, '', 'pull group 13 approach'),
-('dire_maul_west', 4, 81, 'pull', 0, 70.7, 874.6, -24.58, 18, 0, 0, 0, 0, '11483', 'pull group 13'),
-('dire_maul_west', 4, 82, 'hold', 179504, 95, 880, -24.19, 40, 0, 1, 16, 120, '11483', 'pull group 14 hold: the event''s mobs are fought on the spot until object 179504 is active'),
-('dire_maul_west', 4, 83, 'move', 0, 85, 895, -24.52, 0, 0, 0, 0, 0, '', 'pull group 15 approach'),
-('dire_maul_west', 4, 84, 'pull', 0, 46.99, 881.84, -24.58, 30, 0, 0, 0, 0, '11484', 'pull group 15'),
-('dire_maul_west', 4, 85, 'move', 0, 85, 895, -24.52, 0, 0, 0, 0, 0, '', 'pull group 16 approach'),
-('dire_maul_west', 4, 86, 'pull', 0, 46.99, 881.84, -24.58, 30, 0, 0, 0, 0, '11484', 'pull group 16'),
-('dire_maul_west', 4, 87, 'move', 0, 85, 895, -24.52, 0, 0, 0, 0, 0, '', 'pull group 17 approach'),
-('dire_maul_west', 4, 88, 'pull', 0, 46.99, 881.84, -24.58, 30, 0, 0, 0, 0, '11484', 'pull group 17'),
-('dire_maul_west', 4, 89, 'move', 0, 85, 895, -24.52, 0, 0, 0, 0, 0, '', 'pull group 18 approach'),
-('dire_maul_west', 4, 90, 'pull', 0, 46.99, 881.84, -24.58, 30, 0, 0, 0, 0, '11484', 'pull group 18'),
-('dire_maul_west', 4, 91, 'move', 0, 25.07, 891.66, -24.25, 0, 0, 0, 0, 0, '', 'boss approach'),
-('dire_maul_west', 4, 92, 'move', 0, -7.05, 853.36, -30.95, 0, 0, 0, 0, 0, '', 'boss approach'),
-('dire_maul_west', 4, 93, 'boss', 11496, -40.45, 811.14, -29.36, 0, 0, 0, 0, 0, '', 'boss'),
+('dire_maul_west', 4, 54, 'move', 0, -56.914345, 666.9161, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 55, 'move', 0, -64.000114, 661.33325, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 56, 'move', 0, -90, 650, -24.52, 0, 0, 0, 0, 0, '', 'pull group 8 approach'),
+('dire_maul_west', 4, 57, 'move', 0, -127.91589, 682.59424, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 58, 'move', 0, -128.00009, 682.6666, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 59, 'move', 0, -150, 690, -24.52, 0, 0, 0, 0, 0, '', 'pull group 8 approach'),
+('dire_maul_west', 4, 60, 'pull', 0, -130.2, 712.8, -24.58, 18, 0, 0, 0, 0, '11483', 'pull group 8'),
+('dire_maul_west', 4, 61, 'hold', 179505, -150, 690, -24.52, 40, 0, 1, 16, 120, '11483', 'pull group 9 hold: the event''s mobs are fought on the spot until object 179505 is active'),
+('dire_maul_west', 4, 62, 'move', 0, -180, 710, -24.49, 0, 0, 0, 0, 0, '', 'pull group 10 approach'),
+('dire_maul_west', 4, 63, 'pull', 0, -186.57, 741.16, -24.58, 5.5, 0, 0, 0, 0, '14400,14399', 'pull group 10'),
+('dire_maul_west', 4, 64, 'move', 0, -181.21686, 790.8725, -24.515772, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 65, 'move', 0, -181.06674, 792.2666, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 66, 'move', 0, -176.52716, 842.0601, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 67, 'move', 0, -172.53342, 885.8665, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 68, 'move', 0, -170.66675, 889.3332, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 69, 'move', 0, -167.73341, 893.8665, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 70, 'move', 0, -160, 895, -24.47, 0, 0, 0, 0, 0, '', 'pull group 11 approach'),
+('dire_maul_west', 4, 71, 'pull', 0, -136.11, 928.03, -24.58, 5.5, 0, 0, 0, 0, '14400,14399', 'pull group 11'),
+('dire_maul_west', 4, 72, 'move', 0, -130, 930, -24.39, 0, 0, 0, 0, 0, '', 'pull group 12 approach'),
+('dire_maul_west', 4, 73, 'move', 0, -91.2001, 955.7332, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 74, 'move', 0, -83.466774, 958.39984, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 75, 'move', 0, -64.000114, 959.9999, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 76, 'move', 0, -40, 958, -24.52, 0, 0, 0, 0, 0, '', 'pull group 12 approach'),
+('dire_maul_west', 4, 77, 'move', 0, -21.333458, 959.9999, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 78, 'move', 0, -0.00013065338, 959.9999, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 79, 'move', 0, 0, 959.9999, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 80, 'move', 0, 5.066665, 958.6665, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 81, 'move', 0, 12.799996, 955.9999, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 82, 'move', 0, 13.866663, 955.46655, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 83, 'move', 0, 15.733329, 951.7332, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 84, 'move', 0, 17.066662, 950.39984, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 85, 'move', 0, 20, 948, -24.18, 0, 0, 0, 0, 0, '', 'pull group 12 approach'),
+('dire_maul_west', 4, 86, 'move', 0, 57.67101, 915.1235, -24.351137, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 87, 'move', 0, 75, 900, -24.43, 0, 0, 0, 0, 0, '', 'pull group 12 approach'),
+('dire_maul_west', 4, 88, 'pull', 0, 57.2, 929.95, -24.58, 5.5, 0, 0, 0, 0, '14400,14399', 'pull group 12'),
+('dire_maul_west', 4, 89, 'move', 0, 87.99998, 895.9999, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 90, 'move', 0, 90.933304, 892.5332, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 91, 'move', 0, 95.73331, 885.0665, -24.518124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 92, 'move', 0, 94.933304, 881.0665, -24.218124, 0, 0, 0, 0, 0, '', 'path'),
+('dire_maul_west', 4, 93, 'move', 0, 95, 880, -24.19, 0, 0, 0, 0, 0, '', 'pull group 13 approach'),
+('dire_maul_west', 4, 94, 'pull', 0, 70.7, 874.6, -24.58, 18, 0, 0, 0, 0, '11483', 'pull group 13'),
+('dire_maul_west', 4, 95, 'hold', 179504, 95, 880, -24.19, 40, 0, 1, 16, 120, '11483', 'pull group 14 hold: the event''s mobs are fought on the spot until object 179504 is active'),
+('dire_maul_west', 4, 96, 'move', 0, 85, 895, -24.52, 0, 0, 0, 0, 0, '', 'pull group 15 approach'),
+('dire_maul_west', 4, 97, 'pull', 0, 46.99, 881.84, -24.58, 30, 0, 0, 0, 0, '11484', 'pull group 15'),
+('dire_maul_west', 4, 98, 'move', 0, 85, 895, -24.52, 0, 0, 0, 0, 0, '', 'pull group 16 approach'),
+('dire_maul_west', 4, 99, 'pull', 0, 46.99, 881.84, -24.58, 30, 0, 0, 0, 0, '11484', 'pull group 16'),
+('dire_maul_west', 4, 100, 'move', 0, 85, 895, -24.52, 0, 0, 0, 0, 0, '', 'pull group 17 approach'),
+('dire_maul_west', 4, 101, 'pull', 0, 46.99, 881.84, -24.58, 30, 0, 0, 0, 0, '11484', 'pull group 17'),
+('dire_maul_west', 4, 102, 'move', 0, 85, 895, -24.52, 0, 0, 0, 0, 0, '', 'pull group 18 approach'),
+('dire_maul_west', 4, 103, 'pull', 0, 46.99, 881.84, -24.58, 30, 0, 0, 0, 0, '11484', 'pull group 18'),
+('dire_maul_west', 4, 104, 'move', 0, 25.07, 891.66, -24.25, 0, 0, 0, 0, 0, '', 'boss approach'),
+('dire_maul_west', 4, 105, 'move', 0, -7.05, 853.36, -30.95, 0, 0, 0, 0, 0, '', 'boss approach'),
+('dire_maul_west', 4, 106, 'boss', 11496, -40.45, 811.14, -29.36, 0, 0, 0, 0, 0, '', 'boss'),
 ('dire_maul_west', 5, 0, 'move', 0, 3.825573, 788.15967, -26.102882, 0, 0, 0, 0, 0, '', 'path'),
 ('dire_maul_west', 5, 1, 'move', 0, 42.666656, 767.99994, -23.118124, 0, 0, 0, 0, 0, '', 'path'),
 ('dire_maul_west', 5, 2, 'move', 0, 83.67489, 739.4083, -24.036394, 0, 0, 0, 0, 0, '', 'path'),

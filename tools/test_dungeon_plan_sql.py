@@ -770,21 +770,21 @@ class DungeonPlanSql(unittest.TestCase):
         # it). Step 233 (leg 2 seq 77, the 11473 patrol on the hall floor) gets a four-point approach that walks the balcony
         # east and down the stairs to its own floor. No CC is added: every hall unit is creature type 4 (elemental) and the run
         # leader's CC set has no spell for one without a warlock (Banish), and cc_always would make the agent's own driver
-        # Polymorph an immune unit. 6 legs, 605 steps (34 + 2 + 18 + 13 + 17 + 4 pulls, plus 5 holds), bosses in leg order. The
+        # Polymorph an immune unit. 6 legs, 618 steps (34 + 2 + 18 + 13 + 17 + 4 pulls, plus 5 holds), bosses in leg order. The
         # plan row's kill_first is the two healers/regrowthers (14303, 11473), the Polymorphing Sorcerer (11470) and the
         # summoner (11484); cc_priority and cc_always stay empty. The 29 Shen'dralar Wisps (14361), the 16 neutral Highborne
         # Summoners (11466) and the courtyard's Gordok mobs are out of every pull; Revanchion 14690 has a leg of his own;
         # Ferra 14308 is Illyanna's boss.first; Tsu'zee 11467 (rare) is a member of the Kalendris hall's pull.
         name, text = newest_plan_text("dire_maul_west")
         self.assertEqual(name, "20261025000200_world.sql")
-        self.assertIn("('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 4b64803d dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');", text)
+        self.assertIn("('dire_maul_west', 429, '', '', '14303,11473,11470,11484', 'turtle-agent 06e15644 dungeons/dire_maul_west.json', 'plan v1, draft (census 2026-10-24, not mapped, not live-checked)');", text)
         legs = leg_rows(text, "dire_maul_west")
         self.assertEqual([legs[i][0] for i in range(6)],
                          ["tendris_warpwood", "revanchion", "illyanna_ravenoak", "magister_kalendris", "immol'thar",
                           "prince_tortheldrin"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "dire_maul_west"]
-        self.assertEqual(len(rows), 605)
-        self.assertEqual([len(leg_steps(rows, leg)) for leg in range(6)], [133, 22, 181, 93, 94, 82])
+        self.assertEqual(len(rows), 618)
+        self.assertEqual([len(leg_steps(rows, leg)) for leg in range(6)], [133, 22, 181, 93, 107, 82])
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(6)],
                          [34, 2, 18, 13, 17, 4])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["11489", "14690", "11488", "11487", "11496", "11486"])
@@ -800,8 +800,8 @@ class DungeonPlanSql(unittest.TestCase):
                          [("0", "13", "177259", 32.0, 300.0, -7.5, "1", "16", "120", 40.0, "11483"),
                           ("0", "91", "177257", 130.6, 454.9, 29.2, "1", "16", "120", 40.0, "11483"),
                           ("2", "70", "177258", -102.7, 426.9, 29.2, "1", "16", "120", 40.0, "11483"),
-                          ("4", "58", "179505", -150.0, 690.0, -24.52, "1", "16", "120", 40.0, "11483"),
-                          ("4", "82", "179504", 95.0, 880.0, -24.19, "1", "16", "120", 40.0, "11483")])
+                          ("4", "61", "179505", -150.0, 690.0, -24.52, "1", "16", "120", 40.0, "11483"),
+                          ("4", "95", "179504", 95.0, 880.0, -24.19, "1", "16", "120", 40.0, "11483")])
         for r in holds:
             self.assertIn("is active", r["comment"])
         # The r38 step-29 fight split into four pulls (leg 0 groups 13-16) with their stands, and 11442 out of every list.
@@ -861,11 +861,11 @@ class DungeonPlanSql(unittest.TestCase):
                          [("43", -17.64, 697.86, -24.58, 30.0), ("45", -17.64, 697.86, -24.58, 30.0),
                           ("47", -17.64, 697.86, -24.58, 30.0), ("49", -17.64, 697.86, -24.58, 30.0),
                           ("51", -17.64, 697.86, -24.58, 30.0), ("53", -17.64, 697.86, -24.58, 30.0),
-                          ("84", 46.99, 881.84, -24.58, 30.0), ("86", 46.99, 881.84, -24.58, 30.0),
-                          ("88", 46.99, 881.84, -24.58, 30.0), ("90", 46.99, 881.84, -24.58, 30.0)])
+                          ("97", 46.99, 881.84, -24.58, 30.0), ("99", 46.99, 881.84, -24.58, 30.0),
+                          ("101", 46.99, 881.84, -24.58, 30.0), ("103", 46.99, 881.84, -24.58, 30.0)])
         order = {int(r["seq"]): i for i, r in enumerate(l4)}
         stands = {seq: ("-18", "668") for seq in ("43", "45", "47", "49", "51", "53")}
-        stands.update({seq: ("85", "895") for seq in ("84", "86", "88", "90")})
+        stands.update({seq: ("85", "895") for seq in ("97", "99", "101", "103")})
         for p in parts:
             prev = l4[order[int(p["seq"])] - 1]
             self.assertEqual(prev["kind"], "move", p["seq"])
@@ -878,8 +878,10 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["x"], r["y"], r["comment"]) for r in l4
                           if r["comment"] in ("pull group 10 approach", "pull group 11 approach", "pull group 12 approach",
                                               "pull group 8 approach", "pull group 13 approach")],
-                         [("-150", "690", "pull group 8 approach"), ("-180", "710", "pull group 10 approach"),
-                          ("-160", "895", "pull group 11 approach"), ("75", "900", "pull group 12 approach"),
+                         [("-90", "650", "pull group 8 approach"), ("-150", "690", "pull group 8 approach"),
+                          ("-180", "710", "pull group 10 approach"), ("-160", "895", "pull group 11 approach"),
+                          ("-130", "930", "pull group 12 approach"), ("-40", "958", "pull group 12 approach"),
+                          ("20", "948", "pull group 12 approach"), ("75", "900", "pull group 12 approach"),
                           ("95", "880", "pull group 13 approach")])
         # The boss approach is on the mesh (the second point used to stand 4 yd above the pit slope) and both points are the
         # r36 ones; the boss row is Immol'thar alone.
