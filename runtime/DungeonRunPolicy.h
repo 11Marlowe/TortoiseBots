@@ -8589,6 +8589,7 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
                     {
                         if (r.state == State::Running)
                             r.note = "back to the stand for boss " + std::to_string(s.entry);
+                        r.standPullShotGuid = 0; // the pull never went out (walking back to the stand first)
                         return;
                     }
                 }
@@ -8621,6 +8622,7 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         // (A hold for another unit than the pick is caught by PullUnit's own check of the way back.)
         if (r.phase != Phase::Gather && !r.gatherWaived && !r.shotStandPrep && CheckAnchor(r, f) == AnchorState::Unknown)
         {
+            r.standPullShotGuid = 0; // the pull never went out (the way back is read first)
             r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);
             return;
         }
@@ -8638,6 +8640,7 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
             {
                 r.joinerHeld.insert(pick->guid);
                 r.joinerRest = true;
+                r.standPullShotGuid = 0; // the pull never went out (the joiner rest holds this tick)
                 r.joinerNote = std::to_string(pick->joiners) + " joiners expected" +
                     (pick->joinersPatrol ? " (a patrol is the cause)" : "");
                 r.note = r.joinerNote;

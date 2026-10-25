@@ -17095,8 +17095,9 @@ static void TestStandPullShotLatchClearsOnGather()
     CHECK(r.standPullShotGuid == 0);
 }
 
-// The in-shot authorization covers only the judged unit: the boss sets it, the way-back read holds the tick,
-// then the nearer add becomes the pick and HoldForShot runs for it (on the bool latch the add pulled from its spot).
+// The in-shot authorization covers only the judged unit: the boss in shot sets it, the way-back read holds the
+// tick and clears it (the pull never went out), then the nearer add becomes the pick and HoldForShot runs for
+// it (on the bool latch the add pulled from its spot).
 static void TestStandPullAuthAnchorReadThenOtherUnitHolds()
 {
     DungeonPlan plan = StandPullPlanWithAdds();
@@ -17105,10 +17106,10 @@ static void TestStandPullAuthAnchorReadThenOtherUnitHolds()
     r.anchorX = -5832.0f;
     r.anchorY = -3807.0f;
     r.anchorZ = 200.7f;
-    Facts read = StandPullFacts(28.0f); // the boss alone: he sets the authorization, the way-back read holds the tick
+    Facts read = StandPullFacts(28.0f); // the boss alone in shot: the gate judges him, the way-back read holds
     CHECK(Tick(r, read).empty());
     CHECK(Has(r.note, "checking the way back"));
-    CHECK(r.standPullShotGuid == 9); // the boss set the authorization for his own pull
+    CHECK(r.standPullShotGuid == 0); // cleared on the hold: the pull never went out
     Facts next = StandPullFacts(28.0f);
     next.anchorPathRead = true;
     next.anchorReachable = true;
@@ -17119,8 +17120,8 @@ static void TestStandPullAuthAnchorReadThenOtherUnitHolds()
     CHECK(r.shotStandFor == 10);
 }
 
-// The same through the joiner rest: the boss sets the authorization, the rest holds the tick, then the nearer
-// add becomes the pick and HoldForShot runs for it.
+// The same through the joiner rest: the boss in shot sets the authorization, the rest holds the tick and clears
+// it, then the nearer add becomes the pick and HoldForShot runs for it.
 static void TestStandPullAuthJoinerRestThenOtherUnitHolds()
 {
     DungeonPlan plan = StandPullPlanWithAdds();
@@ -17129,14 +17130,14 @@ static void TestStandPullAuthJoinerRestThenOtherUnitHolds()
     r.anchorX = -5842.0f;
     r.anchorY = -3807.0f;
     r.anchorZ = 200.7f;
-    Facts loud = StandPullFacts(28.0f); // the boss alone: he sets the authorization, the rest holds the tick
+    Facts loud = StandPullFacts(28.0f); // the boss alone in shot: the gate judges him, the rest holds the tick
     loud.joinerCeiling = 6;
     loud.units[0].joiners = 7;
     loud.units[0].joinersRead = true;
     loud.minHealthPct = 85;
     CHECK(Tick(r, loud).empty());
     CHECK(r.note == "7 joiners expected");
-    CHECK(r.standPullShotGuid == 9); // the boss set the authorization for his own pull
+    CHECK(r.standPullShotGuid == 0); // cleared on the hold: the pull never went out
     Facts next = StandPullFacts(28.0f);
     next.joinerCeiling = 6;
     next.minHealthPct = 100; // rested: the rest wait is moot, the nearer add is judged for its own pull
