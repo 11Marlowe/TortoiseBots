@@ -1390,6 +1390,20 @@ bool WorldPosition::isInMagma(const TerrainInfo* terrain) const
         return false;
     return ai::IsMagmaHazard(liquid.type_flags, static_cast<uint32>(status));
 }
+// Same rule as isInMagma, for the slime type flag: the DispatchMovement
+// restore gate classifies a wet clamp on clampedZ, and slime is no safer a
+// floor signal than magma there. Route refusal stays magma-only (slime does
+// no damage in this core); callers keep using isInMagma for that.
+bool WorldPosition::isInSlime(const TerrainInfo* terrain) const
+{
+    if (!terrain)
+        return false;
+    GridMapLiquidData liquid{};
+    GridMapLiquidStatus const status = terrain->getLiquidStatus(x, y, z + 0.01f, MAP_ALL_LIQUIDS, &liquid);
+    if (status == LIQUID_MAP_NO_WATER)
+        return false;
+    return ai::IsSlimeHazard(liquid.type_flags, static_cast<uint32>(status));
+}
 
 bool WorldPosition::setAtWaterSurface()
 {

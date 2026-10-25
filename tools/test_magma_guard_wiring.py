@@ -95,36 +95,59 @@ class MagmaGuardWiringTest(unittest.TestCase):
 
     def test_dispatch_keeps_the_confirmed_floor_only(self):
         f = body(MOVES, "bool MovementAction::DispatchMovement(", "\n}\n")
-        drop = at(f, "if (p.z < navmeshZ && navmeshZ - p.z > kMaxWaypointDrop)")
+        clampedAt = at(f, "float const clampedZ = p.z;")
+        drop = at(f, "ai::KeepStairNavmeshZ(magmaFloorLowered,")
         keep = at(f, "ai::KeepNavmeshZOverMagma(dispatchMagmaGuard, magmaFloorLowered,")
+        self.assertLess(clampedAt, drop)
         self.assertLess(drop, keep)
         self.assertIn("TerrainInfo const* dispatchTerrain = bot->GetMap()->GetTerrain();", f[:keep])
         self.assertIn("bool const dispatchMagmaGuard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());", f[:keep])
-        # `lowered` is the live comparison, not a literal: passing true again
-        # would fire the guard on an unclamped point.
-        self.assertIn("bool const magmaFloorLowered = p.z < navmeshZ;", f[drop:keep])
-        # Cheap first: the clamped point's magma status is checked before the
-        # navmesh point's, and the collision query only on the guard path,
-        # before the restore.
-        clamped = at(f, "WorldPosition(bot->GetMapId(), p.x, p.y, p.z).isInMagma(dispatchTerrain)")
+        # `lowered` is the live comparison on the ORIGINAL clamp, not a
+        # literal: passing true again would fire the guard on an unclamped
+        # point, and reading p.z after the stair restore would classify the
+        # restored point instead of the clamp.
+        self.assertIn("float const clampedZ = p.z;", f[:keep])
+        self.assertIn("bool const magmaFloorLowered = clampedZ < navmeshZ;", f[clampedAt:keep])
+        # Cheap first: the clamped point's magma/slime status is checked before
+        # the navmesh point's, and the vmap query only on the guard path,
+        # before the restore. Round 2: the stair workaround must see clampedZ
+        # and refuse a wet big drop, so it cannot restore around the
+        # confirmed-floor check.
+        clamped = at(f, "WorldPosition(bot->GetMapId(), p.x, p.y, clampedZ).isInMagma(dispatchTerrain)")
+        slime = at(f, "WorldPosition(bot->GetMapId(), p.x, p.y, clampedZ).isInSlime(dispatchTerrain)")
         navmesh = at(f, "WorldPosition(bot->GetMapId(), p.x, p.y, navmeshZ).isInMagma(dispatchTerrain)")
-        collision = at(f, "bot->GetMap()->GetHeight(p.x, p.y, navmeshZ + kMagmaFloorProbeAboveZ)")
+        vmap = at(f, "VMAP::VMapFactory::createOrGetVMapManager()->getHeight(")
         restore = at(f[keep:], "p.z = navmeshZ;") + keep
-        self.assertLess(drop, clamped)
+        self.assertLess(clampedAt, clamped)
+        self.assertLess(clampedAt, slime)
         self.assertLess(clamped, navmesh)
-        self.assertLess(navmesh, collision)
-        self.assertLess(collision, keep)
+        self.assertLess(slime, navmesh)
+        self.assertLess(navmesh, vmap)
+        self.assertLess(vmap, keep)
         self.assertLess(keep, restore)
-        # The collision query runs only on the guard path: inside the
-        # transport+lowered+guard+clamped-dry/navmesh-dry `if`, before the restore.
-        self.assertIn("if (!bot->GetTransport() && magmaFloorLowered && dispatchMagmaGuard &&", f[drop:collision])
+        self.assertIn("bot->GetMapId(), p.x, p.y, navmeshZ + kMagmaFloorProbeAboveZ, kMagmaFloorSearchDistZ)",
+                      f[vmap:vmap + 400])
+        self.assertIn("kMagmaFloorSearchDistZ", f)
+        # The vmap ray is collision-only: no .map terrain fallback, no
+        # dynamic tree, no Map::GetHeight retry with a 10000 yd search.
+        self.assertNotIn("bot->GetMap()->GetHeight(p.x, p.y, navmeshZ", f[clampedAt:restore])
+        self.assertNotIn("GetDynamicObjectHeight", f[clampedAt:restore])
+        # The stair gate takes the ORIGINAL clamp: a wet big drop must not
+        # restore there.
+        self.assertIn("navmeshZ - clampedZ > kMaxWaypointDrop, magmaFloorClampedWet", f[drop:drop + 300])
+        # The guard path runs only when the stair path refused: one restore.
+        self.assertIn("!stairRestore", f[clampedAt:keep])
+        # The vmap query runs only on the guard path: inside the
+        # transport+lowered+guard+wet+dry `if`, before the restore.
+        self.assertIn("if (!bot->GetTransport() && magmaFloorLowered && dispatchMagmaGuard && magmaFloorClampedWet &&",
+                      f[clampedAt:vmap])
         self.assertIn('"TortoiseBots: %s: waypoint kept on the floor over magma at %.1f %.1f %.1f (clamp %.2f)"',
                       f[restore:])
         # The transport term: no restore while riding (passenger z is not a
         # floor height). Dropping it would restore over a transport ride.
-        self.assertIn("!bot->GetTransport()", f[drop:keep])
+        self.assertIn("!bot->GetTransport()", f[clampedAt:keep])
         # (void) casts only in mutation scratch, never in shipped tests.
-        self.assertNotIn("(void)", f[drop:at(f, "CalculatePassengerOffset(p.x, p.y, p.z);")])
+        self.assertNotIn("(void)", f[clampedAt:at(f, "CalculatePassengerOffset(p.x, p.y, p.z);")])
     def test_route_check_never_edits_the_route(self):
         f = body(MOVES, "static bool RouteEntersMagma(", "\n}\n")
         self.assertIn("ai::CutPathBeforeMagma(start, route,", f)
