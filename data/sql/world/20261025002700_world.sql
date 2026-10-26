@@ -1,24 +1,25 @@
 -- Wailing Caverns (map 43): the whole plan again, replacing the wailing_caverns rows of 20261022210200_world.sql (that file stays as
--- applied; its statements for no other plan are repeated here). Exported from turtle-agent prep/wc-bosses 6a92862 (dungeons/wailing_caverns.json:
+-- applied; its statements for no other plan are repeated here). Exported from turtle-agent prep/wc-bosses 16a864d (dungeons/wailing_caverns.json:
 -- origin/feat/wc-anacondra-kresh e281a2b plus the vangros and zandara legs of 2026-10-26) with the options of 20261022210200:
---   turtle-agent plan-export --mmaps <map 43 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 6a92862 \
+--   turtle-agent plan-export --mmaps <map 43 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 16a864d \
 --     --stamp 20261025002700 wailing_caverns
--- NO ROW IS HAND-SET. Plan check (turtle-agent plan-check, the server-exact map 43 mmaps): "ok, 239 points on the map 43 navmesh; 1 hops
--- exempted by the plan (check_skip)" (205 points and 1 hop before; the 34 new points are the two wings' pull members, stands and bosses;
+-- NO ROW IS HAND-SET. Plan check (turtle-agent plan-check, the server-exact map 43 mmaps): "ok, 254 points on the map 43 navmesh; 1 hops
+-- exempted by the plan (check_skip)" (205 points and 1 hop before; the 49 new points are the two wings' pull members, stands and bosses;
 -- the 78 run-leader-hop warnings are the same ones 20261022210200 has, none in the two new legs).
 -- Replay (specs/wc-bosses-tools/replay.py, the SW-FIX3 "pulls move nobody" model, both queries of turtle-agent path-check on the same
--- mmaps): 211 move hops, 211 complete, 0 incomplete, 0 refused, 1 exempt (the Serpentis move_hop_exact); 103 pull/boss rows move nobody;
+-- mmaps): 209 move hops, 209 complete, 0 incomplete, 0 refused, 1 exempt (the Serpentis move_hop_exact); 108 pull/boss rows move nobody;
 -- the lead ends at Verdan -85.3 21.3 -31.1. The mmaps are byte-identical to m910q's ~/tortoise-wow-server/data/mmaps (043.mmap and the
 -- six 043*.mmtile, md5sum, 2026-10-26).
 --
 -- WHAT CHANGES IN THE ROWS (everything else is row for row 20261022210200):
---   * plan row: source e281a2b -> 6a92862; kill_first '3671' -> '3671,61966' (the Kolkar Truthseeker 61966 casts Healing Wave 939).
---   * 12 -> 14 legs, 226 -> 319 steps (239 -> 334 rows). Leg 8 zandara (new, 22 rows: 13 path moves from Lord Pythas, the mouth pack,
---     three Kolkar pulls, a boss approach move and the boss) and leg 11 vangros (new, 26 rows: 19 path moves round the west column's
---     north loop, three pulls and the boss). The legs after them close up: skum 8->9, west_column 9->10, serpentis 10->12, verdan 11->13;
---     their rows are the same but for the leg number (the serpentis exact move and move_hop_exact keep their places at 12/32 and 12/33).
+--   * plan row: source e281a2b -> 16a864d; kill_first '3671' -> '3671,61966' (the Kolkar Truthseeker 61966 casts Healing Wave 939).
+--   * 12 -> 14 legs, 226 -> 322 steps (239 -> 337 rows). Leg 8 zandara (new, 22 rows: 13 path moves from Lord Pythas, the mouth pack,
+--     three Kolkar pulls, a boss approach move and the boss) and leg 11 vangros (new, 29 rows: 20 path/approach moves round the west
+--     column's north loop, 8 pulls and the boss). The legs after them close up: skum 8->9, west_column 9->10, serpentis 10->12, verdan
+--     11->13; their rows are the same but for the leg number (the serpentis exact move and move_hop_exact keep their places at 12/32 and
+--     12/33).
 --   * boss rows in leg order: 3669, 3670, 61968 (Zandara, 81.88 27.03 -66.84, entries 61966,61967), 3674, 61965 (Vangros,
---     -419.6 -218 -65.6), 3673, 5775.
+--     -419.6 -218 -65.6, first 5053,5056,5756), 3673, 5775.
 -- WHY (census from the core data, tortoise-wow sql/base):
 --   * Vangros 61965: creature guid 2582951 on map 43 at -419.561 -218.046 -65.5732, 7-day respawn, movement_type 0 (static), level 22,
 --     rank 1, faction 17 (hostile to every player), 3428 hp / 953 mana, spell list 180303: Crush Armor 21055 and Knock Away 18670, both
@@ -29,7 +30,12 @@
 --     The Kolkar camp around her (61966 x5, 61967 x6) is pulled by the leg; the two east Kolkar (97.1 -3.4, 98.1 -28.8) stand beyond the
 --     route's aggro range and are not rows.
 --   * ai_dungeon_boss already lists both (20261021114931): no boss row is added.
---   * KRESH 3653: always spawned (guid 27368, movement_type 2) but he patrols 510.7 yd at the walk speed (about 204 s a round); the
+--   * The west wing is a gauntlet: the loop in is lined with its own camps (a Dreadfang and an Ectoplasm near the first hop, an Ectoplasm
+--     and a Shambler at the -401 -60 bend, a lone Shambler and a six-Lasher/Overgrowth/Shambler camp at the -515 -85 corner, two Lurkers
+--     off -512 -109). Each is a tight pull (radius 6-19: every group's radius+3 stays short of the next, so no group drags a mob it does
+--     not list); the south pack (2 Crocolisks, a Dreadfang, a Venomwing, within 18 yd of Vangros) is the boss's first, not a pull, so no
+--     pull drags the boss.
+--   * KRESH 3653: always spawned (guid 27368, movement_type 2) but he patrols 525.9 yd at the walk speed (about 210 s a round); the
 --     run leader's patroller wait and away-boss wait are both 60 s, so a boss row would pause most runs and the existing cobrahn_a pull
 --     only kills him when he happens to be near his spawn (r19-19z36: "pack cleared", no kill). Left as the pull; a longer patrol wait is
 --     run-leader code: escalated, not invented here.
@@ -43,12 +49,12 @@
 --
 -- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
 
--- wailing_caverns: map 43, 14 legs, 319 steps
+-- wailing_caverns: map 43, 14 legs, 322 steps
 DELETE FROM `ai_dungeon_step` WHERE `plan` = 'wailing_caverns';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'wailing_caverns';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'wailing_caverns';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('wailing_caverns', 43, '3840', '', '3671,61966', 'turtle-agent 6a92862 dungeons/wailing_caverns.json', 'plan v1, mapped (not live-checked)');
+('wailing_caverns', 43, '3840', '', '3671,61966', 'turtle-agent 16a864d dungeons/wailing_caverns.json', 'plan v1, mapped (not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('wailing_caverns', 0, 'anacondra_a', ''),
 ('wailing_caverns', 1, 'anacondra_b', ''),
@@ -255,7 +261,7 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('wailing_caverns', 8, 16, 'move', 0, 48.8, -20.4, -65.5, 0, 0, 0, 0, 0, '', 'pull group 2 approach'),
 ('wailing_caverns', 8, 17, 'pull', 0, 66.34, -30.52, -66.55, 6, 0, 0, 0, 0, '61966', 'pull group 2'),
 ('wailing_caverns', 8, 18, 'move', 0, 55, -15.9, -65.6, 0, 0, 0, 0, 0, '', 'pull group 3 approach'),
-('wailing_caverns', 8, 19, 'pull', 0, 76.99, 7.79, -66.75, 16, 0, 0, 0, 0, '61966,61967', 'pull group 3'),
+('wailing_caverns', 8, 19, 'pull', 0, 69.51, 1.15, -66.6, 12, 0, 0, 0, 0, '61966', 'pull group 3'),
 ('wailing_caverns', 8, 20, 'move', 0, 67, 2, -66.5, 0, 0, 0, 0, 0, '', 'boss approach'),
 ('wailing_caverns', 8, 21, 'boss', 61968, 81.88, 27.03, -66.84, 0, 0, 0, 0, 0, '61966,61967', 'boss'),
 ('wailing_caverns', 9, 0, 'move', 0, 63.99998, -5.3334627, -65.76052, 0, 0, 0, 0, 0, '', 'path'),
@@ -309,32 +315,35 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('wailing_caverns', 10, 12, 'pull', 0, -304.7, -104.3, -63.8, 23.7, 0, 0, 0, 0, '5056', 'pull group 6'),
 ('wailing_caverns', 10, 13, 'pull', 0, -337.72, -110.56, -64.24, 21.2, 0, 0, 0, 0, '5055,3840', 'pull group 7'),
 ('wailing_caverns', 10, 14, 'pull', 0, -332.7, -75.75, -65.55, 22.6, 0, 0, 0, 0, '3840,5056', 'pull group 8'),
-('wailing_caverns', 11, 0, 'move', 0, -380.00003, -82.40011, -65.36052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 1, 'move', 0, -380.80002, -82.40011, -65.36052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 2, 'move', 0, -381.8667, -80.80011, -65.36052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 3, 'move', 0, -401.6, -50.400116, -65.36052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 4, 'move', 0, -405.33334, -42.666786, -65.36052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 5, 'move', 0, -416, -14.93346, -65.26052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 6, 'move', 0, -420, -11.200128, -65.36052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 7, 'move', 0, -425.33334, -6.933462, -65.46052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 8, 'move', 0, -426.6667, -6.1334624, -65.46052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 9, 'move', 0, -458.93332, 6.9333315, -66.36052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 10, 'move', 0, -461.6, 6.6666646, -66.46052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 11, 'move', 0, -469.33334, 0, -66.76052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 12, 'move', 0, -492.53333, -28.000122, -67.960526, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 13, 'move', 0, -498.13333, -42.666786, -67.86052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 14, 'move', 0, -515.2, -85.33344, -67.36052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 15, 'move', 0, -515.73334, -87.2001, -67.36052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 16, 'move', 0, -512, -109.066765, -67.16052, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 17, 'move', 0, -511.46664, -112.26676, -67.560524, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 18, 'move', 0, -508.53333, -121.86676, -67.560524, 0, 0, 0, 0, 0, '', 'path'),
-('wailing_caverns', 11, 19, 'move', 0, -505.2, -127.7, -66.7, 0, 0, 0, 0, 0, '', 'to'),
-('wailing_caverns', 11, 20, 'pull', 0, -507.63, -150.3, -66.33, 22, 0, 0, 0, 0, '61964,5761', 'pull group 0'),
-('wailing_caverns', 11, 21, 'move', 0, -496, -145, -65.5, 0, 0, 0, 0, 0, '', 'pull group 1 approach'),
-('wailing_caverns', 11, 22, 'pull', 0, -468.44, -177.98, -65, 19, 0, 0, 0, 0, '5055,61964', 'pull group 1'),
-('wailing_caverns', 11, 23, 'move', 0, -455, -190, -65.5, 0, 0, 0, 0, 0, '', 'pull group 2 approach'),
-('wailing_caverns', 11, 24, 'pull', 0, -424.45, -213.47, -65.52, 15, 0, 0, 0, 0, '5053,5056,5756', 'pull group 2'),
-('wailing_caverns', 11, 25, 'boss', 61965, -419.6, -218, -65.6, 0, 0, 0, 0, 0, '', 'boss'),
+('wailing_caverns', 11, 0, 'move', 0, -355.5, -80.8, -65.3, 0, 0, 0, 0, 0, '', 'to'),
+('wailing_caverns', 11, 1, 'pull', 0, -380.6, -99.2, -64.51, 10, 0, 0, 0, 0, '5056,3640', 'pull group 0'),
+('wailing_caverns', 11, 2, 'move', 0, -371.4, -81.9, -65.84, 0, 0, 0, 0, 0, '', 'pull group 1 approach'),
+('wailing_caverns', 11, 3, 'pull', 0, -388, -65.4, -65.13, 6, 0, 0, 0, 0, '3640,5761', 'pull group 1'),
+('wailing_caverns', 11, 4, 'move', 0, -400.80002, -51.46678, -65.36052, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 5, 'move', 0, -401.6, -50.400116, -65.36052, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 6, 'move', 0, -405.33334, -42.666786, -65.36052, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 7, 'move', 0, -416, -14.93346, -65.26052, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 8, 'move', 0, -420, -11.200128, -65.36052, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 9, 'move', 0, -425.33334, -6.933462, -65.46052, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 10, 'move', 0, -426.6667, -6.1334624, -65.46052, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 11, 'move', 0, -458.93332, 6.9333315, -66.36052, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 12, 'move', 0, -461.6, 6.6666646, -66.46052, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 13, 'move', 0, -469.33334, 0, -66.76052, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 14, 'move', 0, -492.53333, -28.000122, -67.960526, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 15, 'move', 0, -498.13333, -42.666786, -67.86052, 0, 0, 0, 0, 0, '', 'path'),
+('wailing_caverns', 11, 16, 'move', 0, -505, -58, -67.49, 0, 0, 0, 0, 0, '', 'pull group 2 approach'),
+('wailing_caverns', 11, 17, 'pull', 0, -531.6, -53.7, -68.4, 6, 0, 0, 0, 0, '5761', 'pull group 2'),
+('wailing_caverns', 11, 18, 'move', 0, -505, -58, -67.49, 0, 0, 0, 0, 0, '', 'pull group 3 approach'),
+('wailing_caverns', 11, 19, 'pull', 0, -527.44, -84.56, -67.35, 16, 0, 0, 0, 0, '5055,61964,5761', 'pull group 3'),
+('wailing_caverns', 11, 20, 'move', 0, -515, -85, -67.36, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
+('wailing_caverns', 11, 21, 'pull', 0, -524.45, -119.2, -71.69, 8, 0, 0, 0, 0, '3641', 'pull group 4'),
+('wailing_caverns', 11, 22, 'move', 0, -505.2, -127.7, -66.7, 0, 0, 0, 0, 0, '', 'pull group 5 approach'),
+('wailing_caverns', 11, 23, 'pull', 0, -525.9, -140.4, -66.7, 6, 0, 0, 0, 0, '61964', 'pull group 5'),
+('wailing_caverns', 11, 24, 'pull', 0, -498.5, -155.25, -66.15, 10, 0, 0, 0, 0, '5761,61964', 'pull group 6'),
+('wailing_caverns', 11, 25, 'move', 0, -496, -145, -65.5, 0, 0, 0, 0, 0, '', 'pull group 7 approach'),
+('wailing_caverns', 11, 26, 'pull', 0, -468.44, -177.98, -65, 19, 0, 0, 0, 0, '5055,61964', 'pull group 7'),
+('wailing_caverns', 11, 27, 'move', 0, -455, -190, -65.5, 0, 0, 0, 0, 0, '', 'boss approach'),
+('wailing_caverns', 11, 28, 'boss', 61965, -419.6, -218, -65.6, 0, 0, 0, 0, 0, '5053,5056,5756', 'boss'),
 ('wailing_caverns', 12, 0, 'move', 0, -429.86667, -216.26674, -65.76052, 0, 0, 0, 0, 0, '', 'path'),
 ('wailing_caverns', 12, 1, 'move', 0, -437.06668, -213.3334, -65.76052, 0, 0, 0, 0, 0, '', 'path'),
 ('wailing_caverns', 12, 2, 'move', 0, -470.98294, -176.60146, -66.43245, 0, 0, 0, 0, 0, '', 'path'),
