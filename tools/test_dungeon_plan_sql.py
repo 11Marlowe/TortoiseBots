@@ -3450,7 +3450,7 @@ class DungeonPlanSql(unittest.TestCase):
         name, text = newest_plan_text("zulfarrak")
         self.assertEqual(name, "20261025002900_world.sql")
         self.assertEqual(len(leg_rows(text, "zulfarrak")), 18)
-        self.assertEqual(len([r for r in self.step_rows(text) if r["plan"] == "zulfarrak"]), 245)
+        self.assertEqual(len([r for r in self.step_rows(text) if r["plan"] == "zulfarrak"]), 247)
         name, text = newest_plan_text("uldaman")
         self.assertEqual(name, "20261022170000_world.sql")
         self.assertEqual(len(leg_rows(text, "uldaman")), 14)
@@ -3965,7 +3965,7 @@ class DungeonPlanSql(unittest.TestCase):
                                         r["param"], r["flags"], r["timeout_s"], r["entries"]]))
         self.assertGreater(counts["zulfarrak"], 200)
         self.assertGreater(counts["uldaman"], 130)
-        self.assertEqual(counts["zulfarrak"], 245, "the gahzrilla leg is in the shipped plan")
+        self.assertEqual(counts["zulfarrak"], 247, "the gahzrilla leg is in the shipped plan")
         with tempfile.TemporaryDirectory() as tmp:
             binary = os.path.join(tmp, "rows")
             build = subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", os.path.join(ROOT, "tools/test_dungeon_plan_rows.cpp"), "-o", binary],
