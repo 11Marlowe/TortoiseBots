@@ -8826,6 +8826,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         if (Player* lead = FindCharacter(binding->leadGuid))
             if (lead->IsInWorld() && lead->GetMapId() == slot.run.plan->map)
             {
+                TortoiseBots::DungeonRun::TrackRouteWhilePaused(slot.run, lead->IsAlive(), lead->GetPositionX(),
+                    lead->GetPositionY(), lead->GetPositionZ());
                 bool partyInCombat = false;
                 std::vector<Player*> const pausedBots = CommandedBots(lead->GetGroup(), lead);
                 for (Player* bot : pausedBots)

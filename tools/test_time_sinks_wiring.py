@@ -189,6 +189,17 @@ class TimeSinksWiringTest(unittest.TestCase):
                      "r.strandBotOnly = true;", "r.strandReplay = true;"):
             self.assertIn(part, rescue)
 
+    def test_ceiling_pause_tracks_the_route(self):
+        tick = body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertIn("TortoiseBots::DungeonRun::TrackRouteWhilePaused(slot.run, lead->IsAlive(),", tick)
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::TrackRouteWhilePaused(slot.run, lead->IsAlive(),"),
+                        tick.index("TortoiseBots::DungeonRun::CeilingFightOverWhilePaused(slot.run"))
+
+    def test_hole_branch_asks_the_rescue_first(self):
+        start = body(POLICY, "inline void StartWalkBack(Run& r, const Facts& f)", "\n}\n")
+        self.assertLess(start.index("if (HoleReplayRescue(r, f, hole))"),
+                        start.index("r.walkBackIdx = LastPointBeforeDirect(r, hole);"))
+
     def test_passed_boss_pauses_before_the_wait(self):
         fight = body(POLICY, "inline void FightStep(Run& r, const Facts& f, const PlanStep& s,", "\n}\n")
         passed = fight.index("if (u.entry == s.entry && u.hostile && r.passed.count(u.guid))")
