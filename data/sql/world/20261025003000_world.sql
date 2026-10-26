@@ -3,28 +3,29 @@
 -- tests/proof20d4/scholomance/traces/proof20d4-scholomance-m910q-4-1.jsonl) had 7 of its 20 wipes in the Vectus room, all
 -- at step 470 (leg 6 pull group 19, the 5-student pack at 130.28 83.56): the first attempt arrived at 6060 s, the rogue's
 -- pre-pull Sap walked Viswynnl to 141.0 80.7 (18.6 yd from Vectus 143.481 99.0964) at 6066 s, 24 students were in combat
--- at 6069 s and Vele (the priest) died first at 6078 s, 5 dead by 6093 s; the 7 later attempts drew 4-24 and twice walked
--- back into the fight already going. proof20d2 (581 steps, step 460) drew the same 24 with a Sap that did NOT land: the
--- hunter stepped out to 19.1 yd from Vectus at 6749 s. The script: Vectus' first victim makes every living student attack
--- (boss_vectus.cpp:164-176) and the students' Aggro turns Vectus and the room hostile (237-250); his aggro radius is 20 yd
--- (Creature::GetAttackDistance). A melee fight with a student whose spawn is 13.9-22.9 yd from him cannot stay out of it,
--- and splitting the 5-student pack changes nothing: the pulled unit's 10 yd assistance ring (CreatureFamilyAssistanceRadius)
--- takes the rest.
+-- at 6069 s and Vele (the priest) died first at 6078 s, 5 dead by 6093 s; the 7 later attempts drew 11-24 at once and twice
+-- walked back into the fight already going. proof20d2 (581 steps, step 460) drew the same 24 with a Sap that did NOT land:
+-- the hunter stepped out to 19.1 yd from Vectus at 6749 s. The script: Vectus' first victim makes every living student
+-- attack (boss_vectus.cpp:164-176) and the students' Aggro turns Vectus and the room hostile (237-250); his aggro radius is
+-- 20 yd (Creature::GetAttackDistance). A melee fight with a student whose spawn is 13.9-22.9 yd from him cannot stay out of
+-- it, and splitting the 5-student pack changes nothing: the pulled unit's 10 yd assistance ring
+-- (CreatureFamilyAssistanceRadius) takes the rest.
 -- Change (plan data only; SCHOLO-REFAST-AUDIT.md E1/E2): leg 6's old pull groups 19 (5 students) and 26 (3) are deleted and
--- 10475 goes into the boss row's first before Marduk: first [10475, 10433] - the students must die before Marduk is touched,
--- because his creature group (48805/48806, flags 2 aggro together) wakes Vectus. The other 24 students stay in eight pulls
--- (18, 20-25 and 27 in the plan's order), each still 26+ yd from every later student and 31+ yd from Vectus. The first and
--- the last student pull's approaches carry staging points at 174 70 104.85 (42.2 yd from Vectus) and 95 88 97.686 (50.2 yd),
--- both outside the boss row's 30 + 10 yd reach: after a wipe in the room the walk back targets the latest move point out of
--- every live pack's reach, so it walks a few yards inside the room instead of replaying the leg from its 448 entry.
+-- 10475 goes into the boss row's first after Marduk (first [10433, 10475]): Marduk's Defiling Aura 17695 and Shadow Bolt
+-- Volley 17228 hit every bot, the party's 4.3k hp priest first, so he dies first; the students are in the pack and attack
+-- anyway once Vectus has a victim. The other 24 students stay in eight pulls (18, 20-25 and 27 in the plan's order), each
+-- still 26+ yd from every later student and 31+ yd from Vectus. The first and the last student pull's approaches carry
+-- staging points at 174 70 104.85 (42.2 yd from Vectus) and 95 88 97.686 (50.2 yd), both outside the boss row's 30 + 10 yd
+-- reach: after a wipe in the room the walk back targets the latest move point out of every live pack's reach, so it walks a
+-- few yards inside the room instead of replaying the leg from its 448 entry.
 --   turtle-agent plan-export --dir dungeons --mmaps <map 289 mmaps> --allow-draft --approach-hops \
---     --rev 76fd7c6bc3820405714c1ad5aabc77b5a8cc3c65 --stamp 20261025003000 --out <dir> scholomance
+--     --rev 15e042b315776a19a0590d8f3ba6f49467cd7c8b --stamp 20261025003000 --out <dir> scholomance
 -- NO ROW IS HAND-SET except the ai_dungeon_boss block at the end (map 289, this plan's ten bosses: unchanged, restated
 -- because the file re-inserts them).
 -- 10 legs, 589 steps, 600 rows (165 pulls, 10 bosses; leg 6 39 rows / 26 pulls). Legs 0-5 and 7-9 are byte-identical to
 -- 20261025002400; leg 6 loses 4 rows (the two deleted groups' approach and pull rows) and gains 2 (the 174 70 and 95 88
 -- staging moves): its old rows 21-22 (151 69 / 130.28 83.56) and 35-36 (124 74 / 122.68 97.43) are gone, and its boss row's
--- entries change from 10433 to 10475,10433.
+-- entries change from 10433 to 10433,10475.
 -- Not carried by the rows (the exporter's warnings, unchanged): the entrance/teleports/portal, level_band,
 -- hire_composition, fleers 10469 10477 10489 10499 and no_cc (no column; the run leader's CC picks from cc_priority and
 -- cc_always only). Every other plan attribute the rows cannot carry is in the plan file's notes.
@@ -38,9 +39,12 @@
 --  * 'Pulls move nobody' replay (each move from where the lead really stands, 3 yd arrival, pulls move nobody): 394 moves
 --    sent, 175 packs reachable, 2 refusals - the same two pre-existing rows as 20261025002400 (leg 2 seq 0 at 149.33 0
 --    75.43, leg 4 seq 1 at 213.33 0 72.73; type 0x8 on this strict walk). No new refusal.
+--  * walk-back targets (the run leader's StraightWalkBackTarget on these rows): a wipe at leg 6's pull rows or the boss row
+--    targets 174 70 (steps 469-472), its own stand (473-483: every stand is 31+ yd from Vectus, so out of the boss row's
+--    30 + 10 yd reach) or 95 88 (484-486) - never the leg's 448 entry ('to', which every room wipe in proof20d4 used).
 --  * go test ./internal/dungeon ./cmd/turtle-agent (incl. TestScholomanceVectusRoomStudentsDieBeforeTheBossOutOfReach):
 --    pass; the test holds that the 24 students are the eight pulls and the other 8 are the boss row's adds within its 30 yd
---    radius, that 10475 comes before 10433 in first, and that the first and last pulls' approaches carry a staging point
+--    radius, that 10433 comes before 10475 in first, and that the first and last pulls' approaches carry a staging point
 --    41+ yd from Vectus.
 
 -- scholomance: map 289, 10 legs, 589 steps
@@ -48,7 +52,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'scholomance';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'scholomance';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'scholomance';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', 'turtle-agent 76fd7c6bc3820405714c1ad5aabc77b5a8cc3c65 dungeons/s', 'plan v1, draft (not mapped, not live-checked)');
+('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', 'turtle-agent 15e042b315776a19a0590d8f3ba6f49467cd7c8b dungeons/s', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('scholomance', 0, 'instructor_malicia', ''),
 ('scholomance', 1, 'the_ravenian', ''),
@@ -546,7 +550,7 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('scholomance', 6, 35, 'move', 0, 113, 92, 99.37, 0, 0, 0, 0, 0, '', 'pull group 25 approach'),
 ('scholomance', 6, 36, 'pull', 0, 118.24, 114.61, 101.71, 5, 0, 0, 0, 0, '10475', 'pull group 25'),
 ('scholomance', 6, 37, 'move', 0, 128, 105, 102.4, 0, 0, 0, 0, 0, '', 'boss approach'),
-('scholomance', 6, 38, 'boss', 10432, 143.481, 99.0964, 104.659, 0, 0, 0, 0, 0, '10475,10433', 'boss'),
+('scholomance', 6, 38, 'boss', 10432, 143.481, 99.0964, 104.659, 0, 0, 0, 0, 0, '10433,10475', 'boss'),
 ('scholomance', 7, 0, 'move', 0, 124, 116, 101.9, 0, 0, 0, 0, 0, '', 'via'),
 ('scholomance', 7, 1, 'move', 0, 120, 115, 101.1, 0, 0, 0, 0, 0, '', 'via'),
 ('scholomance', 7, 2, 'move', 0, 110, 110, 99.5, 0, 0, 0, 0, 0, '', 'via'),

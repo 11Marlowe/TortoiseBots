@@ -682,7 +682,7 @@ class DungeonPlanSql(unittest.TestCase):
         name, text = newest_plan_text("scholomance")
         self.assertEqual(name, "20261025003000_world.sql")
         self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', "
-                      "'turtle-agent 76fd7c6bc3820405714c1ad5aabc77b5a8cc3c65 dungeons/s',", text)
+                      "'turtle-agent 15e042b315776a19a0590d8f3ba6f49467cd7c8b dungeons/s',", text)
         rows = [r for r in self.step_rows(text) if r["plan"] == "scholomance"]
         self.assertEqual(len(rows), 589)
         leg0 = leg_steps(rows, 0)
@@ -4322,7 +4322,7 @@ class DungeonPlanSql(unittest.TestCase):
         # Risen Construct 10488 are the boss rows' first.
         name, text = newest_plan_text("scholomance")
         self.assertEqual(name, "20261025003000_world.sql")
-        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', 'turtle-agent 76fd7c6", text)
+        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', 'turtle-agent 15e042b", text)
         legs = leg_rows(text, "scholomance")
         self.assertEqual([legs[i][0] for i in range(10)],
                          ["instructor_malicia", "the_ravenian", "lorekeeper_polkelt", "lady_illucia_barov",
@@ -4339,7 +4339,7 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
         self.assertEqual(leg_steps(rows, 0)[0]["kind"], "move")
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
-                         ["", "", "", "", "", "10488", "10475,10433", "", "", "10489"])
+                         ["", "", "", "", "", "10488", "10433,10475", "", "", "10489"])
         pulls = [r for r in rows if r["kind"] == "pull"]
         self.assertEqual(len(pulls), 165)
         # Leg 0 is the whole route: every pull is preceded by its approach move row, and the pulls are the stair guards, the
@@ -4393,7 +4393,7 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((leg6[-2]["x"], leg6[-2]["y"], leg6[-2]["z"]), ("128", "105", "102.4"))
         self.assertEqual(leg6[-1]["kind"], "boss")
         self.assertEqual(leg6[-1]["entry"], "10432")
-        self.assertEqual(leg6[-1]["entries"], "10475,10433")
+        self.assertEqual(leg6[-1]["entries"], "10433,10475")
         leg7 = leg_steps(rows, 7)
         self.assertEqual(len(leg7), 15)
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg7[:3]],
@@ -4414,8 +4414,8 @@ class DungeonPlanSql(unittest.TestCase):
         # 5-student pack at 130.28 83.56, drew all 24 living students on the first attempt of both runs (d4: the rogue's
         # pre-pull Sap reached 18.6 yd from Vectus, 7 wipes; d2: the hunter stepped to 19.1 yd) because a melee fight with
         # students 13.9-22.9 yd from Vectus cannot stay out of his 20 yd aggro, and the pulled unit's 10 yd assistance ring
-        # makes the pack indivisible. The two packs (5 + 3) are the boss row's first adds now (10475 before 10433: the
-        # students die before Marduk's creature group wakes Vectus); the other 24 stay in eight pulls, and the last pull's
+        # makes the pack indivisible. The two packs (5 + 3) are the boss row's first adds now (10433 before 10475: Marduk's
+        # party-wide aura and volley kill the 4.3k hp priest first, E1); the other 24 stay in eight pulls, and the last pull's
         # approach carries a staging point at 95 88 (50.2 yd from Vectus, outside the boss row's 30 + 10 yd walk-back reach)
         # so a wipe's walk back replays the room's own rows, not the leg's 448 entry. Every pin fails when its rows are cut.
         name, text = newest_plan_text("scholomance")
@@ -4435,7 +4435,7 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertFalse([r for r in leg6 if float(r["radius"]) == 8.8])
         # The boss row: the students before Marduk, then Vectus, from the unchanged 128 105 102.4 approach.
         boss = leg6[-1]
-        self.assertEqual((boss["kind"], boss["entry"], boss["entries"]), ("boss", "10432", "10475,10433"))
+        self.assertEqual((boss["kind"], boss["entry"], boss["entries"]), ("boss", "10432", "10433,10475"))
         self.assertEqual((leg6[-2]["kind"], leg6[-2]["comment"]), ("move", "boss approach"))
         self.assertEqual((leg6[-2]["x"], leg6[-2]["y"], leg6[-2]["z"]), ("128", "105", "102.4"))
         self.assertGreater(len(boss["entries"].split(",")), 1)
