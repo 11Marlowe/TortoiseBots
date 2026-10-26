@@ -4232,7 +4232,7 @@ void PlayerbotAI::ReleasePullHold()
     }
 }
 
-void PlayerbotAI::StartPullWindow(uint8 windowSeconds)
+void PlayerbotAI::StartPullWindow(uint8 windowSeconds, bool leadKeyed, uint8 minSeconds)
 {
     if (!aiObjectContext)
         return;
@@ -4255,7 +4255,7 @@ void PlayerbotAI::StartPullWindow(uint8 windowSeconds)
     }
 
     waitTime->Set(windowSeconds);
-    pullWindow_.Start(time(0), added, previousSeconds);
+    pullWindow_.Start(time(0), added, previousSeconds, leadKeyed, minSeconds);
 }
 
 void PlayerbotAI::SetPlayerWaitForAttackTime(uint8 seconds)

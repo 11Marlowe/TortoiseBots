@@ -6,6 +6,8 @@
 #include "PullTriggers.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/actions/PullActions.h"
+#include "playerbot/strategy/values/TargetValue.h"
+#include "../../../../runtime/CommandedGroupQuery.h"
 #include "../../policy/class/ShamanTankPolicy.h"
 
 using namespace ai;
@@ -176,7 +178,50 @@ bool PullHoldExpiredTrigger::IsActive()
     AiObjectContext* context = ai->GetAiObjectContext();
     if (!context)
         return false;
-    return ai->PullWindowExpired(AI_VALUE(uint8, "wait for attack time"));
+    if (!ai->PullWindowExpired(AI_VALUE(uint8, "wait for attack time")))
+        return false;
+    if (!ai->PullWindowLeadKeyed())
+        return true;
+    // A run leader's lead-keyed pull: the held DPS open once every mob near
+    // the tank is on it (join delay at the earliest, the cap at the latest),
+    // or at once when a mob hits them or the tank drops under 60 %.
+    ai::PullLeadFacts facts;
+    facts.landed = ai->PullWindowLanded();
+    facts.elapsedSeconds = ai->PullWindowElapsed();
+    facts.minSeconds = ai->PullWindowMinSeconds();
+    Player* tank = nullptr;
+    if (bot->GetGroup())
+    {
+        for (Player* member : LiveGroupMembers(bot->GetGroup()))
+        {
+            if (!member || !member->IsAlive() || !member->IsInWorld() || member->GetMapId() != bot->GetMapId())
+                continue;
+            if (PlayerbotAI::IsTank(member, true))
+            {
+                tank = member;
+                break;
+            }
+        }
+    }
+    facts.tankAlive = tank != nullptr;
+    if (tank)
+        facts.tankLow = tank->GetHealthPercent() < ai::kPullLeadPanicHpPct;
+    for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (!unit || !unit->IsAlive())
+            continue;
+        if (unit->GetVictim() == bot)
+            facts.botIsVictim = true;
+        if (!unit->IsInCombat() || !tank || !tank->IsWithinDistInMap(unit, ai::kPullLeadPackYd))
+            continue;
+        if (ai::FindNonCcTargetStrategy::IsCrowdControlled(ai, unit))
+            continue;
+        ++facts.packUnits;
+        if (unit->GetVictim() == tank)
+            ++facts.packOnTank;
+    }
+    return ai::PullLeadReleases(facts);
 }
 
 bool PullAnchorDoneTrigger::IsActive()

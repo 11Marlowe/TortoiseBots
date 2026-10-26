@@ -454,7 +454,7 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
         // (PullJoinWindowPolicy.h). A "wait for attack" or a delay the player
         // set is theirs and comes back unchanged when the window ends; one an
         // earlier pull left (a chain pull) stays the pull's.
-        ai->StartPullWindow(static_cast<uint8>(windowSeconds));
+        ai->StartPullWindow(static_cast<uint8>(windowSeconds), context.runLeader, static_cast<uint8>(std::min<uint32>(joinDelaySeconds, 255)));
         // Fresh combat window: a stale combat-start timestamp would expire the
         // hold immediately, so reset it for the incoming pull engagement.
         // Re-stamped when the pull lands (plain pull) or when the tank
