@@ -3563,23 +3563,56 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((hop["kind"], hop["x"], hop["y"], hop["z"]), ("move_hop_exact", "-287.5", "5", "-63.6"), name)
 
     def test_wailing_caverns_kresh_pull(self):
-        # 20261022210200 (turtle-agent e281a2b, 2026-10-22) re-exports the whole wailing_caverns plan with Kresh 3653 as a pull of his own
-        # in leg 2 (cobrahn_a) at his spawn, radius 12, between the Ectoplasm-patrol pack and the Crocolisk pair; it replaces one approach
-        # move (12 legs, 226 steps: 131 move + 1 move_hop_exact + 89 pull + 5 boss). Lady Anacondra stays a member of her four spot packs
-        # (a boss row per spot would pause the run 'boss not found' three times in four) and the five boss rows are unchanged.
+        # 20261025002700 (turtle-agent 6a92862, 2026-10-26) re-exports the whole wailing_caverns plan on top of 20261022210200 (e281a2b, the
+        # Kresh pull of leg 2). The re-export keeps Kresh 3653 as the one-member pull of cobrahn_a at his spawn, radius 12, between the
+        # Ectoplasm-patrol pack and the Crocolisk pair. Lady Anacondra stays a member of her four spot packs (a boss row per spot would
+        # pause the run 'boss not found' three times in four) and Kresh stays without a boss row (his 204 s patrol against the 60 s wait).
         name, text = newest_plan_text("wailing_caverns")
-        self.assertEqual(name, "20261022210200_world.sql")
-        self.assertIn("'turtle-agent e281a2b dungeons/wailing_caverns.json'", text)
+        self.assertEqual(name, "20261025002700_world.sql")
+        self.assertIn("'turtle-agent 6a92862 dungeons/wailing_caverns.json'", text)
         rows = [r for r in self.step_rows(text) if r["plan"] == "wailing_caverns"]
         kinds = {k: len([r for r in rows if r["kind"] == k]) for k in KINDS}
-        self.assertEqual((len(rows), kinds["move"], kinds["move_hop_exact"], kinds["pull"], kinds["boss"]), (226, 131, 1, 89, 5), name)
+        self.assertEqual((len(rows), kinds["move"], kinds["move_hop_exact"], kinds["pull"], kinds["boss"]), (319, 215, 1, 96, 7), name)
         kresh = [r for r in rows if "3653" in r["entries"].split(",")]
         self.assertEqual(len(kresh), 1, name)
-        self.assertEqual((kresh[0]["leg"], kresh[0]["kind"], kresh[0]["x"], kresh[0]["y"], kresh[0]["z"], kresh[0]["radius"], kresh[0]["entries"]),
-                         ("2", "pull", "-64.4", "319.1", "-106.7", "12", "3653"), name)
+        self.assertEqual((kresh[0]["leg"], kresh[0]["seq"], kresh[0]["kind"], kresh[0]["x"], kresh[0]["y"], kresh[0]["z"], kresh[0]["radius"], kresh[0]["entries"]),
+                         ("2", "15", "pull", "-64.4", "319.1", "-106.7", "12", "3653"), name)
         self.assertEqual(len([r for r in rows if r["kind"] == "pull" and "3671" in r["entries"].split(",")]), 4, name)
-        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["3669", "3670", "3674", "3673", "5775"], name)
-        self.assertEqual(len([r for r in rows if r["kind"] == "boss" and r["entry"] in ("3653", "3671")]), 0, name)
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["3669", "3670", "61968", "3674", "61965", "3673", "5775"], name)
+        self.assertEqual(len([r for r in rows if r["kind"] == "boss" and r["entry"] in ("3653", "3671", "3654")]), 0, name)
+
+    def test_wailing_caverns_vangros_and_zandara_legs(self):
+        # The two Turtle-added bosses (20261025002700, turtle-agent 6a92862): Vangros 61965 in the west wing and Zandara Windhoof 61968 in
+        # the east spur. Both are always spawned (one creature row each on map 43, 7-day respawn, movement_type 0, faction 17/130 = hostile
+        # to every player) and their ai_dungeon_boss rows already exist (20261021114931). The legs are the rows' proof: leg 8 zandara sits
+        # between pythas_c and skum (the spur is a dead end off the cave mouth corridor), leg 11 vangros between west_column and serpentis
+        # (the wing is reached from the west column's north loop only); the later legs keep their rows and close up to 9/10/12/13.
+        name, text = newest_plan_text("wailing_caverns")
+        self.assertEqual(name, "20261025002700_world.sql")
+        self.assertIn("('wailing_caverns', 43, '3840', '', '3671,61966', 'turtle-agent 6a92862 dungeons/wailing_caverns.json', 'plan v1, mapped (not live-checked)');", text)
+        legs = leg_rows(text, "wailing_caverns")
+        self.assertEqual(len(legs), 14)
+        self.assertEqual([legs[i][0] for i in (7, 8, 9, 10, 11, 12, 13)],
+                         ["pythas_c", "zandara", "skum", "west_column", "vangros", "serpentis", "verdan"])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "wailing_caverns"]
+        z = [r for r in rows if r["leg"] == "8"]
+        self.assertEqual(len(z), 22)
+        self.assertEqual([(r["seq"], r["kind"], r["x"], r["y"], r["z"], r["radius"], r["entries"]) for r in z if r["kind"] in ("pull", "boss")],
+                         [("13", "pull", "-3.63", "-57.53", "-66.28", "10", "3840,5761"),
+                          ("15", "pull", "23.14", "-29.18", "-64.88", "15", "61967,61966"),
+                          ("17", "pull", "66.34", "-30.52", "-66.55", "6", "61966"),
+                          ("19", "pull", "76.99", "7.79", "-66.75", "16", "61966,61967"),
+                          ("21", "boss", "81.88", "27.03", "-66.84", "0", "61966,61967")], name)
+        self.assertEqual((z[12]["kind"], z[12]["x"], z[12]["y"], z[12]["z"]), ("move", "-12", "-92", "-64.6"), name)
+        self.assertEqual((z[20]["comment"], z[20]["x"], z[20]["y"], z[20]["z"]), ("boss approach", "67", "2", "-66.5"), name)
+        v = [r for r in rows if r["leg"] == "11"]
+        self.assertEqual(len(v), 26)
+        self.assertEqual([(r["seq"], r["kind"], r["x"], r["y"], r["z"], r["radius"], r["entries"]) for r in v if r["kind"] in ("pull", "boss")],
+                         [("20", "pull", "-507.63", "-150.3", "-66.33", "22", "61964,5761"),
+                          ("22", "pull", "-468.44", "-177.98", "-65", "19", "5055,61964"),
+                          ("24", "pull", "-424.45", "-213.47", "-65.52", "15", "5053,5056,5756"),
+                          ("25", "boss", "-419.6", "-218", "-65.6", "0", "")], name)
+        self.assertEqual((v[19]["kind"], v[19]["x"], v[19]["y"], v[19]["z"]), ("move", "-505.2", "-127.7", "-66.7"), name)
 
     def test_gossip_rows_fit_the_loader(self):
         # NormalizePlanStep (DungeonPlanPolicy.h): a gossip row needs its NPC entry, an option of 1-15 (the number `.bot cmd gossip` takes,
