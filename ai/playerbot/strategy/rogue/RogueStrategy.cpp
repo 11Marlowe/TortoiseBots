@@ -602,6 +602,7 @@ public:
             (actionName == "dps assist") ||
             (actionName == "select new target") ||
             (actionName == "follow") ||
+            (actionName == "release pull hold") ||
             (actionName == "reach melee") ||
             (actionName == "reach sap") ||
             (actionName == "set behind") ||
