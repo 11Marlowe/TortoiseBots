@@ -9447,13 +9447,14 @@ void SyncRunSpeed()
         // run/binding, BEFORE keep is decided and before any restore. A player joining after keep
         // already went false (fight, pause, stop, speedNow back at 1.0) still latches the run
         // blocked on that same call, so a bot waiting out a swim-spline restore goes back at once.
+        // Only bots are skipped: the commander joining his own bound group blocks too.
         if (run != DungeonRuns().end() && binding && lead && lead->GetGroup() &&
             !run->second.run.speedPlayerBlocked)
         {
             for (Group::MemberSlot const& member : lead->GetGroup()->GetMemberSlots())
             {
-                if (member.guid.GetRawValue() == binding->commanderGuid ||
-                    BotManager::Instance().IsBot(member.guid))
+                if (!TortoiseBots::DungeonRun::SpeedMemberBlocksRun(member.guid.GetRawValue(),
+                        binding->commanderGuid, BotManager::Instance().IsBot(member.guid)))
                     continue;
                 run->second.run.speedPlayerBlocked = true;
                 TortoiseBots::DungeonRun::SpeedFightSeen(run->second.run);

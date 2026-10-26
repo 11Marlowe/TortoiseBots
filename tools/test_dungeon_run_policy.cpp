@@ -19785,6 +19785,17 @@ static void TestSpeedRealPlayerBlocksTheRestOfTheRun()
         CHECK(SpeedRateNow(r, f, kTickMs) == 1.0f);   // he left: still 1.0
     CHECK(SpeedLabel(r) == "speed 2.0 (test; 1.0 since a real player joined)");
 }
+// A GM commander starts a bot-only test-speed run from outside the bound group, then joins it while the bots run at
+// 3x: his slot blocks the run on that same scan, like any other real player (SyncRunSpeed latches and restores at
+// once). Only bots never block.
+static void TestSpeedCommanderJoinBlocksTheRun()
+{
+    std::uint64_t const commander = 4242;
+    CHECK(SpeedMemberBlocksRun(commander, commander, false)); // the commander himself, joining: blocks
+    CHECK(SpeedMemberBlocksRun(7777, commander, false));      // another real player: blocks
+    CHECK(!SpeedMemberBlocksRun(1234, commander, true));      // a commanded bot: never blocks
+    CHECK(!SpeedMemberBlocksRun(1234, 9999, true));           // a bot of another run: never blocks
+}
 // Round 1 (Opus): a tick that advances onto a pull or boss step never starts fast. f.seen was read on the step
 // before Tick, so one tick of fast approach could go out when Tick moves onto a pull/boss step whose pack is
 // already in sight. The glue caps the rate to 1.0 on such a tick (SpeedCapAfterTick).
@@ -21680,6 +21691,7 @@ int main()
     TestSpeedRisesOnlyAfterTheWalkSettles();
     TestSpeedWalkingRule();
     TestSpeedSettleNeedsAnUnbrokenWalk();
+    TestSpeedCommanderJoinBlocksTheRun();
     TestSpeedRealPlayerBlocksTheRestOfTheRun();
     TestSpeedCappedOnTheTickThatReachesAPullStep();
     TestSpeedShowsInTheLines();
