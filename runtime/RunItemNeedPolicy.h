@@ -280,6 +280,45 @@ inline StartVerdict CheckStart(const ai::DungeonPlan& plan, std::size_t fromStep
     return v;
 }
 
+// The items the glue reads the party's bags for (RunNeedParty): every item of
+// NeedsFrom (need rows and derived blocking needs), distinct, ascending, so a
+// carrier of a derived item counts as one.
+inline std::vector<std::uint32_t> PlanNeedItems(const ai::DungeonPlan& plan, std::size_t fromStep)
+{
+    std::vector<std::uint32_t> items;
+    for (const NeedItem& n : NeedsFrom(plan, fromStep))
+        if (n.item && std::find(items.begin(), items.end(), n.item) == items.end())
+            items.push_back(n.item);
+    std::sort(items.begin(), items.end());
+    return items;
+}
+
+// The start's glue plan (D3), all `.bot run start` acts on: refuse (bot-only,
+// giveOn 0, an uncarried blocking need) with the refusal LINE (the verdict's
+// text), else start with the warning on the note, the give orders, and
+// giveRun = giveOn && (bot-only || botKeysForPlayers).
+struct StartPlan
+{
+    bool refuse = false;
+    std::string refusal;
+    std::string warn;
+    std::vector<GiveOrder> give;
+    bool giveRun = false;
+};
+
+inline StartPlan PlanStart(const ai::DungeonPlan& plan, std::size_t fromStep, const std::vector<Member>& party,
+    bool giveOn, bool botKeysForPlayers)
+{
+    StartVerdict const v = CheckStart(plan, fromStep, party, giveOn, botKeysForPlayers);
+    StartPlan p;
+    p.refuse = v.refuse;
+    p.refusal = v.refuse ? v.text : std::string();
+    p.warn = v.warn;
+    p.give = v.give;
+    p.giveRun = giveOn && (BotOnly(party) || botKeysForPlayers);
+    return p;
+}
+
 // The run's given items (D4-D7): bot name -> (item, count given). Counts merge
 // (the REPLACE INTO ledger row holds the running count); takeBot/takeAll drop
 // the records (the glue destroys up to the recorded count and deletes the row;

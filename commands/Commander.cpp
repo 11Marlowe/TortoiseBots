@@ -10520,32 +10520,17 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
         }
         // Item-leg skip (spec D3): the needed-items check before the slot exists. Bot-only + giveOn 0 + a blocking
         // need nobody carries refuses the start; with a real player the run starts and the warning rides the note.
-        std::string startNeedWarn; // the CheckStart warning, carried on the start note
-        std::vector<RunGiveOrderPlain> startGive; // the CheckStart give orders, given after the slot exists
-        bool startGiveRun = false; // stored.giveRun: giveOn && (BotOnly || botKeys)
+        TortoiseBots::RunItemNeed::StartPlan startPlan; // the start's give orders and warning, acted on after the slot exists
         {
-            std::vector<uint32_t> needItems;
-            if (plan)
-                for (ai::PlanLegNeed const& needRow : plan->needs)
-                    if (needRow.item)
-                        needItems.push_back(needRow.item);
-            std::sort(needItems.begin(), needItems.end());
-            needItems.erase(std::unique(needItems.begin(), needItems.end()), needItems.end());
-            std::vector<RunNeedMemberPlain> const needParty = RunNeedParty(lead, needItems);
-            TortoiseBots::RunItemNeed::StartVerdict const needVerdict = TortoiseBots::RunItemNeed::CheckStart(*plan,
-                startStep, RunItemNeedMembers(needParty),
+            std::vector<RunNeedMemberPlain> const needParty =
+                RunNeedParty(lead, TortoiseBots::RunItemNeed::PlanNeedItems(*plan, startStep));
+            startPlan = TortoiseBots::RunItemNeed::PlanStart(*plan, startStep, RunItemNeedMembers(needParty),
                 sPlayerbotAIConfig.dungeonRunGiveItems, sPlayerbotAIConfig.dungeonRunBotKeysForPlayers);
-            if (needVerdict.refuse)
+            if (startPlan.refuse)
             {
-                SendActionError(handler, intent, "requirement", needVerdict.warn.c_str());
+                SendActionError(handler, intent, "requirement", startPlan.refusal.c_str());
                 return true;
             }
-            startNeedWarn = needVerdict.warn;
-            for (TortoiseBots::RunItemNeed::GiveOrder const& order : needVerdict.give)
-                startGive.push_back({order.bot, order.item});
-            startGiveRun = sPlayerbotAIConfig.dungeonRunGiveItems &&
-                (TortoiseBots::RunItemNeed::BotOnly(RunItemNeedMembers(needParty)) ||
-                    sPlayerbotAIConfig.dungeonRunBotKeysForPlayers);
         }
         DungeonRunSlot slot;
         slot.run = Start(plan, startStep);
@@ -10557,12 +10542,17 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
         DungeonRunSlot& stored = DungeonRuns()[commanderRaw] = slot;
         RebuildRunGroups(); // one index rebuild per start (BotAreaTriggerWiringTest pins this adjacency)
         // Item-leg skip: give after the slot exists; the warning rides the start note.
-        stored.giveRun = startGiveRun;
-        GiveRunItems(stored, lead, startGive);
-        if (!startNeedWarn.empty())
+        stored.giveRun = startPlan.giveRun;
         {
-            stored.run.note = startNeedWarn;
-            handler->PSendSysMessage("%s", startNeedWarn.c_str());
+            std::vector<RunGiveOrderPlain> startGive;
+            for (TortoiseBots::RunItemNeed::GiveOrder const& order : startPlan.give)
+                startGive.push_back({order.bot, order.item});
+            GiveRunItems(stored, lead, startGive);
+        }
+        if (!startPlan.warn.empty())
+        {
+            stored.run.note = startPlan.warn;
+            handler->PSendSysMessage("%s", startPlan.warn.c_str());
         }
         playerLedGuard.commanderRaw = 0; // started: the binding stays with the run
         s_dungeonRunMs = 0;

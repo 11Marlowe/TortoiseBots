@@ -387,6 +387,50 @@ static void TestLedgerNone()
     CHECK(ledger.empty());
 }
 
+// Codex fix 3: the start's glue plan. A bot-only refusal (giveOn 0, a blocking
+// need nobody carries) carries the refusal LINE (the verdict's text), never the
+// empty warning; the glue sends startPlan.refusal (tools/test_run_item_need_wiring.py).
+static void TestStartPlanRefusalCarriesText()
+{
+    DungeonPlan bplan;
+    bplan.name = "b";
+    bplan.steps = {Move(0), OpenStep(0, 1234, 8444)};
+    std::vector<Member> party = {Bot("A"), Bot("B")};
+    StartPlan p = PlanStart(bplan, 0, party, false, false);
+    CHECK(p.refuse);
+    CHECK(!p.refusal.empty());
+    CHECK(p.refusal == CheckStart(bplan, 0, party, false).text);
+    CHECK(p.refusal.find("8444") != std::string::npos);
+    CHECK(p.refusal.find("AiPlayerbot.DungeonRunGiveItems is 0") != std::string::npos);
+    CHECK(!p.giveRun);
+    // giveOn: never refuses, gives, giveRun set; with a player and the flag off: giveRun false.
+    StartPlan g = PlanStart(bplan, 0, party, true, false);
+    CHECK(!g.refuse && g.refusal.empty() && g.giveRun && g.give.size() == 2);
+    std::vector<Member> mixed = {Player("Hypeer"), Bot("A")};
+    StartPlan m = PlanStart(bplan, 0, mixed, true, false);
+    CHECK(!m.refuse && !m.giveRun && m.give.empty() && m.warn.find("item 8444") != std::string::npos);
+    CHECK(PlanStart(bplan, 0, mixed, true, true).giveRun);
+}
+
+// Codex fix 3: the items the glue reads the party's bags for are every need of
+// NeedsFrom (derived blocking items too), so a bot carrying a derived item
+// counts as its carrier and the start is not refused for it.
+static void TestPlanNeedItemsIncludeDerived()
+{
+    DungeonPlan bplan;
+    bplan.name = "b";
+    bplan.steps = {Move(0), OpenStep(1, 1234, 8444)};
+    ai::PlanLegNeed door;
+    door.leg = 1;
+    door.item = 11000;
+    door.mode = ai::LegNeedMode::Door;
+    bplan.needs.push_back(door);
+    std::vector<std::uint32_t> const items = PlanNeedItems(bplan, 0);
+    CHECK(items.size() == 2 && items[0] == 8444 && items[1] == 11000);
+    std::vector<Member> party = {Bot("A", 8444), Bot("B")};
+    CHECK(!PlanStart(bplan, 0, party, false, false).refuse);
+}
+
 int main()
 {
     TestNeedsFromRowsAndDerived();
@@ -401,6 +445,8 @@ int main()
     TestLedgerTakeAllAndRecheck();
     TestLedgerGiveAgain();
     TestLedgerNone();
+    TestStartPlanRefusalCarriesText();
+    TestPlanNeedItemsIncludeDerived();
     std::cout << "ok\n";
     return 0;
 }
