@@ -77,7 +77,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("SyncRunHold(commander, lead, bots, it->second, !order.empty());", tick)
         early = body(tick, "if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)", "return;")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", early)
-        offmap = body(tick, "the lead bot is not on the plan's map", "return;")
+        offmap = body(tick, "PauseLeadOffMap(slot.run, slot.run.plan->map);", "return;")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", offmap)
         stop = body(COMMANDS, 'EndRunEarly(slot.run, RunStopNote(rawArg));', "DungeonRuns().erase(it);")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", stop)
