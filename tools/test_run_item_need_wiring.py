@@ -90,6 +90,15 @@ class GivenItemProvenanceWiringTest(unittest.TestCase):
         self.assertLess(guard, cleanup.index("PQuery("))
         self.assertIn("PendingRunGivenCleanup().insert(", body(cleanup, "if (!player->IsInWorld())", "}"))
 
+    def test_full_bags_log_once_per_run_per_bot(self):
+        give = self.give()
+        self.assertIn("slot.bagsFullLogged.insert(", give)
+        self.assertIn("bags are full", give)
+        full = body(give, "CanStoreNewItem", "continue;\n        }")
+        self.assertIn("TB_LOG_DETAIL(", full)
+        self.assertLess(full.index("slot.bagsFullLogged.insert("), full.index("TB_LOG_DETAIL("))
+        self.assertIn("std::unordered_set<uint64> bagsFullLogged;", body(COMMANDS, "struct DungeonRunSlot"))
+
     def test_ledger_table_keys_the_item_instance(self):
         self.assertIn("`item_guid` int unsigned NOT NULL", CHAR_MIGRATION)
         self.assertIn("PRIMARY KEY (`item_guid`)", CHAR_MIGRATION)

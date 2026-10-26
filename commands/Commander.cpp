@@ -248,8 +248,8 @@ struct DungeonRunSlot
         uint32 itemGuid = 0;
     };
     std::unordered_map<uint64, std::vector<GivenItem>> given;
+    std::unordered_set<uint64> bagsFullLogged; // bots whose full bags were logged + noted once this run (not every tick)
 };
-
 std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
 {
     static std::unordered_map<uint64, DungeonRunSlot> runs;
@@ -672,8 +672,15 @@ void GiveRunItems(DungeonRunSlot& slot, Player* lead, const std::vector<RunGiveO
         ItemPosCountVec dest;
         if (bot->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, order.item, 1) != EQUIP_ERR_OK)
         {
-            TB_LOG_DETAIL("TortoiseBots: run leader: cannot give item %u to %s (no bag space): the leg gate / step pause covers it.",
-                order.item, bot->GetName());
+            uint64 const botRaw = bot->GetObjectGuid().GetRawValue();
+            if (slot.bagsFullLogged.insert(botRaw).second) // once per run per bot, not every tick
+            {
+                TB_LOG_DETAIL("TortoiseBots: run leader: cannot give item %u to %s (no bag space): the leg gate / step pause covers it.",
+                    order.item, bot->GetName());
+                if (!slot.run.note.empty())
+                    slot.run.note += " ";
+                slot.run.note += std::string(bot->GetName()) + "'s bags are full: make room, then .bot run resume gives the item again";
+            }
             continue;
         }
         // The exact instance: created, bound (the core refuses trade, mail and
