@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 #define CHECK(x) do { \
     if (!(x)) { \
@@ -447,6 +448,99 @@ int main()
         CHECK(w.Added(0) && w.savedWaitSeconds == 10);
     }
     std::cout << "  [PASS] chain_pull_takes_the_latest_lead_key_and_starts_unlanded\n";
+    // reason_names_each_rule
+    {
+        ai::PullLeadFacts f;
+        f.tankAlive = true;
+        CHECK(ai::PullLeadReleaseReason(f) == nullptr);
+        f.landed = true; f.elapsedSeconds = 10;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "cap");
+        f.elapsedSeconds = 0; f.tankAlive = false;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "tank-dead");
+        f.tankAlive = true; f.botIsVictim = true;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "hit");
+        f.botIsVictim = false; f.tankLow = true;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "tank-low");
+        f.tankLow = false; f.elapsedSeconds = 5; f.minSeconds = 5;
+        f.packUnits = 2; f.packOnTank = 2;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "tank-first");
+        f.packOnTank = 1;
+        CHECK(ai::PullLeadReleaseReason(f) == nullptr);
+    }
+    std::cout << "  [PASS] reason_names_each_rule\n";
+
+    // hit_wins_over_tank_low
+    {
+        ai::PullLeadFacts f;
+        f.landed = true; f.elapsedSeconds = 1; f.minSeconds = 5;
+        f.tankAlive = true; f.botIsVictim = true; f.tankLow = true;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "hit");
+    }
+    std::cout << "  [PASS] hit_wins_over_tank_low\n";
+
+    // releases_wraps_the_reason
+    {
+        ai::PullLeadFacts cases[7] = {};
+        cases[1].landed = true; cases[1].elapsedSeconds = 10; cases[1].tankAlive = true;
+        cases[2].landed = true; cases[2].tankAlive = false;
+        cases[3].landed = true; cases[3].tankAlive = true; cases[3].botIsVictim = true;
+        cases[4].landed = true; cases[4].tankAlive = true; cases[4].tankLow = true;
+        cases[5].landed = true; cases[5].elapsedSeconds = 5; cases[5].minSeconds = 5;
+        cases[5].tankAlive = true; cases[5].packUnits = 2; cases[5].packOnTank = 2;
+        cases[6].landed = true; cases[6].elapsedSeconds = 5; cases[6].minSeconds = 5;
+        cases[6].tankAlive = true; cases[6].packUnits = 2; cases[6].packOnTank = 1;
+        for (int i = 0; i < 7; ++i)
+            CHECK(ai::PullLeadReleases(cases[i]) == (ai::PullLeadReleaseReason(cases[i]) != nullptr));
+    }
+    std::cout << "  [PASS] releases_wraps_the_reason\n";
+
+    // fight_start_opens_only_unheld_bot_only_dps
+    {
+        ai::FightStartHoldFacts base;
+        base.runningRun = true; base.tankInGroup = true;
+        CHECK(ai::FightStartHoldOpens(base));
+        ai::FightStartHoldFacts f = base;
+        f.realPlayerMaster = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.pullWindow = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.isTank = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.isHealer = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.botIsVictim = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.ccMark = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.runningRun = false;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.tankInGroup = false;
+        CHECK(!ai::FightStartHoldOpens(f));
+    }
+    std::cout << "  [PASS] fight_start_opens_only_unheld_bot_only_dps\n";
+
+    // fight_start_window_flag
+    {
+        ai::PullJoinWindow w;
+        w.Start(100, 1, 3, true, 0, true);
+        CHECK(w.fightStart);
+        w.Clear();
+        CHECK(!w.fightStart);
+        w.Start(200, 1, 3, true, 5);
+        CHECK(!w.fightStart && w.minSeconds == 5 && !w.landed);
+    }
+    std::cout << "  [PASS] fight_start_window_flag\n";
+
+    // fight_start_min_zero_releases_at_once_when_held
+    {
+        ai::PullLeadFacts f;
+        f.landed = true; f.elapsedSeconds = 0; f.minSeconds = 0;
+        f.tankAlive = true; f.packUnits = 1; f.packOnTank = 1;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "tank-first");
+        f.packUnits = 0; f.packOnTank = 0;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "tank-first");
+    }
+    std::cout << "  [PASS] fight_start_min_zero_releases_at_once_when_held\n";
 
     std::cout << "All TortoiseBots pull join window policy tests passed.\n";
     return 0;

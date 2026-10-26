@@ -371,7 +371,15 @@ public:
     // StartPullWindow writes the pull's delay into "wait for attack time" and
     // adds "wait for attack" to the engines that lack it; the window owns only
     // those copies and puts the old delay back when it ends.
-    void StartPullWindow(uint8 windowSeconds, bool leadKeyed = false, uint8 minSeconds = 0);
+    void StartPullWindow(uint8 windowSeconds, bool leadKeyed = false, uint8 minSeconds = 0, bool fightStart = false);
+    // A fight no pull window covers (a walk-in, a pick-up): hold a bot-only
+    // running-run DPS for up to kFightStartHoldSeconds, lead-keyed like a
+    // run-leader pull. Opens in SetCombatStateAction::Execute, never in
+    // OnCombatStarted (a bot's own attack is never held afterwards).
+    void StartFightStartHold();
+    bool PullWindowFightStart() const { return pullWindow_.fightStart; }
+    void SetPullReleaseReason(const char* reason) { pullReleaseReason_ = reason ? reason : ""; }
+    std::string const& PullReleaseReason() const { return pullReleaseReason_; }
     void RestampPullWindow(bool landedNow) { pullWindow_.Restamp(time(0), landedNow); }
     bool HasPullWindow() const { return pullWindow_.Running(); }
     // The run leader (.bot run) keeps a healer to heals while a run is going:
@@ -1150,6 +1158,7 @@ protected:
     bool deathHandled_ = false; // this death was logged and counted; cleared when the bot is seen alive again
     ai::PullJoinWindow pullWindow_; // see StartPullWindow
     bool runHealOnly_ = false;      // see RunHealOnly
+    std::string pullReleaseReason_; // PullHoldExpiredTrigger's reason, logged by ReleasePullHoldAction
     // Pet stance the pull hold parked passive (PausePartyPullHold): the
     // stance from before the hold, restored by EndPullWindow on this same
     // bot - so a member that leaves the group, logs out or dies mid-hold
