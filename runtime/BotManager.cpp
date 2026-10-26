@@ -1316,20 +1316,21 @@ void BotManager::RebindOwnedBots(::Player* master)
             continue;
 
         uint32 botOwner = entry.record.ownerAccountId ? entry.record.ownerAccountId : entry.record.accountId;
-        bool isOwner = (botOwner == masterAccountId || master->GetSession()->GetSecurity() >= SEC_GAMEMASTER);
+        bool isOwner = botOwner == masterAccountId;
+        bool isGm = master->GetSession()->GetSecurity() >= SEC_GAMEMASTER;
 
         // An alt-bot keeps playing on its own; `.bot add` takes it back.
         if (AltBotService::Instance().IsAutonomous(entry.record.characterGuid))
             continue;
 
+        // A GM takes over bots of his own group only: every masterless pool
+        // bot would otherwise follow and whisper to him on login.
         bool shouldRebind = (entry.record.masterGuid == masterGuid);
-        if (!shouldRebind && isOwner)
-        {
-            if (masterGroup && masterGroup->IsMember(entry.record.characterGuid))
-                shouldRebind = true;
-            else if (entry.record.masterGuid.IsEmpty() || !sObjectAccessor.FindPlayer(entry.record.masterGuid))
-                shouldRebind = true;
-        }
+        if (!shouldRebind && (isOwner || isGm) && masterGroup && masterGroup->IsMember(entry.record.characterGuid))
+            shouldRebind = true;
+        else if (!shouldRebind && isOwner &&
+                 (entry.record.masterGuid.IsEmpty() || !sObjectAccessor.FindPlayer(entry.record.masterGuid)))
+            shouldRebind = true;
 
         if (!shouldRebind)
             continue;
