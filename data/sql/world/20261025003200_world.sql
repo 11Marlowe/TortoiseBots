@@ -1,9 +1,9 @@
 -- Deadmines (map 36) hall: the golem and the two Engineer pulls get approach stands on the hall's west
 -- side, so that the 622 Goblin Engineers (each summons a Remote-Controlled Golem, 2520, spell 3605, and flees
 -- at 15 %) come in pieces. This file replaces the rows of 20261025002800_world.sql (that file stays as
--- applied). Exported from turtle-agent prep/dm-hall d34d5fa (dungeons/deadmines.json: prep/dm-jared 456efc5
+-- applied). Exported from turtle-agent prep/dm-hall f4344311 (dungeons/deadmines.json: prep/dm-jared 456efc5
 -- plus the hall stands) with the options of 20261025002800:
---   turtle-agent plan-export --mmaps <map 36 mmaps> --allow-draft --approach-hops --rev d34d5fa --stamp 20261025003200 deadmines
+--   turtle-agent plan-export --mmaps <map 36 mmaps> --allow-draft --approach-hops --rev f4344311 --stamp 20261025003200 deadmines
 -- NO PLAN ROW IS HAND-SET (the exporter writes cc_priority, cc_always and kill_first from the plan).
 -- 18 legs, 254 steps, 273 rows (20261025002800: 251 steps, 270 rows). The 3 new rows are hall pull groups
 -- 2, 3 and 4's approach moves (leg 7 seqs 3, 5 and 7: -201 -534 z 51.31, -186 -533 z 51.31, -176 -544
@@ -32,14 +32,14 @@
 -- lostool, 2026-10-26) and on the map 36 mmaps (the server's exact PathFinder query, ServerPath):
 --   * group 2 (61962, 61962): stand -201 -534 z 51.31. 13.0 yd from the static golem 2583031 at -188.01
 --     -532.94 and 17.8 yd from the patrol golem 2582923 at -183.97 -528.75, los yes to both (also at the
---     golem's own sight height); 30.6 yd from the 622 at -170.4 -535.2 and 41.5 yd from the 622 at -163.6
+--     golem's own sight height); 30.6 yd from the 622 at -170.4 -535.2 and 41.7 yd from the 622 at -163.6
 --     -552.5, so both golems come to the west room and no Engineer joins the fight (the aggro reach of a
 --     level 18-19 mob against this level-22 party is about 20 yd). The first position is the static
---     golem's spawn; the pull takes the unit nearest the row point, and the other golem, 6.4 yd away at its
+--     golem's spawn; the pull takes the unit nearest the row point, and the other golem, 5.8 yd away at its
 --     spawn, assists (family assist 10 yd), so both come to the stand.
---   * group 3 (622): stand -186 -533 z 51.31, 15.7 yd from the Engineer, los yes; 29.8 yd from the 622 of
+--   * group 3 (622): stand -186 -533 z 51.31, 15.8 yd from the Engineer, los yes; 29.7 yd from the 622 of
 --     group 4 and 24.8 yd from the golem patrol's nearest path point.
---   * group 4 (622, 1731): stand -176 -544 z 51.26, 15.1 yd from the Engineer and 20.7 yd from its Craftsman,
+--   * group 4 (622, 1731): stand -176 -544 z 51.26, 15.1 yd from the Engineer and 20.8 yd from its Craftsman,
 --     los yes to both; 35.2 yd from harvester group 0's Engineer 2583036 at -152.7 -570.5 and 35.9 yd from
 --     that group's own row point (-150.3 -569.1).
 --   The old stand saw neither golem: lostool stops the sight at -197.5 -540.4 (a face of the inner wall), and
@@ -69,7 +69,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'deadmines';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'deadmines';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'deadmines';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent d34d5fa dungeons/deadmines.json', 'plan v1, draft (not mapped, not live-checked)');
+('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent f4344311 dungeons/deadmines.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('deadmines', 0, 'mine_a', ''),
 ('deadmines', 1, 'lab_tunnel', ''),
