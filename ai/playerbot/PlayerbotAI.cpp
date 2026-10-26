@@ -4277,6 +4277,9 @@ void PlayerbotAI::StartPullWindow(uint8 windowSeconds, bool leadKeyed, uint8 min
     if (!aiObjectContext)
         return;
 
+    // A restarted or chained window must not log the previous pull's reason.
+    SetPullReleaseReason(nullptr);
+
     auto* waitTime = aiObjectContext->GetValue<uint8>("wait for attack time");
     uint8 const previousSeconds = waitTime->Get();
 

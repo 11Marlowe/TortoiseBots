@@ -94,6 +94,17 @@ class PullReleaseLogging(unittest.TestCase):
         release = body(PULL_ACTIONS, "bool ReleasePullHoldAction::Execute(Event& event)")
         self.assertNotIn("SetPullReleaseReason", release)
 
+    def test_new_window_starts_without_previous_reason(self):
+        # A reason stored for window A must not leak into a restarted or
+        # chained window B: every start path clears the pending reason, so
+        # B's release logs B's own reason (or the default), never A's. Both
+        # starts funnel through StartPullWindow (the fight-start hold calls
+        # it), so the clear lives there.
+        start = body(PLAYERBOT_AI_CPP, "void PlayerbotAI::StartPullWindow(")
+        self.assertIn("SetPullReleaseReason(nullptr)", start)
+        hold = body(PLAYERBOT_AI_CPP, "void PlayerbotAI::StartFightStartHold()")
+        self.assertIn("StartPullWindow(", hold)
+
     def test_trigger_reasons_still_flow_through(self):
         # The trigger still names each rule; EndPullWindow only resolves the
         # empty-reason default. Re-pin so the centralisation cannot drop them.
