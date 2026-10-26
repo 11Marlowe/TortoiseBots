@@ -329,29 +329,17 @@ If pathing fails to arrive at the destination within this duration, the move act
 </details>
 
 ### `AiPlayerbot.RemoteCommander`
-Enables remote commander commands for leading bot-only parties of up to five from another zone.
+Enables remote commander commands for leading parties from outside them, of up to five bots from another zone.
 **Default:** `0` · **Values:** `0` disabled, `1` enabled · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Enables `.bot commander bind` and `.bot cmd` commands. When enabled, a GameMaster or the owner of every bot in it can bind a bot-only party of up to five and command their movement, targeting, and spellcasting by GUID or 3D coordinates from anywhere in the world.
+Enables remote binds (`.bot commander bind` without `inparty`) and every other `.bot cmd` order typed by a player, and the commander view (`.bot commander view`). Without it (`0`), the `inparty` bind, `cmd enter` and `cmd summon`, and the run leader (`.bot run`, behind `AiPlayerbot.DungeonSelfClear = 1`) still work: the remote commander only drives parties from outside. When enabled, a GameMaster or the owner of every bot in it can bind a bot-only party of up to five and command their movement, targeting, and spellcasting by GUID or 3D coordinates from anywhere in the world.
 
-When disabled (`0`), remote commander commands report that the feature is off and any existing bindings terminate.
-
-</details>
-
-### `AiPlayerbot.RemoteCommanderViewMs`
-Interval in milliseconds between perception updates sent to remote commanders.
-**Default:** `1000` · **Values:** milliseconds (250..60000) · **Restart:** needed
-
-<details>
-<summary>How it works in detail</summary>
-
-Controls the delivery frequency of visual perception frames to active remote commanders, including member health, nearby hostile creatures, and threat tables.
+When disabled (`0`), remote binds and the other commander orders report that the feature is off and any existing remote bindings terminate (inparty bindings stay while `AiPlayerbot.DungeonSelfClear = 1`).
 
 </details>
-
 ---
 
 ## Core Server Settings (`mangosd.conf`)

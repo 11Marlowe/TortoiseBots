@@ -1,6 +1,7 @@
 #include "../ai/playerbot/GroupMembers.h"
 #include "BotManager.h"
 #include "BotActivityLease.h"
+#include "BotGuidKey.h"
 #include "PlayerBotClassification.h"
 #include "HunterPetPolicy.h"
 #include "PetSpawnPolicy.h"
@@ -922,6 +923,17 @@ namespace
 // player-owned when a live real player masters it or its account is not a
 // registered RNDBOT pool account.
 PlayerBotClassificationInputs ClassifyBot(BotEntry const& entry);
+
+// The registry entry of a guid, by its registry key (BotGuidKey.h): end() for
+// a guid that is not a player's, whatever its counter.
+template <typename Map>
+auto FindByGuid(Map& bots, ::ObjectGuid const& guid) -> decltype(bots.end())
+{
+    uint32_t key = 0;
+    if (!BotRegistryKey(guid.GetRawValue(), key))
+        return bots.end();
+    return bots.find(key);
+}
 } // namespace
 
 void BotManager::OnPlayerLogin(::Player* player)
@@ -1304,20 +1316,21 @@ void BotManager::RebindOwnedBots(::Player* master)
             continue;
 
         uint32 botOwner = entry.record.ownerAccountId ? entry.record.ownerAccountId : entry.record.accountId;
-        bool isOwner = (botOwner == masterAccountId || master->GetSession()->GetSecurity() >= SEC_GAMEMASTER);
+        bool isOwner = botOwner == masterAccountId;
+        bool isGm = master->GetSession()->GetSecurity() >= SEC_GAMEMASTER;
 
         // An alt-bot keeps playing on its own; `.bot add` takes it back.
         if (AltBotService::Instance().IsAutonomous(entry.record.characterGuid))
             continue;
 
+        // A GM takes over bots of his own group only: every masterless pool
+        // bot would otherwise follow and whisper to him on login.
         bool shouldRebind = (entry.record.masterGuid == masterGuid);
-        if (!shouldRebind && isOwner)
-        {
-            if (masterGroup && masterGroup->IsMember(entry.record.characterGuid))
-                shouldRebind = true;
-            else if (entry.record.masterGuid.IsEmpty() || !sObjectAccessor.FindPlayer(entry.record.masterGuid))
-                shouldRebind = true;
-        }
+        if (!shouldRebind && (isOwner || isGm) && masterGroup && masterGroup->IsMember(entry.record.characterGuid))
+            shouldRebind = true;
+        else if (!shouldRebind && isOwner &&
+                 (entry.record.masterGuid.IsEmpty() || !sObjectAccessor.FindPlayer(entry.record.masterGuid)))
+            shouldRebind = true;
 
         if (!shouldRebind)
             continue;
@@ -1422,7 +1435,12 @@ bool BotManager::AddRandomBot(uint32_t accountId, ::ObjectGuid guid)
 
 bool BotManager::AddBotWithMaster(uint32_t accountId, ::ObjectGuid guid, ::ObjectGuid masterGuid)
 {
-    uint32_t key = guid.GetCounter();
+    uint32_t key = 0;
+    if (!BotRegistryKey(guid.GetRawValue(), key))
+    {
+        TB_LOG_DETAIL("TortoiseBots: AddBot guid %s is not a player guid", guid.GetString().c_str());
+        return false;
+    }
     auto it = m_bots.find(key);
     if (it != m_bots.end())
     {
@@ -1543,7 +1561,9 @@ std::vector<OwnedCharacter> BotManager::GetOwnedCharacters(uint32_t ownerAccount
 
 bool BotManager::RemoveBot(::ObjectGuid guid, bool save)
 {
-    uint32_t key = guid.GetCounter();
+    uint32_t key = 0;
+    if (!BotRegistryKey(guid.GetRawValue(), key))
+        return false;
     auto it = m_bots.find(key);
     if (it == m_bots.end())
         return false;
@@ -1609,9 +1629,15 @@ bool BotManager::RemoveBot(::ObjectGuid guid, bool save)
     return true;
 }
 
+// Every lookup by an ObjectGuid goes through the registry key (BotGuidKey.h):
+// a guid that is not a player's (a creature, a charmed summon's pet guid) is
+// never a bot, though its counter may equal a bot character's.
 BotRecord* BotManager::FindBot(::ObjectGuid guid)
 {
-    auto it = m_bots.find(guid.GetCounter());
+    uint32_t key = 0;
+    if (!BotRegistryKey(guid.GetRawValue(), key))
+        return nullptr;
+    auto it = m_bots.find(key);
     if (it == m_bots.end())
         return nullptr;
     return &it->second.record;
@@ -1619,12 +1645,16 @@ BotRecord* BotManager::FindBot(::ObjectGuid guid)
 
 bool BotManager::IsBot(::ObjectGuid guid) const
 {
-    return m_bots.find(guid.GetCounter()) != m_bots.end();
+    uint32_t key = 0;
+    return BotRegistryKey(guid.GetRawValue(), key) && m_bots.find(key) != m_bots.end();
 }
 
 bool BotManager::IsRandomBot(::ObjectGuid guid) const
 {
-    auto it = m_bots.find(guid.GetCounter());
+    uint32_t key = 0;
+    if (!BotRegistryKey(guid.GetRawValue(), key))
+        return false;
+    auto it = m_bots.find(key);
     return it != m_bots.end() && it->second.record.random;
 }
 
@@ -1690,12 +1720,12 @@ bool BotManager::BindBotMaster(::ObjectGuid botGuid, ::ObjectGuid masterGuid)
     if (masterGuid.IsEmpty() || botGuid == masterGuid)
         return false;
 
-    auto it = m_bots.find(botGuid.GetCounter());
+    auto it = FindByGuid(m_bots, botGuid);
     if (it == m_bots.end())
         return false;
 
     ::Player* master = sObjectAccessor.FindPlayer(masterGuid);
-    auto masterEntry = m_bots.find(masterGuid.GetCounter());
+    auto masterEntry = FindByGuid(m_bots, masterGuid);
     bool moduleHeadlessMaster = master && masterEntry != m_bots.end() &&
         IsLiveHeadlessBot(masterEntry->second, master);
     if (!master || !master->IsInWorld() || !master->GetSession() ||
@@ -1746,7 +1776,7 @@ bool BotManager::BindBotMaster(::ObjectGuid botGuid, ::ObjectGuid masterGuid)
 
 bool BotManager::ClearBotMaster(::ObjectGuid botGuid)
 {
-    auto it = m_bots.find(botGuid.GetCounter());
+    auto it = FindByGuid(m_bots, botGuid);
     if (it == m_bots.end())
         return false;
 
@@ -1789,7 +1819,7 @@ bool BotManager::SetBotFollow(::ObjectGuid botGuid, ::ObjectGuid masterGuid)
     if (!BindBotMaster(botGuid, masterGuid))
         return false;
 
-    auto it = m_bots.find(botGuid.GetCounter());
+    auto it = FindByGuid(m_bots, botGuid);
     if (it == m_bots.end())
         return false;
 

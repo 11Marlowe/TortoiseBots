@@ -46,7 +46,9 @@ class StayAnchorWiringTest(unittest.TestCase):
         self.assertIn("isInLineOfSight(", fn)
         self.assertIn("IsInCombat()", fn)
         # The followers take the lead bot's line: its spot first (straight or on a complete navmesh path), then the point.
-        self.assertIn("ChooseDirectJoin(", fn)
+        # (the per-follower test lives in DirectFollowerJoin, which the run leader's gate reads too)
+        self.assertIn("DirectFollowerJoin(bot, map, leadX, leadY, leadZ, point.x, point.y, ground, horizontal, route);", fn)
+        self.assertIn("ChooseDirectJoin(", body(COMMANDER, "static RemoteCommander::DirectJoin DirectFollowerJoin(", "\n}\n"))
         self.assertIn("for (Vector3 const& next : { leadSpot, target })", fn)
         self.assertIn("init.MovebyPath(walker.route);", fn)
         self.assertNotIn('posMap["stay"]', fn)

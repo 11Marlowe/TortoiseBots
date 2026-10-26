@@ -17,6 +17,7 @@
 #include "HireUnlockPolicy.h"
 #include "runtime/policy/provision/BotAppearancePolicy.h"
 #include "BotManager.h"
+#include "../behavior/PlayerConvenience.h"
 #include "BotActivityLease.h"
 #include "PlayerbotAIStorage.h"
 #include "RandomBotAccountRegistry.h"
@@ -1057,6 +1058,19 @@ bool HireProvisionService::ProvisionNow(Player* bot, PendingProvision& pending)
 
     if (masterOnline)
     {
+        // A new hire arrives like a summoned bot: grouped where it was made,
+        // then the summon portal opens by the master and it steps out 3 s
+        // later. A summon that cannot start falls back to Reunite's teleport.
+        if (!pending.summonRequested)
+        {
+            if (!bot->IsInSameRaidWith(master) && !EnsureGrouped(master, bot))
+                return false;
+            pending.summonRequested = true;
+            if (PlayerConvenience::Instance().RequestSummon(master, bot))
+                return false;
+        }
+        if (PlayerConvenience::Instance().IsBusy(pending.botGuid))
+            return false;
         if (!Reunite(bot, master))
         {
             sLog.outError("TortoiseBots: hired bot %s could not join master %s after provisioning",
@@ -1329,7 +1343,8 @@ void HireProvisionService::Update(uint32_t diff)
             // the next tick only retries the cheap reunite (teleport +
             // grouping). Count an attempt per tick and cap the wait so a
             // stuck teleport cannot pin the entry doing nothing.
-            if (++it->reuniteAttempts >= 60)
+            bool summoning = it->summonRequested && PlayerConvenience::Instance().IsBusy(it->botGuid);
+            if (!summoning && ++it->reuniteAttempts >= 60)
             {
                 sLog.outError("TortoiseBots: hired bot %s never joined master after 60 reunite attempts; leaving grouped on return",
                     bot->GetName());

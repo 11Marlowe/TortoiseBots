@@ -440,65 +440,75 @@ bool HandleHelp(ChatHandler* handler, char const* /*args*/)
     return true;
 }
 
-// One row per `.bot` subcommand: primary name, handler, short usage, aliases.
-// Dispatch, the top-level usage line and the docs check
-// (tools/verify_command_docs.py) all read this table.
+// One row per `.bot` subcommand: primary name, handler, short usage, aliases, and whether it shows
+// in the top-level usage line. Dispatch and the docs check (tools/verify_command_docs.py) read every
+// row; the usage line skips the work-in-progress commands while their flags are off (typed anyway,
+// they answer 'disabled').
 struct BotCommandEntry
 {
     char const* name;
     bool (*handler)(ChatHandler*, char const*);
     char const* usage;
     std::initializer_list<char const*> aliases;
+    bool (*visible)();
 };
 
+static bool AlwaysVisible() { return true; }
+static bool CommanderVisible() { return RemoteCommander::CommanderSurfaceOn(CurrentCommanderGates()); }
+static bool TraceVisible() { return sPlayerbotAIConfig.runTrace; }
+static bool RunVisible() { return RemoteCommander::RunSurfaceOn(CurrentCommanderGates()); }
+
 static BotCommandEntry const botCommands[] = {
-    {"ah", HandleAhBot, "ah <status|reload|rebuild|item ...>", {"ahbot"}},
-    {"action", HandleAction, "action <intent>", {}},
-    {"commander", HandleCommander, "commander <bind|unbind|status|view ...>", {}},
-    {"cmd", HandleCommanderOrder, "cmd <order>", {}},
-    {"add", HandleAdd, "add <characterName>", {}},
-    {"remove", HandleRemove, "remove <characterName>", {"rm"}},
-    {"logout", HandleLogout, "logout <online bot name>", {}},
-    {"roster", HandleRoster, "roster", {}},
-    {"follow", HandleFollow, "follow <botName>", {}},
-    {"invite", HandleInvite, "invite <online bot name>", {}},
-    {"uninvite", HandleUninvite, "uninvite <online bot name>", {"kick"}},
-    {"stay", HandleStay, "stay <online bot name>", {}},
-    {"guard", HandleGuard, "guard <online bot name>", {}},
-    {"free", HandleFree, "free <online bot name>", {}},
-    {"ready", HandleReady, "ready <online bot name>", {}},
-    {"attack", HandleAttack, "attack <online bot name>", {}},
-    {"interrupt", HandleInterrupt, "interrupt <online bot name>", {}},
-    {"formation", HandleFormation, "formation [botName] <formation>", {}},
-    {"cc", HandleCc, "cc <mark> [bot] | cc clear [bot]", {}},
-    {"list", HandleList, "list", {}},
-    {"stats", HandleStats, "stats", {}},
-    {"status", HandleStatus, "status <online bot name>", {}},
-    {"lease", HandleLease, "lease [status]", {}},
-    {"version", HandleVersion, "version", {"v", "about", "credits"}},
-    {"pullback", HandlePullback, "pullback", {"pull-back"}},
-    {"role", HandleRole, "role <online bot name/self/your name> <tank/healer/dps/clear>", {}},
-    {"summon", HandleSummon, "summon <online bot name>", {}},
-    {"maintenance", HandleMaintenance, "maintenance <online bot name>", {}},
-    {"autogear", HandleAutogear, "autogear <online bot name> [quality|ilvl]", {}},
-    {"hire", HandleHire, "hire <class> [dps/tank/healer] ... | hire raid <preset> [tier]", {}},
-    {"pool", HandlePool, "pool <status|accounts|adopt ...>", {}},
-    {"loot", HandleLoot, "loot [on/off]", {}},
-    {"repair", HandleRepair, "repair", {}},
-    {"sell", HandleSell, "sell", {}},
-    {"rest", HandleRest, "rest", {"drink", "eat"}},
-    {"release", HandleRelease, "release", {}},
-    {"corpse", HandleCorpseShortcut, "corpse run", {}},
-    {"corpserun", HandleCorpseRun, "corpserun", {}},
-    {"learn", HandleLearn, "learn", {}},
-    {"trade", HandleTrade, "trade", {}},
-    {"command", HandleMatureCommand, "command <botName> <Playerbot command>", {}},
-    {"inv", HandleInventory, "inv <online bot you control>", {"inventory"}},
-    {"item", HandleItem, "item <bot> <trade|equip|unequip|give ...>", {}},
-    {"behavior", HandleBehavior, "behavior <bot|party|raid> <behavior> <on|off>", {"behaviour"}},
-    {"totem", HandleTotem, "totem <bot|party|raid> ...", {}},
-    {"strategy", HandleStrategy, "strategy <+/-/~><strategy name> [role or botName] | strategy reset", {}},
-    {"help", HandleHelp, "help", {"h"}},
+    {"ah", HandleAhBot, "ah <status|reload|rebuild|item ...>", {"ahbot"}, AlwaysVisible},
+    {"action", HandleAction, "action <intent>", {}, AlwaysVisible},
+    {"commander", HandleCommander, "commander <bind|unbind|status|view ...>", {}, CommanderVisible},
+    {"cmd", HandleCommanderOrder, "cmd <order>", {}, CommanderVisible},
+    {"trace", HandleTrace, "trace <start|stop|status> ...", {}, TraceVisible},
+    {"run", HandleDungeonRun, "run <start|pause|resume|skip|stop|status|list> ...", {}, RunVisible},
+    {"add", HandleAdd, "add <characterName>", {}, AlwaysVisible},
+    {"remove", HandleRemove, "remove <characterName>", {"rm"}, AlwaysVisible},
+    {"logout", HandleLogout, "logout <online bot name>", {}, AlwaysVisible},
+    {"roster", HandleRoster, "roster", {}, AlwaysVisible},
+    {"follow", HandleFollow, "follow <botName>", {}, AlwaysVisible},
+    {"invite", HandleInvite, "invite <online bot name>", {}, AlwaysVisible},
+    {"uninvite", HandleUninvite, "uninvite <online bot name>", {"kick"}, AlwaysVisible},
+    {"stay", HandleStay, "stay <online bot name>", {}, AlwaysVisible},
+    {"guard", HandleGuard, "guard <online bot name>", {}, AlwaysVisible},
+    {"free", HandleFree, "free <online bot name>", {}, AlwaysVisible},
+    {"ready", HandleReady, "ready <online bot name>", {}, AlwaysVisible},
+    {"attack", HandleAttack, "attack <online bot name>", {}, AlwaysVisible},
+    {"interrupt", HandleInterrupt, "interrupt <online bot name>", {}, AlwaysVisible},
+    {"formation", HandleFormation, "formation [botName] <formation>", {}, AlwaysVisible},
+    {"cc", HandleCc, "cc <mark> [bot] | cc clear [bot]", {}, AlwaysVisible},
+    {"list", HandleList, "list", {}, AlwaysVisible},
+    {"stats", HandleStats, "stats", {}, AlwaysVisible},
+    {"status", HandleStatus, "status <online bot name>", {}, AlwaysVisible},
+    {"lease", HandleLease, "lease [status]", {}, AlwaysVisible},
+    {"version", HandleVersion, "version", {"v", "about", "credits"}, AlwaysVisible},
+    {"features", HandleFeatures, "features", {}, AlwaysVisible},
+    {"pullback", HandlePullback, "pullback", {"pull-back"}, AlwaysVisible},
+    {"role", HandleRole, "role <online bot name/self/your name> <tank/healer/dps/clear>", {}, AlwaysVisible},
+    {"summon", HandleSummon, "summon <online bot name>", {}, AlwaysVisible},
+    {"maintenance", HandleMaintenance, "maintenance <online bot name>", {}, AlwaysVisible},
+    {"autogear", HandleAutogear, "autogear <online bot name> [quality|ilvl]", {}, AlwaysVisible},
+    {"hire", HandleHire, "hire <class> [dps/tank/healer] ... | hire raid <preset> [tier]", {}, AlwaysVisible},
+    {"pool", HandlePool, "pool <status|accounts|adopt ...>", {}, AlwaysVisible},
+    {"loot", HandleLoot, "loot [on/off]", {}, AlwaysVisible},
+    {"repair", HandleRepair, "repair", {}, AlwaysVisible},
+    {"sell", HandleSell, "sell", {}, AlwaysVisible},
+    {"rest", HandleRest, "rest", {"drink", "eat"}, AlwaysVisible},
+    {"release", HandleRelease, "release", {}, AlwaysVisible},
+    {"corpse", HandleCorpseShortcut, "corpse run", {}, AlwaysVisible},
+    {"corpserun", HandleCorpseRun, "corpserun", {}, AlwaysVisible},
+    {"learn", HandleLearn, "learn", {}, AlwaysVisible},
+    {"trade", HandleTrade, "trade", {}, AlwaysVisible},
+    {"command", HandleMatureCommand, "command <botName> <Playerbot command>", {}, AlwaysVisible},
+    {"inv", HandleInventory, "inv <online bot you control>", {"inventory"}, AlwaysVisible},
+    {"item", HandleItem, "item <bot> <trade|equip|unequip|give ...>", {}, AlwaysVisible},
+    {"behavior", HandleBehavior, "behavior <bot|party|raid> <behavior> <on|off>", {"behaviour"}, AlwaysVisible},
+    {"totem", HandleTotem, "totem <bot|party|raid> ...", {}, AlwaysVisible},
+    {"strategy", HandleStrategy, "strategy <+/-/~><strategy name> [role or botName] | strategy reset", {}, AlwaysVisible},
+    {"help", HandleHelp, "help", {"h"}, AlwaysVisible},
 };
 
 static BotCommandEntry const* FindBotCommand(std::string const& cmd)
@@ -517,11 +527,15 @@ static BotCommandEntry const* FindBotCommand(std::string const& cmd)
 static std::string BuildBotUsageLine()
 {
     std::string usage = "Usage: .bot ";
-    for (size_t i = 0; i < sizeof(botCommands) / sizeof(botCommands[0]); ++i)
+    bool first = true;
+    for (BotCommandEntry const& entry : botCommands)
     {
-        if (i)
+        if (!entry.visible())
+            continue;
+        if (!first)
             usage += '/';
-        usage += botCommands[i].name;
+        first = false;
+        usage += entry.name;
     }
     return usage;
 }

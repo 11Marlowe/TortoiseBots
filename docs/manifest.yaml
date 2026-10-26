@@ -120,6 +120,14 @@ nodes:
     path: play/dungeon-reference.md
     category: play
     summary: Boss kill orders, creature IDs, pooled rares, and event triggers for 18 5-player dungeons in Turtle WoW.
+  - id: play-dungeon-run-leader
+    path: play/dungeon-run-leader.md
+    category: play
+    summary: The opt-in run leader (.bot run, AiPlayerbot.DungeonSelfClear) that lets a bound party clear a dungeon plan by itself, its safety rules and supported steps, and the plan tables turtle-agent's exporter fills.
+  - id: play-boss-tactics
+    path: play/boss-tactics.md
+    category: play
+    summary: The per-boss tactics table (ai_boss_tactic) and the opt-in boss tactics strategy that applies it.
   - id: play-known-limitations
     path: play/known-limitations.md
     category: play
@@ -208,6 +216,10 @@ nodes:
     path: server/dashboard.md
     category: server
     summary: Setup, architecture, Prometheus metrics, and feature guide for the real-time bot observability service.
+  - id: server-run-trace
+    path: server/run-trace.md
+    category: server
+    summary: Record what a party of bots did during one run as a bt-trace v1 JSONL file plus a per-run summary, and score it offline.
 
   # Developers
   - id: developers

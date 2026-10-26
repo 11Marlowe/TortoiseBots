@@ -9,6 +9,7 @@
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/values/Formations.h"
 #include "playerbot/FormationStationPolicy.h"
+#include "playerbot/MagmaHazardPolicy.h"
 
 namespace ai
 {
@@ -479,6 +480,11 @@ namespace ai
                 return false;
             WorldLocation loc = formation->GetLocation();
             if (Formation::IsNullLocation(loc) || loc.mapId == -1 || bot->GetMapId() != loc.mapId)
+                return false;
+            // A slot in magma is no station (the lead tank's slot once lay in
+            // a lava basin); MoveTo2 would refuse the walk anyway
+            // (MagmaHazardPolicy.h).
+            if (MagmaGuardApplies(bot->GetMap()->IsDungeon()) && WorldPosition(loc).isInMagma())
                 return false;
             return FormationStationStep(memory, formation->GetSerial(), bot->GetPositionX(), bot->GetPositionY(), loc.x, loc.y);
         }

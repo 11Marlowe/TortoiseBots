@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 #define CHECK(x) do { \
     if (!(x)) { \
@@ -74,7 +75,7 @@ struct Bot
     }
 
     // PausePartyDpsForPull -> PlayerbotAI::StartPullWindow
-    void Hold(std::time_t now, unsigned seconds)
+    void Hold(std::time_t now, unsigned seconds, bool leadKeyed = false, unsigned minSeconds = 0)
     {
         anchor = true;
         unsigned const previous = waitSeconds;
@@ -87,11 +88,11 @@ struct Bot
             added |= 1u << i;
         }
         waitSeconds = seconds;
-        window.Start(now, added, previous);
+        window.Start(now, added, previous, leadKeyed, minSeconds);
     }
 
     // RestampPullParty (landing / pullback tank back)
-    void Land(std::time_t now) { if (window.Running()) window.Restamp(now); }
+    void Land(std::time_t now) { if (window.Running()) window.Restamp(now, true); }
 
     // ReleaseHeldPartyNow
     void FailedPull() { if (window.Running()) waitSeconds = 0; }
@@ -352,7 +353,209 @@ int main()
         CHECK(!bot.window.Running() && bot.wait[0] && !bot.wait[1]);
         CHECK(bot.waitSeconds == 4);
     }
-    std::cout << "  [PASS] a preset loaded mid-hold keeps its own delay\n";
+    // lead_keyed_holds_until_the_pack_is_on_the_tank
+    {
+        ai::PullLeadFacts f;
+        f.landed = true; f.elapsedSeconds = 6; f.minSeconds = 5;
+        f.tankAlive = true; f.packUnits = 3; f.packOnTank = 2;
+        CHECK(!ai::PullLeadReleases(f));
+        f.packOnTank = 3;
+        CHECK(ai::PullLeadReleases(f));
+    }
+    std::cout << "  [PASS] lead_keyed_holds_until_the_pack_is_on_the_tank\n";
+
+    // lead_keyed_never_releases_before_landing
+    {
+        ai::PullLeadFacts f;
+        f.landed = false; f.elapsedSeconds = 30; f.minSeconds = 5;
+        f.tankAlive = true; f.packUnits = 0; f.packOnTank = 0;
+        CHECK(!ai::PullLeadReleases(f));
+    }
+    std::cout << "  [PASS] lead_keyed_never_releases_before_landing\n";
+
+    // lead_keyed_cap_releases
+    {
+        ai::PullLeadFacts f;
+        f.landed = true; f.minSeconds = 5; f.tankAlive = true;
+        f.packUnits = 3; f.packOnTank = 0;
+        f.elapsedSeconds = 10;
+        CHECK(ai::PullLeadReleases(f));
+        f.elapsedSeconds = 9;
+        CHECK(!ai::PullLeadReleases(f));
+    }
+    std::cout << "  [PASS] lead_keyed_cap_releases\n";
+
+    // lead_keyed_waits_the_join_delay
+    {
+        ai::PullLeadFacts f;
+        f.landed = true; f.elapsedSeconds = 3; f.minSeconds = 5;
+        f.tankAlive = true; f.packUnits = 2; f.packOnTank = 2;
+        CHECK(!ai::PullLeadReleases(f));
+    }
+    std::cout << "  [PASS] lead_keyed_waits_the_join_delay\n";
+
+    // held_bot_hit_releases_at_once
+    {
+        ai::PullLeadFacts f;
+        f.landed = true; f.elapsedSeconds = 1; f.minSeconds = 5;
+        f.tankAlive = true; f.botIsVictim = true;
+        f.packUnits = 3; f.packOnTank = 0;
+        CHECK(ai::PullLeadReleases(f));
+    }
+    std::cout << "  [PASS] held_bot_hit_releases_at_once\n";
+
+    // tank_low_or_dead_releases
+    {
+        ai::PullLeadFacts f;
+        f.landed = true; f.elapsedSeconds = 1; f.minSeconds = 5;
+        f.tankAlive = true; f.tankLow = true;
+        CHECK(ai::PullLeadReleases(f));
+        f.tankLow = false; f.tankAlive = false;
+        CHECK(ai::PullLeadReleases(f));
+    }
+    std::cout << "  [PASS] tank_low_or_dead_releases\n";
+
+    // empty_pack_releases_after_the_join_delay
+    {
+        ai::PullLeadFacts f;
+        f.landed = true; f.elapsedSeconds = 5; f.minSeconds = 5;
+        f.tankAlive = true; f.packUnits = 0; f.packOnTank = 0;
+        CHECK(ai::PullLeadReleases(f));
+    }
+    std::cout << "  [PASS] empty_pack_releases_after_the_join_delay\n";
+
+    // restamp_marks_landed_only_when_told
+    {
+        ai::PullJoinWindow w;
+        w.Start(100, 1, 10, true, 5);
+        w.Restamp(103, false);
+        CHECK(!w.landed && w.start == 103);
+        w.Restamp(109, true);
+        CHECK(w.landed);
+        w.Clear();
+        CHECK(!w.leadKeyed && !w.landed && w.minSeconds == 0);
+    }
+    std::cout << "  [PASS] restamp_marks_landed_only_when_told\n";
+
+    // chain_pull_takes_the_latest_lead_key_and_starts_unlanded
+    {
+        ai::PullJoinWindow w;
+        w.Start(100, 1, 10, true, 5);
+        w.Restamp(102, true);
+        CHECK(w.landed);
+        w.Start(105, 1, 12, true, 7);
+        CHECK(!w.landed && w.minSeconds == 7 && w.leadKeyed);
+        CHECK(w.Added(0) && w.savedWaitSeconds == 10);
+    }
+    std::cout << "  [PASS] chain_pull_takes_the_latest_lead_key_and_starts_unlanded\n";
+    // reason_names_each_rule
+    {
+        ai::PullLeadFacts f;
+        f.tankAlive = true;
+        CHECK(ai::PullLeadReleaseReason(f) == nullptr);
+        f.landed = true; f.elapsedSeconds = 10;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "cap");
+        f.elapsedSeconds = 0; f.tankAlive = false;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "tank-dead");
+        f.tankAlive = true; f.botIsVictim = true;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "hit");
+        f.botIsVictim = false; f.tankLow = true;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "tank-low");
+        f.tankLow = false; f.elapsedSeconds = 5; f.minSeconds = 5;
+        f.packUnits = 2; f.packOnTank = 2;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "tank-first");
+        f.packOnTank = 1;
+        CHECK(ai::PullLeadReleaseReason(f) == nullptr);
+    }
+    std::cout << "  [PASS] reason_names_each_rule\n";
+
+    // hit_wins_over_tank_low
+    {
+        ai::PullLeadFacts f;
+        f.landed = true; f.elapsedSeconds = 1; f.minSeconds = 5;
+        f.tankAlive = true; f.botIsVictim = true; f.tankLow = true;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "hit");
+    }
+    std::cout << "  [PASS] hit_wins_over_tank_low\n";
+
+    // releases_wraps_the_reason
+    {
+        ai::PullLeadFacts cases[7] = {};
+        cases[1].landed = true; cases[1].elapsedSeconds = 10; cases[1].tankAlive = true;
+        cases[2].landed = true; cases[2].tankAlive = false;
+        cases[3].landed = true; cases[3].tankAlive = true; cases[3].botIsVictim = true;
+        cases[4].landed = true; cases[4].tankAlive = true; cases[4].tankLow = true;
+        cases[5].landed = true; cases[5].elapsedSeconds = 5; cases[5].minSeconds = 5;
+        cases[5].tankAlive = true; cases[5].packUnits = 2; cases[5].packOnTank = 2;
+        cases[6].landed = true; cases[6].elapsedSeconds = 5; cases[6].minSeconds = 5;
+        cases[6].tankAlive = true; cases[6].packUnits = 2; cases[6].packOnTank = 1;
+        for (int i = 0; i < 7; ++i)
+            CHECK(ai::PullLeadReleases(cases[i]) == (ai::PullLeadReleaseReason(cases[i]) != nullptr));
+    }
+    std::cout << "  [PASS] releases_wraps_the_reason\n";
+
+    // fight_start_opens_only_unheld_bot_only_dps
+    {
+        ai::FightStartHoldFacts base;
+        base.runningRun = true; base.tankInGroup = true;
+        CHECK(ai::FightStartHoldOpens(base));
+        ai::FightStartHoldFacts f = base;
+        f.realPlayerMaster = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.pullWindow = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.isTank = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.isHealer = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.botIsVictim = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.ccMark = true;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.runningRun = false;
+        CHECK(!ai::FightStartHoldOpens(f));
+        f = base; f.tankInGroup = false;
+        CHECK(!ai::FightStartHoldOpens(f));
+    }
+    std::cout << "  [PASS] fight_start_opens_only_unheld_bot_only_dps\n";
+
+    // fight_start_window_flag
+    {
+        ai::PullJoinWindow w;
+        w.Start(100, 1, 3, true, 0, true);
+        CHECK(w.fightStart);
+        w.Clear();
+        CHECK(!w.fightStart);
+        w.Start(200, 1, 3, true, 5);
+        CHECK(!w.fightStart && w.minSeconds == 5 && !w.landed);
+    }
+    std::cout << "  [PASS] fight_start_window_flag\n";
+
+    // fight_start_min_zero_releases_at_once_when_held
+    {
+        ai::PullLeadFacts f;
+        f.landed = true; f.elapsedSeconds = 0; f.minSeconds = 0;
+        f.tankAlive = true; f.packUnits = 1; f.packOnTank = 1;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "tank-first");
+        f.packUnits = 0; f.packOnTank = 0;
+        CHECK(std::string(ai::PullLeadReleaseReason(f)) == "tank-first");
+    }
+    std::cout << "  [PASS] fight_start_min_zero_releases_at_once_when_held\n";
+
+    // chain_run_leader_onto_fight_start_takes_the_latest_kind
+    {
+        // A run-leader pull chained onto a fight-start hold with no Clear
+        // between: the latest Start wins, so the logged kind is "pull"
+        // (lead-keyed, not fight-start) and the clock restarts unlanded.
+        ai::PullJoinWindow w;
+        w.Start(100, 1, 3, true, 0, true);
+        CHECK(w.fightStart && w.leadKeyed);
+        w.Restamp(101, true);
+        CHECK(w.landed);
+        w.Start(102, 1, 3, true, 5);
+        CHECK(!w.fightStart && w.leadKeyed && !w.landed && w.minSeconds == 5);
+    }
+    std::cout << "  [PASS] chain_run_leader_onto_fight_start_takes_the_latest_kind\n";
 
     std::cout << "All TortoiseBots pull join window policy tests passed.\n";
     return 0;

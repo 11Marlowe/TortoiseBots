@@ -175,7 +175,7 @@ Current adapters:
 | --- | --- |
 | `BotHostAdapter` | startup, shutdown and world update; at startup registers the observability emitter's commander provider (`ObservabilityEmitter::SetCommanderProvider` -> `BotCommands::CollectCommanderTelemetry`, module-internal: the dashboard's Commanders tab, no core seam; the `COMMANDERS` datagram also carries map data, i.e. the commander's position, each bound bot's target and up to 24 hostile units near the lead from the `TBM:VIEW` feed's own builder, plus unit info (each bot's AI state, newest action, spell being cast, crowd control, drinking/eating and target name; each unit's level, rank, cast and crowd control; the binding's start time), read once per 2 s cycle only while a binding stands: no per-tick cost, no world scan, no new core call; fields in `runtime/CommanderTelemetry.h`, see `tools/observability/README.md`); also the dungeon mob provider (`SetDungeonMobProvider` -> `BotCommands::CollectDungeonMobs`, issue #1101: the `DUNGEON_MOBS` datagram, mobs per dungeon run from the members' own victims, attackers and cached lists — up to 48 per party run and 64 per raid run, fewer when many runs share the 384-mob cycle budget, whole runs packed into parts of at most 96 mobs and 8 runs — once per 2 s cycle, no world scan; policy in `runtime/DungeonMobTelemetry.h`) |
 | `BotSessionAdapter` | Headless session lifecycle |
-| `BotPlayerAdapter` | player lifecycle/reclaim attachment; answers core LFT managed-bot rolecheck (`IsManagedBot`/`GetBotRoles`); logs bot quest completions for `bot_events.csv`; on a bot's own `OnMapChanged` re-applies the [#218](https://github.com/Sagiroth/TortoiseBots/issues/218) instance guard to its non-combat strategies (`AiFactory::ApplyInstanceGuardOnMapChange`); `OnUpdate` (map thread, end of the owner's update) hands a bot pet more than 100 yd from its owner (the core unsummons at 120) to `BotManager::CheckNewPetSpawn` before the map updates creatures (a summon cast completing inside `Player::Update`); the same check also runs on the world thread after each bot's AI turn. Each pet guid is checked once and a pet that appeared out of sight, more than 5 yd off the owner's height or more than 30 yd away is moved onto its owner [#1043](https://github.com/Sagiroth/TortoiseBots/issues/1043), `runtime/PetSpawnPolicy.h`); real players return on the first field read, and the fast path takes no lock |
+| `BotPlayerAdapter` | player lifecycle/reclaim attachment; answers core LFT managed-bot rolecheck (`IsManagedBot`/`GetBotRoles`); answers the core's managed-bot dungeon repop (`GetBotRepopEntrance`: a bot released inside Scarlet Monastery or Uldaman (the validated maps) revives at the external door nearest its corpse, answered as a trigger id the core re-checks, `ai::PickRepopEntrance`; no answer keeps the core's lowest-id trigger); logs bot quest completions for `bot_events.csv`; on a bot's own `OnMapChanged` re-applies the [#218](https://github.com/Sagiroth/TortoiseBots/issues/218) instance guard to its non-combat strategies (`AiFactory::ApplyInstanceGuardOnMapChange`); `OnUpdate` (map thread, end of the owner's update) hands a bot pet more than 100 yd from its owner (the core unsummons at 120) to `BotManager::CheckNewPetSpawn` before the map updates creatures (a summon cast completing inside `Player::Update`); the same check also runs on the world thread after each bot's AI turn. Each pet guid is checked once and a pet that appeared out of sight, more than 5 yd off the owner's height or more than 30 yd away is moved onto its owner [#1043](https://github.com/Sagiroth/TortoiseBots/issues/1043), `runtime/PetSpawnPolicy.h`); real players return on the first field read, and the fast path takes no lock |
 | `BotUnitAdapter` | `UnitScript::OnUnitDeath`: killer attribution for `deaths.csv`; `UnitScript::OnDamage`: last-non-self-damager memory so Spirit of Redemption expiries (core self-kill) still log the real killer |
 | `BotChatAdapter` | native `.bot` command integration |
 | `BotPacketAdapter` | packet bridge into Existing PlayerBots (primarily AzerothCore/mod-playerbots) |
@@ -208,10 +208,17 @@ The dashboard's `COMMANDERS` datagram (`runtime/CommanderTelemetry.h`, built by 
 snapshot cycle and only while a binding stands) carries, besides vitals, orders, mobs and the run line, the data the Commanders
 map draws from, all additive and bounded: per casting bot `ctgt` (the spell's unit target, read from the bot's current spell),
 per binding `objects[]` (doors, chests, levers, goobers and rituals from the bots' already calculated `nearest game objects`
-lists, resolved on the lead's map, at most 16 per binding and 24 per datagram) and, for a run leader's run (reserved: the run leader is not in this release), `run.plan_steps[]`
-(the current section's steps, at most 20 per run and 32 per datagram, windowed around the current step). None of it runs per
-bot tick, scans the grid or touches the database; the datagram stays under 60 000 bytes in the worst case
-(`tools/test_commander_telemetry.cpp`). An older module simply omits the fields.
+lists, resolved on the lead's map, at most 16 per binding and 24 per datagram) and, for a run leader's run, `run.plan_steps[]`
+(the current section's steps, at most 20 per run and 32 per datagram, windowed around the current step). Since the owner's
+request of 2026-10-21 a binding whose lead stood on a dungeon or raid map also carried `bosses_map` and `bosses[]`: every known
+boss of that map at its spawn point with its state in the lead's instance (`a` alive, `d` killed, `u` not known) and `p` for the
+plan's bosses, at most 32 per binding and 48 per datagram (a longer list was left out whole, never cut short; the list tried first moved on
+with each snapshot, so no binding was left out every time); the spawn points came from one pass over the core's creature spawn data made once at
+server start, right after the plans were sealed and never inside a commander snapshot (its duration logged), and each report then read one
+creature guid and one respawn time per spawn row; a boss once read killed in an instance stayed killed there until it was seen alive, the
+instance id changed or no binding had stood on that instance for 10 minutes. None of it runs per bot tick, scans
+the grid or touches the database; the datagram stays under 60 000 bytes in the worst case, the boss lists being left out of the
+bindings that would pass that budget (`tools/test_commander_telemetry.cpp`). An older module simply omits the fields.
 
 The core listener is generic; it does not call a PlayerBots singleton.
 
@@ -482,7 +489,7 @@ action cc <raid-mark> [bot]  # star/circle/diamond/triangle/moon/square/cross/sk
 action cc clear [bot]  # dismiss ownership: named bot, targeted bot, or whole owned party; ACK scope bot:<Name> or party
 action auto cc [on|off]  # opt-in smart auto CC (OFF default); per-bot persisted strategy toggle; ACK on|off|mixed
 action aoe [on|off]
-commander bind <LeadBot> [<Bot>...] | unbind | status | view on|off  # remote commander [#884](https://github.com/Sagiroth/TortoiseBots/issues/884), AiPlayerbot.RemoteCommander, default off
+commander bind <LeadBot> [<Bot>...] [inparty] | unbind | status | view on|off  # remote commander [#884](https://github.com/Sagiroth/TortoiseBots/issues/884), AiPlayerbot.RemoteCommander, default off
 cmd attack|pull|pullback <guid> [seconds] | cc <mark> <guid> [bot] | focus <guid> | move <x> <y> <z> | stay | follow | rest | revive <bot> | summon <bot>  # orders to the bound group; ACK/ERR intent "cmd <verb>"
 inv <bot>  # TBM:INV_BEGIN/INV_EQ/INV_ITEM/INV_END inventory snapshot
 item <bot> trade | equip|unequip|give <bag> <slot>  # item order by server bag/slot; ACK/ERR intent "item <op>"

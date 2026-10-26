@@ -32,6 +32,11 @@ The native module has its own independent logging system. This allows administra
 | [`AiPlayerbot.Observability`](#aiplayerbotobservability) | `0` | Enables non-blocking UDP telemetry stream to the observability daemon. |
 | [`AiPlayerbot.ObservabilityHost`](#aiplayerbotobservabilityhost) | `127.0.0.1` | Destination host IP address or service name for UDP observability telemetry. |
 | [`AiPlayerbot.ObservabilityPort`](#aiplayerbotobservabilityport) | `9195` | Destination UDP port for the observability telemetry daemon. |
+| [`AiPlayerbot.RunTrace.Enabled`](#aiplayerbotruntraceenabled) | `0` | Opt-in run recorder (`.bot trace`): a party's run as a `bt-trace` v1 JSONL file plus a summary. |
+| [`AiPlayerbot.RunTrace.IntervalMs`](#aiplayerbotruntraceintervalms) | `500` | Milliseconds between two frames of a run trace. |
+| [`AiPlayerbot.RunTrace.GmOnly`](#aiplayerbotruntracegmonly) | `1` | Only a GameMaster may start a run trace. |
+| [`AiPlayerbot.RunTrace.Dir`](#aiplayerbotruntracedir) | `traces` | Folder for run traces and their summaries (relative to `LogsDir`). |
+| [`AiPlayerbot.RunTrace.MaxFileMb`](#aiplayerbotruntracemaxfilemb) | `64` | Size cap of one run trace file in megabytes. |
 | [`AiPlayerbot.ObservabilityDungeonMobs`](#aiplayerbotobservabilitydungeonmobs) | `1` | Sends the mobs, threat and target lines of every dungeon run to the dashboard's Dungeons tab. |
 
 ## Settings
@@ -99,6 +104,8 @@ Enables verbose per-bot execution logs written to the `logs/bots/` directory.
 When enabled, the server generates detailed execution logs for individual bots at `logs/bots/<botname>_acc<id>_<timestamp>.log`. These logs track decision-making, target evaluations, and ability priority evaluations.
 
 Because logging all bots simultaneously can produce gigabytes of data daily, file creation is filtered by `ActionLogScope` and capped by the retention limits below.
+
+A failed movement action's line (`A:move to position - FAILED ...`) ends with why it failed since 2026-10-23: `why=<reason>` (the fail site of the move tried in that same action, such as `dispatch-short`, `empty-path` or `cantmove`; `no-move-try` when the action failed before trying a move, so an older try's reason is never shown), `water=` and `under=` (the bot in or under water), `swim=` (its swimming flag) and `path=0x..` (the core PathFinder's type for the bot's own route on that try; `0x0` when the try reused its route). In Blackfathom Deeps the lead bot's move had failed 172 times in a row with nothing more on the line.
 
 Strategy AI action traces can also be enabled on an individual bot in-game via `.bot strategy +debug`.
 
@@ -237,6 +244,61 @@ Once per 2 s telemetry cycle the server sends a `DUNGEON_MOBS` datagram built fr
 </details>
 
 ---
+
+### `AiPlayerbot.RunTrace.Enabled`
+Opt-in run recorder (`.bot trace`): a party's run as a `bt-trace` v1 JSONL file plus a summary.
+**Default:** `0` · **Values:** `0` off, `1` on · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+**Run trace (opt-in):** lets a GM, or the owner of the bots, record a party's run with `.bot trace start <run_id> [party\|bot <Name>]` as a `bt-trace` v1 JSONL file plus a `<run_id>.summary.json` (hp/power/position/target/strategy per bot, the hostiles they see and who they hold, every action with its result, deaths, combat edges, loot), scored offline by `tools/trace_score.py`. Costs nothing while no run is active; a run reads only what the bots already track and writes on its own thread. With `0` the command answers that it is off and a run in progress ends at the next tick. See [run trace](../run-trace.md) and [`.bot trace`](../../play/commands/bot-panel.md#bot-trace).
+
+</details>
+
+### `AiPlayerbot.RunTrace.IntervalMs`
+Milliseconds between two frames of a run trace.
+**Default:** `500` · **Values:** `250`-`10000` · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+**Run trace frame period:** milliseconds between two frames of a run. Clamped to 250-10000.
+
+</details>
+
+### `AiPlayerbot.RunTrace.GmOnly`
+Only a GameMaster may start a run trace.
+**Default:** `1` · **Values:** `0` the controlling player may too, `1` GMs only · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+**Run trace: who may start one:** with `1` only a GameMaster may start a trace (each run takes up to `MaxFileMb` of disk); with `0` the player who controls (or commands) the bots may too.
+
+</details>
+
+### `AiPlayerbot.RunTrace.Dir`
+Folder for run traces and their summaries (relative to `LogsDir`).
+**Default:** `traces` · **Values:** a path · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+**Run trace output directory:** where `<run_id>.jsonl` and `<run_id>.summary.json` are written. A relative path is under `LogsDir`.
+
+</details>
+
+### `AiPlayerbot.RunTrace.MaxFileMb`
+Size cap of one run trace file in megabytes.
+**Default:** `64` · **Values:** `1`-`1024` · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+**Run trace size cap:** megabytes per trace file (clamped to 1-1024). When reached the run ends (end reason `size_cap`) with its end record intact.
+
+</details>
 
 ## Log Rotation & Previous-Run Logs
 

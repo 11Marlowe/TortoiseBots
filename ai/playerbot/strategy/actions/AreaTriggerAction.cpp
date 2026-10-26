@@ -3,6 +3,8 @@
 #include "AreaTriggerAction.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/RandomBotFacade.h"
+#include "playerbot/BoundRunMapGuard.h"
+#include "../../../../runtime/CommandedGroupQuery.h"
 
 using namespace ai;
 
@@ -22,16 +24,15 @@ bool ReachAreaTriggerAction::Execute(Event& event)
     if(!atEntry)
         return false;
 
-    AreaTrigger const* at = sObjectMgr.GetAreaTrigger(triggerId);
-    if (!at)
-    {
-        WorldPacket p1(CMSG_AREATRIGGER);
-        p1 << triggerId;
-        p1.rpos(0);
-        bot->GetSession()->HandleAreaTriggerOpcode(p1);
-
-        return true;
-    }
+    // Only a portal (a teleport trigger) is worth walking to: an inn, an
+    // exploration point or a building entrance is the master's own, and
+    // chasing each one pulled the bots off follow with a "Wait for me".
+    AreaTriggerTeleport const* exitTele = sObjectMgr.GetAreaTriggerTeleport(triggerId);
+    if (!exitTele)
+        return false;
+    if (ai::BoundRunRefusesMapChange(bot->GetMapId(), exitTele->destination.mapId,
+            TortoiseBots::BotCommands::BoundRunPlanMap(bot)))
+        return false; // the bot does not walk to the player's portal
 
     if (bot->GetMapId() != atEntry->mapid || bot->GetDistance(atEntry->x, atEntry->y, atEntry->z) > sPlayerbotAIConfig.sightDistance)
     {
@@ -66,6 +67,10 @@ bool AreaTriggerAction::Execute(Event& event)
     AreaTrigger const* at = sObjectMgr.GetAreaTrigger(triggerId);
     if (!at)
         return true;
+    if (AreaTriggerTeleport const* exitTele = sObjectMgr.GetAreaTriggerTeleport(triggerId))
+        if (ai::BoundRunRefusesMapChange(bot->GetMapId(), exitTele->destination.mapId,
+                TortoiseBots::BotCommands::BoundRunPlanMap(bot)))
+            return true; // the trigger is not fired; lastAreaTrigger is already 0
 
     WorldPosition const before(bot);
     WorldPacket p(CMSG_AREATRIGGER);

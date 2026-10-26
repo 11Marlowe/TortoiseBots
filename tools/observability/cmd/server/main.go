@@ -23,6 +23,7 @@ import (
 	"tortoise-observability/internal/agentmaps"
 	"tortoise-observability/internal/armory"
 	"tortoise-observability/internal/auth"
+	"tortoise-observability/internal/dungeons"
 	zoneproject "tortoise-observability/internal/map"
 	"tortoise-observability/internal/mapdir"
 	"tortoise-observability/internal/metrics"
@@ -76,6 +77,10 @@ func main() {
 	// Optional folder of real game-map pictures (turtle-agent `minimap-extract` output) for the Commanders tab maps. Never part of the
 	// repository: the owner's own extracted assets. Unset: the maps keep their plain grid.
 	mapDirRaw := flag.String("map-dir", getEnv("TBDASH_MAP_DIR", ""), "Optional folder of map pictures (<id>.png + <id>.json from `turtle-agent minimap-extract`) drawn under the Commanders tab maps (env TBDASH_MAP_DIR)")
+	// The run summaries the module's run trace recorder writes (`.bot trace`, AiPlayerbot.RunTrace.Dir under LogsDir). Read-only.
+	// Unset: look in the usual places (logs/traces, traces) next to where the daemon runs, and keep looking until one exists.
+	traceDir := flag.String("trace-dir", getEnv("TBDASH_TRACE_DIR", ""), "Folder of run trace summaries (<run>.summary.json) for the Dungeon runs tab; the module's AiPlayerbot.RunTrace.Dir (env TBDASH_TRACE_DIR)")
+	traceScanSec := flag.Int("trace-scan-sec", getEnvInt("TBDASH_TRACE_SCAN_SEC", 10), "How often the trace folder is checked for new or changed summaries, in seconds")
 	// Optional folder of turtle-agent run maps (`turtle-agent map`: one SVG per run, plus the single-file HTML replay with --html).
 	// Read-only and off by default: unset, the Agent maps tab is hidden and its routes 404.
 	agentMapsDirRaw := flag.String("agent-maps-dir", getEnv("TBDASH_AGENT_MAPS_DIR", ""), "Optional folder of turtle-agent run maps (`turtle-agent map` .svg and .html replays) listed in the Agent maps tab (env TBDASH_AGENT_MAPS_DIR)")
@@ -242,6 +247,19 @@ func main() {
 	} else if mapPics != nil {
 		log.Printf("[Commanders] real map pictures served from %s", mapPics.Root())
 	}
+
+	// Dungeon runs tab: one pass over the trace folder now, then a cheap directory check every few seconds. Requests read the in-memory index.
+	dungeonIndex := dungeons.NewIndex(*traceDir)
+	dungeonIndex.Scan()
+	if m := dungeonIndex.Meta(); m.DirFound {
+		log.Printf("[Dungeons] %d dungeon runs from %s", m.Runs, m.Dir)
+	} else {
+		log.Printf("[Dungeons] no trace folder yet (%s); runs appear once `.bot trace` has written one (set -trace-dir / TBDASH_TRACE_DIR)", m.Dir)
+	}
+	if *traceScanSec < 2 {
+		*traceScanSec = 2
+	}
+	go dungeonIndex.Loop(time.Duration(*traceScanSec)*time.Second, make(chan struct{}))
 
 	agentMaps, err := agentmaps.New(*agentMapsDirRaw)
 	if err != nil {
@@ -548,6 +566,8 @@ func main() {
 		mux.HandleFunc(mapdir.FilePrefix, requireAuth(mapPics.HandleFile))
 	}
 
+	// Dungeon runs (GET /api/v1/dungeon-runs; the live Dungeons tab is /api/v1/dungeons above): success rate, clear times, boss kill times and wipe spots from the run trace summaries. Files only; GET only.
+	dungeonIndex.Register(mux, requireAuth)
 	// Turtle-agent run maps (issue #1102): the list and the read-only files of --agent-maps-dir, behind the same login. The folder
 	// is off by default; when it is not set no route is registered, so the tab's URLs 404 and the page hides the tab.
 	if agentMaps != nil {

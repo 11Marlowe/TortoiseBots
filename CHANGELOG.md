@@ -9,12 +9,29 @@
 ### Classes & Combat
 - Hunters fire Multi-Shot only when the splash around their target catches a second fighting enemy, and never into a crowd-controlled mob standing beside it, so the shot now scales with the pack instead of firing on cooldown.
 - Hunters use Freezing Trap again as crowd control in dungeon runs without assigned marks: they trap an extra attacker that is not the group's kill target, and only once they know Feign Death.
+- Fixed: a stealthed rogue no longer stays held after the pull while the rest of the party fights.
+- In a run leader's pull, the held DPS open once every mob near the tank is on it (join delay at the earliest, 10 s after the tank is back at the latest), or at once when a mob hits them or the tank drops under 60 %.
+- A fight the run leader did not pull holds the damage dealers for up to 4 s the same way: they open once every mob near the tank or near them is on the tank, or at once when one hits them.
 
 ### Commands
 - New `.autogear` command gears a real player the way a spawned bot gets geared: items picked for the level and spec from the same gear pool the bots use, upgrades only, replaced items to the bags or the mailbox. GameMasters can gear any player; `AiPlayerbot.PlayerAutogearForAll` (default `0`) lets every player gear themselves.
 
 ### Items & Loot
 - `AiPlayerbot.RandomGearBlacklist` is now a hard ban on every auto-gear path: the empty-slot fallback, shirts and tabards, and the level-60 hire gear sets all skip blocked items. A blocked item also wins over the whitelist, and a pool or hired bot already wearing one gets it replaced or removed on its next gear pass. Real players and owned bots never have their own gear taken off, and found loot is unaffected.
+
+### Dungeons & Maps
+- Fixed: a player's ghost outside no longer pulls the run's bots in and out through the portal; the lead-off-map pause resumes by itself.
+- New: GameMasters can start bot-only dungeon test runs at up to 3x walking speed (`.bot run start ... speed=2`); fights stay at normal speed and the status line marks the run as a test.
+- Fixed: at test speed the lead bot waits for the party when a bot falls 25 yd behind, so the party no longer reaches packs split.
+- The run leader is on by default and no longer needs the remote commander: players start runs in their own party (`inparty` bind or player-led); the remote commander only drives parties from outside.
+- Fixed the run leader pausing after a wipe that brought the bot-only party back in another part of the instance: the lead is now teleported back to the run's way.
+- Fixed the run leader still pausing (and refusing resume) when a bot was a ghost a few seconds longer than the lead in another part of the instance: it waits, then teleports.
+- Fixed the run leader dropping a focus skull with no retry and keeping a stale skull across pauses.
+- Fixed bots in deep water standing still on a swim the server allows: their move now goes to the server's own swim, or up and out onto a shore within 30 yd.
+- Fixed: a long winding walk refused too-far no longer pauses after six legs (up to 16; a leg back at an earlier leg's end still pauses).
+- New: the server can run a dungeon with a bot-only party of world bots by itself (behind `AiPlayerbot.BotLfgGroups`, off by default); GameMasters test it with `.bot run system`.
+- Fixed the run leader sending the tank at a mob its own crowd control was about to take, and bots keeping that sheep as their target after it landed: the guard and the engage on arrival leave an ordered-but-unlanded CC mark to its CC bot, and every bot's order on a landed one is dropped.
+- New: bots interrupt the Wailing Caverns lords, Mutanus, Grimlok and Captain Greenskin.
 
 ## v1.8.0 (2026-10-22)
 

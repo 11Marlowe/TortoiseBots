@@ -53,7 +53,7 @@ struct PlayerbotAI {
  PlayerbotAI(){for(int state:{0,1})strategies[state]={"dungeon","follow"};}
  Player* GetBot(){return &bot;}
  Context* GetAiObjectContext(){return &context;}
- void EndPullWindow(){} void ReleasePullHold(){}
+ void EndPullWindow(const char* = nullptr){} void ReleasePullHold(){}
  bool HasRealPlayerMaster(){return true;}
  static bool IsTank(Player*){return false;}
  void ClearStrategies(int state){strategies[state].clear();}

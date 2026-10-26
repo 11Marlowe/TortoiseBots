@@ -8,6 +8,8 @@
 // thread only); the AI includes this header instead of the command layer.
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 class Player;
 class PlayerbotAI;
@@ -16,6 +18,32 @@ namespace TortoiseBots {
 namespace BotCommands {
 
 bool IsInCommandedGroup(Player* bot);
+
+// The bot's bound party has a running run leader (`.bot run`): its crowd
+// control then takes only the run's ordered mark, never a free pick
+// (CcTargetValue). Cheap: a look over the few runs.
+bool IsInRunningDungeonRun(Player* bot);
+// The running run of the bot's party lists this creature entry kill_first.
+bool IsRunKillFirst(Player* bot, uint32_t entry);
+// The area triggers the bot's running or paused run has armed (null = none): a
+// move / move_direct step's `entry` the run has reached, until it fired once for
+// the run. They fire for the bot like listed ones (BotAreaTriggers.cpp). One
+// lookup (no group: none). The pointer is read before any trigger script runs.
+std::vector<uint32_t> const* RunArmedAreaTriggers(Player* bot);
+// The plan map of the bot's running or paused run (HoldsItsDead), 0 = none. One lookup, world thread.
+uint32_t BoundRunPlanMap(Player* bot);
+// A bot fired an area trigger: the run that armed it disarms it for good.
+void NoteRunAreaTriggerFired(Player* bot, uint32_t id);
+
+// A real player's chat command (whisper, `.bot command`, party chat) reached
+// this bot and passed its authorization. While a run leader (`.bot run`) drives
+// the bot's bound party: the commander's whisper pauses the run, so the
+// player's order is not overridden by the run's next one (player control
+// first); party chat while the run runs is chatting, not an order; another
+// player's whisper is refused with a reply (RemoteCommander::
+// ClassifyRunBoundOrder, players in the party 2026-10-23). False: the command
+// is dropped. Always true while no run exists.
+bool NoteHumanChatOrder(Player* bot, Player& from, std::string const& text, bool whisper);
 
 // The "threat" back-off a binding gave a bot (RemoteCommander::
 // CommanderThreatLedger): AiFactory and the strategy snapshot load note it,

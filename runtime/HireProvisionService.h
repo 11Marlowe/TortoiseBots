@@ -198,6 +198,8 @@ public:
         // (issue #382).
         std::vector<uint32_t> spellsAtProvision;
         bool introSent = false;
+        // The arrival summon went out once (or could not start).
+        bool summonRequested = false;
     };
     // Every hire creates its own character on a managed pool account; the
     // character is deleted when the hire ends.

@@ -11,7 +11,7 @@ relates_to:
 
 # Turtle WoW 5-Man Dungeon Reference
 
-Companion bots do not explore or clear dungeons on their own. Autonomous dungeon clearance is an explicit non-goal (see [Known Limitations](known-limitations.md#explicit-non-goals)). This catalog is a practical reference for human players leading companion bots, detailing creature IDs, recommended boss kill orders, pooled rares to ignore, and event triggers across 18 dungeons.
+By default, companion bots do not explore or clear dungeons on their own. Autonomous dungeon clearing is an opt-in option, off by default: with `AiPlayerbot.DungeonSelfClear = 1`, the [dungeon run leader](dungeon-run-leader.md) lets a bound party clear a stored dungeon plan by itself ([settings](../server/settings/dungeons-raids.md#aiplayerbotdungeonselfclear)). Its limits are in [Known Limitations](known-limitations.md#opt-in-dungeon-clearing). This catalog is a practical reference for human players leading companion bots, detailing creature IDs, recommended boss kill orders, pooled rares to ignore, and event triggers across 18 dungeons.
 
 For general pulling, crowd control, and wipe recovery tactics, see the [Dungeon & Raid Tactics Guide](dungeons-and-raids.md).
 
@@ -161,6 +161,7 @@ Each wing is treated as a separate dungeon run:
 | **Kill Order** | [Horde only: Baelog (6906)] → Revelosh (6910) → Ironaya (7228) → Obsidian Sentinel (7023) → [Altar of the Keepers] → Ancient Stone Keeper (7206) → Galgann Firehammer (7291) → Grimlok (4854) → [Altar of Archaedas] → Archaedas (2748, end boss) |
 | **Do Not Wait For** | Annora (11073, enchanter NPC); Eric "The Swift" (6907) and Olaf (6908). |
 | **Quirks** | Alliance players skip Baelog, who is a friendly quest giver for their faction. Loot Baelog's Chest for the Gni'kiv Medallion. Grimlok is the seventh boss in the sequence. |
+| **Bot Tactics** | Opt-in per-boss rows for Revelosh, the Lost Dwarves, Ironaya and the Obsidian Sentinel: [Boss Tactics](boss-tactics.md). |
 
 ### Zul'Farrak (Map 209)
 

@@ -12,6 +12,7 @@
 #include "playerbot/TravelMgr.h"
 #include "TellLosAction.h"
 #include "Transports/Transport.h"
+#include "playerbot/strategy/values/LastMovementValue.h"
 
 using namespace ai;
 
@@ -840,6 +841,8 @@ void GoAction::UpdateStrategyPosition(const WorldPosition& position)
       stayPosition.Set(position.getX(), position.getY(), position.getZ(), position.GetMapId());
       posMap["stay"] = stayPosition;
       posMap["return"] = stayPosition;
+      // An explicit order is a fresh stay walk, even to the same spot (StayWalkOrdered).
+      TortoiseBots::StayWalkOrdered(AI_VALUE(LastMovement&, "last movement").stayWalk);
    }
    else if (ai->HasStrategy("guard", ai->GetState()))
    {

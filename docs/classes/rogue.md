@@ -29,6 +29,7 @@ Rogues deliver exceptional single-target physical melee DPS, pre-combat crowd co
 - Manoeuvres behind targets to open with *Ambush* (with main-hand daggers) or *Garrote* (bleed, no weapon requirement).
 - Uses *Cheap Shot* as a fallback opener or when lockdown stuns are required.
 - **Pre-pull Sap:** When assigned a crowd control mark on an unpulled humanoid, a rogue following a human master stealths forward and casts *Sap* before combat begins. Can be toggled with [`.bot action sap [on|off] [bot]`](../play/commands/party-actions.md#bot-action-sap).
+- A stealthed rogue still ends a pull's join window on time.
 
 ### Combo Points & Finisher Priority
 - **Builders:** Uses *Sinister Strike* (Combat), *Backstab* (Assassination), or *Hemorrhage* (Subtlety).

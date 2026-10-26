@@ -16,6 +16,7 @@
 #include "playerbot/GatherSpotPolicy.h"
 #include "playerbot/PullJoinWindowPolicy.h"
 #include "playerbot/SurvivePolicy.h"
+#include "playerbot/BotAreaTriggerPolicy.h"
 #include "../../runtime/BotManager.h"
 
 class Player;
@@ -351,6 +352,8 @@ public:
     virtual void UpdateAI(uint32 elapsed, bool minimal = false);
 
     void HandleCommands();
+    // Chat commands waiting for the next reaction pass (HandleCommands drains them).
+    size_t QueuedChatCommandCount() const { return chatCommands.size(); }
 private:
     void UpdateAIInternal(uint32 elapsed, bool minimal = false) override;
 public:
@@ -368,12 +371,30 @@ public:
     // StartPullWindow writes the pull's delay into "wait for attack time" and
     // adds "wait for attack" to the engines that lack it; the window owns only
     // those copies and puts the old delay back when it ends.
-    void StartPullWindow(uint8 windowSeconds);
-    void RestampPullWindow() { pullWindow_.Restamp(time(0)); }
+    void StartPullWindow(uint8 windowSeconds, bool leadKeyed = false, uint8 minSeconds = 0, bool fightStart = false);
+    // A fight no pull window covers (a walk-in, a pick-up): hold a bot-only
+    // running-run DPS for up to kFightStartHoldSeconds, lead-keyed like a
+    // run-leader pull. Opens in SetCombatStateAction::Execute, never in
+    // OnCombatStarted (a bot's own attack is never held afterwards).
+    void StartFightStartHold();
+    bool PullWindowFightStart() const { return pullWindow_.fightStart; }
+    void SetPullReleaseReason(const char* reason) { pullReleaseReason_ = reason ? reason : ""; }
+    std::string const& PullReleaseReason() const { return pullReleaseReason_; }
+    void RestampPullWindow(bool landedNow) { pullWindow_.Restamp(time(0), landedNow); }
     bool HasPullWindow() const { return pullWindow_.Running(); }
+    // The run leader (.bot run) keeps a healer to heals while a run is going:
+    // its off-spec damage rows (healer should attack / healer should wand) and
+    // the wand stay off, and a pull's join window never gates its heals. Memory
+    // only, set and cleared by the run leader's sync (commands/BotCommands.cpp).
+    bool RunHealOnly() const { return runHealOnly_; }
+    void SetRunHealOnly(bool on) { runHealOnly_ = on; }
     bool PullWindowExpired(uint8 seconds) const { return pullWindow_.Expired(time(0), seconds); }
     bool PullWindowAdded(BotState type) const { return pullWindow_.Added(static_cast<unsigned>(type)); }
     uint8 PullWindowSavedSeconds() const { return static_cast<uint8>(pullWindow_.savedWaitSeconds); }
+    bool PullWindowLeadKeyed() const { return pullWindow_.leadKeyed; }
+    bool PullWindowLanded() const { return pullWindow_.landed; }
+    uint8 PullWindowMinSeconds() const { return static_cast<uint8>(pullWindow_.minSeconds); }
+    uint32 PullWindowElapsed() const { return pullWindow_.start ? uint32(time(0) - pullWindow_.start) : 0; }
     // The player's own "wait for attack time": set now, or kept for the end
     // of a running pull window, which puts it in place then.
     void SetPlayerWaitForAttackTime(uint8 seconds);
@@ -381,8 +402,10 @@ public:
     // the player's "wait for attack time" back and release the anchor hold.
     // A "wait for attack" the player set stays. Also the end of any pull on a
     // reload of stored strategies (relog, reset, preset), and the release of
-    // the puller's own anchor, which never had a window.
-    void EndPullWindow();
+    // the puller's own anchor, which never had a window. Logs the release
+    // exactly once (nothing when no window runs) and clears the stored
+    // reason; every caller passes its explicit reason.
+    void EndPullWindow(const char* reason);
     // An order that sends the bot at a target ends a stay and a flee's
     // passive hold: drop "passive" and "stay", then, when that leaves no
     // movement mode, put the default (follow for a player's bot) back so it
@@ -642,6 +665,9 @@ public:
     // cpp can build heartbeat / debug payloads without being
     // a friend class. Read-only.
     Engine* GetCurrentEngine() { return currentEngine; }
+    // The engine registered for a state (combat, non-combat, dead, reaction), or
+    // null. Read-only access for the run trace (runtime/RunTrace.cpp).
+    Engine* GetEngineByState(BotState state) { return static_cast<uint8>(state) < static_cast<uint8>(BotState::BOT_STATE_ALL) ? engines[static_cast<uint8>(state)] : nullptr; }
 
     // Registers an engine in the per-state array. The factory that builds an
     // engine calls this before it attaches that engine's default strategies:
@@ -1093,6 +1119,9 @@ protected:
     WorldPosition jumpDestination;
     uint32 jumpTime;
     bool fallAfterJump;
+    // Scripted area triggers the bot stands in (issue #984, BotAreaTriggers.h).
+    ai::BotAreaTriggerState areaTriggerState;
+    uint32 areaTriggerCheckDelay = 0;
     // Issue #84 (P2): bumped by HandleTeleportAck, consumed by engines.
     uint64_t transitionGeneration = 0;
     uint32 faceTargetUpdateDelay = 0;
@@ -1130,6 +1159,8 @@ protected:
     LastKillerInfo lastDamager_; // last non-self damager (UNITHOOK_ON_DAMAGE); SoR fallback for SetLastKiller
     bool deathHandled_ = false; // this death was logged and counted; cleared when the bot is seen alive again
     ai::PullJoinWindow pullWindow_; // see StartPullWindow
+    bool runHealOnly_ = false;      // see RunHealOnly
+    std::string pullReleaseReason_; // PullHoldExpiredTrigger's reason, logged by EndPullWindow
     // Pet stance the pull hold parked passive (PausePartyPullHold): the
     // stance from before the hold, restored by EndPullWindow on this same
     // bot - so a member that leaves the group, logs out or dies mid-hold

@@ -294,6 +294,13 @@ bool PossibleAttackTargetsValue::IsValid(Unit* target, Player* player, float ran
     if (target && target->IsCreature() && static_cast<Creature*>(target)->IsInEvadeMode())
         return false;
 
+    // Chases stop at ledges (owner decision 2026-10-23): a bot of an active
+    // dungeon run lets a runner below a cliff (or with no complete way to it)
+    // go, whatever picked it (the tank's victim, a raid mark, the current
+    // target); never an explicit attack order (RunnerLetGoAtLedge decides).
+    if (AttackersValue::RunnerLetGoAtLedge(target, player))
+        return false;
+
     // Check for the valid attackers value
     if (checkAttackerValid && !AttackersValue::IsValid(target, player))
     {

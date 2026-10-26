@@ -499,6 +499,8 @@ void SetStayAnchor(PlayerbotAI* ai, float x, float y, float z, uint32 mapId)
     ai::PositionEntry stayPos = posMap["stay"];
     stayPos.Set(x, y, z, mapId);
     posMap["stay"] = stayPos;
+    // An explicit order is a fresh stay walk, even to the same spot (StayWalkOrdered).
+    TortoiseBots::StayWalkOrdered(ai->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get().stayWalk);
     ai::PositionEntry returnPos = posMap["return"];
     returnPos.Set(x, y, z, mapId);
     posMap["return"] = returnPos;

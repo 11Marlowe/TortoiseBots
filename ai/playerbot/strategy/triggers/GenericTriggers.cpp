@@ -21,6 +21,7 @@
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "playerbot/strategy/values/HazardsValue.h"
+#include "playerbot/strategy/actions/PositionAction.h"
 
 #include <regex>
 
@@ -122,6 +123,7 @@ bool ai::HealerWandAllowed(PlayerbotAI* ai, Unit* target)
     gate.aloneNear = NoGroupMemberNear(bot);
     ObjectGuid const ordered = context->GetValue<ObjectGuid>("explicit attack target")->Get();
     gate.explicitOrder = target && ordered && ordered == target->GetObjectGuid();
+    gate.healOnly = ai->RunHealOnly();
     gate.noMana = context->GetValue<bool>("has mana", "self target")->Get() &&
         context->GetValue<uint8>("mana", "self target")->Get() < 5;
     gate.pullHold = ai->HasPullWindow() && !gate.explicitOrder;
@@ -161,6 +163,11 @@ bool HealerShouldAttackTrigger::IsActive()
     // group near, the healer fights like a solo bot.
     if (NoGroupMemberNear(bot))
         return true;
+
+    // The run leader's healer heals and casts no damage spell (Holy Fire,
+    // Smite, Mind Blast, the wand; PlayerbotAI::RunHealOnly).
+    if (ai->RunHealOnly())
+        return false;
 
     if (AI_VALUE2(uint8, "health", "party member to heal") < sPlayerbotAIConfig.almostFullHealth)
         return false;
@@ -1530,10 +1537,11 @@ bool AoeThreatNearbyTrigger::IsActive()
 bool ReturnToStayPositionTrigger::IsActive()
 {
     PositionEntry stayPosition = AI_VALUE(PositionMap&, "position")["stay"];
-    if (stayPosition.isSet())
+    if (stayPosition.isSet() && stayPosition.mapId == bot->GetMapId())
     {
-        const float distance = bot->GetDistance(stayPosition.x, stayPosition.y, stayPosition.z);
-        return distance > ai->GetRange("follow");
+        // The walk's own question (StayWalkDueNow, PositionAction.cpp: the shared 3D rule and
+        // back-off): the trigger and the action cannot disagree.
+        return StayWalkDueNow(ai, bot, stayPosition);
     }
 
     return false;

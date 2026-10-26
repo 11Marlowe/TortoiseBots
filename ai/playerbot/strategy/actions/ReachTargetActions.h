@@ -406,9 +406,10 @@ namespace ai
             WorldPosition const botPosition(bot);
             WorldPosition const targetPosition(target);
 
-            // getPathStepFrom keeps PATHFIND_NORMAL and PATHFIND_INCOMPLETE and
-            // drops shortcut / no-path results, so the point is always on the
-            // navmesh the bot can walk.
+            // getPathStepFrom keeps PATHFIND_NORMAL and PATHFIND_INCOMPLETE, and
+            // the core's straight swim line only when all of it lies in water
+            // (SwimPathPolicy.h); it drops shortcut / no-path results, so the
+            // point is on the navmesh the bot can walk or in the water it swims.
             std::vector<WorldPosition> const path = targetPosition.getPathStepFrom(botPosition, bot);
             if (path.size() < 2)
                 return false;

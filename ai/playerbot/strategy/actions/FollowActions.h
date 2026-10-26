@@ -23,6 +23,7 @@ namespace ai
         // Dungeon rescue of a core follow that stands still (DungeonFollowStallPolicy.h).
         bool ObserveDungeonFollowStall(Unit* followTarget);
         bool RescueStalledDungeonFollow(Unit* followTarget, bool& moved);
+        bool ArmFarDungeonFollowRescue(Unit* followTarget);
         // Stair span the mesh does not link (OpenFollowStepPolicy.h dungeon step).
         bool StepUpToLeaderInDungeon(Unit* followTarget, bool& moved);
         DungeonFollowStallWatch followStallWatch;

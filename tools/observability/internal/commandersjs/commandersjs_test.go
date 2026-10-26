@@ -57,6 +57,12 @@ func TestDemoJS(t *testing.T) {
 	runCheck(t, "demo_check.js", "../../web/static/js/demo.js")
 }
 
+// TestDungeonRunsJS runs dungeon_runs_check.js: the Dungeon runs tab and glance panel (formatting, empty states, boss table, wipe map), fed
+// with the daemon's real answers for the Go fixtures.
+func TestDungeonRunsJS(t *testing.T) {
+	runCheck(t, "dungeon_runs_check.js", "../../web/static/js/dungeon-runs.js")
+}
+
 // TestRefreshJS runs refresh_check.js: the refresh-rate picker's options, the choice saved per browser (also with a storage that throws)
 // and the gate that holds live updates to the chosen rate or freezes them while paused.
 func TestRefreshJS(t *testing.T) {

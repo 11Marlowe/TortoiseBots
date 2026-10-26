@@ -68,6 +68,12 @@ ALLOWLIST = {
         "default is the constant TortoiseBots::RemoteCommander::View::"
         "kDefaultIntervalMs = 1000 (runtime/RemoteCommanderView.h), equal to the "
         "commented template example",
+    "AiPlayerbot.RunTrace.IntervalMs":
+        "default is the constant TortoiseBots::RunTrace::kDefaultIntervalMs = 500 "
+        "(runtime/RunTraceRecords.h), equal to the commented template example",
+    "AiPlayerbot.RunTrace.MaxFileMb":
+        "default is the constant TortoiseBots::RunTrace::kDefaultMaxFileMb = 64 "
+        "(runtime/RunTraceRecords.h), equal to the commented template example",
 }
 
 

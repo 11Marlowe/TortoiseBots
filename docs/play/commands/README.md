@@ -105,7 +105,7 @@ The table below lists all primary commands and links to their authoritative docu
 | [`.bot repair`](party-actions.md#bot-repair) | Direct Party | Orders targeted bot or party to repair gear. |
 | [`.bot sell`](party-actions.md#bot-sell) | Direct Party | Orders targeted bot or party to sell gray junk. |
 | [`.bot rest`](party-actions.md#bot-rest) | Direct Party | Orders bots to sit and consume food and drink. |
-| [`.bot commander bind`](commander.md#bot-commander-bind) | Remote Commander | Binds a bot-only party to remote leadership. |
+| [`.bot commander bind`](commander.md#bot-commander-bind) | Remote Commander | Binds a bot-only party to remote leadership (with `inparty`: you and up to three other players stay in the party). |
 | [`.bot commander unbind`](commander.md#bot-commander-unbind) | Remote Commander | Releases your current remote commander binding. |
 | [`.bot commander status`](commander.md#bot-commander-status) | Remote Commander | Displays commanded party status and roster. |
 | [`.bot commander view`](commander.md#bot-commander-view) | Remote Commander | Toggles live perception data feed frames. |
@@ -127,6 +127,8 @@ The table below lists all primary commands and links to their authoritative docu
 | [`.bot cmd use`](commander.md#bot-cmd-use) | Remote Commander | Uses an item from a commanded bot's inventory. |
 | [`.bot cmd ritual`](commander.md#bot-cmd-ritual) | Remote Commander | Coordinates multiple bots to activate ritual objects. |
 | [`.bot cmd state`](commander.md#bot-cmd-state) | Remote Commander | Queries current state of a world game object. |
+| [`.bot run`](../dungeon-run-leader.md#run-leader) | Remote Commander | Starts, pauses and stops a dungeon run of the bound party. |
+| [`.bot trace`](../../server/run-trace.md#start-stop-status) | Remote Commander | Records a party run as a trace file plus a summary. |
 | [`.bot roster`](roster-and-hiring.md#bot-roster) | Roster & Hiring | Emits snapshot of owned alts and CC assignments. |
 | [`.bot add`](roster-and-hiring.md#bot-add) | Roster & Hiring | Logs in an owned alt character as a bot. |
 | [`.bot remove`](roster-and-hiring.md#bot-remove) | Roster & Hiring | Logs out an owned bot or dismisses a hired companion. |
@@ -150,6 +152,7 @@ The table below lists all primary commands and links to their authoritative docu
 | [`.bot stats`](bot-panel.md#bot-stats) | Inspection | Summarizes controlled bot fleet statistics. |
 | [`.bot lease`](bot-panel.md#bot-lease) | Inspection | Reports active autonomous activity leases. |
 | [`.bot version`](bot-panel.md#bot-version) | Inspection | Displays module version, protocol line, and credits. |
+| [`.bot features`](bot-panel.md#bot-features) | Inspection | Lists the server's player-facing switches (the addon's Info window). |
 | [`.bot help`](bot-panel.md#bot-help) | Inspection | Prints bot system version header. |
 | [`.bot inv`](bot-panel.md#bot-inv) | Bot Panel | Emits inventory, equipped gear, and money details. |
 | [`.bot item <Name> trade`](bot-panel.md#bot-item-trade) | Bot Panel | Opens direct trade window with a bot. |

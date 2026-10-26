@@ -29,6 +29,9 @@ echo "✓ Action and trigger wiring verified (0 missing live creators)."
 echo ""
 echo "=== 4. Running Engine Unit Tests (discovered: tools/test_*.py) ==="
 python3 -m unittest discover -s tools -p 'test_*.py'
+if [[ -z "${TORTOISE_CORE:-}" ]]; then
+    echo "SKIPPED: core-side repop door checks (set TORTOISE_CORE=<core checkout>; the VM build gate runs them)"
+fi
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -43,8 +46,12 @@ if command -v g++ >/dev/null 2>&1; then
     g++ -std=c++17 -Wall -Wextra -pedantic tools/test_log_file_rotation.cpp -o "${BUILD_DIR}/test_log_file_rotation"
     "${BUILD_DIR}/test_log_file_rotation" "${TMPDIR:-/tmp}"
 
+    # Special case: the run trace's file writer builds from its own source and needs the thread library.
+    g++ -std=c++17 -Wall -Wextra tools/test_run_trace_writer.cpp runtime/RunTraceWriter.cpp -pthread -o "${BUILD_DIR}/test_run_trace_writer"
+    "${BUILD_DIR}/test_run_trace_writer" "${TMPDIR:-/tmp}"
+
     # Every other standalone test: discover the sources, compile and run in parallel.
-    mapfile -t CPP_TESTS < <(printf '%s\n' tools/test_*.cpp | grep -v '^tools/test_log_file_rotation\.cpp$')
+    mapfile -t CPP_TESTS < <(printf '%s\n' tools/test_*.cpp | grep -v '^tools/test_log_file_rotation\.cpp$' | grep -v '^tools/test_run_trace_writer\.cpp$')
 
     compile_one() {
         local src="$1" name
@@ -78,7 +85,7 @@ if command -v g++ >/dev/null 2>&1; then
         echo "✗ Standalone policy tests FAILED."
         exit 1
     fi
-    echo "✓ ${#CPP_TESTS[@]} standalone policy tests verified (compiled and run in parallel, ${JOBS} jobs)."
+    echo "✓ $((${#CPP_TESTS[@]} + 2)) standalone policy tests verified (compiled and run in parallel, ${JOBS} jobs)."
 else
     echo "ℹ Skipping standalone policy tests (no g++ on PATH)."
 fi

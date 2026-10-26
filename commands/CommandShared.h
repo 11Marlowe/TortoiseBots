@@ -3,7 +3,7 @@
 #include "BotCommandContext.h"
 
 #include "../ai/playerbot/BotState.h"
-#include "../ai/playerbot/PullOpeningPolicy.h"
+#include "../runtime/RemoteCommanderPolicy.h"
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
 
 #include <cstdint>
@@ -20,6 +20,7 @@ namespace BotCommands {
 // Helpers and entry points that more than one command file needs. Everything
 // a single domain owns stays private to its own file.
 std::string Trim(std::string value);
+TortoiseBots::RemoteCommander::FeatureGates CurrentCommanderGates();
 Player* Requester(ChatHandler* handler);
 bool ResolveOwnedBot(ChatHandler* handler, char const* args, Player*& bot, BotRecord*& record, std::string& name);
 

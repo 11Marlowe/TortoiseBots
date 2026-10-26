@@ -160,6 +160,8 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "DISCOVERY")
     "${TORTOISEBOTS_ROOT}/host/WorldBuffRaidAdapter.cpp"
     "${TORTOISEBOTS_ROOT}/host/HireUnlockKillAdapter.cpp"
     "${TORTOISEBOTS_ROOT}/runtime/BotManager.cpp"
+    "${TORTOISEBOTS_ROOT}/runtime/RunTrace.cpp"
+    "${TORTOISEBOTS_ROOT}/runtime/RunTraceWriter.cpp"
     "${TORTOISEBOTS_ROOT}/runtime/BotActivityLease.cpp"
     "${TORTOISEBOTS_ROOT}/runtime/BotNameService.cpp"
     "${TORTOISEBOTS_ROOT}/runtime/CharacterCleanup.cpp"
@@ -215,7 +217,10 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "DISCOVERY")
     "${TORTOISEBOTS_ROOT}/ai/playerbot/BotLog.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/BotActionLog.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/BotDiagnostics.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/BossTacticsMgr.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/BotAreaTriggers.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/BroadcastHelper.cpp"
+    "${TORTOISEBOTS_ROOT}/ai/playerbot/DungeonPlanMgr.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/ChatFilter.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/FleeManager.cpp"
     "${TORTOISEBOTS_ROOT}/ai/playerbot/Helpers.cpp"
@@ -340,6 +345,14 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "POST_TARGETS")
     target_compile_definitions("${TORTOISEBOTS_TARGET}" PRIVATE
       "TORTOISEBOTS_CORE_REVISION=\"${TORTOISEBOTS_CORE_REVISION}\""
       "TORTOISEBOTS_CORE_DATE=\"${TORTOISEBOTS_CORE_DATE}\"")
+    # The dungeon repop door hook is in some core forks only; without it the
+    # core keeps its own door and the module still builds.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/src/game/ScriptObjects.h")
+      file(STRINGS "${CMAKE_SOURCE_DIR}/src/game/ScriptObjects.h" TORTOISEBOTS_REPOP_HOOK REGEX "GetBotRepopEntrance")
+      if(TORTOISEBOTS_REPOP_HOOK)
+        target_compile_definitions("${TORTOISEBOTS_TARGET}" PRIVATE TORTOISEBOTS_CORE_HAS_BOT_REPOP=1)
+      endif()
+    endif()
     target_include_directories("${TORTOISEBOTS_TARGET}" PRIVATE
       "${TORTOISEBOTS_ROOT}"
       "${TORTOISEBOTS_ROOT}/ai"

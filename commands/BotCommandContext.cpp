@@ -7,6 +7,7 @@
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/ServerFacade.h"
 #include "../ai/playerbot/strategy/Engine.h"
+#include "../ai/playerbot/strategy/values/LastMovementValue.h"
 #include "../ai/playerbot/strategy/Action.h"
 #include "../ai/playerbot/strategy/AiObjectContext.h"
 #include "../ai/playerbot/PullExecutorPolicy.h"
@@ -384,8 +385,11 @@ bool PullTankIsBusy(BotCommandContext const& context)
 }
 
 // Threat window: while the tank pulls and establishes threat, party DPS bots
-// hold at the command anchor. Healers heal but deal no damage while the
-// hold runs (their off-spec rows are vetoed for the join window). Uses the mature
+// hold at the command anchor. Healers stay active, except in the run
+// leader's pulls (held on their stand, heals only; see below); in the
+// party-chat pull hold (ai::PausePartyPullHold) healers heal but deal no
+// damage while the hold runs (their off-spec rows are vetoed for the join
+// window). Uses the mature
 // "wait for attack" gate the rotation already honors (AttackAction skips
 // bot->Attack and the multiplier zeroes combat actions), plus an explicit
 // stay hold so the allowed "keep safe distance" action cannot drift the bots
@@ -412,27 +416,45 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
         if (!bot || bot == executor)
             continue;
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
-        if (!ai || PlayerbotAI::IsHeal(bot, true))
+        // A healer is held only in the run leader's pulls: it stands on its
+        // stand and keeps healing (Uldaman run 4: the one bot not put on stay
+        // followed the tank to the camp, wanded and died).
+        bool const healer = ai && PlayerbotAI::IsHeal(bot, true);
+        if (!ai || (healer && !context.runLeader))
             continue;
         if (ai->GetForcedRole() == static_cast<uint8>(BOT_ROLE_TANK) ||
             PlayerbotAI::IsTank(bot, true))
             continue;
+        WorldPosition stand = anchor;
+        if (healer)
+        {
+            // Heals only, from behind the tank (PlayerbotAI::RunHealOnly; the
+            // run leader's sync keeps it set for the run).
+            ai->SetRunHealOnly(true);
+            if (context.noteHealOnly)
+                context.noteHealOnly(bot);
+            float hx = 0.0f, hy = 0.0f, hz = 0.0f;
+            if (context.healerStand && context.healerStand(bot, hx, hy, hz))
+                stand = WorldPosition(anchor.GetMapId(), hx, hy, hz);
+        }
         // Hold this bot at the anchor: stay owns the movement mode, and the
         // anchor copy lets the release step distinguish our hold from a
         // player-placed stay (only ours is cleared).
         ai->SetMovementStrategy("stay");
         ai::PositionMap& posMap = ai->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
         ai::PositionEntry stayPos = posMap["stay"];
-        stayPos.Set(anchor.getX(), anchor.getY(), anchor.getZ(), anchor.GetMapId());
+        stayPos.Set(stand.getX(), stand.getY(), stand.getZ(), stand.GetMapId());
         posMap["stay"] = stayPos;
+        // An explicit order is a fresh stay walk, even to the same spot (StayWalkOrdered).
+        TortoiseBots::StayWalkOrdered(ai->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get().stayWalk);
         ai::PositionEntry holdPos = posMap["pull hold"];
-        holdPos.Set(anchor.getX(), anchor.getY(), anchor.getZ(), anchor.GetMapId());
+        holdPos.Set(stand.getX(), stand.getY(), stand.getZ(), stand.GetMapId());
         posMap["pull hold"] = holdPos;
         // "wait for attack" with this pull's delay, on its own clock from here
         // (PullJoinWindowPolicy.h). A "wait for attack" or a delay the player
         // set is theirs and comes back unchanged when the window ends; one an
         // earlier pull left (a chain pull) stays the pull's.
-        ai->StartPullWindow(static_cast<uint8>(windowSeconds));
+        ai->StartPullWindow(static_cast<uint8>(windowSeconds), context.runLeader, static_cast<uint8>(std::min<uint32>(joinDelaySeconds, 255)));
         // Fresh combat window: a stale combat-start timestamp would expire the
         // hold immediately, so reset it for the incoming pull engagement.
         // Re-stamped when the pull lands (plain pull) or when the tank
