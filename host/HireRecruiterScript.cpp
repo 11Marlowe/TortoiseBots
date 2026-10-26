@@ -148,12 +148,14 @@ void AddItem(Player* player, uint8 icon, char const* text, uint32 sender, uint32
     player->PlayerTalkClass->GetGossipMenu().AddMenuItem(icon, text, sender, action, "", false);
 }
 
-uint32 GossipText(Player* /*player*/)
+// Each recruiter has its own greeting (npc_text = its entry, world migration
+// 20261026120000); +100 is the variant without the PvE-only line.
+uint32 GossipText(Player* /*player*/, Creature* creature)
 {
-    // DEFAULT_GOSSIP_MESSAGE renders the client "Greetings" fallback; the
-    // menu items carry the wizard. Custom text ids would need a locales row
-    // per recruiter, so the wizard stays text-light by design.
-    return DEFAULT_GOSSIP_MESSAGE;
+    uint32 entry = creature ? creature->GetEntry() : 0;
+    if (entry < 95000 || entry > 95067)
+        return DEFAULT_GOSSIP_MESSAGE;
+    return sPlayerbotAIConfig.hireAllowPvP ? entry + 100 : entry;
 }
 
 void CloseWithHint(Player* player, char const* hint)
@@ -216,8 +218,6 @@ void ShowConfirmMenu(Player* player, Creature* creature, uint8 classId, uint8 ra
 
 void ShowClassMenu(Player* player, Creature* creature)
 {
-    if (!sPlayerbotAIConfig.hireAllowPvP)
-        AddItem(player, GOSSIP_ICON_TALK, "Hired companions are for PvE only and leave you when you enter a battleground.", kSenderClass, 0);
     Team team = player ? player->GetTeam() : TEAM_NONE;
     for (uint8 classId : kHireClasses)
     {
@@ -225,7 +225,7 @@ void ShowClassMenu(Player* player, Creature* creature)
             continue;
         AddItem(player, GOSSIP_ICON_CHAT, ClassName(classId), kSenderClass, classId);
     }
-    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
 }
 void ShowRaceMenu(Player* player, Creature* creature, uint8 classId)
 {
@@ -241,7 +241,7 @@ void ShowRaceMenu(Player* player, Creature* creature, uint8 classId)
         ++shown;
     }
     AddItem(player, GOSSIP_ICON_TALK, "< Back", kSenderRace, (uint32(classId) << 8) | kBackAction);
-    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
 }
 
 void ShowGenderMenu(Player* player, Creature* creature, uint8 classId, uint8 race)
@@ -250,7 +250,7 @@ void ShowGenderMenu(Player* player, Creature* creature, uint8 classId, uint8 rac
     AddItem(player, GOSSIP_ICON_CHAT, "Male", kSenderGender, (packed << 8) | GENDER_MALE);
     AddItem(player, GOSSIP_ICON_CHAT, "Female", kSenderGender, (packed << 8) | GENDER_FEMALE);
     AddItem(player, GOSSIP_ICON_TALK, "< Back", kSenderGender, (packed << 8) | kBackAction);
-    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
 }
 
 void ShowSpecMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender)
@@ -267,7 +267,7 @@ void ShowSpecMenu(Player* player, Creature* creature, uint8 classId, uint8 race,
     }
     AddItem(player, GOSSIP_ICON_TALK, "< Back", kSenderSpec,
         (uint32(classId) << 24) | (uint32(race) << 16) | (uint32(gender) << 8) | kBackAction);
-    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
 }
 
 void ShowRootMenu(Player* player, Creature* creature)
@@ -296,7 +296,7 @@ void ShowRootMenu(Player* player, Creature* creature)
         AddItem(player, GOSSIP_ICON_MONEY_BAG, "World buffs", kWorldBuffSenderRoot, kWorldBuffRootBuffs);
     if (contractsVisible)
         AddItem(player, GOSSIP_ICON_BATTLE, "Mercenary contracts", kContractsSenderRoot, 1);
-    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
 }
 
 bool CurrentPrices(uint8_t purchase, WorldBuffPricePair& prices)
@@ -360,7 +360,7 @@ void ShowWorldBuffMenu(Player* player, Creature* creature)
     // Issue #490 PR 2: the tier quests share these NPCs now. The buff page
     // keeps only the world-buff range (90000-90013); contracts own 90100+.
     FilterQuestMenu(player, creature, kWorldBuffQuestRallyA, kWorldBuffQuestSilithystH);
-    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
 }
 
 // Issue #490 PR 2 (kills): "Mercenary contracts" branch. Capital
@@ -440,7 +440,7 @@ void ShowContractsCounterMenu(Player* player, Creature* creature, uint32_t credi
             ++shown;
         }
         AddItem(player, GOSSIP_ICON_TALK, "< Back", kContractsSenderBack, kContractsSenderBack);
-        player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+        player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
         return;
     }
     ShowContractsMenu(player, creature);
@@ -475,7 +475,7 @@ void ShowContractsMenu(Player* player, Creature* creature)
     // keeps 90000-90013 the same way (FilterQuestMenu above).
     FilterQuestMenu(player, creature, kHireUnlockQuestFirst, kHireUnlockQuestLast);
     AddItem(player, GOSSIP_ICON_TALK, "< Back", kContractsSenderBack, kContractsSenderBack);
-    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
 }
 
 // 1.12 gossip has no confirmation popup, so a buy click opens this page:
@@ -513,7 +513,7 @@ void ShowBuyConfirm(Player* player, Creature* creature, uint32_t buyAction)
     label << ". Confirm?";
     AddItem(player, GOSSIP_ICON_MONEY_BAG, label.str().c_str(), kWorldBuffSenderConfirm, EncodeConfirmAction(buyAction, people));
     AddItem(player, GOSSIP_ICON_TALK, "< Back", kWorldBuffSenderBack, kWorldBuffSenderSayge);
-    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
 }
 
 void ShowSaygeMenu(Player* player, Creature* creature)
@@ -523,7 +523,7 @@ void ShowSaygeMenu(Player* player, Creature* creature)
     for (uint32_t i = 0; i < count; ++i)
         AddItem(player, GOSSIP_ICON_MONEY_BAG, picks[i].label, kWorldBuffSenderBuy, EncodeSaygeAction(kWorldBuffBuySayge, i + 1));
     AddItem(player, GOSSIP_ICON_TALK, "< Back", kWorldBuffSenderBack, kWorldBuffSenderSayge);
-    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
 }
 
 // Buyer + live in-world group/raid members within 40 yd of the NPC. Random
@@ -664,7 +664,7 @@ void ShowTierMenu(Player* player, Creature* creature, uint8 classId, uint8 race,
         AddItem(player, GOSSIP_ICON_BATTLE, label.str().c_str(), HireTierStepSender(tier), packed);
     }
     AddItem(player, GOSSIP_ICON_TALK, "< Back", kHireTierBackSender, packed);
-    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
 }
 
 void ShowConfirmMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender, uint8 specIndex)
@@ -696,7 +696,7 @@ void ShowConfirmMenu(Player* player, Creature* creature, uint8 classId, uint8 ra
     uint32 packed = (uint32(classId) << 24) | (uint32(race) << 16) | (uint32(gender) << 8) | specIndex;
     AddItem(player, GOSSIP_ICON_MONEY_BAG, label.str().c_str(), HireTierConfirmSender(gearTier), packed);
     AddItem(player, GOSSIP_ICON_TALK, "< Back", kHireTierBackSender, packed);
-    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player, creature), creature->GetObjectGuid());
 }
 } // namespace
 
