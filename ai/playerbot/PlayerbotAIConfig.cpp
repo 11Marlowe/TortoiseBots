@@ -10,6 +10,7 @@
 #include "../../runtime/HireRaidPolicy.h"
 #include "../../runtime/HireUnlockPolicy.h"
 #include "../../runtime/RemoteCommanderView.h"
+#include <algorithm>
 #include "../../runtime/RunTrace.h"
 #include "../../runtime/GossipOrderPolicy.h"
 #include <cerrno>
@@ -169,6 +170,32 @@ bool PlayerbotAIConfig::ReloadDungeonRunKeys()
         "DungeonRunWalkBackAfterWonFight %d).", config.GetFilename().c_str(), dungeonSelfClear ? 1 : 0,
         dungeonRunWalkBackAfterWonFight ? 1 : 0);
     return true;
+}
+
+std::vector<std::pair<std::string, std::string>> PlayerbotAIConfig::FindConfigEntries(std::string const& filter)
+{
+    auto lower = [](std::string text)
+    {
+        for (char& c : text)
+            c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        return text;
+    };
+    std::string const wanted = lower(filter);
+    std::vector<std::string> keys;
+    config.GetKeys("AiPlayerbotConf", keys);
+    std::sort(keys.begin(), keys.end());
+    std::vector<std::pair<std::string, std::string>> out;
+    for (std::string const& key : keys)
+    {
+        std::string const name = lower(key);
+        if (!wanted.empty() && name.find(wanted) == std::string::npos)
+            continue;
+        bool const secret = name.find("apikey") != std::string::npos || name.find("llmapi") != std::string::npos ||
+            name.find("password") != std::string::npos || name.find("secret") != std::string::npos ||
+            name.find("token") != std::string::npos;
+        out.emplace_back(key, secret ? "***" : config.GetStringDefault(key.c_str(), ""));
+    }
+    return out;
 }
 
 bool PlayerbotAIConfig::Initialize()
