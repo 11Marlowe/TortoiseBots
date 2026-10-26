@@ -70,6 +70,7 @@ Every creature and spell was read from Turtle's own data (`tortoise-wow`: `creat
 | Baelog 6906, Eric "The Swift" 6907, Olaf 6908 | `kill_first` Baelog (1), Eric (2), Olaf (3), under all three entries | Baelog is the only dwarf with a ranged attack (*Shoot* 15620) and flees at 15 % health (event 690601); Eric opens with *Rushing Charge* 6268; Olaf has the most health (5867) and the *Shield Slam* stun 8242. The order is a judgement from that data, not something the core states. |
 | Ironaya (7228) | `behind`, 10 yd, spell 8374 | `boss_ironaya` casts *Arcing Smash* 8374 on herself every 13 s; it is a cone (effect target 24) with radius index 8, which is the *War Stomp* radius (8 yd by its tooltip; the client DBC was not available, so 8 yd plus a 2 yd margin). Her *Knock Away* 10101 below 50 % health wipes the victim's threat and is not handled yet. |
 | Obsidian Sentinel (7023) | `kill_first` Obsidian Shard 7209 | EventAI events 702301-702304 cast *Summon Obsidian Shard* 10061 (creature 7209) and *Splintered Obsidian* 10072 at 80, 60, 40 and 20 % health. |
+| Grimlok (4854) | `interrupt` Chain Bolt 8292 and Lightning Bolt 9532 | Spell list 48540 casts Chain Bolt 8292 (castingTimeIndex 19) and Lightning Bolt 9532 (castingTimeIndex 14), both silence-prevented (preventionType 1). Shrink 11892 gets no row (not in the plan interrupt list); Tremor Totem 8143 is instant (castingTimeIndex 1). |
 
 What needs a live check (not verified in game): the Lost Dwarves order and whether the three can be pulled apart, that 10 yd is right for the Arcing Smash cone, that the interrupt fires in time on Chain Lightning.
 
@@ -81,6 +82,7 @@ Every creature and spell was read from Turtle's own data (`tortoise-wow`: `creat
 | :--- | :--- | :--- |
 | Jared Voss (61961) | `interrupt` Poison Cloud 3815 | Spell list 180300 casts Poison Cloud 3815 (7-7 s first, every 16-26 s), a cast (castingTimeIndex 4) that leaves a periodic-damage cloud centred on the caster (target type 22, self); the other three list spells (Poison 13298, Withering Poison 13884, Poisonous Stab 7357) are instant (castingTimeIndex 1), so they are not listed. EventAI is say-on-aggro/death only (2200058/2200059). |
 | Masterpiece Harvester (61963) | no row | No spell list, no C++ script; EventAI is only say-on-aggro/death (2200054/2200055). Unimplemented in the core. |
+| Captain Greenskin (647) | `interrupt` Poisoned Harpoon 5208 | Spell list 6470 (and inline `spell_id2`) casts Poisoned Harpoon 5208 (castingTimeIndex 5), silence-prevented with the kick bits (interruptFlags 15). Cleave 15584 is instant (castingTimeIndex 1). No ai_name. |
 
 What needs a live check (not verified in game): that the Poison Cloud cast is actually interruptible in time at its cadence.
 
@@ -90,6 +92,11 @@ What needs a live check (not verified in game): that the Poison Cloud cast is ac
 | :--- | :--- | :--- |
 | Zandara Windhoof (61968) | `interrupt` Chain Lightning 15659 and Gust of Wind 6982 | Spell list 180306 casts Chain Lightning 15659 (every 10 s, castingTimeIndex 14) and Gust of Wind 6982 (4-4 s first, every 11-14 s, castingTimeIndex 5), an AoE stun (effectApplyAura 12). EventAI is say-on-aggro/death only (2200062/2200063). |
 | Vangros (61965) | no row | Spell list 180303 casts Crush Armor 21055 and Knock Away 18670, both instant (castingTimeIndex 1, interruptFlags 0); Knock Away is a single-target threat-drop, not a frontal cone. No ai_name or script. |
+| Lord Serpentis (3673) | `interrupt` Healing Touch 6778, Sleep 700 and Lightning Bolt 9532 | Spell list 36730 casts Healing Touch 6778 (castingTimeIndex 22), Sleep 700 (castingTimeIndex 16) and Lightning Bolt 9532 (castingTimeIndex 14), all silence-prevented with the kick bits (interruptFlags 15). |
+| Lord Cobrahn (3669) | `interrupt` Druid Slumber 8040, Lightning Bolt 9532 and Healing Touch 5187 | Druid-form spell list 36690 casts Druid Slumber 8040 (castingTimeIndex 19) and Lightning Bolt 9532 (castingTimeIndex 14); Healing Touch 5187 is the plan list third spell (castingTimeIndex 20, interruptFlags 15, preventionType 1). |
+| Lord Pythas (3670) | `interrupt` Healing Touch 5187, Sleep 700 and Lightning Bolt 9532 | Spell list 36700 casts Healing Touch 5187 (castingTimeIndex 20), Sleep 700 (castingTimeIndex 16) and Lightning Bolt 9532 (castingTimeIndex 14), all silence-prevented with the kick bits. Thunderclap 8147 is instant (castingTimeIndex 1). |
+| Skum (3674) | `interrupt` Chained Bolt 6254 | No spell list; Chained Bolt 6254 is the inline `spell_id1`, a real cast (castingTimeIndex 23), silence-prevented with the kick bits. |
+| Mutanus the Devourer (3654) | `interrupt` Naralex Nightmare 7967 | Spell list 36540 casts Naralex Nightmare 7967 (first at 8-12 s, every 18-25 s, castingTimeIndex 5), silence-prevented with the kick bits. Terrify 7399 is instant (castingTimeIndex 1). |
 
 What needs a live check (not verified in game): that the interrupts fire in time on the 11-14 s Gust of Wind window.
 
