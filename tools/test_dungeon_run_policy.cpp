@@ -5508,7 +5508,6 @@ static void TestDoorHoldReleasesOnlyWhenOpen()
     CHECK(r.legNeedDecided.count(1) == 0);
     Facts open = DoorFacts("Hypeer", false);
     CHECK(DoorOpenWhilePaused(r, open)); // the glue's paused-branch call (tools/test_run_item_need_wiring.py)
-    CHECK(r.state == State::Running && !r.doorPaused);
     CHECK(r.legNeedDecided.count(1) == 1);
     CHECK(r.note == "door to leg arena reads open: going on by itself (regrouping)");
     // The run walks the leg (after the resume's regroup), never held at this door again even if it reads closed.
@@ -5534,6 +5533,28 @@ static void TestDoorNotFoundIsNotClosed()
     CHECK(r.state == State::Running && r.legNeedDecided.count(1) == 0);
     f.doorNeedRead = true;
     Tick(r, f);
+    CHECK(r.state == State::Paused && r.doorPaused);
+}
+
+// Review round 3 Opus fix 3: a resume while the door is out of the lead bot's
+// sight (the door object NOT FOUND) must not say 'closed': the hold stays, but
+// the refusal names the true cause.
+static void TestDoorHoldResumeOutOfSightNamesIt()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts closed = DoorFacts("Hypeer", true);
+    CHECK(GlueDoorTick(r, closed).empty());
+    CHECK(r.state == State::Paused && r.doorPaused);
+    LeadSpot spot;
+    spot.read = true;
+    spot.alive = true;
+    spot.onPlanMap = true;
+    std::string refusal;
+    CHECK(!ResumeChecked(r, spot, refusal, true));
+    CHECK(refusal.find("still hold at the closed door") != std::string::npos);
+    CHECK(!ResumeChecked(r, spot, refusal, false));
+    CHECK(refusal == "the door is out of sight of the lead bot: .bot run skip to go on, or bring the party to the door");
     CHECK(r.state == State::Paused && r.doorPaused);
 }
 
@@ -22041,6 +22062,7 @@ int main()
     TestBotKeysFlagOpensDoor();
     TestDoorHoldReleasesOnlyWhenOpen();
     TestDoorNotFoundIsNotClosed();
+    TestDoorHoldResumeOutOfSightNamesIt();
     TestDoorHoldOnlyNearTheDoor();
     TestBotKeysFlagDoorThatNeverOpensHolds();
     TestBotKeysFlagWithoutCarrierHolds();

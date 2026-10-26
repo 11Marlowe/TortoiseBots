@@ -56,7 +56,7 @@ class LeadOtherPartWiringTest(unittest.TestCase):
         # ResumeChecked with the lead bot as it stands, and a refusal answers ACTION_ERR and keeps the pause.
         resume = body(COMMANDS, 'else if (verb == "resume")', "else // skip")
         self.assertNotIn("done = Resume(slot.run);", resume)
-        self.assertIn("done = ResumeChecked(slot.run, spot, refusal);", resume)
+        self.assertIn("done = ResumeChecked(slot.run, spot, refusal, doorRead);", resume)
         self.assertIn("Player* lead = FindCharacter(binding->leadGuid)", resume)
         self.assertIn("if (lead->IsInWorld())", resume)
         self.assertIn("spot.read = true;", resume)
@@ -117,7 +117,7 @@ class LeadOtherPartWiringTest(unittest.TestCase):
     def test_resume_runs_the_rescue_for_a_passing_reason(self):
         # r39/r40 slot 6: the resume of a pause whose reason passes (a dead bot, the cap, the latch, a fight) runs the
         # rescue instead of the lead-other-part refusal; the other reasons keep the refusal.
-        checked = body(POLICY, "inline bool ResumeChecked(Run& r, const LeadSpot& lead, std::string& refusal)", "\n}\n")
+        checked = body(POLICY, "inline bool ResumeChecked(Run& r, const LeadSpot& lead, std::string& refusal,", "\n}\n")
         rescue = body(checked, "if (r.otherPartResumeRescue)", "refusal = ")
         self.assertLess(rescue.index("RearmRescueAfterDeath(r);"), rescue.index("Resume(r)"))
         resumes = body(POLICY, "inline bool OtherPartResumeRescues(OtherPartBlock why)", "\n}\n")

@@ -10669,7 +10669,16 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
                 spot.z = lead->GetPositionZ();
             }
         std::string refusal;
-        done = ResumeChecked(slot.run, spot, refusal);
+        bool doorRead = true;
+        if (slot.run.doorPaused && spot.read && spot.onPlanMap)
+            if (Player* doorLead = FindCharacter(binding->leadGuid))
+                if (doorLead->IsInWorld() && doorLead->GetMapId() == slot.run.plan->map)
+                {
+                    TortoiseBots::DungeonRun::Facts doorFacts;
+                    ReadRunNeedFacts(slot, doorLead, doorFacts);
+                    doorRead = doorFacts.doorNeedRead; // the door out of sight: the refusal says so, not 'closed'
+                }
+        done = ResumeChecked(slot.run, spot, refusal, doorRead);
         if (!refusal.empty())
         {
             if (slot.run.doorPaused) // the door hold: only the door read open ends it (item-leg skip)

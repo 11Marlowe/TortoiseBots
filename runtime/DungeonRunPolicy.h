@@ -4073,13 +4073,18 @@ inline void RearmRescueAfterDeath(Run& r);
 // rescue's latch armed again (the pause came after a death) and its rescues fresh (Resume), and the regroup's next
 // tick runs the rescue (OtherPartRescue) with the facts it reads then (a joined player still pauses). Every other case
 // resumes as Resume does. True when the run resumed; refusal is set only when it was refused for this reason.
-inline bool ResumeChecked(Run& r, const LeadSpot& lead, std::string& refusal)
+inline bool ResumeChecked(Run& r, const LeadSpot& lead, std::string& refusal, bool doorRead = true)
 {
     refusal.clear();
     // The door hold (DoorNeedHold, lead decision 2026-10-26, review round 2): with a real player in the party only
     // the door read open lets the bots on (DoorOpenWhilePaused); a resume while it reads closed keeps the hold.
     if (r.state == State::Paused && r.doorPaused)
     {
+        if (!doorRead)
+        {
+            refusal = "the door is out of sight of the lead bot: .bot run skip to go on, or bring the party to the door";
+            return false;
+        }
         refusal = "the bots still hold at the closed door: " + r.doorPausedAsk +
             ". The run goes on by itself once the door reads open; .bot run resume does not pass a closed door"
             " (.bot run skip walks the party past it by hand)";
