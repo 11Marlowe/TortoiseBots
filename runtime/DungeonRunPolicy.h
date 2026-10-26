@@ -1459,7 +1459,7 @@ struct Run
     std::uint32_t speedOnMs = 0;     // the walking rule (SpeedWalking) has held this long without a break
     float speedNow = 1.0f;           // the rate of the last tick (the glue's SyncRunSpeed reads it)
     // The test speed's leash (SpeedLeashTick): the walk holds for the party, since when, its note, and whether this
-    // walk point already spent its kGatherCapMs (no second hold until the next walk point).
+    // step already spent its kGatherCapMs (no second hold until the next step; cleared only in ResetStep).
     bool speedLeash = false;
     std::uint32_t speedLeashMs = 0;
     bool speedLeashSpent = false;
