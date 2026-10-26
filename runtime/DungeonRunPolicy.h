@@ -11191,6 +11191,8 @@ inline bool HoldDoneWhilePaused(Run& r, const Facts& f)
     const PlanStep* s = Current(r);
     if (r.state != State::Paused || !s)
         return false;
+    if (r.doorPaused)
+        return false; // the door hold ends only on the door read open (DoorOpenWhilePaused) or the skip
     std::string const done = HoldDoneNote(*s, f);
     if (done.empty())
         return false;
