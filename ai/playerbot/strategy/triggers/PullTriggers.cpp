@@ -170,18 +170,24 @@ bool PullEndTrigger::IsActive()
 
 bool PullHoldExpiredTrigger::IsActive()
 {
-    // Keyed on the window's own clock, not on the anchor marker or the combat
-    // clock: combat end, death and movement orders drop the marker and zero
-    // the combat clock, and a window read through them was never ended.
+    // Keyed on the window's own clock (PlayerbotAI::StartPullWindow /
+    // RestampPullWindow), not on the anchor marker or the combat clock: combat
+    // end, death and movement orders drop the marker and zero the combat
+    // clock, and a window read through them was never ended.
     if (!ai->HasPullWindow())
         return false;
     AiObjectContext* context = ai->GetAiObjectContext();
     if (!context)
         return false;
-    if (!ai->PullWindowExpired(AI_VALUE(uint8, "wait for attack time")))
-        return false;
-    if (!ai->PullWindowLeadKeyed())
+    // The window's own clock is the ceiling (a pullback that never lands
+    // still frees the party when it expires), not the gate: a lead-keyed
+    // window asks the lead rule while it still runs, so the early release
+    // (pack on the tank at the join delay) and the held-bot rescue (a held
+    // bot is hit -> release at once) fire before the cap.
+    if (ai->PullWindowExpired(AI_VALUE(uint8, "wait for attack time")))
         return true;
+    if (!ai->PullWindowLeadKeyed())
+        return false;
     // A run leader's lead-keyed pull: the held DPS open once every mob near
     // the tank is on it (join delay at the earliest, the cap at the latest),
     // or at once when a mob hits them or the tank drops under 60 %.

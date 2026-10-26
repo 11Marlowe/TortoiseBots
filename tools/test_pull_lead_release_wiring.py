@@ -5,8 +5,8 @@ unit-tested in tools/test_pull_join_window_policy.cpp). These pins prove the
 live rows call it: a rule nobody calls changes nothing in the game.
 
  - The hold release waits for the tank's lead on a run leader's pull
-   (PullHoldExpiredTrigger checks the lead key, then the release rule, and the
-   timer expiry stays the first gate).
+   (PullHoldExpiredTrigger asks the lead rule while the window runs, and the
+   timer expiry is the ceiling that releases at once).
  - The run leader's party hold is lead-keyed; the chat pullback hold is not.
  - The landing stamps the window landed only where the spec says: an ordinary
    pull marks it at the shot, a pullback only when the tank is back.
@@ -14,6 +14,9 @@ live rows call it: a rule nobody calls changes nothing in the game.
 Run: python3 -m unittest tools/test_pull_lead_release_wiring.py
 """
 import pathlib
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -33,6 +36,16 @@ class PullLeadReleaseWiring(unittest.TestCase):
         self.assertIn("PullWindowLeadKeyed()", fn)
         self.assertIn("ai::PullLeadReleases(", fn)
         self.assertLess(fn.index("PullWindowExpired("), fn.index("PullLeadReleases("))
+        # The timer expiry is the ceiling (release at once), not a gate: a
+        # lead-keyed window asks the lead rule while it still runs, so the
+        # early release (pack on the tank at the join delay) and the held-bot
+        # rescue (a held bot is hit -> release at once) fire before the cap.
+        expiry = fn.index("if (ai->PullWindowExpired(")
+        self.assertIn("return true;", fn[expiry:fn.index(";", expiry) + 30])
+        lead = fn.index("if (!ai->PullWindowLeadKeyed())")
+        self.assertIn("return false;", fn[lead:fn.index(";", lead) + 30])
+        self.assertLess(expiry, lead)
+        self.assertLess(lead, fn.index("ai::PullLeadReleases("))
 
     def test_run_leader_party_hold_is_lead_keyed(self):
         fn = body(COMMANDS, "void PausePartyDpsForPull(")
@@ -49,12 +62,74 @@ class PullLeadReleaseWiring(unittest.TestCase):
         self.assertNotIn(",", call)
 
 
+class PullLeadReleasePolicy(unittest.TestCase):
+    # The three brief cases, straight through the shipped rule: a tick calls
+    # PullLeadReleases once the window runs, and the wide-window expiry
+    # releases a pullback that never landed.
+    @unittest.skipUnless(shutil.which("g++"), "g++ unavailable")
+    def test_release_rule_cases(self):
+        policy = (ROOT / "ai/playerbot/PullJoinWindowPolicy.h").read_text()
+        harness = r"""
+#include <cassert>
+#include <cstdio>
+"""
+        harness += policy + r"""
+int main()
+{
+    // Landed, every mob on the tank at the join delay: release before the cap.
+    ai::PullLeadFacts landed;
+    landed.landed = true; landed.elapsedSeconds = 5; landed.minSeconds = 5;
+    landed.tankAlive = true; landed.packUnits = 3; landed.packOnTank = 3;
+    assert(ai::PullLeadReleases(landed));
+    // Same pack, joiners still arriving: hold.
+    landed.packOnTank = 2;
+    assert(!ai::PullLeadReleases(landed));
+    // A held DPS is hit: release at once, even before the join delay.
+    ai::PullLeadFacts hit = landed;
+    hit.elapsedSeconds = 1; hit.botIsVictim = true;
+    assert(ai::PullLeadReleases(hit));
+    // Never landed (the pullback tank is still out): hold past the wide
+    // window, then the window expiry releases it. The window's own Expired
+    // is that ceiling: 15 s return + 5 s join after the command.
+    ai::PullLeadFacts lost;
+    lost.landed = false; lost.elapsedSeconds = 30;
+    lost.tankAlive = true;
+    assert(!ai::PullLeadReleases(lost));
+    ai::PullJoinWindow window;
+    window.Start(1000, 0, 0, true, 5);
+    assert(window.Running());
+    assert(!window.Expired(1000 + 19, 20));
+    assert(window.Expired(1000 + 20, 20));
+    std::puts("policy ok");
+    return 0;
+}
+"""
+        with tempfile.TemporaryDirectory(prefix="pull-lead-release-") as folder:
+            cpp = pathlib.Path(folder) / "test.cpp"
+            exe = pathlib.Path(folder) / "test"
+            cpp.write_text(harness)
+            subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra",
+                            str(cpp), "-o", str(exe)], check=True)
+            subprocess.run([str(exe)], check=True)
+
+
 class BotOnlyRunHoldWiring(unittest.TestCase):
     def test_bot_only_run_parties_keep_the_hold(self):
         combat = (ROOT / "ai/playerbot/strategy/generic/CombatStrategy.cpp").read_text()
         fn = body(combat, "bool WaitForAttackStrategy::ShouldWait(PlayerbotAI* ai)")
+        # LEAD DECISION (bot-only bound run): the DPS hold applies ONLY to a
+        # run-leader pull window (the pull hold), never to a bot's own stored
+        # "wait for attack" strategy at every fight start.
         self.assertIn("IsInRunningDungeonRun(bot)", fn)
+        self.assertIn("HasPullWindow()", fn)
 
+    def test_player_stored_wait_for_attack_ignores_the_run_gate(self):
+        combat = (ROOT / "ai/playerbot/strategy/generic/CombatStrategy.cpp").read_text()
+        fn = body(combat, "bool WaitForAttackStrategy::ShouldWait(PlayerbotAI* ai)")
+        self.assertIn("HasRealPlayerMaster()", fn)
+        run = fn.index("IsInRunningDungeonRun(bot)")
+        window = fn.index("HasPullWindow()")
+        self.assertLess(run, window)
 
 if __name__ == "__main__":
     unittest.main()
