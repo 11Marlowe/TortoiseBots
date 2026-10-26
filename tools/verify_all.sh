@@ -29,6 +29,9 @@ echo "✓ Action and trigger wiring verified (0 missing live creators)."
 echo ""
 echo "=== 4. Running Engine Unit Tests (discovered: tools/test_*.py) ==="
 python3 -m unittest discover -s tools -p 'test_*.py'
+if [[ -z "${TORTOISE_CORE:-}" ]]; then
+    echo "SKIPPED: core-side repop door checks (set TORTOISE_CORE=<core checkout>; the VM build gate runs them)"
+fi
 echo "✓ Engine unit tests passed."
 
 echo ""

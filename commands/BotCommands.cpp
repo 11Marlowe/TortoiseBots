@@ -454,9 +454,9 @@ struct BotCommandEntry
 };
 
 static bool AlwaysVisible() { return true; }
-static bool CommanderVisible() { return sPlayerbotAIConfig.remoteCommander; }
+static bool CommanderVisible() { return RemoteCommander::CommanderSurfaceOn(CurrentCommanderGates()); }
 static bool TraceVisible() { return sPlayerbotAIConfig.runTrace; }
-static bool RunVisible() { return sPlayerbotAIConfig.dungeonSelfClear && sPlayerbotAIConfig.remoteCommander; }
+static bool RunVisible() { return RemoteCommander::RunSurfaceOn(CurrentCommanderGates()); }
 
 static BotCommandEntry const botCommands[] = {
     {"ah", HandleAhBot, "ah <status|reload|rebuild|item ...>", {"ahbot"}, AlwaysVisible},

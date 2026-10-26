@@ -131,6 +131,8 @@ namespace ai
         // takes a terrain the caller already resolved (one lookup per route).
         bool isInMagma() const { return isInMagma(getTerrain()); }
         bool isInMagma(const TerrainInfo* terrain) const;
+        bool isInSlime() const { return isInSlime(getTerrain()); }
+        bool isInSlime(const TerrainInfo* terrain) const;
         bool setAtWaterSurface();
         bool isUnderground() const;
         float getWaterLevel() const { return getTerrain() ? getTerrain()->GetWaterLevel(x, y, z) : -200000.0f; };
@@ -340,6 +342,17 @@ namespace ai
         std::vector<G3D::Vector3> toPointsArray(const std::vector<WorldPosition>& path) const;
 
         //Pathfinding
+        // The core PathFinder's type for the last getPathStepFrom on this thread
+        // (0 = none since the caller reset it): the action log's FAILED line reads it
+        // for a failed move (MoveFailNotePolicy.h).
+        static uint32& LastPathStepType() { static thread_local uint32 type = 0; return type; }
+        // The swim-line test getPathStepFrom keeps the core's straight swim answer by
+        // (SwimPathPolicy.h): every leg in water or ocean at 2 yd samples, at most 80 yd,
+        // and in `bot`'s sight. The run leader asks it before a stall's direct move.
+        static bool IsSwimLine(const std::vector<WorldPosition>& path, const Unit* bot);
+        // Why IsSwimLine refuses `path` for `bot` ("ok", or the first failing check of the first leg that
+        // fails): the swim hand-off's log line (MovementActions.cpp).
+        static std::string SwimLineWhy(const std::vector<WorldPosition>& path, const Unit* bot);
         std::vector<WorldPosition> getPathStepFrom(const WorldPosition& startPos, std::unique_ptr<PathFinder>& pathfinder, const Unit* bot, bool forceNormalPath = false) const;
         std::vector<WorldPosition> getPathStepFrom(const WorldPosition& startPos, const Unit* bot, bool forceNormalPath = false) const;
         std::vector<WorldPosition> GetPathStepFrom(const WorldPosition& startPos, const Unit* bot, bool forceNormalPath = false) const { return getPathStepFrom(startPos, bot, forceNormalPath); }

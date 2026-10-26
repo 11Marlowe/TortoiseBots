@@ -17,6 +17,10 @@
 //
 // Magma only. Slime does no damage in this core (Player.cpp, the DAMAGE_SLIME
 // tick is commented out), and refusing it would strand bots in Undercity.
+// The swim hand-off is the exception (IsSlimeHazard, ClassifyLiquidHazard
+// below): a hand-off route is a swim the route filter (SwimPathFits) already
+// refuses through slime, so the hand-off samples every leg for slime exactly
+// as for magma instead of taking it.
 
 #include <cmath>
 #include <cstddef>
@@ -27,6 +31,10 @@ namespace ai
 {
     // GridMapDefines.h: MAP_LIQUID_TYPE_MAGMA (a type_flags bit).
     constexpr std::uint32_t kMagmaLiquidTypeFlag = 0x01;
+    // GridMapDefines.h: MAP_LIQUID_TYPE_SLIME (a type_flags bit). Slime counts in the
+    // DispatchMovement restore gate (a clamp sunk in slime needs a confirmed floor too)
+    // and in the swim hand-off route guard (LiquidHazard); ordinary route refusal stays magma-only.
+    constexpr std::uint32_t kSlimeLiquidTypeFlag = 0x04;
     // GridMapDefines.h GridMapLiquidStatus: LIQUID_MAP_WATER_WALK,
     // LIQUID_MAP_IN_WATER, LIQUID_MAP_UNDER_WATER.
     constexpr std::uint32_t kLiquidStatusWaterWalk = 0x02;
@@ -65,6 +73,39 @@ namespace ai
         if (!(typeFlags & kMagmaLiquidTypeFlag))
             return false;
         return (status & (kLiquidStatusUnderWater | kLiquidStatusInWater | kLiquidStatusWaterWalk)) != 0;
+    }
+
+    // The same rule for slime (round 2, Codex HIGH 2026-10-25): the liquid
+    // there is slime and the point is under it, in it, or just on its
+    // surface. The swim hand-off routes use it (see above), and so does the
+    // DispatchMovement restore gate: a clamp sunk in slime is no safer a floor
+    // signal than one sunk in magma, so the stair-workaround restore needs a
+    // confirmed floor there as well. Ordinary route refusal stays magma-only.
+    inline bool IsSlimeHazard(std::uint32_t typeFlags, std::uint32_t status)
+    {
+        if (!(typeFlags & kSlimeLiquidTypeFlag))
+            return false;
+        return (status & (kLiquidStatusUnderWater | kLiquidStatusInWater | kLiquidStatusWaterWalk)) != 0;
+    }
+
+    // One sampled guard's per-sample verdict: magma always, slime too when
+    // `withSlime` (the 0x81, 0x1 and swim-out hand-off routes); ordinary moves
+    // pass false and see exactly what IsMagmaHazard saw. Magma wins when both
+    // bits are set (one liquid type per point in practice).
+    enum class LiquidHazard
+    {
+        None,
+        Magma,
+        Slime,
+    };
+
+    inline LiquidHazard ClassifyLiquidHazard(std::uint32_t typeFlags, std::uint32_t status, bool withSlime)
+    {
+        if (IsMagmaHazard(typeFlags, status))
+            return LiquidHazard::Magma;
+        if (withSlime && IsSlimeHazard(typeFlags, status))
+            return LiquidHazard::Slime;
+        return LiquidHazard::None;
     }
 
     // Where the guard applies: bots on an instance map (dungeon or raid,
@@ -146,17 +187,20 @@ namespace ai
 
     // A commander task's walk nudge (a plain core MovePoint to its standing
     // point, BotCommands NudgeTaskWalk) on an instance map waits while the
-    // bot's last MoveTo2 was a magma refusal still in its window, or when the
+    // bot's magma refusal memory on this map is still in its window, or when the
     // standing point itself is in magma: otherwise the nudge walks the bot
-    // where MoveTo2 refused to.
-    inline bool MagmaNudgeBlocked(bool guardApplies, bool lastMoveRefusedMagma, MagmaRefusal const& r,
+    // where MoveTo2 refused to. The memory alone decides, not the last try's
+    // fail reason: MoveTo2 resets that reason on every try (the action log's
+    // note), so a later try that failed otherwise cleared it, and the nudge then
+    // walked across the magma (Codex review 2026-10-23).
+    inline bool MagmaNudgeBlocked(bool guardApplies, MagmaRefusal const& r, std::uint32_t mapId,
         std::int64_t now, bool standInMagma)
     {
         if (!guardApplies)
             return false;
         if (standInMagma)
             return true;
-        return lastMoveRefusedMagma && r.set && now < r.until;
+        return r.set && r.mapId == mapId && now < r.until;
     }
 
     struct MagmaPoint
@@ -184,6 +228,33 @@ namespace ai
         if (!(length > kMagmaSampleStepYd))
             return 0;
         return static_cast<std::size_t>(std::ceil(length / kMagmaSampleStepYd)) - 1;
+    }
+
+    // How far (yards) the interior-sample budget reaches at full density:
+    // kMagmaMaxInteriorSamples samples at kMagmaSampleStepYd spacing. A route
+    // longer than this needs more interior samples than the budget holds, past
+    // which only the path points are looked at. The swim hand-off refuses such
+    // a route (Codex HIGH 2026-10-25) instead of checking it sparsely; other
+    // callers keep the shared budget as is.
+    constexpr float kMagmaFullSampleCoveredYd = kMagmaMaxInteriorSamples * kMagmaSampleStepYd;
+
+    // Whether the route `line` (first point the bot's spot) is too long to
+    // check at the guard's full density: its total length exceeds what the
+    // interior-sample budget covers, past which only path points are looked
+    // at, so slime/magma between two safe late waypoints would be missed.
+    inline bool MagmaRouteTooLongToCheck(std::vector<MagmaPoint> const& line)
+    {
+        float total = 0.0f;
+        for (std::size_t i = 1; i < line.size(); ++i)
+        {
+            float const dx = line[i].x - line[i - 1].x;
+            float const dy = line[i].y - line[i - 1].y;
+            float const dz = line[i].z - line[i - 1].z;
+            total += std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (total > kMagmaFullSampleCoveredYd)
+                return true;
+        }
+        return false;
     }
 
     // The route from `start` (the bot) along `path`, sampled at each path
@@ -242,5 +313,28 @@ namespace ai
             prev = next;
         }
         return result;
+    }
+
+    // DispatchMovement rewrites each path point with UpdateAllowedPositionZ; over a thin floor above WMO
+    // magma the core answers liquid level - 2 (GetWaterOrGroundLevel, swim=true, on LIQUID_MAP_ABOVE_WATER),
+    // which is inside the magma (Dragonmaw Retreat r39s2/r41s2, specs/dmr-step453.md). Keep the navmesh
+    // floor then — but only when the core's COLLISION (vmap) height query confirms a real floor at the
+    // navmesh point (round 1): a bridged/eroded navmesh point over an open hole reads dry but has no
+    // floor, so restoring its z would float the bot; a polygon a little above open lava reads dry but
+    // the bot would walk on the lava surface.
+    inline bool KeepNavmeshZOverMagma(bool guardApplies, bool lowered, bool clampedInMagma, bool navmeshInMagma,
+        bool floorConfirmed)
+    {
+        return guardApplies && lowered && clampedInMagma && !navmeshInMagma && floorConfirmed;
+    }
+    // The crypt-stair large-drop workaround (MovementActions.cpp) keeps the
+    // navmesh z whenever the clamp dropped more than kMaxWaypointDrop. It keeps
+    // that behaviour only when the ORIGINAL clamp is neither in magma nor in
+    // slime: a big drop into either means the navmesh point may itself sit
+    // over a hole or an open liquid pool, so only the confirmed-floor path
+    // may restore. Pure, so the policy test owns the table.
+    inline bool KeepStairNavmeshZ(bool lowered, bool bigDrop, bool clampedInMagmaOrSlime)
+    {
+        return lowered && bigDrop && !clampedInMagmaOrSlime;
     }
 }

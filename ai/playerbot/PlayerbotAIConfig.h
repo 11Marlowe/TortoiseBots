@@ -92,6 +92,13 @@ public:
 
 public:
     bool Initialize();
+    // The run leader's keys (AiPlayerbot.DungeonSelfClear and AiPlayerbot.DungeonRun*), read from the loaded
+    // aiplayerbot.conf: by Initialize, and again by ReloadDungeonRunKeys after a `.reload config`.
+    void LoadDungeonRunKeys();
+    // Reads aiplayerbot.conf again and only the run leader's keys from it (the rest of the settings keep their
+    // start values). World thread only (BotHostAdapter::OnUpdate). False when the AI is disabled or the file
+    // could not be read; the keys are then left as they were.
+    bool ReloadDungeonRunKeys();
     bool IsInRandomAccountList(uint32 id);
     bool IsFreeAltBot(uint32 guid);
     bool IsFreeAltBot(Player* player) {return IsFreeAltBot(player->GetGUIDLow());}
@@ -557,7 +564,7 @@ public:
     // Onyxia phase 2 whelp duty for AoE ranged DPS and egg-cave avoidance (opt-in).
     bool onyxiaWhelpsAndEggs;
     bool dungeonTactics;
-    // `.bot run`: a bound party clears a dungeon plan by itself (opt-in).
+    // `.bot run`: the run leader (default on).
     bool dungeonSelfClear;
     // The run leader's time limit from `run start`, in minutes (0 = none; default 180 = 3 h).
     uint32 dungeonRunMaxMinutes;
@@ -570,9 +577,24 @@ public:
     // The run leader orders `pullback` only when the tank can shoot from where it stands, else it walks the
     // party to a firing stand first (DungeonRunPolicy.h HoldForShot; default off).
     bool dungeonRunPullStand;
+    // 1: the run leader walks the tank back to the guard's stand point after every guarded fight, as before
+    // 2026-10-22; 0 (default): not once the step's pack is cleared (DungeonRunPolicy.h GuardWalkBackWanted).
+    bool dungeonRunWalkBackAfterWonFight;
+    bool dungeonRunRetreatAt2Dead;
+    bool dungeonRunWalkBackRescue;
+    bool dungeonRunFightForward;
+    bool dungeonRunLightRest;
     // A run leader loot step whose item is another member's under the group's loot rules sets free-for-all for the
     // carrier's loot and puts the method back (DungeonRunPolicy.h LootFfaStep; default off).
     bool dungeonRunLootFfa;
+    // Player-led runs (`.bot run start ... player`, PlayerLedPolicy.h; default off): a player walks his own party,
+    // the run leader pulls the plan's packs near him (within dungeonRunPlayerLedPullYd, default 40 yd).
+    bool dungeonRunPlayerLed;
+    float dungeonRunPlayerLedPullYd;
+    // ... and how long the leading player may be out of the plan's dungeon before the run stops (minutes, default 10).
+    uint32 dungeonRunPlayerLedAwayMinutes;
+    // Bot LFG dungeon groups (SystemRunPolicy.h; default on); dormant while dungeonSelfClear is off.
+    bool botLfgGroups;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
     bool avoidCreatureAuras;
     // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).

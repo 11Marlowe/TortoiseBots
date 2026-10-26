@@ -13,10 +13,15 @@ gather, not a player's order). During a walk back the step facts (hop pulls)
 are read for the replayed move point.
 """
 import pathlib
+import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 COMMANDS = (ROOT / "commands/Commander.cpp").read_text()
+
+
+def strip_comments(text):
+    return "\n".join(line.split("//", 1)[0].rstrip() for line in text.splitlines())
 
 
 def body(text, start, end):
@@ -26,9 +31,9 @@ def body(text, start, end):
 
 class RunLeaderWiringTest(unittest.TestCase):
     def test_refusal_reports_the_order_as_sent(self):
-        self.assertIn("std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);", COMMANDS)
+        self.assertIn(": TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);", COMMANDS)
         self.assertIn("bool const accepted = IssueRunOrder(commander, order, answer,\n"
-                      "            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order));", COMMANDS)
+                      "            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order), &captured);", COMMANDS)
         self.assertIn("TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer", COMMANDS)
 
     def test_ghost_lead_tolerated_during_a_regroup(self):
@@ -41,7 +46,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         # loader reads a move_hop_exact row as a MoveDirect with exactLaunch (DungeonPlanPolicy.h ParsePlanStepRowKind).
         self.assertIn("f.leadMoving = lead->IsMoving();", body(COMMANDS, "void ReadRunFacts(", "\n}\n"))
         loader = (ROOT / "ai/playerbot/DungeonPlanMgr.cpp").read_text()
-        self.assertIn("ParsePlanStepRowKind(fields[3].GetCppString(), step.kind, step.exactLaunch);", loader)
+        self.assertIn("ParsePlanStepRowKind(fields[3].GetCppString(), step.kind, step.exactLaunch, step.openProof);", loader)
         self.assertNotIn("step.kind = ParsePlanStepKind(", loader)
 
     def test_cmd_move_checks_the_lead_distance(self):
@@ -72,9 +77,9 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("SyncRunHold(commander, lead, bots, it->second, !order.empty());", tick)
         early = body(tick, "if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)", "return;")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", early)
-        offmap = body(tick, "the lead bot is not on the plan's map", "return;")
+        offmap = body(tick, "PauseLeadOffMap(slot.run, slot.run.plan->map);", "return;")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", offmap)
-        stop = body(COMMANDS, 'slot.run.note = RunStopNote(rawArg);', "DungeonRuns().erase(it);")
+        stop = body(COMMANDS, 'EndRunEarly(slot.run, RunStopNote(rawArg));', "DungeonRuns().erase(it);")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", stop)
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("f.deadNames.push_back(bot->GetName());", facts)
@@ -134,20 +139,140 @@ class RunLeaderWiringTest(unittest.TestCase):
 
     def test_direct_walk_back_checks_the_path_against_packs(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
-        self.assertIn("f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,\n"
-                      "                            slot.run.notCleared);", facts)
+        self.assertIn("f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan,\n"
+                      "                            TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,\n"
+                      "                            TortoiseBots::DungeonRun::UnclearedForPath(slot.run));", facts)
+        # UnclearedForPath is notCleared plus the steps before a placed run's start (2026-10-23).
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        self.assertIn("std::unordered_set<std::size_t> out = r.notCleared;", body(policy,
+            "inline std::unordered_set<std::size_t> UnclearedForPath(const Run& r)", "\n}\n"))
+
+    def test_guard_reads_every_run_cc_as_held(self):
+        # The tank's guard leaves a shackled, banished or sapped mob alone like a sheep: both of its
+        # reads (the lead bot's nearest attacker and the party's attackers), as code.
+        guard = strip_comments(body(COMMANDS, "void ReadGuardFacts(", "\n}\n"))
+        self.assertIn("fact.polymorphed = RunCcHeld(nearestHit);", guard)
+        self.assertIn("fact.polymorphed = RunCcHeld(attacker);", guard)
+
+    def test_focus_skull_and_camp_casters_are_wired(self):
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        tick = body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertIn("it->second.run.focusIconClear", tick)
+        self.assertIn("EndRunIcon(clearGroup, TortoiseBots::DungeonRun::kFocusIcon, focus)", tick)
+        self.assertIn("pending.icon = TortoiseBots::DungeonRun::kFocusIcon;", tick)
+        self.assertLess(tick.index("StopLeadReach(commander, lead);"), tick.index("it->second.run.focusIconClear = 0;"))
+        clear = body(COMMANDS, "void ClearRunCcIcons(uint64 leadRaw, uint32 groupId, DungeonRunSlot& slot)\n{", "\n}\n")
+        self.assertIn("slot.run.focusIconGuid, slot.run.focusIconClear, slot.run.prevFocusIconGuid", clear)
+        self.assertIn("pending.icon = TortoiseBots::DungeonRun::kFocusIcon;", clear)
+        self.assertEqual(clear.count("PendingRunCcIcons().push_back(pending);"), 2)  # cc loop + focus loop
+        self.assertEqual(COMMANDS.count("fact.castingAtRange = fact.hitting && !melee;"), 2)
+        self.assertEqual(COMMANDS.count("IdleHostilesNear(lead, attacker, TortoiseBots::DungeonRun::kGuardCampYd)"), 2)
+        caster = body(COMMANDS, "uint32 IdleHostilesNear(Player* lead, Unit* unit, float range)\n{", "\n}\n")
+        self.assertIn("other != unit &&", caster)
+        self.assertIn("GroupCanAttack(lead, other)", caster)
+        reset = body(policy, "inline void ResetStep(Run& r)", "\n}\n")
+        self.assertIn("DropFocus(r);", reset)
+        self.assertNotIn("r.focusGuid = 0;", reset)
+        self.assertEqual(policy.count("r.focusGuid = 0;"), 1)   # DropFocus's own line only
+
+    def test_cc_clear_order_and_run_end_icons(self):
+        # `cmd cc clear <bot> [<mark> <guid>]`: the bot's rti cc goes to none, the icon only while on that unit.
+        clear = strip_comments(COMMANDS.split('if (!parts.empty() && parts[0] == "clear")', 1)[1].split("// cc <mark> <guid> [bot]", 1)[0])
+        self.assertIn('namedAi->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set("none");', clear)
+        self.assertIn("order.group->GetTargetIcon(static_cast<uint8>(iconIndex)).GetRawValue() == iconGuid)", clear)
+        self.assertIn("order.group->SetTargetIcon(static_cast<uint8>(iconIndex), ObjectGuid());", clear)
+        # The run's end: the group without the lead bot too (its id from the binding), each icon by
+        # DungeonRun::RunIconAtEnd, and a group not found keeps the icon for a bounded retry.
+        group = strip_comments(body(COMMANDS, "Group* RunIconGroup(uint64 leadRaw, uint32 groupId)\n{", "\n}\n"))
+        self.assertIn("return groupId ? sObjectMgr.GetGroupById(groupId) : nullptr;", group)
+        end = strip_comments(body(COMMANDS, "bool EndRunIcon(Group* group, int icon, uint64 guid)\n{", "\n}\n"))
+        self.assertIn("RunIconAtEnd(group != nullptr, live, guid)", end)
+        self.assertIn("group->SetTargetIcon(static_cast<uint8>(icon), ObjectGuid());", end)
+        icons = strip_comments(body(COMMANDS, "void ClearRunCcIcons(uint64 leadRaw, uint32 groupId, DungeonRunSlot& slot)\n{", "\n}\n"))
+        self.assertIn("Group* const group = RunIconGroup(leadRaw, groupId);", icons)
+        self.assertIn("if (!EndRunIcon(group, icon.first, icon.second))", icons)
+        self.assertIn("PendingRunCcIcons().push_back(pending);", icons)
+        retry = strip_comments(body(COMMANDS, "void RetryRunCcIcons(uint32 diff)\n{", "\n}\n"))
+        self.assertIn("EndRunIcon(RunIconGroup(it->leadRaw, it->groupId), it->icon, it->guid) || it->ageMs >= kRunIconRetryMs", retry)
+        update = strip_comments(body(COMMANDS, "void UpdateRemoteCommanders(uint32_t diff)\n{", "\n}\n"))
+        self.assertLess(update.index("RetryRunCcIcons(diff);"), update.index("if (CommanderBindings().Empty())"))
+        # The facts confirm the record only when the icons were read.
+        facts = strip_comments(body(COMMANDS, "void ReadRunFacts(", "\n}\n"))
+        self.assertIn("f.raidIconsRead = true;", facts)
+        # Every run end clears them: the time limit, `.bot run stop`, the plan's end, an unbind, a switch-off.
+        code = strip_comments(COMMANDS)
+        self.assertEqual(code.count("ClearRunCcIcons(binding->leadGuid, binding->groupId, slot);"), 3)
+        self.assertEqual(code.count("ClearRunCcIcons(standing->leadGuid, standing->groupId, run->second);"), 1)
+        self.assertEqual(code.count("ClearRunCcIcons(standing->leadGuid, standing->groupId, entry.second);"), 1)
 
     def test_crowd_control_and_kill_first_facts(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
-        # The crowd control is a mage that knows Polymorph (the policy picks it from the members).
+        # The crowd control is picked from the members (issue #1159): a mage that knows Polymorph, and
+        # the priest's, warlock's and rogue's run cc by KnownRunCc; each unit carries its creature type
+        # and whether a run cc aura is on it, on both unit reads (the step's pack and a hold's units).
         self.assertIn("member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);", facts)
-        self.assertIn("unit.polymorphed = Polymorphed(creature);", facts)
+        code = "\n".join(line.split("//", 1)[0].rstrip() for line in facts.splitlines())
+        self.assertIn("member.cc = KnownRunCc(bot);", code)
+        self.assertEqual(code.count("unit.polymorphed = RunCcHeld(creature);"), 2)
+        self.assertEqual(code.count("unit.creatureType = creature->GetCreatureType();"), 2)
+        self.assertNotIn("Polymorphed(", COMMANDS)
+        known = body(COMMANDS, "uint32 KnownRunCc(", "\n}\n")
+        self.assertIn("case CLASS_PRIEST: return KnowsAny(bot, kShackleUndeadSpells) ? CcBit(CcFamily::Shackle) : 0;", known)
+        self.assertIn("case CLASS_WARLOCK: return KnowsAny(bot, kBanishSpells) ? CcBit(CcFamily::Banish) : 0;", known)
+        self.assertIn("case CLASS_ROGUE: return KnowsAny(bot, kSapSpells) ? CcBit(CcFamily::Sap) : 0;", known)
+        held = body(COMMANDS, "bool RunCcHeld(", "\n}\n")
+        for spells in ("kPolymorphSpells", "kShackleUndeadSpells", "kBanishSpells", "kSapSpells"):
+            self.assertIn("HasAnyAura(unit, %s)" % spells, held)
+        # Review of fe5d4109: each unit's immunity, the rogue's live master and the live raid icons are read.
+        self.assertEqual(code.count("unit.ccImmune = RunCcImmune(creature);"), 2)
+        self.assertIn("member.canSap = (member.cc & CcBit(CcFamily::Sap)) && memberAi && memberAi->HasRealPlayerMaster() &&", code)
+        self.assertIn('!memberAi->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT);', code)
+        self.assertIn("f.raidIcons[i] = iconGroup->GetTargetIcon(i).GetRawValue();", code)
+        immune = strip_comments(body(COMMANDS, "uint32 RunCcImmune(", "\n}\n"))
+        self.assertIn("(templateMask & (1u << (mechanic - 1))) || creature->IsImmuneToMechanic(Mechanics(mechanic))", immune)
+
         # Kill-first units come from the bots' cached attackers lists: no grid or world scan (AGENTS.md).
         self.assertIn("ReadKillFirst(*slot.run.plan, lead, bots, f);", facts)
         kill = body(COMMANDS, "void ReadKillFirst(", "\n}\n")
         self.assertIn('ReadCachedGuidList(PlayerbotAIStorage::Instance().GetAI(bot), "attackers", guids);', kill)
         for scan in ("GetCreatureListWithEntryInGrid", "Cell::Visit", "VisitAllObjects", "HostileCreaturesAround"):
             self.assertNotIn(scan, kill)
+        # The creatures channelling an aura at an engaged attacker (Hailar's Ritualists, r19-19z37) are
+        # read off that attacker's own aura holders, inside the engaged block, and flagged for the policy.
+        # Checked on the code with its // comments stripped, so a commented-out line does not pass.
+        code = "\n".join(line.split("//", 1)[0].rstrip() for line in kill.splitlines())
+        self.assertIn("fact.auraOnEngaged = auraOnEngaged;", code)
+        self.assertEqual(code.count("std::unordered_set<uint64> auraWalked;"), 1)
+        engaged = code.split("if (EngagedWithParty(unit, party))\n", 1)
+        self.assertEqual(len(engaged), 2)
+        self.assertNotIn("GetSpellAuraHolderMap", engaged[0])
+        block = engaged[1].split("\n            }\n", 1)[0]
+        walk = block.split("if (auraWalked.insert(unit->GetObjectGuid().GetRawValue()).second)\n", 1)
+        self.assertEqual(len(walk), 2)  # each attacker's holders once per read, however many bots list it
+        walk = walk[1]
+        self.assertIn("for (auto const& entry : unit->GetSpellAuraHolderMap())", walk)
+        self.assertIn("ObjectGuid const casterGuid = holder->GetCasterGuid();", walk)
+        # The caster is looked up on the attacker's own map and must be in the world, not deleted,
+        # and channelling at this unit now (a long buff or HoT left by a creature elsewhere is not).
+        lookup = "Unit* caster = unit->GetMap()->GetUnit(casterGuid);"
+        channel = "caster->GetChannelObjectGuid() != unit->GetObjectGuid())\n                            continue;"
+        self.assertIn(lookup, walk)
+        self.assertNotIn("lead->GetMap()", walk)
+        self.assertIn("if (!caster || !caster->IsInWorld() || caster->IsDeleted() ||", walk)
+        self.assertIn(channel, walk)
+        # A caster already read off an attackers list gets the flag on its fact (code, after the
+        # channel check); a new one is added with it. Only the aura caster is flagged.
+        upgrade = ("if (seen.count(casterRaw))\n                        {\n"
+                   "                            for (TortoiseBots::DungeonRun::UnitFact& known : f.killFirst)\n"
+                   "                                if (known.guid == casterRaw)\n"
+                   "                                    known.auraOnEngaged = true;\n"
+                   "                            continue;")
+        self.assertIn(upgrade, "\n".join(l for l in walk.splitlines() if l.strip()))
+        self.assertIn("add(caster, true);", walk)
+        self.assertLess(walk.index(lookup), walk.index(channel))
+        self.assertLess(walk.index(channel), walk.index("known.auraOnEngaged = true;"))
+        self.assertLess(walk.index(channel), walk.index("add(caster, true);"))
+        self.assertEqual(code.count(", true);"), 1)
         self.assertIn("fact.engaged = EngagedWithParty(unit, party);", kill)
         # A ward is read off its engaged owner at once (totems and guardians), not when a cached list takes it in.
         self.assertIn("CONTROLLED_TOTEMS | CONTROLLED_GUARDIANS", kill)
@@ -164,8 +289,9 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("if (TortoiseBots::CcLeavesOut(totem, npcSummoned, inRun, runKillFirst))", cc)
         self.assertIn("inRun = TortoiseBots::BotCommands::IsInRunningDungeonRun(ai->GetBot());", cc)
         self.assertIn("if (inRun && !assignedTarget)\n            return;", cc)
-        query = body(COMMANDS, "RunningRunOf(Player* bot)", "\n}\n")
-        self.assertIn("State::Running", query)
+        self.assertIn("RunSlotOf(bot, activeOnly)", body(COMMANDS, "RunningRunOf(Player* bot, bool activeOnly = false)", "\n}\n"))
+        query = body(COMMANDS, "static DungeonRunSlot* RunSlotOf(Player* bot, bool activeOnly)", "\n}\n")
+        self.assertIn(": it->second.run.state != TortoiseBots::DungeonRun::State::Running", query)
 
     def test_spells_at_a_totem_must_hit_it(self):
         spells = (ROOT / "ai/playerbot/strategy/actions/GenericSpellActions.cpp").read_text()
@@ -220,6 +346,41 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("Player* const carrier = RunTaskBot(slot, lead, bots, step, &f.itemsSplit);", facts)
         # A new order picks afresh: the previous order's bot is cleared before the pick.
         self.assertIn("slot.carrierRaw = 0;\n            slot.carrierRaw = RunTaskBot(slot, lead, bots,", COMMANDS)
+
+    def test_open_proof_is_read_only_for_its_step(self):
+        # open_proof: the proof is read only for the actual current step (not FactStep's walk-back
+        # replayed point), and only when that step is an open_proof (the way ReadHoldDone reads its
+        # own step before the facts' own step). The glue asks the policy's ProofStep helper for step,
+        # scoped to the task-facts case: the old string-only pin passed with the read moved out of
+        # the guard, so only the guarded read inside this block passes.
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        proof = facts.index("f.proofUp = OpenProofUp(lead, *step);")
+        block = facts[facts.index("case ai::PlanStepKind::Loot:"):proof]
+        self.assertIn("ProofStep(slot.run) == step", block)
+
+    def test_open_proof_object_must_be_spawned(self):
+        # A placed but despawned light is no proof: the object search uses EntryGameObjectCheck (isSpawned).
+        proof = body(COMMANDS, "bool OpenProofUp(", "\n}\n")
+        self.assertIn("EntryGameObjectCheck check(step.entries.front(), point, step.radius);", proof)
+        check = body(COMMANDS, "class EntryGameObjectCheck", "\n};\n")
+        self.assertIn("sServerFacade.isSpawned(go)", check)
+
+    def test_open_proof_creature_must_be_alive(self):
+        proof = body(COMMANDS, "bool OpenProofUp(", "\n}\n")
+        self.assertIn("EntryLivingCreatureCheck check(step.entries.front(), point, step.radius);", proof)
+        self.assertIn("creature->IsAlive()", COMMANDS)
+
+    def test_open_proof_search_is_bounded(self):
+        proof = body(COMMANDS, "bool OpenProofUp(", "\n}\n")
+        self.assertEqual(proof.count("Cell::VisitGridObjects(point.x, point.y, map, searcher, step.radius)"), 2)
+
+    def test_loader_reads_the_open_proof_kind(self):
+        loader = (ROOT / "ai/playerbot/DungeonPlanMgr.cpp").read_text()
+        self.assertIn("ParsePlanStepRowKind(fields[3].GetCppString(), step.kind, step.exactLaunch, step.openProof);", loader)
+
+    def test_reload_compares_open_proof(self):
+        reload = (ROOT / "ai/playerbot/DungeonPlanReloadPolicy.h").read_text()
+        self.assertIn("a.openProof == b.openProof", reload)
 
     def test_use_on_is_wired_like_an_open(self):
         # use_on (Zul'Farrak's gong with the Mallet): its carrier is the bot that carries the step's `item`, picked, pinned and
@@ -326,7 +487,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         tick = body(COMMANDS, "void TickDungeonRun(", "\n}\n")
         self.assertIn("RunTimeLimitReached(slot.elapsedMs, sPlayerbotAIConfig.dungeonRunMaxMinutes)", tick)
         self.assertIn("RunTimeLimitNote(sPlayerbotAIConfig.dungeonRunMaxMinutes)", tick)
-        self.assertIn("slot.run.note = RunStopNote(rawArg);", COMMANDS)
+        self.assertIn("EndRunEarly(slot.run, RunStopNote(rawArg));", COMMANDS) # the note, via EndRunEarly
         config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
         template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
         self.assertIn('"AiPlayerbot.DungeonRunMaxMinutes", 180', config)
@@ -390,7 +551,8 @@ class RunLeaderWiringTest(unittest.TestCase):
         release = body(COMMANDS, "uint32 ReleaseBinding(", "RemoteCommander::Binding removed =")
         self.assertIn("RestoreRunLootMethod(standing->leadGuid, run->second.run);", release)
         off = body(COMMANDS, "// Switched off by a config reload", "s_dungeonRunMs = 0;")
-        self.assertIn("RestoreRunLootMethod(standing->leadGuid, entry.second.run);", off)
+        # The key switched off lets each run go through ReleaseRunHold too (its first line restores, above).
+        self.assertIn("ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);", off)
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
         self.assertIn("LootFfaWanted(r, f, s)", policy)
         self.assertIn('order = "lootmethod ffa";', policy)
@@ -490,13 +652,13 @@ class RunLeaderWiringTest(unittest.TestCase):
         read = body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot,", "\n}\n")
         self.assertIn("f.pullStand = sPlayerbotAIConfig.dungeonRunPullStand;", read)
         # The step units (pull/boss) and the hop units carry losLead, from the lead bot's own sight test.
-        self.assertIn("if (f.pullStand)\n                        unit.losLead = lead->IsWithinLOSInMap(creature);\n"
+        self.assertIn("if (f.pullStand || StandThisBoss(slot))\n                        unit.losLead = lead->IsWithinLOSInMap(creature);\n"
                       "                    f.units.push_back(unit);", read)
         self.assertIn("if (f.pullStand)\n                    fact.losLead = lead->IsWithinLOSInMap(unit);\n"
                       "                f.hopUnits.push_back(fact);", read)
         self.assertTrue(read.rstrip().endswith("ReadPullStand(slot, lead, f);"))
         stand = body(COMMANDS, "void ReadPullStand(DungeonRunSlot const& slot,", "\n}\n")
-        self.assertIn("if (!f.pullStand || !lead->IsAlive() || !lead->IsInWorld())\n        return;", stand)
+        self.assertIn("if ((!f.pullStand && !standStep) || !lead->IsAlive() || !lead->IsInWorld())\n        return;", stand)
         # leadShotYd is the module's PullStrategy::GetRange(), for a ranged weapon shot only (0 for spell and body pulls).
         self.assertIn('if (pull && pull->GetPullActionName() == "shoot")\n        f.leadShotYd = pull->GetRange();',
                       stand)
@@ -514,7 +676,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
         pull = body(policy, "inline void PullUnit(", "\n}\n")
         gate = pull.index("HoldForShot(r, f, u, dt, order))\n            return;")
-        self.assertLess(pull.index("if (f.pullStand)\n"), gate)
+        self.assertLess(pull.index("if (f.pullStand && r.standPullShotGuid != u.guid)\n"), gate)
         self.assertLess(gate, pull.index('order = "pullback " + std::to_string(u.guid);'))
         self.assertLess(gate, pull.index("++tries;"))
         on = body(policy, "inline bool PullStandOn(", "\n}\n")
@@ -527,7 +689,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("if (!PullStandOn(r, f))", hold)
         self.assertIn("r.shotStandFor = u.guid;", hold)
         # Every pull caller hands its tick length to the stand walk.
-        self.assertIn("PullUnit(r, f, *pick, order, PickCc(r, f, pick->guid), false, dt);", policy)
+        self.assertIn("CcPick const ccPick = PickCcOrder(r, f, pick->guid);\n        PullUnit(r, f, *pick, order, ccPick.unit, false, dt);", policy)
         self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, false, dt, true);", policy)
         self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, true, dt);", policy)
         # PLAN-ZF-NOFIGHT: a move's and the walk back's pulls are hop pulls; a hop unit the tank cannot shoot is
@@ -591,6 +753,578 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("GossipNpcDeadNote(", refused)
         gossip_step = body(policy, "inline void GossipStep(", "\n}\n")
         self.assertIn("GossipNpcDeadNote(what, f.taskText)", gossip_step)
+
+
+    def test_walk_back_after_won_fight_key_is_read_with_the_config(self):
+        # AiPlayerbot.DungeonRunWalkBackAfterWonFight (default 0): one of the run leader's keys, read by
+        # LoadDungeonRunKeys (Initialize and a `.reload config`) and handed to the policy on every tick by
+        # ReadRunFacts, so no copy of it lives in a run.
+        config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
+        header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
+        template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        keys = body(config, "void PlayerbotAIConfig::LoadDungeonRunKeys()\n{", "\n}\n")
+        self.assertIn('dungeonRunWalkBackAfterWonFight = config.GetBoolDefault("AiPlayerbot.DungeonRunWalkBackAfterWonFight", false);', keys)
+        self.assertIn("bool dungeonRunWalkBackAfterWonFight;", header)
+        self.assertIn("AiPlayerbot.DungeonRunWalkBackAfterWonFight = 0", template)
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("f = Facts();", facts)
+        self.assertIn("f.walkBackAfterWonFight = sPlayerbotAIConfig.dungeonRunWalkBackAfterWonFight;", facts)
+        self.assertIn("bool walkBackAfterWonFight = false;", policy)
+        self.assertIn("else if (!GuardWalkBackWanted(r, f, FactStep(r) ? *FactStep(r) : *s))", policy)
+        # The suppression follows the pull and boss steps' own end rule (Codex review of 7537eab8): one predicate.
+        wanted = body(policy, "inline bool GuardWalkBackWanted(", "\n}\n")
+        self.assertIn("return FightStepEnd(r, f, s) == FightEnd::NotYet;", wanted)
+        self.assertNotIn("OpenUnits", wanted)
+        fight = body(policy, "inline void FightStep(", "\n}\n")
+        self.assertIn("FightEnd const end = FightStepEnd(r, f, s);", fight)
+        self.assertNotIn("bossDeadNearSpot ||", fight)
+        for doc in ("docs/server/settings/dungeons-raids.md", "docs/play/dungeon-run-leader.md"):
+            self.assertIn("AiPlayerbot.DungeonRunWalkBackAfterWonFight", (ROOT / doc).read_text())
+
+    def test_run_leader_keys_follow_a_config_reload(self):
+        # `.reload config` (ChatHandler::HandleReloadConfigCommand -> World::LoadConfigSettings(true) ->
+        # WORLDHOOK_ON_AFTER_CONFIG_LOAD) reaches BotHostAdapter::OnAfterConfigLoad; it only marks the run leader's
+        # keys due, and the next world tick (OnUpdate) reads them again, through the same function Initialize uses.
+        config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
+        header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
+        host = (ROOT / "host/BotHostAdapter.cpp").read_text()
+        keys = body(config, "void PlayerbotAIConfig::LoadDungeonRunKeys()\n{", "\n}\n")
+        init = body(config, "bool PlayerbotAIConfig::Initialize()\n{", "\n}\n")
+        reload = body(config, "bool PlayerbotAIConfig::ReloadDungeonRunKeys()\n{", "\n}\n")
+        names = re.findall(r'"(AiPlayerbot\.Dungeon(?:SelfClear|Run\w+))"', config)
+        self.assertGreaterEqual(len(names), 8)
+        for name in names:
+            # Every run leader key is read in LoadDungeonRunKeys and nowhere else (no second parse).
+            self.assertIn('"' + name + '"', keys)
+            self.assertEqual(config.count('"' + name + '"'), 1, name)
+            self.assertNotIn('"' + name + '"', init)
+        self.assertIn("LoadDungeonRunKeys();", init)
+        self.assertLess(init.index('enabled = config.GetBoolDefault("AiPlayerbot.Enabled", false);'),
+                        init.index("LoadDungeonRunKeys();"))
+        self.assertIn("if (!enabled)\n        return false;", reload)
+        self.assertIn("if (!config.Reload())", reload)
+        self.assertLess(reload.index("if (!config.Reload())"), reload.index("LoadDungeonRunKeys();"))
+        self.assertIn("void LoadDungeonRunKeys();", header)
+        self.assertIn("bool ReloadDungeonRunKeys();", header)
+        on_load = body(host, "void BotHostAdapter::OnAfterConfigLoad(bool reload)\n{", "\n}\n")
+        self.assertIn("if (reload)\n        s_dungeonRunKeysDue.store(true);", on_load)
+        self.assertNotIn("ReloadDungeonRunKeys", on_load)  # world thread only
+        on_update = body(host, "void BotHostAdapter::OnUpdate(uint32 diff)\n{", "\n}\n")
+        self.assertIn("if (s_dungeonRunKeysDue.exchange(false))\n        sPlayerbotAIConfig.ReloadDungeonRunKeys();", on_update)
+        self.assertIn("WORLDHOOK_ON_AFTER_CONFIG_LOAD", host)
+        self.assertEqual(host.count("ReloadDungeonRunKeys"), 1)
+        # Switched off by a reload, every run ends as `.bot run stop` ends one: its held bots are let go
+        # (ReleaseRunHold, which also restores a loot detour's method), not left on stay at hold stands.
+        off = body(COMMANDS, "    // Switched off by a config reload: every run ends, with a last status line.",
+                   "DungeonRuns().clear();")
+        self.assertIn("ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);", off)
+        self.assertLess(off.index("SendRunLine(FindCharacter(entry.first), entry.second, false);"),
+                        off.index("ReleaseRunHold("))
+
+    def test_unreachable_move_falls_back_or_skips(self):
+        # Razorfen Kraul r22-19z40 step 85: the step's move was refused unreachable after the walk around
+        # and the run paused 3 times. A refused own move (or its detour's) goes to MoveRefusedUnreachable
+        # with the stand-in NearestReachablePoint found within MoveFallbackYd (25 yd for a plain move),
+        # searched only while MoveFallbackWanted; anything it does not handle pauses as before.
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        f = body(COMMANDS, "        if (!accepted && !stallDirectRefused && !legTaken)\n        {", "\n        }\n")
+        code = strip_comments(f)
+        own = code.index("TortoiseBots::DungeonRun::OwnMoveOrder(it->second.run, order) &&")
+        verdict = code.index("TortoiseBots::DungeonRun::UnreachableAnswer(answer);")
+        wanted = code.index("bool const searched = unreachable && TortoiseBots::DungeonRun::MoveFallbackWanted(it->second.run);")
+        search = code.index("NearestReachablePoint(lead, step->x, step->y, step->z, TortoiseBots::DungeonRun::MoveFallbackYd(*step),")
+        handled = code.index("TortoiseBots::DungeonRun::MoveRefusedUnreachable(it->second.run, order, answer, found, dx, dy, dz)))")
+        refused = code.index("TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer +")
+        self.assertTrue(own < verdict < wanted < search < handled < refused)
+        self.assertIn("(unreachable ? TortoiseBots::DungeonRun::NoStandInNote(*step, searched) : std::string()));", code)
+        self.assertIn("bool const searched = unreachable && TortoiseBots::DungeonRun::MoveFallbackWanted(it->second.run);", code)
+        self.assertIn("bool const found = searched &&\n                NearestReachablePoint(", code)
+        # Opus review: the stand-in's path from the lead bot is capped (DetourPointReachable's pathYd).
+        self.assertIn("DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground), path.Length()))",
+                      body(COMMANDS, "bool NearestReachablePoint(", "\n}\n"))
+        self.assertIn("pathYd <= pointFromLeadYd + kDetourMaxPathYd &&", body(policy, "inline bool DetourPointReachable(", "\n}\n"))
+        # Every rewind of the step forgets the step's refusals.
+        for fn in ("inline void EventFailed(", "inline bool RearmEventOnWipe("):
+            self.assertIn("ForgetMoveRefusals(r);", body(policy, fn, "\n}\n"))
+        self.assertIn("if (NeverSkipMove(r))\n        ForgetMoveRefusals(r);", body(policy, "inline bool Resume(", "\n}\n"))
+        self.assertNotIn("UseDetour(", code)
+        self.assertNotIn("15 yd of it either", code)
+        # The ring search reaches the radius it is given and no farther.
+        near = strip_comments(body(COMMANDS, "bool NearestReachablePoint(", "\n}\n"))
+        self.assertIn("float maxYd, float& ox, float& oy, float& oz,\n    bool dryOnly = false)", near)
+        self.assertIn("float const rings[] = {3.0f, 6.0f, 10.0f, 15.0f, 20.0f, 25.0f};", near)
+        self.assertIn("for (int i = 0; ring <= maxYd && i < 12; ++i)", near)
+        self.assertIn("constexpr float kMoveFallbackYd = 25.0f;", policy)
+        self.assertIn("if (ai::PlanDistance(x, y, z, s->x, s->y, s->z) > MoveFallbackYd(*s))",
+                      body(policy, "inline bool UseDetour(", "\n}\n"))
+
+
+class RunHoldsItsDeadWiringTest(unittest.TestCase):
+    """SM-REVIVE-PATH-2026-10-23 fix 3: the run leader answers the auto release's
+    question (runtime/RunReleaseHold.h) for a bot of a bound party whose run is
+    running or paused (DungeonRun::HoldsItsDead, tested in
+    tools/test_dungeon_run_policy.cpp); a stopped, timed-out or unbound run is
+    erased, so no run is found and the bot releases as before."""
+
+    def test_the_query_is_registered(self):
+        code = strip_comments(COMMANDS)
+        self.assertIn('#include "../runtime/RunReleaseHold.h"', COMMANDS)
+        self.assertIn("TortoiseBots::RunReleaseHold::Register(&IsBoundToActiveDungeonRun)", code)
+
+    def test_the_query_counts_running_and_paused_runs_of_the_bound_party(self):
+        query = body(COMMANDS, "static bool IsBoundToActiveDungeonRun(Player* bot)", "}")
+        self.assertIn("return RunningRunOf(bot, true) != nullptr;", query)
+        finder = strip_comments(body(COMMANDS, "static DungeonRunSlot* RunSlotOf(Player* bot, bool activeOnly)", "\n}\n"))
+        self.assertIn("activeOnly ? !TortoiseBots::DungeonRun::HoldsItsDead(it->second.run)", finder)
+        # The bound party: the bot's own group is the binding's, and the lead bot is still in it.
+        self.assertIn("if (!leadGroup || leadGroup->GetId() != binding->groupId || binding->groupId != groupId)", finder)
+        # The kill-first and cc questions still ask about a running run only.
+        self.assertIn("return RunningRunOf(bot) != nullptr;", body(COMMANDS, "bool IsInRunningDungeonRun(Player* bot)", "}"))
+
+    def test_stop_and_time_limit_erase_the_run(self):
+        stop = body(COMMANDS, 'if (verb == "stop")', 'if (verb == "status")')
+        self.assertIn("EndRunEarly(slot.run, RunStopNote(rawArg));", stop) # Done, with the deferred packs left alive
+        self.assertIn("DungeonRuns().erase(it);", stop)
+        limit = body(COMMANDS, "RunTimeLimitReached(slot.elapsedMs", "return;")
+        self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(slot.run,\n"
+                      "            TortoiseBots::DungeonRun::RunTimeLimitNote(", limit)
+        self.assertIn("DungeonRuns().erase(it);", limit)
+
+    def test_walk_after_rest_stands_the_lead_up_before_the_order(self):
+        # Blackfathom Deeps r22 step 85, r23 slot 6b step 8: the lead bot stood idle after eating. The walk sent again
+        # (DungeonRun::Run::leadWalkReset) first stands a seated lead bot up. Codex and Opus review round 1: no cast is
+        # cut, and follow, stay and the stay point are left to the walk's cmd move (a refused move must not leave the
+        # lead bot without them); nothing in combat.
+        code = strip_comments(COMMANDS)
+        stand = body(code, "void StandLeadForWalk(Player* lead)", "\n}\n")
+        self.assertIn("if (!lead->IsAlive() || !lead->IsInWorld() || lead->IsInCombat())\n        return;", stand)
+        self.assertIn("if (lead->GetStandState() != UNIT_STAND_STATE_STAND)\n"
+                      "        lead->SetStandState(UNIT_STAND_STATE_STAND);", stand)
+        for gone in ("InterruptNonMeleeSpells", "ChangeStrategy", "DropQueuedMovementOrders", "erase(", "Reset("):
+            self.assertNotIn(gone, stand)
+        tick = body(code, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertIn("if (slot.run.leadWalkReset)\n    {\n        slot.run.leadWalkReset = false;\n"
+                      "        StandLeadForWalk(lead);\n    }", tick)
+        # After the policy's tick that set it, before the order goes out.
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"), tick.index("StandLeadForWalk(lead);"))
+        self.assertLess(tick.index("StandLeadForWalk(lead);"), tick.index("IssueRunOrder(commander, order, answer,"))
+        # The facts that gate it (DungeonRun::RestWalkResendDue): a rest state confirms the stall, a cast defers it.
+        facts = body(code, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("f.leadResting = HasMealAura(lead) || lead->GetStandState() != UNIT_STAND_STATE_STAND;", facts)
+        self.assertIn("f.leadCasting = lead->IsNonMeleeSpellCasted(true, false, true);", facts)
+        self.assertIn("f.leadInCombat = member.inCombat;", facts)
+    def test_a_deferred_pull_is_logged_once_after_the_stand_answer(self):
+        # Windhorn Canyon r26 slot 5b step 68: a pull not reachable from this floor is deferred, not paused
+        # (DungeonRun::DeferUnreachablePack, tested in tools/test_dungeon_run_policy.cpp). The run keeps running, so
+        # the end-of-tick log of a stopped run never shows it: the glue logs the policy's deferLog once, after both
+        # places a deferral comes from (the tick, and the stand search's answer), and clears it.
+        tick = body(strip_comments(COMMANDS), "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        log = ("if (!slot.run.deferLog.empty())\n    {\n"
+               "        TB_LOG_DETAIL(\"TortoiseBots: run leader of %s: %s\", commander->GetName(), slot.run.deferLog.c_str());\n"
+               "        slot.run.deferLog.clear();\n    }")
+        self.assertIn(log, tick)
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"), tick.index(log))
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);"),
+                        tick.index(log))
+
+    def test_an_approach_with_no_way_goes_through_the_stand_search(self):
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        hop = body(policy, "inline void ApproachHop(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& order,", "\n}\n")
+        self.assertIn("ApproachNoWay(r, f, s, why);", hop)
+        self.assertNotIn("if (DeferRetryOn(r) && DeferUnreachablePack(r, s, why))", hop)
+        walk = body(policy, "inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direct, std::uint32_t dt,", "\n}\n")
+        self.assertLess(walk.index("WalkBackStuckRescue(r, f, dist, x, y, z)"), walk.index("ApproachWalkStuck(r, f, dist, x, y, z)"))
+        self.assertLess(walk.index("ApproachWalkStuck(r, f, dist, x, y, z)"), walk.index('Pause(r, "the lead bot is stuck "'))
+        noway = body(policy, "inline void ApproachNoWay(", "\n}\n")
+        self.assertLess(noway.index("DeferRetryOn(r)"), noway.index("ApproachStandWanted(r, s)"))
+        self.assertLess(noway.index("ApproachStandWanted(r, s)"), noway.index("DeferUnreachablePack(r, s, why))\n            return;"))
+        # the glue still answers the stand search after the tick (unchanged): the existing pin covers it
+    def test_a_refused_firing_position_goes_through_the_stand_search(self):
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        refused = body(policy, "inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)", "\n}\n")
+        self.assertLess(refused.index('answer.compare(0, 14, "invalid-target") == 0'),
+                        refused.index("if (PullbackRefusedUnreachable(r, order, answer))"))
+        self.assertLess(refused.index("if (PullbackRefusedUnreachable(r, order, answer))"),
+                        refused.index('Pause(r, "cmd " + order + " refused: " + answer + MissingHint(r));'))
+        fn = body(policy, "inline bool PullbackRefusedUnreachable(Run& r, const std::string& order, const std::string& answer)\n{", "\n}\n")
+        self.assertIn("r.pullHop", fn)
+        self.assertIn("r.pullGuid != guid", fn)
+        self.assertIn("ApproachNoWay(r, here, *s, why);", fn)
+        fight = body(policy, "inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vector<std::uint32_t>& killOrder,", "\n}\n")
+        self.assertLess(fight.index("r.refusedPullStandStep == r.step"), fight.index("if (!f.seen)"))
+        clear = body(policy, "inline void ClearApproachStand(Run& r)", "\n}\n")
+        self.assertIn("r.refusedPullStandStep = static_cast<std::size_t>(-1);", clear)
+        # The FightStep hook exists because the glue answers the stand search before it issues the order and hands a refusal
+        # to OrderRefused (a stand asked by a refusal is answered on the next sync): pin that order.
+        tick = body(strip_comments(COMMANDS), "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::ApproachStandFound(slot.run, facts, found, sx, sy, sz);"),
+                        tick.index("bool const accepted = IssueRunOrder(commander, order, answer,"))
+        self.assertLess(tick.index("bool const accepted = IssueRunOrder(commander, order, answer,"),
+                        tick.index("TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer + legNote +"))
+
+    def test_runs_ended_early_list_their_deferred_packs(self):
+        # The Opus/Codex review of 6566f84d: a run stopped early (.bot run stop, the time limit, the key switched
+        # off) lists the deferred packs it left alive (DungeonRun::EndRunEarly), never a bare state = Done.
+        code = strip_comments(COMMANDS)
+        self.assertIn("EndRunEarly(slot.run, RunStopNote(rawArg));", body(code, 'if (verb == "stop")', 'if (verb == "status")'))
+        self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(slot.run,", body(code, "RunTimeLimitReached(slot.elapsedMs", "return;"))
+        off = body(code, "if (RemoteCommander::RunAllowed(kind, gates))", "SendRunLine(")
+        self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(entry.second.run,", off)
+        self.assertNotIn("run.state = TortoiseBots::DungeonRun::State::Done;", code)
+        self.assertNotIn("slot.run.state = State::Done;", code)
+
+    def test_direct_walk_back_counts_cleared_pulls_from_the_live_step(self):
+        # The Opus review of 6566f84d: during a deferred pull's retry the run's step is the deferred one; the pulls
+        # cleared after it must not count as live (DungeonRun::LiveFrom: the step the run goes on with).
+        self.assertIn("PathCrossesUnclearedPack(*slot.run.plan,\n"
+                      "                            TortoiseBots::DungeonRun::LiveFrom(slot.run, true), whole, f.team,", COMMANDS)
+    def test_a_bot_outside_the_instance_is_no_part_of_the_fight(self):
+        facts = body(strip_comments(COMMANDS),
+                     "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,", "\n}\n")
+        line = "member.offPlanMap = bot->GetMapId() != slot.run.plan->map;"
+        self.assertIn(line, facts)
+        self.assertLess(facts.index("member.yd = yd;"), facts.index(line))
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        tick = body(policy, "inline std::string Tick(Run& r, const Facts& raw,", "\n}\n")
+        self.assertLess(tick.index("bool const offMap = PlanMapFightView(raw, view);"),
+                        tick.index("UnattackableGraceTick(r, in, dt)"))
+        self.assertLess(tick.index("bool const offMap = PlanMapFightView(raw, view);"),
+                        tick.index("CombatDropTick(r, in, dt)"))
+        fight_on = body(policy, "inline bool FightOn(Run& r, const Facts& f, std::uint32_t dt)", "\n}\n")
+        self.assertIn("OffMapUnitsOnly(f)", fight_on)
+    def test_a_bot_outside_the_instance_is_returned(self):
+        issue = body(COMMANDS, "bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer,", "\n}\n")
+        self.assertIn('if (text.compare(0, 7, "return ") == 0)\n        return RunOffMapReturn(commander, text, answer);', issue)
+        fn = body(strip_comments(COMMANDS),
+                  "bool RunOffMapReturn(Player* commander, std::string const& order, std::string& answer)\n{", "\n}\n")
+        # the player recheck and the map checks before anything is touched; CombatStop before the teleport
+        self.assertLess(fn.index('answer = "player: a real player is in the party";'), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("lead->GetMapId() != planMap"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("bot->GetMapId() == planMap"), fn.index("bot->CombatStop();"))
+        # round 1: the open-world recheck (battleground / instance map / transport / summon-busy) before CombatStop
+        self.assertLess(fn.index("bot->InBattleGround()"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("bot->GetMap()->Instanceable()"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("bot->GetTransport()"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("PlayerConvenience::Instance().IsBusy(bot->GetObjectGuid())"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("pet->CombatStop();"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("sServerFacade.GetHostileRefManager(bot).deleteReferences();"), fn.index("bot->CombatStop();"))
+        self.assertLess(fn.index("bot->CombatStop();"), fn.index("bot->TeleportTo(lead->GetMapId(),"))
+        # round 1: the glue reads the returnable fact beside the off-map flag
+        facts = body(strip_comments(COMMANDS),
+                     "void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,", "\n}\n")
+        self.assertIn("member.offPlanMap = bot->GetMapId() != slot.run.plan->map;", facts)
+        self.assertIn("member.offMapReturnable = !bot->InBattleGround()", facts)
+        self.assertIn("!bot->GetMap()->Instanceable()", facts)
+        self.assertIn("!bot->GetTransport()", facts)
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        tick = body(policy, "inline std::string Tick(Run& r, const Facts& raw,", "\n}\n")
+        self.assertLess(tick.index("order = TickBody(r, f, dt, lines);"), tick.index("OffMapReturnTick(r, f, order);"))
+        # round 1: the policy skips a not-returnable bot (note, no tries, no pause)
+        ret = body(policy, "inline bool OffMapReturnTick(Run& r, const Facts& f, std::string& order)\n{", "\n}\n")
+        self.assertIn("!m.offMapReturnable", ret)
+        self.assertIn("cannot be returned (not in the open world)", ret)
+        # round 2: once per (bot, step), replacing an earlier copy; the glue passes the busy reason
+        self.assertIn("offMapNoted", ret)
+        self.assertIn("is outside the instance and busy (summon or teleport pending)", ret)
+        self.assertIn("member.offMapBlock", facts)
+        refused = body(policy, "inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)", "\n}\n")
+        self.assertLess(refused.index('order.compare(0, 7, "return ") == 0'),
+                        refused.index('Pause(r, "cmd " + order + " refused: " + answer + MissingHint(r));'))
+
+
+
+class WaitObjectGoneWiringTest(unittest.TestCase):
+    """A wait_object row with ai::kPlanFlagGoneIsDone (Shadowfang Keep's Courtyard Door 18895, removed by the escort) is
+    done by the object being gone after a wait step read it found. The glue reads the object's state for the wait step
+    (-1 when not found), the step reads it into Run::objectsSeen before it judges, and the loader refuses the flag on any
+    kind but loot, open and wait_object."""
+
+    POLICY = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+    PLAN = (ROOT / "ai/playerbot/DungeonPlanPolicy.h").read_text()
+
+    def test_glue_reads_the_wait_objects_state(self):
+        facts = body(strip_comments(COMMANDS), "case ai::PlanStepKind::WaitObject:", "case ai::PlanStepKind::Hold:")
+        self.assertIn("f.objectState = 0;", facts)
+        self.assertIn("GameObject* go = guid && objectGuid.IsGameObject()", facts)
+
+    def test_glue_reads_the_object_as_authoritative_only_when_it_could_find_it(self):
+        facts = body(strip_comments(COMMANDS), "case ai::PlanStepKind::WaitObject:", "case ai::PlanStepKind::Hold:")
+        read = body(facts, "f.objectReadable =", ";")
+        for needed in ("lead->IsAlive()", "!lead->IsBeingTeleported()", "lead->GetMapId() == slot.run.plan->map",
+                       "EntryPointReachable(lead, spec)", "lead->GetMap()->IsLoaded(step->x, step->y)"):
+            self.assertIn(needed, read)
+
+    def test_sighting_and_miss_count_are_updated_before_any_fight_handling(self):
+        tick = body(strip_comments(self.POLICY), "NoteLeadPath(r, f);", "bool const objectDone")
+        self.assertIn("UpdateObjectSighting(r, *s, f, dt);", tick)
+        update = body(strip_comments(self.POLICY), "inline void UpdateObjectSighting(", "\n}\n")
+        self.assertIn("r.objectsSeen.push_back({s.entry, s.x, s.y, s.z});", update)
+        self.assertIn("f.objectReadable && f.leadAlive", update)
+
+    def test_wait_step_judges_gone_before_the_timeout_pause(self):
+        step = body(strip_comments(self.POLICY), "case PlanStepKind::WaitObject:", "case PlanStepKind::WaitClear:")
+        self.assertIn("WaitObjectGoneIsDone(r, *s, f)", step)
+        # The pause on the timeout stays after the gone check: a never-seen object still pauses.
+        self.assertLess(step.index("WaitObjectGoneIsDone(r, *s, f)"), step.index("Pause(r,"))
+
+    def test_stale_combat_shortcut_accepts_a_confirmed_gone(self):
+        short = body(strip_comments(self.POLICY), "bool const objectDone =", ";")
+        self.assertIn("WaitObjectGoneIsDone(r, *s, f)", short)
+
+    def test_gone_check_needs_a_sighting_and_a_confirmed_readable_miss(self):
+        check = body(strip_comments(self.POLICY), "inline bool WaitObjectGoneIsDone(", "\n}\n")
+        self.assertIn("f.objectState < 0", check)
+        self.assertIn("f.objectReadable", check)
+        self.assertIn("r.goneMissMs >= kGoneConfirmMs", check)
+        self.assertIn("WaitSightSeen(r, s)", check)
+        self.assertIn("ai::kPlanFlagGoneIsDone", check)
+
+    def test_loader_accepts_the_flag_on_wait_object_only_beside_loot_and_open(self):
+        norm = body(strip_comments(self.PLAN), "inline PlanStepRefusal NormalizePlanStep(", "if ((step.flags & kPlanFlagDeadNpcIsDone)")
+        for kind in ("Loot", "Open", "WaitObject"):
+            self.assertIn("step.kind != PlanStepKind::" + kind, norm)
+
+class WaitClearFloorWiringTest(unittest.TestCase):
+    """Shadowfang Keep r38 slotA step 308: the wait_clear spot at z 129 counted hostiles on other floors (z ~100-157)
+    and paused four times on "waited 120 s; 3-4 hostiles still near the spot". The glue lists every living hostile
+    within the 2D radius of the step's point with its z (unit->GetPositionZ()) and whether it is engaged with the
+    party (EngagedWithParty, the same 'a party bot is its victim or attacks it' rule the engaged reads use); the
+    normal wait counts every one, and only the timeout boundary drops all-off-floor bystanders
+    (WaitClearOffFloorOnly: every remaining hostile non-engaged and |dz| > kWaitClearMaxDz)."""
+
+    POLICY = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+
+    def test_policy_counts_every_hostile_until_the_timeout(self):
+        self.assertIn("constexpr float kWaitClearMaxDz = 10.0f;", self.POLICY)
+        count = body(strip_comments(self.POLICY), "inline std::uint32_t WaitClearCount(", "\n}\n")
+        self.assertNotIn("kWaitClearMaxDz", count)
+        self.assertNotIn("engaged", count)
+        off = body(strip_comments(self.POLICY), "inline bool WaitClearOffFloorOnly(", "\n}\n")
+        self.assertIn("h.engaged ||", off)
+        self.assertIn("std::fabs(h.z - s.z) <= kWaitClearMaxDz", off)
+        step = body(strip_comments(self.POLICY), "case PlanStepKind::WaitClear:", "case PlanStepKind::Rest:")
+        self.assertIn("WaitClearCount(*s, f)", step)
+        self.assertIn("WaitClearOffFloorOnly(*s, f)", step)
+        self.assertIn("the spot is clear on its floor:", step)
+        self.assertNotIn("f.hostilesNear", self.POLICY)
+
+    def test_glue_lists_2d_near_hostiles_with_z(self):
+        facts = body(strip_comments(COMMANDS), "case ai::PlanStepKind::WaitClear:", "case ai::PlanStepKind::WaitObject:")
+        self.assertIn("float const dx = unit->GetPositionX() - step->x, dy = unit->GetPositionY() - step->y;", facts)
+        self.assertIn("if (std::sqrt(dx * dx + dy * dy) <= step->radius)", facts)
+        self.assertIn("unit->GetPositionZ()", facts)
+        self.assertIn("EngagedWithParty(unit, party)", facts)
+        self.assertIn("spot.engaged =", facts)
+        self.assertIn("f.clearUnits.push_back(", facts)
+
+
+
+class BossTacticsJoinWiringTest(unittest.TestCase):
+    """The Codex review of d7aca6b5: the run leader's deferral gate (DungeonRun::PullMayBeDeferred) reads a later boss
+    step's ai_boss_tactic subjects from the sealed plan (PlanStep::tacticEntries). The loader fills them from the tactic
+    rows (DungeonPlanTable::JoinBossTactics, tested in tools/test_dungeon_plan_policy.cpp) before the seal, at startup
+    and on `.bot run reloadplans`, with the tactics read first."""
+
+    MGR = strip_comments((ROOT / "ai/playerbot/DungeonPlanMgr.cpp").read_text())
+
+    def test_the_rows_reader_joins_the_tactics_before_the_seal(self):
+        read = body(self.MGR, "static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts, "
+                              "const BossTacticTable& tactics)", "\n}\n")
+        self.assertIn("table.JoinBossTactics(tactics);", read)
+        self.assertLess(read.index("table.JoinBossTactics(tactics);"), read.index("table.Seal();"))
+        self.assertLess(read.index("FROM `ai_dungeon_step`"), read.index("table.JoinBossTactics(tactics);"))
+
+    def test_startup_reads_the_tactics_first(self):
+        load = body(self.MGR, "void ai::LoadDungeonPlans()", "\n}\n")
+        self.assertIn("ReadDungeonPlanRows(table, counts, GetBossTactics());", load)
+        self.assertLess(load.index("LoadBossTactics();"), load.index("ReadDungeonPlanRows(table, counts, GetBossTactics());"))
+
+    def test_reload_joins_the_new_tactics(self):
+        reload = body(self.MGR, "PlanReloadReport ai::ReloadDungeonPlans(", "    return report;\n}")
+        self.assertIn("ReadDungeonPlanRows(*next, counts, *nextTactics);", reload)
+        self.assertLess(reload.index("ReadBossTacticRows(*nextTactics, &tacticRowsRead);"),
+                        reload.index("ReadDungeonPlanRows(*next, counts, *nextTactics);"))
+
+    def test_the_glue_hands_the_run_the_live_tactics_before_its_tick(self):
+        # The Codex review of 7cfcbff6: a reload swaps the tactic table under a run that keeps its old plan; the gate
+        # also reads the table the server reads now (DungeonRun::Run::liveTactics), set before the tick each second.
+        tick = body(strip_comments(COMMANDS), "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertIn("slot.run.liveTactics = &ai::GetBossTactics();", tick)
+        self.assertLess(tick.index("slot.run.liveTactics = &ai::GetBossTactics();"),
+                        tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"))
+        self.assertIn('#include "../ai/playerbot/BossTacticsMgr.h"', COMMANDS)
+
+    def test_the_gate_reads_the_joined_subjects(self):
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        gate = body(policy, "inline bool PullMayBeDeferred(const Run& r)", "\n}\n")
+        self.assertIn("for (std::uint32_t e : n.tacticEntries)", gate)
+
+
+class RunTestSpeedWiringTest(unittest.TestCase):
+    """Owner request 2026-10-25: `.bot run start ... speed=<1.0-3.0>` (DungeonRun::TakeSpeed, SpeedRateNow, tested in
+    tools/test_dungeon_run_policy.cpp). The glue's parts: the start's guards, the apply before the tick's order, and the
+    sync that sends every listed bot back."""
+
+    def test_the_start_takes_and_guards_the_speed(self):
+        code = strip_comments(COMMANDS)
+        run = body(code, "bool HandleDungeonRun(ChatHandler* handler, char const* args)", "\n}\n")
+        start = run[run.index('if (verb == "start")\n'):]
+        self.assertLess(start.index("SpeedArgs const speedArgs = TakeSpeed(arg);"),
+                        start.index("StartArgs const startArgs = ParseStartArgs(arg);"))
+        self.assertLess(start.index("arg = speedArgs.rest;"), start.index("StartArgs const startArgs = ParseStartArgs(arg);"))
+        guard = start[start.index("if (speedArgs.rate > 1.0f)"):start.index("arg = speedArgs.rest;")]
+        self.assertIn("IsBotAdministrator(commander)", guard)
+        self.assertIn("playerLedStart.playerLed", guard)
+        self.assertIn("!BotManager::Instance().IsBot(member.guid)", guard)
+        self.assertLess(start.index("slot.run.testSpeed = speedArgs.rate;"),
+                        start.index("DungeonRunSlot& stored = DungeonRuns()[commanderRaw] = slot;"))
+
+    def test_the_tick_applies_before_its_order(self):
+        code = strip_comments(COMMANDS)
+        tick = body(code, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"),
+                        tick.index("TortoiseBots::DungeonRun::SpeedRateNow(slot.run, facts, dt);"))
+        self.assertLess(tick.index("ApplyRunSpeed(commanderRaw, lead, bots, speedRate);"),
+                        tick.index("bool const accepted = IssueRunOrder(commander, order, answer,"))
+        # Round 1: the tick that advances onto a pull or boss step never starts fast (f.seen was read on the
+        # step before). The cap sits between the rate read and the apply, before the order goes out.
+        self.assertLess(tick.index("stepBeforeTick"), tick.index("TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);"))
+        self.assertLess(tick.index("SpeedCapAfterTick(slot.run, stepBeforeTick)"),
+                        tick.index("ApplyRunSpeed(commanderRaw, lead, bots, speedRate);"))
+        self.assertLess(tick.index("ApplyRunSpeed(commanderRaw, lead, bots, speedRate);"),
+                        tick.index("DropUnattackableCombat(lead, bots, slot.run.combatDrops);"))
+
+    def test_the_rate_is_forced_and_goes_back(self):
+        code = strip_comments(COMMANDS)
+        apply = body(code, "bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
+        self.assertIn("bot->UpdateSpeed(MOVE_RUN, true, rate);", apply)
+        self.assertIn("bot->UpdateSpeed(MOVE_WALK, true, rate);", apply)
+        self.assertNotIn("MOVE_SWIM", apply)
+        restore = body(code, "bool RestoreBotSpeed(Player* bot, RunSpeedEntry& entry,", "\n}\n")
+        self.assertIn("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);", restore)
+        self.assertIn("pet->UpdateSpeed(MOVE_RUN, true, 1.0f);", restore)
+        each = body(code, "void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)\n{", "\n}\n")
+        self.assertIn("!MemberInCombat(bot)", each)
+        self.assertIn("bot->GetSpeedRate(MOVE_RUN) != entry->second.appliedRun", each)
+        self.assertIn("CatchUpPet(bot, rate);", each)
+        # Round 1: a slowed bot (Frostbolt, Crippling Poison) is never sped up; a bot in another instance of the
+        # map stays 1.0; a bot with the movespeed cheat is left alone.
+        self.assertIn("HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED)", COMMANDS)
+        self.assertIn("!SpeedSlowed(bot)", each)
+        self.assertIn("SpeedSameInstance(bot, lead)", each)
+        self.assertNotIn("bot->GetMapId() == lead->GetMapId()", each)
+        self.assertIn("!SpeedCheatOn(bot)", each)
+        self.assertIn("BotCheatMask::movespeed", COMMANDS)
+        catchup = body(code, "void CatchUpPet(Player* bot, float rate)", "\n}\n")
+        self.assertIn("IsFollowing()", catchup)
+        self.assertIn("SpeedSlowed(pet)", catchup)
+        sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
+        self.assertIn("run->second.run.speedNow > 1.0f", sync)
+        self.assertIn("MemberInCombat(bot)", sync)
+        self.assertIn("TortoiseBots::DungeonRun::SpeedFightSeen(run->second.run);", sync)
+        self.assertIn("SpeedSameInstance(bot, lead)", sync)
+        self.assertIn("!SpeedSlowed(bot)", sync)
+        # Round 1: a real player joining mid-run latches the run blocked and sends the party back in the same update.
+        self.assertIn("speedPlayerBlocked = true;", sync)
+        self.assertIn("playerBlocked.insert(it->second.commanderRaw)", sync)
+        # Round 2 (Codex finding): a bot that turns the movespeed cheat on AFTER it was raised goes through the shared
+        # cleanup, and the cheat owns the rate (10x, every AI update) — so both places erase its entry WITHOUT
+        # RestoreBotSpeed (its pet is only restored when it does not follow the cheated bot). Mutation: calling
+        # RestoreBotSpeed on the cheat branch fails a pin.
+        self.assertIn("RestoreNonFollowingPet(bot);", each)
+        self.assertIn("RestoreNonFollowingPet(bot);", sync)
+        cheat_each = each[each.index("if (SpeedCheatOn(bot))"):each.index("RestoreNonFollowingPet(bot);\n                    listed.erase(entry);")]
+        self.assertNotIn("RestoreBotSpeed(bot);", cheat_each)
+        self.assertLess(each.index("listed.erase(entry);"), each.index("if (!RestoreBotSpeed(bot, entry->second, WorldTimer::getMSTime()))"))
+        cheat_at = sync.index("if (bot && SpeedCheatOn(bot))")
+        cheat_sync = sync[cheat_at:sync.index("continue;", cheat_at)]
+        self.assertNotIn("RestoreBotSpeed(bot);", cheat_sync)
+        self.assertIn("RestoreNonFollowingPet(bot);", cheat_sync)
+        self.assertNotIn("SetSpeedRatePersistance", code)
+        self.assertNotIn("UpdateSpeed(MOVE_RUN, false", apply + restore + each)
+
+    def test_speed_change_waits_for_a_swimming_spline(self):
+        code = strip_comments(COMMANDS)
+        apply = body(code, "bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
+        self.assertIn("SpeedChangeWaitsFor(bot)", apply)
+        self.assertLess(apply.index("SpeedChangeWaitsFor(bot)"), apply.index("bot->UpdateSpeed(MOVE_RUN, true, rate);"))
+        self.assertIn("return false;", apply)
+        self.assertIn("waitSinceMs = 0;", apply)
+        restore = body(code, "bool RestoreBotSpeed(Player* bot, RunSpeedEntry& entry,", "\n}\n")
+        self.assertIn("SpeedChangeWaitsFor(bot)", restore)
+        self.assertLess(restore.index("SpeedChangeWaitsFor(bot)"), restore.index("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);"))
+        self.assertLess(restore.index("SpeedChangeWaitsFor(bot)"), restore.index("pet->UpdateSpeed"))
+        self.assertIn("return false;", restore)
+        gate = body(code, "static bool SpeedChangeWaitsFor(Player* bot)", "\n}\n")
+        self.assertIn("bot->IsInWater() || bot->IsUnderwater() ||", gate)
+        self.assertIn("bot->HasMovementFlag(MOVEFLAG_SWIMMING)", gate)
+        self.assertIn("!bot->movespline->Finalized()", gate)
+        self.assertIn("TortoiseBots::DungeonRun::SpeedChangeWaits(", gate)
+        each = body(code, "void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)\n{", "\n}\n")
+        self.assertIn("if (!RestoreBotSpeed(bot, entry->second, WorldTimer::getMSTime()))", each)
+        sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
+        self.assertEqual(sync.count("if (bot && !RestoreBotSpeed(bot, it->second, WorldTimer::getMSTime()))"), 2)
+        self.assertEqual(each.count("if (!RestoreBotSpeed(bot, entry->second, WorldTimer::getMSTime()))"), 1)
+
+    def test_speed_restore_wait_is_bounded(self):
+        code = strip_comments(COMMANDS)
+        restore = body(code, "bool RestoreBotSpeed(Player* bot, RunSpeedEntry& entry,", "\n}\n")
+        # The restore wait is bounded (lead decision 2026-10-25): a run a real
+        # player joined restores at once, never waits; otherwise at most 15 s
+        # from the first refused restore per bot, stamped in the speed entry.
+        self.assertIn("speedPlayerBlocked", restore)
+        self.assertIn("waitSinceMs", restore)
+        self.assertIn("TortoiseBots::DungeonRun::SpeedRestoreWaits(", restore)
+        self.assertIn("WorldTimer::getMSTime()", code)
+        self.assertLess(restore.index("SpeedChangeWaitsFor(bot)"), restore.index("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);"))
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        self.assertIn("kSpeedRestoreWaitMs = 15000", policy)
+        self.assertIn("inline bool SpeedRestoreWaits(bool playerBlocked", policy)
+        entry = body(code, "struct RunSpeedEntry", "\n};")
+        self.assertIn("waitSinceMs", entry)
+        apply = body(code, "bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
+        self.assertIn("waitSinceMs = 0;", apply)
+
+    def test_player_scan_runs_before_keep_is_decided(self):
+        code = strip_comments(COMMANDS)
+        sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
+        # Round 2 (Codex): the bound group's real-player scan runs for EVERY listed entry with a
+        # live run/binding, BEFORE keep is decided and BEFORE any restore. A real player joining
+        # after keep already went false (fight, pause, stop, speedNow back at 1.0) still latches
+        # the run blocked on that same call, so a bot already waiting out a swim-spline restore
+        # (waitSinceMs set) goes back at once instead of up to 15 s later.
+        loop = sync[sync.index("for (auto it = listed.begin(); it != listed.end();)"):]
+        self.assertLess(loop.index("GetMemberSlots()"), loop.index("speedNow > 1.0f"))
+        self.assertLess(loop.index("GetMemberSlots()"), loop.index("RestoreBotSpeed(bot, it->second"))
+        # The scan is not gated on keep: the first keep gate comes after the scan.
+        self.assertLess(loop.index("GetMemberSlots()"), loop.index("if (keep)"))
+        self.assertIn("playerBlocked.insert(it->second.commanderRaw)", loop)
+        # Latched at once: the flag is set before any same-call restore, so RestoreBotSpeed
+        # (which restores at once when speedPlayerBlocked is set) does not wait out the swim.
+        self.assertLess(loop.index("speedPlayerBlocked = true;"), loop.index("RestoreBotSpeed(bot, it->second"))
+
+    def test_commander_join_blocks_like_any_real_player(self):
+        code = strip_comments(COMMANDS)
+        sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
+        # A GM commander who starts a bot-only test-speed run and then joins the bound group blocks it on that
+        # same call: only bots are skipped, never the commander GUID.
+        self.assertIn("SpeedMemberBlocksRun(member.guid.GetRawValue(),", sync)
+        self.assertIn("BotManager::Instance().IsBot(member.guid)", sync)
+        self.assertNotIn("member.guid.GetRawValue() == binding->commanderGuid", sync)
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        decision = body(policy, "inline bool SpeedMemberBlocksRun(", "\n}\n")
+        self.assertIn("return !memberIsBot;", decision)
+
+    def test_every_clear_of_the_runs_syncs_the_speed(self):
+        code = strip_comments(COMMANDS)
+        update = body(code, "static void UpdateDungeonRuns(uint32 diff)", "\n}\n")
+        self.assertLess(update.index("SyncRunSpeed();"), update.index("if (DungeonRuns().empty())\n"))
+        remote = body(code, "void UpdateRemoteCommanders(uint32_t diff)", "\n}\n")
+        empty = remote[remote.index("if (CommanderBindings().Empty())"):remote.index("s_commanderSweepMs += diff;")]
+        self.assertLess(empty.index("DungeonRuns().clear();"), empty.index("SyncRunSpeed();"))
+        clear = body(code, "void ClearRemoteCommanders()", "\n}\n")
+        self.assertLess(clear.index("DungeonRuns().clear();"), clear.index("SyncRunSpeed();"))
 
 
 if __name__ == "__main__":

@@ -474,6 +474,7 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                     if (isPossible && relevance)
                     {
                         // E2E green: PerformanceMonitor stub
+                        action->BeforeExecute();
                         actionExecuted = ListenAndExecute(action, event);
 // E2E green: pmo stub
 
@@ -497,7 +498,8 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                         }
                         else
                         {
-                            LogAction("A:%s - FAILED src=%s base=%.3f eff=%.3f", action->getName().c_str(), event.getSource().c_str(), oldRelevance, relevance);
+                            LogAction("A:%s - FAILED src=%s base=%.3f eff=%.3f%s", action->getName().c_str(), event.getSource().c_str(), oldRelevance, relevance,
+                                action->GetFailNote().c_str());
                             NoteOutcome(action, 'F');
                             actionExecutionListeners.Outcome(action, ActionOutcome::Failed, event, oldRelevance, relevance);
                             botdiag::CountAction(ai->GetBot() ? ai->GetBot()->GetClass() : 0, action->getName().c_str(), false);

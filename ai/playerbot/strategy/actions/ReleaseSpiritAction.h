@@ -7,6 +7,7 @@
 #include "playerbot/strategy/Action.h"
 #include "runtime/BotActivityLease.h"
 #include "runtime/BotManager.h"
+#include "runtime/RunReleaseHold.h"
 #include "Group/Group.h"
 #include "MovementActions.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
@@ -142,8 +143,16 @@ namespace ai
             // its own resurrection while a living group member of a resurrecting class is
             // on its map; only a wipe releases. Stock bots without a player master release
             // at once, which put crew members at the graveyard outside the instance.
-            if (TortoiseBots::BotActivityLeaseManager::Instance().GetActivity(bot->GetGUIDLow()) == TortoiseBots::BotActivity::Dungeon)
-                return !DungeonCrewHasLivingResurrecter() && !DungeonCrewInCombat();
+            // A hired bot bound to an active dungeon run waits at its body until the run's
+            // regroup (or the player) releases it; once the run is over the stock rules
+            // below decide again (runtime/RunReleaseHold.h).
+            TortoiseBots::RunReleaseHold::AutoRelease const verdict = TortoiseBots::RunReleaseHold::Decide(
+                TortoiseBots::BotActivityLeaseManager::Instance().GetActivity(bot->GetGUIDLow()),
+                TortoiseBots::RunReleaseHold::HeldByRun(bot), DungeonCrewHasLivingResurrecter(), DungeonCrewInCombat());
+            if (verdict == TortoiseBots::RunReleaseHold::AutoRelease::Wait)
+                return false;
+            if (verdict == TortoiseBots::RunReleaseHold::AutoRelease::Release)
+                return true;
 
             if (!bot->GetGroup())
                 return true;

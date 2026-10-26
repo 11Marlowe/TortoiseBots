@@ -3,8 +3,10 @@
 // Dungeon plans for the opt-in run leader (docs/play/dungeon-run-leader.md).
 //
 // The rows live in the world tables `ai_dungeon_plan`, `ai_dungeon_leg` and
-// `ai_dungeon_step` and are read ONCE at startup into DungeonPlanTable (loader:
-// ai/playerbot/DungeonPlanMgr.cpp). Lookups never touch the database. The data
+// `ai_dungeon_step` and are read at startup into DungeonPlanTable (loader:
+// ai/playerbot/DungeonPlanMgr.cpp), and again into a NEW table by a GM's
+// `.bot run reloadplans` (DungeonPlanReloadPolicy.h decides whether it replaces
+// the old one; a sealed table is never changed). Lookups never touch the database. The data
 // comes from turtle-agent's plan v1 files through its exporter: one source for
 // the agent's own driver and for the run leader.
 //
@@ -22,13 +24,15 @@
 #include <unordered_set>
 #include <vector>
 
+#include "BossTacticsPolicy.h"
+
 namespace ai
 {
     enum class PlanStepKind : std::uint8_t
     {
         None = 0,
-        Move,        // walk (navmesh) to x,y,z
-        MoveDirect,  // straight walk to x,y,z (a gap the navmesh does not bridge)
+        Move,        // walk (navmesh) to x,y,z; `entry` (0 = none): the area trigger it walks into, armed from here until fired (DungeonRun::ArmReachedTriggers)
+        MoveDirect,  // straight walk to x,y,z (a gap the navmesh does not bridge); `entry` as for Move
         Pull,        // pull and kill the pack of `entries` within `radius` of x,y,z
         Boss,        // kill `entries` in order, then `entry`, near x,y,z
         Loot,        // loot chest or corpse `entry` near x,y,z; `item` must end in the bags
@@ -69,13 +73,20 @@ namespace ai
     // old module does with the row after the hop is not guarded here
     // (docs/play/dungeon-run-leader.md "Exact waypoints").
     constexpr const char* kPlanKindMoveHopExact = "move_hop_exact";
+    // The kind text of an open done by a PROOF: the object `entry` is used as by `open`, and the step is done once a
+    // spawned game object (flag kPlanFlagProofCreature: a living creature) of the one entry in `entries` stands within
+    // `radius` of x,y,z after the use's task answered (runtime/DungeonRunPolicy.h OpenProofStep). It is PlanStepKind::Open
+    // with PlanStep::openProof set. A module without it does not know the kind and refuses the row (UnknownKind).
+    // Sunken Temple's Atal'ai statues 148830-148835 change no state when used; the right one respawns the light 148883.
+    constexpr const char* kPlanKindOpenProof = "open_proof";
 
-    // A row's kind text into the step: its kind, and exactLaunch for
-    // "move_hop_exact". An unknown text leaves the kind None.
-    inline void ParsePlanStepRowKind(const std::string& text, PlanStepKind& kind, bool& exactLaunch)
+    // A row's kind text into the step: its kind, exactLaunch for
+    // "move_hop_exact", and openProof for "open_proof". An unknown text leaves the kind None.
+    inline void ParsePlanStepRowKind(const std::string& text, PlanStepKind& kind, bool& exactLaunch, bool& openProof)
     {
         exactLaunch = text == kPlanKindMoveHopExact;
-        kind = exactLaunch ? PlanStepKind::MoveDirect : ParsePlanStepKind(text);
+        openProof = text == kPlanKindOpenProof;
+        kind = exactLaunch ? PlanStepKind::MoveDirect : openProof ? PlanStepKind::Open : ParsePlanStepKind(text);
     }
 
     inline const char* PlanStepKindName(PlanStepKind kind)
@@ -124,6 +135,9 @@ namespace ai
     // loot or open only: the object being GONE (nothing of `entry` spawned near the point, or it despawned on the
     // way: an opened chest that stays gone, a grave opened before a wipe) counts as done, with the note "object gone:
     // counted as done", instead of pausing the run on a refused order. Read only on a row with no item (item 0).
+    // wait_object too: the step is done when the object is in the wanted state, or when it is not found after the
+    // run saw it at least once and the not-found is authoritative for 3 s (the lead bot alive on the map within reach of the point, its grid loaded; it despawned: Shadowfang Keep's Courtyard Door 18895 is set active by Deathstalker
+    // Adamant's escort and removed a few waypoints later). Never seen, the step still waits out its timeout and pauses.
     // Any other kind with this flag is refused (BadParam). 128 is reserved.
     constexpr std::uint32_t kPlanFlagGoneIsDone = 256;
     // gossip only: the NPC being DEAD counts as done. The order refused with the dead-NPC wording (the module's no-npc text
@@ -132,6 +146,19 @@ namespace ai
     // event's troll waves in some runs. A gossip row without it pauses as before (Weegli: the End Door stays shut without him).
     // Any other kind with this flag is refused (BadParam), and a gossip row with any other flag.
     constexpr std::uint32_t kPlanFlagDeadNpcIsDone = 512;
+    // pull only: never deferred. A pack the run leader finds not reachable from the floor the party stands on is
+    // otherwise deferred when nothing later in the plan needs it gone (runtime/DungeonRunPolicy.h PullMayBeDeferred,
+    // DeferUnreachablePack); with this flag it pauses the run as before. Any other kind with this flag is refused (BadParam).
+    constexpr std::uint32_t kPlanFlagNoDefer = 1024;
+    // open_proof only: the proof entry is a creature (alive). The next free bit: 16384 (8192 is kPlanFlagStandPull, a boss only).
+    constexpr std::uint32_t kPlanFlagProofCreature = 2048;
+    // boss only: the boss may stand out of the party's reach by design (Stormwrought Ruins' Eldermaw 62661 swims a
+    // pool whose bed is the only navmesh, cut off from the shore; specs/sw-eldermaw.md). Where the step would pause on
+    // him ALIVE (the instance search finds him away from his spot, or he stands by his spot and the pulls drew no
+    // fight), it ends "not cleared" with a note instead. Any other kind with this flag is refused (BadParam).
+    constexpr std::uint32_t kPlanFlagSkipUnreachable = 4096;
+    // boss only: pulled from the stand, the move row right before it, once in the tank's shot; no firing stand search; specs/sw-eldermaw.md Spec B.
+    constexpr std::uint32_t kPlanFlagStandPull = 8192;
     constexpr std::uint32_t kPlanEncounterNotStarted = 0;
     constexpr std::uint32_t kPlanEncounterFail = 2;
     constexpr std::uint32_t kPlanEncounterMax = 4;
@@ -142,6 +169,7 @@ namespace ai
     constexpr float kPlanDefaultHoldRadius = 30.0f;
     constexpr std::uint32_t kPlanDefaultRitualBots = 3;
     constexpr float kPlanMaxRadius = 100.0f;
+    constexpr float kPlanMaxProofRadius = 20.0f;
     constexpr std::uint32_t kPlanDefaultTimeoutS = 60;
     constexpr std::uint32_t kPlanMaxTimeoutS = 600;
     constexpr std::size_t kPlanMaxEntries = 16;
@@ -167,14 +195,24 @@ namespace ai
         // The row's kind was "move_hop_exact" (kPlanKindMoveHopExact):
         // a MoveDirect whose launch point is the exact move right before it.
         bool exactLaunch = false;
+        // The row's kind was "open_proof" (kPlanKindOpenProof): an Open done by its proof (radius, the one `entries` entry).
+        bool openProof = false;
+        // boss only, filled at load (DungeonPlanTable::JoinBossTactics): the creatures the `ai_boss_tactic` rows of the
+        // plan's map keyed on the step's boss (or one of its entries) are about (TacticSubjectEntry: kill_first targets,
+        // interrupt casters, the boss itself), so the run leader never leaves such a creature alive in an earlier pack
+        // (runtime/DungeonRunPolicy.h PullMayBeDeferred).
+        std::vector<std::uint32_t> tacticEntries;
     };
 
-    // The kind text of a step's row: "move_hop_exact" for an exact launch,
+    // The kind text of a step's row: "move_hop_exact" for an exact launch, "open_proof" for an open by proof,
     // else PlanStepKindName.
     inline const char* PlanStepRowKindName(const PlanStep& step)
     {
-        return step.exactLaunch && step.kind == PlanStepKind::MoveDirect ? kPlanKindMoveHopExact
-                                                                         : PlanStepKindName(step.kind);
+        if (step.exactLaunch && step.kind == PlanStepKind::MoveDirect)
+            return kPlanKindMoveHopExact;
+        if (step.openProof && step.kind == PlanStepKind::Open)
+            return kPlanKindOpenProof;
+        return PlanStepKindName(step.kind);
     }
 
     struct PlanLeg
@@ -275,16 +313,18 @@ namespace ai
         UnknownKind,
         Duplicate,
         MissingEntry,     // pull without entries; boss/loot/open/use_item/wait_object/ritual/gossip/use_on without entry;
-                          // use_on without item;
+                          // use_on without item; open_proof without proof entries;
                           // hold done by object without entry, by its units without entries
-        BadRadius,        // negative, over kPlanMaxRadius, or a wait_clear without one
-        BadTimeout,       // over kPlanMaxTimeoutS
+        BadRadius,        // negative, over kPlanMaxRadius (over kPlanMaxProofRadius on an open_proof), or a wait_clear without one
+        BadTimeout,       // over kPlanMaxTimeoutS; any timeout_s on an open_proof (the proof wait is kOpenProofWaitMs)
         BadParam,         // wait_object state other than 0-2; hold with both done flags, an encounter
                           // flag without the data flag or a state above 4, an object state above 2;
                           // the exact flag on a step that is not a move; gossip with an option
-                          // outside 1-15 or with any flag; use_on with any flag or param
-        BadPoint,         // not a finite point; a use_on without a point (0,0,0)
-        BadEntries,       // `entries` is not a comma list of non-zero creature entries
+                          // outside 1-15 or with any flag; use_on with any flag or param;
+                          // an open_proof whose proof equals its entry (no 2048), with param, a flag but 2048,
+                          // or 2048 on any row that is not open_proof
+        BadPoint,         // not a finite point; a use_on or an open_proof without a point (0,0,0)
+        BadEntries,       // `entries` is not a comma list of non-zero creature entries; an open_proof names exactly one
     };
 
     inline const char* PlanStepRefusalName(PlanStepRefusal refusal)
@@ -320,11 +360,22 @@ namespace ai
             return PlanStepRefusal::BadTimeout;
         if ((step.flags & kPlanFlagExact) && step.kind != PlanStepKind::Move)
             return PlanStepRefusal::BadParam;
-        if ((step.flags & kPlanFlagGoneIsDone) && step.kind != PlanStepKind::Loot && step.kind != PlanStepKind::Open)
+        if ((step.flags & kPlanFlagGoneIsDone) && step.kind != PlanStepKind::Loot && step.kind != PlanStepKind::Open &&
+            step.kind != PlanStepKind::WaitObject)
             return PlanStepRefusal::BadParam;
         if ((step.flags & kPlanFlagDeadNpcIsDone) && step.kind != PlanStepKind::Gossip)
             return PlanStepRefusal::BadParam;
+        if ((step.flags & kPlanFlagNoDefer) && step.kind != PlanStepKind::Pull)
+            return PlanStepRefusal::BadParam;
+        if ((step.flags & kPlanFlagSkipUnreachable) && step.kind != PlanStepKind::Boss)
+            return PlanStepRefusal::BadParam;
+        if ((step.flags & kPlanFlagStandPull) && step.kind != PlanStepKind::Boss)
+            return PlanStepRefusal::BadParam;
         if (step.exactLaunch && step.kind != PlanStepKind::MoveDirect)
+            return PlanStepRefusal::BadParam;
+        if (step.openProof && step.kind != PlanStepKind::Open)
+            return PlanStepRefusal::BadParam;
+        if ((step.flags & kPlanFlagProofCreature) && !step.openProof)
             return PlanStepRefusal::BadParam;
         switch (step.kind)
         {
@@ -334,11 +385,31 @@ namespace ai
                 break;
             case PlanStepKind::Boss:
             case PlanStepKind::Loot:
-            case PlanStepKind::Open:
             case PlanStepKind::UseItem:
             case PlanStepKind::Ritual:
                 if (step.entry == 0)
                     return PlanStepRefusal::MissingEntry;
+                break;
+            case PlanStepKind::Open:
+                if (step.entry == 0)
+                    return PlanStepRefusal::MissingEntry;
+                if (step.openProof)
+                {
+                    if (step.entries.empty())
+                        return PlanStepRefusal::MissingEntry;
+                    if (step.entries.size() != 1)
+                        return PlanStepRefusal::BadEntries;
+                    if (!(step.radius > 0.0f) || step.radius > kPlanMaxProofRadius)
+                        return PlanStepRefusal::BadRadius;
+                    if (step.x == 0.0f && step.y == 0.0f && step.z == 0.0f)
+                        return PlanStepRefusal::BadPoint;
+                    if (step.param != 0 || (step.flags & ~kPlanFlagProofCreature) != 0)
+                        return PlanStepRefusal::BadParam;
+                    if (!(step.flags & kPlanFlagProofCreature) && step.entries.front() == step.entry)
+                        return PlanStepRefusal::BadParam;
+                    if (step.timeoutS != 0)
+                        return PlanStepRefusal::BadTimeout;
+                }
                 break;
             case PlanStepKind::Gossip:
                 if (step.entry == 0)
@@ -472,6 +543,43 @@ namespace ai
             return PlanStepRefusal::None;
         }
 
+        // Loading only (before the seal; `tactics` sealed): each boss step gets the subjects of the tactic rows keyed on
+        // (the plan's map, the step's boss entry or one of its entries), once each (PlanStep::tacticEntries). Returns the
+        // entries joined; nothing after the seal or with an unsealed tactic table.
+        std::size_t JoinBossTactics(const BossTacticTable& tactics)
+        {
+            std::size_t joined = 0;
+            if (Sealed() || !tactics.Sealed())
+                return joined;
+            for (auto& entry : plans_)
+                for (PlanStep& step : entry.second.steps)
+                {
+                    if (step.kind != PlanStepKind::Boss)
+                        continue;
+                    std::vector<std::uint32_t> keys = step.entries;
+                    keys.push_back(step.entry);
+                    for (std::uint32_t boss : keys)
+                    {
+                        const std::vector<BossTacticRow>* rows = boss ? tactics.Rows(entry.second.map, boss) : nullptr;
+                        if (!rows)
+                            continue;
+                        for (const BossTacticRow& row : *rows)
+                        {
+                            std::uint32_t const subject = TacticSubjectEntry(row);
+                            if (subject && std::find(step.tacticEntries.begin(), step.tacticEntries.end(), subject) ==
+                                    step.tacticEntries.end())
+                            {
+                                step.tacticEntries.push_back(subject);
+                                ++joined;
+                            }
+                        }
+                    }
+                    // In entry order: a reload that reads the same rows in another order is no change (SamePlanStep).
+                    std::sort(step.tacticEntries.begin(), step.tacticEntries.end());
+                }
+            return joined;
+        }
+
         // Sorts every plan's steps into run order and opens the table to readers.
         void Seal()
         {
@@ -517,6 +625,19 @@ namespace ai
                 out.push_back(&entry.second);
             std::sort(out.begin(), out.end(), [](const DungeonPlan* a, const DungeonPlan* b) { return a->name < b->name; });
             return out;
+        }
+
+        // Whether `plan` points into this table (a run's plan pointer after a
+        // `.bot run reloadplans`: the reload keeps a replaced table alive while
+        // a run still holds one of its plans, DungeonPlanReloadPolicy.h).
+        bool Owns(const DungeonPlan* plan) const
+        {
+            if (!plan)
+                return false;
+            for (const auto& entry : plans_)
+                if (&entry.second == plan)
+                    return true;
+            return false;
         }
 
         // The names of the plans on one map, sorted. Empty before the seal.
@@ -604,6 +725,26 @@ namespace ai
             bool listed = (step.kind != PlanStepKind::Hold && step.entry == entry) ||
                 std::find(step.entries.begin(), step.entries.end(), entry) != step.entries.end();
             if (listed && PlanDistance(x, y, z, step.x, step.y, step.z) <= step.radius)
+                return true;
+        }
+        return false;
+    }
+    // Whether any gossip step of the plan names `entry` (r36 shadowfang_keep
+    // slotI: the walk back replayed step 1 and pulled Deathstalker Adamant
+    // 3849, the friendly prisoner whose gossip opens the courtyard door; he
+    // died and step 130's gossip could not be done, respawn 4 h 36 min). Only
+    // gossip steps: their entry is a creature entry, while open/use_on name a
+    // game object, use_item an item and ritual encounter data (other id
+    // namespaces: a hostile creature sharing such a number must still be
+    // pulled). The run leader never pulls such a unit as a hop unit: it is
+    // a unit the plan talks to, not a pack unit.
+    inline bool PlanNamesEventUnit(const DungeonPlan& plan, std::uint32_t entry)
+    {
+        for (const PlanStep& step : plan.steps)
+        {
+            if (step.kind != PlanStepKind::Gossip)
+                continue;
+            if (step.entry == entry)
                 return true;
         }
         return false;

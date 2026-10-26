@@ -12,6 +12,9 @@
 
 #include <string>
 
+// pi-lens-ignore: clang:pp_file_not_found
+#include "playerbot/PlayerbotAIConfig.h"
+
 namespace TortoiseBots {
 namespace BotCommands {
 
@@ -27,6 +30,15 @@ std::string Trim(std::string value)
 Player* Requester(ChatHandler* handler)
 {
     return handler && handler->GetSession() ? handler->GetSession()->GetPlayer() : nullptr;
+}
+
+TortoiseBots::RemoteCommander::FeatureGates CurrentCommanderGates()
+{
+    TortoiseBots::RemoteCommander::FeatureGates gates;
+    gates.remoteCommander = sPlayerbotAIConfig.remoteCommander;
+    gates.dungeonSelfClear = sPlayerbotAIConfig.dungeonSelfClear;
+    gates.botLfgGroups = sPlayerbotAIConfig.botLfgGroups;
+    return gates;
 }
 
 bool ResolveOwnedBot(ChatHandler* handler, char const* args, Player*& bot, BotRecord*& record, std::string& name)

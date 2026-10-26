@@ -5,6 +5,7 @@
 #include "ScriptMgr.h"
 #include "../../runtime/CommandedGroupQuery.h"
 
+#include <algorithm>
 #include <unordered_map>
 
 using namespace ai;
@@ -25,16 +26,17 @@ namespace
         built = true;
 
         uint32 count = 0;
+        uint32 listed = 0;
         for (auto const& itr : sObjectMgr.GetAreaTriggersMap())
         {
             AreaTriggerEntry const& at = itr.second;
             MapEntry const* map = sMapStorage.LookupEntry<MapEntry>(at.mapid);
-            if (!IsBotFireableAreaTrigger(IsListedAreaTrigger(sPlayerbotAIConfig.botAreaTriggerIds, at.id),
-                                          sScriptMgr.GetAreaTriggerScriptId(at.id) != 0,
-                                          map && map->IsNonRaidDungeon(),
-                                          sObjectMgr.GetAreaTriggerTeleport(at.id) != nullptr,
-                                          sObjectMgr.IsTavernAreaTrigger(at.id),
-                                          sObjectMgr.GetBattlegroundEntranceTrigger(at.id) != nullptr))
+            // Listed or not: an unlisted one is armed only while a run's current move step names it.
+            if (!IsBotIndexableAreaTrigger(sScriptMgr.GetAreaTriggerScriptId(at.id) != 0,
+                                           map && map->IsNonRaidDungeon(),
+                                           sObjectMgr.GetAreaTriggerTeleport(at.id) != nullptr,
+                                           sObjectMgr.IsTavernAreaTrigger(at.id),
+                                           sObjectMgr.GetBattlegroundEntranceTrigger(at.id) != nullptr))
                 continue;
 
             BotAreaTriggerShape shape;
@@ -47,16 +49,20 @@ namespace
             shape.boxY = at.box_y;
             shape.boxZ = at.box_z;
             shape.boxOrientation = at.box_orientation;
+            shape.listed = IsListedAreaTrigger(sPlayerbotAIConfig.botAreaTriggerIds, at.id);
             index[at.mapid].push_back(shape);
             ++count;
+            if (shape.listed)
+                ++listed;
         }
-        sLog.outString("TortoiseBots: %u listed area triggers on %u dungeon maps can fire for bots.",
-                       count, uint32(index.size()));
+        sLog.outString("TortoiseBots: %u listed area triggers on %u dungeon maps can fire for bots "
+                       "(%u scripted in all; an unlisted one only at a run's move step that names it).",
+                       listed, uint32(index.size()), count);
         return index;
     }
 }
 
-void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state)
+void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state, std::vector<uint32_t> const* runArmed)
 {
     // Only a living bot in a group, inside a dungeon (not a raid), standing still or
     // walking (not on a taxi, not mid-teleport), the way a client would send it.
@@ -82,6 +88,8 @@ void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state)
     std::vector<uint32_t> nearNow;
     for (BotAreaTriggerShape const& shape : itr->second)
     {
+        if (!IsBotAreaTriggerArmed(shape.listed, shape.id, runArmed))
+            continue;
         if (IsInsideAreaTriggerShape(shape, x, y, z, 0.0f))
             insideNow.push_back(shape.id);
         if (IsInsideAreaTriggerShape(shape, x, y, z, kBotAreaTriggerLeaveMargin))
@@ -111,6 +119,9 @@ void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state)
         return IsBotAreaTriggerPartyAllowed(commanded, humanNearby);
     };
 
+    // The run's armed ids, copied before any script runs: a fired one is erased from
+    // the run's own vector (runArmed points into it), so it is not read after a script.
+    std::vector<uint32_t> const armedIds = runArmed ? *runArmed : std::vector<uint32_t>();
     for (uint32_t id : state.Step(bot->GetMapId(), bot->GetInstanceId(), insideNow, nearNow, partyAllowed))
     {
         // Re-read the entry from the store: the index keeps copies, never
@@ -119,7 +130,19 @@ void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state)
         if (!at)
             continue;
         sLog.outDetail("TortoiseBots: %s fires area trigger %u (map %u).", bot->GetName(), id, bot->GetMapId());
-        sScriptMgr.OnAreaTrigger(bot, at);
+        bool const armedByRun = std::find(armedIds.begin(), armedIds.end(), id) != armedIds.end();
+        bool const ran = sScriptMgr.OnAreaTrigger(bot, at);
+        // A run-armed trigger counts as fired for the run (DungeonRun::NoteTriggerFired) only
+        // when its script ran (at_zumrah returns false while Zum'rah is not within 30 yd);
+        // a refusal keeps it armed and this bot tries again in kBotAreaTriggerRetryMs while
+        // it stays inside.
+        if (armedByRun)
+        {
+            if (ran)
+                TortoiseBots::BotCommands::NoteRunAreaTriggerFired(bot, id);
+            else
+                state.Refused(id);
+        }
         // The script may have teleported, killed or ungrouped the bot.
         if (!bot->IsInWorld() || bot->IsBeingTeleported())
             break;

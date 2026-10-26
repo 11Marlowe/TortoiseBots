@@ -27,7 +27,7 @@ It is **off by default**. A normal player's bots play exactly as before.
 The `boss tactics` strategy is added to a bot by the `enter boss tactics` trigger of the `dungeon` strategy (re-checked every 5 ticks, like the per-dungeon strategies) when all of these hold:
 
 1. the bot is on a map that has at least one row in `ai_boss_tactic`, and
-2. either `AiPlayerbot.DungeonTactics = 1` (the server owner opted in; default `0`), **or** the bot is in a group that a remote commander has bound (`.bot commander bind`, needs `AiPlayerbot.RemoteCommander = 1`; the commander runs).
+2. either `AiPlayerbot.DungeonTactics = 1` (the server owner opted in; default `0`), **or** the bot is in a bound group (`.bot commander bind`: a remote bind needs `AiPlayerbot.RemoteCommander = 1`, an `inparty` bind needs only `AiPlayerbot.DungeonSelfClear = 1`; the run leader needs only the run leader gate).
 
 When the bot leaves the map, or the key is switched off and the bot is no longer in a bound group, `leave boss tactics` removes it again. The gate is `BossTacticsWanted` in `ai/playerbot/BossTacticsPolicy.h`.
 
@@ -70,6 +70,7 @@ Every creature and spell was read from Turtle's own data (`tortoise-wow`: `creat
 | Baelog 6906, Eric "The Swift" 6907, Olaf 6908 | `kill_first` Baelog (1), Eric (2), Olaf (3), under all three entries | Baelog is the only dwarf with a ranged attack (*Shoot* 15620) and flees at 15 % health (event 690601); Eric opens with *Rushing Charge* 6268; Olaf has the most health (5867) and the *Shield Slam* stun 8242. The order is a judgement from that data, not something the core states. |
 | Ironaya (7228) | `behind`, 10 yd, spell 8374 | `boss_ironaya` casts *Arcing Smash* 8374 on herself every 13 s; it is a cone (effect target 24) with radius index 8, which is the *War Stomp* radius (8 yd by its tooltip; the client DBC was not available, so 8 yd plus a 2 yd margin). Her *Knock Away* 10101 below 50 % health wipes the victim's threat and is not handled yet. |
 | Obsidian Sentinel (7023) | `kill_first` Obsidian Shard 7209 | EventAI events 702301-702304 cast *Summon Obsidian Shard* 10061 (creature 7209) and *Splintered Obsidian* 10072 at 80, 60, 40 and 20 % health. |
+| Grimlok (4854) | `interrupt` Chain Bolt 8292 and Lightning Bolt 9532 | Spell list 48540 casts Chain Bolt 8292 (castingTimeIndex 19) and Lightning Bolt 9532 (castingTimeIndex 14), both silence-prevented (preventionType 1). Shrink 11892 gets no row (not in the plan interrupt list); Tremor Totem 8143 is instant (castingTimeIndex 1). |
 
 What needs a live check (not verified in game): the Lost Dwarves order and whether the three can be pulled apart, that 10 yd is right for the Arcing Smash cone, that the interrupt fires in time on Chain Lightning.
 
@@ -81,6 +82,7 @@ Every creature and spell was read from Turtle's own data (`tortoise-wow`: `creat
 | :--- | :--- | :--- |
 | Jared Voss (61961) | `interrupt` Poison Cloud 3815 | Spell list 180300 casts Poison Cloud 3815 (7-7 s first, every 16-26 s), a cast (castingTimeIndex 4) that leaves a periodic-damage cloud centred on the caster (target type 22, self); the other three list spells (Poison 13298, Withering Poison 13884, Poisonous Stab 7357) are instant (castingTimeIndex 1), so they are not listed. EventAI is say-on-aggro/death only (2200058/2200059). |
 | Masterpiece Harvester (61963) | no row | No spell list, no C++ script; EventAI is only say-on-aggro/death (2200054/2200055). Unimplemented in the core. |
+| Captain Greenskin (647) | `interrupt` Poisoned Harpoon 5208 | Spell list 6470 (and inline `spell_id2`) casts Poisoned Harpoon 5208 (castingTimeIndex 5), silence-prevented with the kick bits (interruptFlags 15). Cleave 15584 is instant (castingTimeIndex 1). No ai_name. |
 
 What needs a live check (not verified in game): that the Poison Cloud cast is actually interruptible in time at its cadence.
 
@@ -90,6 +92,11 @@ What needs a live check (not verified in game): that the Poison Cloud cast is ac
 | :--- | :--- | :--- |
 | Zandara Windhoof (61968) | `interrupt` Chain Lightning 15659 and Gust of Wind 6982 | Spell list 180306 casts Chain Lightning 15659 (every 10 s, castingTimeIndex 14) and Gust of Wind 6982 (4-4 s first, every 11-14 s, castingTimeIndex 5), an AoE stun (effectApplyAura 12). EventAI is say-on-aggro/death only (2200062/2200063). |
 | Vangros (61965) | no row | Spell list 180303 casts Crush Armor 21055 and Knock Away 18670, both instant (castingTimeIndex 1, interruptFlags 0); Knock Away is a single-target threat-drop, not a frontal cone. No ai_name or script. |
+| Lord Serpentis (3673) | `interrupt` Healing Touch 6778, Sleep 700 and Lightning Bolt 9532 | Spell list 36730 casts Healing Touch 6778 (castingTimeIndex 22), Sleep 700 (castingTimeIndex 16) and Lightning Bolt 9532 (castingTimeIndex 14), all silence-prevented with the kick bits (interruptFlags 15). |
+| Lord Cobrahn (3669) | `interrupt` Druid Slumber 8040, Lightning Bolt 9532 and Healing Touch 5187 | Druid-form spell list 36690 casts Druid Slumber 8040 (castingTimeIndex 19) and Lightning Bolt 9532 (castingTimeIndex 14); Healing Touch 5187 is the plan list third spell (castingTimeIndex 20, interruptFlags 15, preventionType 1). |
+| Lord Pythas (3670) | `interrupt` Healing Touch 5187, Sleep 700 and Lightning Bolt 9532 | Spell list 36700 casts Healing Touch 5187 (castingTimeIndex 20), Sleep 700 (castingTimeIndex 16) and Lightning Bolt 9532 (castingTimeIndex 14), all silence-prevented with the kick bits. Thunderclap 8147 is instant (castingTimeIndex 1). |
+| Skum (3674) | `interrupt` Chained Bolt 6254 | No spell list; Chained Bolt 6254 is the inline `spell_id1`, a real cast (castingTimeIndex 23), silence-prevented with the kick bits. |
+| Mutanus the Devourer (3654) | `interrupt` Naralex Nightmare 7967 | Spell list 36540 casts Naralex Nightmare 7967 (first at 8-12 s, every 18-25 s, castingTimeIndex 5), silence-prevented with the kick bits. Terrify 7399 is instant (castingTimeIndex 1). |
 
 What needs a live check (not verified in game): that the interrupts fire in time on the 11-14 s Gust of Wind window.
 
@@ -182,6 +189,20 @@ Rows added 2026-10-20 (`data/sql/world/20261020083400_world.sql`), read from `to
 Not covered yet, though they have qualifying casts (a real cast and the 0x02 interrupt bit): Zumrah 7271 (spell list 72710: Shadow Bolt 12739, Shadow Bolt Volley 15245, Healing Wave 12491), Gahz'rilla 7273 (spell list 72730: Icicle 11131, castingTimeIndex 16, and Freeze Solid 11836, castingTimeIndex 19, both interruptFlags 15), Theka the Martyr 7272 (spell list 72720) and Nekrum Gutchewer 7796 (spell list 77960), both with Fevered Plague 8600 (castingTimeIndex 30, interruptFlags 31). They need their own rows before those fights can rely on interrupts.
 
 What needs a live check (not verified in game): that the kicks land on Velratha's 9-22 s Healing Wave and Sezzziz's heals, that Antusul's Flash Heal/Healing Wave/Healing Ward casts are interrupted in time, and that the DPS bots switch to the servants in both waves before the boss dies.
+
+
+## Scholomance rows (map 289)
+
+Rows added 2026-10-24 (`data/sql/world/20261024153900_world.sql`), read from `tortoise-wow` 5d79486. Map 289 had no rows before, so the `boss tactics` strategy now also activates for a bound party on map 289; only these two bosses have rows.
+
+| Boss (entry) | Row | Data behind it |
+| :--- | :--- | :--- |
+| Vectus (10432) | `kill_first` Marduk Blackpool 10433, priority 1; `interrupt` Flamestrike 18399 | One creature group (`creature_groups` (48805,48806,0,0,2), flags 2 `OPTION_AGGRO_TOGETHER`): Vectus and Marduk aggro together with no distance limit, so the boss row fights both. Marduk first: his Defiling Aura 17695 (EventAI 1043302, on aggro; aura 133, -100 shadow resistance on enemies, radius index 10) and Shadow Bolt Volley 17228 (spell list 104330, every 6-14 s, instant, radius index 10) reach the whole party and the aura amplifies the Volley, while Vectus' Blast Wave 16046 (instant, around himself) and melee hit the tank and the melee only; Marduk also has less health (22970 vs 24420). Interrupt: Flamestrike 18399 every 30 s (castingTimeIndex 14, preventionType 1, interruptFlags 15, so kickable by the boss-tactics rule); Blast Wave 16046 is instant and gets no row, and there is no `behind` row (no frontal cone). |
+| Marduk Blackpool (10433) | `kill_first` Marduk Blackpool 10433, priority 1 | Same row under Marduk: it is active while only he is on the attacker list. No interrupt row (Shadow Bolt Volley 17228 and Cleave 15284 are instant; Shadow Shield 12040 is self-cast). |
+
+Kill order reason: the whole-party shadow damage of Marduk (Volley plus aura, hitting even the 4.1k hp priest) runs longer if Vectus dies first. No CC on either (both undead, immune masks; the plan's `cc_priority` never applies to a boss row).
+
+What needs a live check: that Marduk dies first with Vectus on the tank, that Flamestrike is kicked in time.
 
 ## Adding a boss
 

@@ -15,8 +15,13 @@
     } \
 } while (0)
 
+using ai::ClassifyLiquidHazard;
 using ai::CutPathBeforeMagma;
 using ai::IsMagmaHazard;
+using ai::IsSlimeHazard;
+using ai::KeepNavmeshZOverMagma;
+using ai::KeepStairNavmeshZ;
+using ai::LiquidHazard;
 using ai::MagmaGuardApplies;
 using ai::MagmaInteriorSamples;
 using ai::MagmaPathCut;
@@ -74,6 +79,25 @@ int main()
             CHECK(!IsMagmaHazard(0, status));
         }
         std::cout << "  [PASS] slime, water, ocean and no liquid are no hazard\n";
+    }
+
+    // Round 2: slime by the same rule, for the swim hand-off routes only.
+    // Ordinary moves stay magma-only, so IsMagmaHazard still says no to slime
+    // (the block above); ClassifyLiquidHazard adds slime only with `withSlime`.
+    {
+        CHECK(IsSlimeHazard(kSlime, kIn));
+        CHECK(IsSlimeHazard(kSlime, kUnder));
+        CHECK(IsSlimeHazard(kSlime, kWalk));
+        CHECK(!IsSlimeHazard(kSlime, kAbove));
+        CHECK(!IsSlimeHazard(kSlime, kNoWater));
+        CHECK(!IsSlimeHazard(kMagma, kIn));
+        CHECK(!IsSlimeHazard(kWater, kIn));
+        CHECK(!IsSlimeHazard(0, kIn));
+        CHECK(ClassifyLiquidHazard(kSlime, kIn, true) == LiquidHazard::Slime);
+        CHECK(ClassifyLiquidHazard(kSlime, kIn, false) == LiquidHazard::None);
+        CHECK(ClassifyLiquidHazard(kMagma, kIn, true) == LiquidHazard::Magma);
+        CHECK(ClassifyLiquidHazard(kMagma, kIn, false) == LiquidHazard::Magma);
+        std::cout << "  [PASS] slime is a hazard for the hand-off only, magma for every move\n";
     }
 
     // The guard runs on instance maps only; the open world keeps its old
@@ -243,17 +267,116 @@ int main()
     // still in its window, or when its standing point is in magma.
     {
         MagmaRefusal r = MagmaRefusalFor(389, -205.5f, -16.4f, -65.7f, 100);
-        CHECK(MagmaNudgeBlocked(true, true, r, 101, false));
-        CHECK(!MagmaNudgeBlocked(true, true, r, 110, false));        // window over
-        CHECK(!MagmaNudgeBlocked(true, false, r, 101, false));       // the last move failed otherwise or worked
-        CHECK(!MagmaNudgeBlocked(true, true, MagmaRefusal(), 101, false)); // nothing refused
+        CHECK(MagmaNudgeBlocked(true, r, 389, 101, false));
+        CHECK(!MagmaNudgeBlocked(true, r, 389, 110, false));         // window over
+        // Codex review 2026-10-23: a magma refusal, then a later try that failed for another
+        // reason (MoveTo2 resets the last-try reason), then the nudge: still blocked by the
+        // memory alone (the call takes no last-try reason any more).
+        CHECK(MagmaNudgeBlocked(true, r, 389, 105, false));
+        CHECK(!MagmaNudgeBlocked(true, r, 1, 101, false));           // the memory is of another map
+        CHECK(!MagmaNudgeBlocked(true, MagmaRefusal(), 389, 101, false)); // nothing refused
         MagmaRefusal cleared = r;
         cleared.set = false;
-        CHECK(!MagmaNudgeBlocked(true, true, cleared, 101, false));  // a cleared memory
-        CHECK(MagmaNudgeBlocked(true, false, MagmaRefusal(), 101, true));  // the stand is in magma
-        CHECK(!MagmaNudgeBlocked(false, true, r, 101, true));        // open world: unchanged
+        CHECK(!MagmaNudgeBlocked(true, cleared, 389, 101, false));   // a cleared memory
+        CHECK(MagmaNudgeBlocked(true, MagmaRefusal(), 389, 101, true));  // the stand is in magma
+        CHECK(!MagmaNudgeBlocked(false, r, 389, 101, true));         // open world: unchanged
         std::cout << "  [PASS] the task walk nudge waits after a magma refusal\n";
     }
+    // the core's UpdateAllowedPositionZ can lower a navmesh path point into WMO
+    // magma while the navmesh floor is dry (Dragonmaw Retreat r39s2/r41s2:
+    // navmesh 72.6, clamp 70.25 in lava). Keep the navmesh z only when the
+    // core's collision (vmap-only, no .map terrain, no dynamic tree) height
+    // query confirms a real floor at the navmesh point; a bridged/eroded
+    // navmesh point over an open hole (or a polygon a little above open lava)
+    // reads dry but has no floor, so the bot would float or walk on the lava
+    // surface. Round-1 lead decision: restore only on `floorConfirmed`.
+    {
+        int kept = 0;
+        for (int guard = 0; guard <= 1; ++guard)
+            for (int lowered = 0; lowered <= 1; ++lowered)
+                for (int clamped = 0; clamped <= 1; ++clamped)
+                    for (int navmesh = 0; navmesh <= 1; ++navmesh)
+                        for (int floorOk = 0; floorOk <= 1; ++floorOk)
+                        {
+                            bool const want = guard && lowered && clamped && !navmesh && floorOk;
+                            bool const got = KeepNavmeshZOverMagma(guard, lowered, clamped, navmesh, floorOk);
+                            if (got)
+                                ++kept;
+                            if (want != got)
+                            {
+                                std::cerr << "KeepNavmeshZOverMagma(" << guard << "," << lowered << "," << clamped << ","
+                                    << navmesh << "," << floorOk << ") = " << got << ", want " << want << "\n";
+                            }
+                            CHECK(got == want);
+                        }
+        CHECK(kept == 1);
+        CHECK(KeepNavmeshZOverMagma(true, true, true, false, true)); // lowered into magma, navmesh floor dry, floor confirmed: keep the floor
+        CHECK(!KeepNavmeshZOverMagma(true, true, true, false, false)); // same point, no collision floor (hole above lava): keep the clamp
+        std::cout << "  [PASS] the clamp keeps the navmesh floor over magma only on a confirmed floor\n";
+    }
+
+    // Slime reads by the same hazard rule (type flag 0x04, same status bits):
+    // a clamp sunk in slime is no safer a floor signal than one sunk in magma.
+    {
+        for (std::uint32_t status : { kWalk, kIn, kUnder })
+        {
+            CHECK(IsSlimeHazard(kSlime, status));
+            CHECK(!IsSlimeHazard(kMagma, status));
+            CHECK(!IsSlimeHazard(kWater, status));
+            CHECK(!IsSlimeHazard(kOcean, status));
+            CHECK(!IsSlimeHazard(0, status));
+        }
+        CHECK(!IsSlimeHazard(kSlime, kAbove));
+        CHECK(!IsSlimeHazard(kSlime, kNoWater));
+        std::cout << "  [PASS] slime under, in or on its surface counts, other liquids do not\n";
+    }
+
+    // The stair-workaround gate (round 2): the big-drop restore keeps the
+    // navmesh z only when the ORIGINAL clamp is neither in magma nor in slime.
+    {
+        int kept = 0;
+        for (int lowered = 0; lowered <= 1; ++lowered)
+            for (int bigDrop = 0; bigDrop <= 1; ++bigDrop)
+                for (int wet = 0; wet <= 1; ++wet)
+                {
+                    bool const want = lowered && bigDrop && !wet;
+                    bool const got = KeepStairNavmeshZ(lowered, bigDrop, wet);
+                    if (got)
+                        ++kept;
+                    if (want != got)
+                    {
+                        std::cerr << "KeepStairNavmeshZ(" << lowered << "," << bigDrop << ","
+                            << wet << ") = " << got << ", want " << want << "\n";
+                    }
+                    CHECK(got == want);
+                }
+        CHECK(kept == 1);
+        CHECK(KeepStairNavmeshZ(true, true, false)); // dry crypt-stair fallback: unchanged behaviour
+        CHECK(!KeepStairNavmeshZ(true, true, true)); // big drop into magma/slime: the confirmed-floor path decides
+        std::cout << "  [PASS] the stair workaround restores a big drop only when the clamp is dry\n";
+    }
+
+    // Round-2 lead cases: restore needs the ORIGINAL clamp and a confirmed
+    // floor, at both drop sizes. The big-drop cases pin the round-2 bypass:
+    // the stair workaround must not restore a wet big drop blindly.
+    {
+        // Unconfirmed hole, small (2.35 yd) drop into magma, no vmap floor:
+        // NOT restored.
+        CHECK(!KeepNavmeshZOverMagma(true, true, true, false, false));
+        // Unconfirmed hole, big (6 yd) drop into magma, no vmap floor: the
+        // stair gate refuses and the magma guard has no floor — NOT restored.
+        CHECK(!KeepStairNavmeshZ(true, true, true));
+        CHECK(!KeepNavmeshZOverMagma(true, true, true, false, false));
+        // Confirmed thin floor (vmap hit within 1.0 yd), small drop: restored.
+        CHECK(KeepNavmeshZOverMagma(true, true, true, false, true));
+        // Confirmed floor under a big drop into magma (deep lava bed under a
+        // high deck the clamp fell through to): the magma guard restores on
+        // the confirmed floor even though the stair gate refused.
+        CHECK(!KeepStairNavmeshZ(true, true, true));
+        CHECK(KeepNavmeshZOverMagma(true, true, true, false, true));
+        std::cout << "  [PASS] unconfirmed holes stay clamped at any drop size, confirmed floors restore\n";
+    }
+
 
     std::cout << "All magma hazard policy tests passed.\n";
     return 0;

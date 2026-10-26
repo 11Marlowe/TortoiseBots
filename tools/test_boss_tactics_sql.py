@@ -61,6 +61,37 @@ class BossTacticsSql(unittest.TestCase):
             self.assertNotIn(key, seen, "duplicate key %s in %s" % (key, name))
             seen.add(key)
 
+    def test_plan_interrupt_bosses_have_rows(self):
+        # pjerra/turtle-agent#254: the turtle-agent plan JSON lists these
+        # interrupts, and the module never read them. Fixed table, kept here
+        # so the rows cannot silently disappear; do not read the plan repo.
+        expected = [
+            (43, 3673, 6778),
+            (43, 3673, 700),
+            (43, 3673, 9532),
+            (43, 3669, 8040),
+            (43, 3669, 9532),
+            (43, 3669, 5187),
+            (43, 3670, 5187),
+            (43, 3670, 700),
+            (43, 3670, 9532),
+            (43, 3674, 6254),
+            (43, 3654, 7967),
+            (70, 4854, 8292),
+            (70, 4854, 9532),
+            (36, 647, 5208),
+        ]
+        have = set(
+            (map_id, boss, kind, target, spell)
+            for _, map_id, boss, kind, target, spell, _priority, _param in migration_rows()
+        )
+        for map_id, boss, spell in expected:
+            self.assertIn(
+                (str(map_id), str(boss), "interrupt", "0", str(spell)),
+                have,
+                "missing ai_boss_tactic interrupt row map %s boss %s spell %s" % (map_id, boss, spell),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

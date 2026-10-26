@@ -7,6 +7,7 @@
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/ServerFacade.h"
 #include "../ai/playerbot/strategy/Engine.h"
+#include "../ai/playerbot/strategy/values/LastMovementValue.h"
 #include "../ai/playerbot/strategy/Action.h"
 #include "../ai/playerbot/strategy/AiObjectContext.h"
 #include "../ai/playerbot/PullExecutorPolicy.h"
@@ -444,6 +445,8 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
         ai::PositionEntry stayPos = posMap["stay"];
         stayPos.Set(stand.getX(), stand.getY(), stand.getZ(), stand.GetMapId());
         posMap["stay"] = stayPos;
+        // An explicit order is a fresh stay walk, even to the same spot (StayWalkOrdered).
+        TortoiseBots::StayWalkOrdered(ai->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get().stayWalk);
         ai::PositionEntry holdPos = posMap["pull hold"];
         holdPos.Set(stand.getX(), stand.getY(), stand.getZ(), stand.GetMapId());
         posMap["pull hold"] = holdPos;
@@ -451,7 +454,7 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
         // (PullJoinWindowPolicy.h). A "wait for attack" or a delay the player
         // set is theirs and comes back unchanged when the window ends; one an
         // earlier pull left (a chain pull) stays the pull's.
-        ai->StartPullWindow(static_cast<uint8>(windowSeconds));
+        ai->StartPullWindow(static_cast<uint8>(windowSeconds), context.runLeader, static_cast<uint8>(std::min<uint32>(joinDelaySeconds, 255)));
         // Fresh combat window: a stale combat-start timestamp would expire the
         // hold immediately, so reset it for the incoming pull engagement.
         // Re-stamped when the pull lands (plain pull) or when the tank

@@ -6,6 +6,8 @@
 #include "PullTriggers.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/actions/PullActions.h"
+#include "playerbot/strategy/values/TargetValue.h"
+#include "../../../../runtime/CommandedGroupQuery.h"
 #include "../../policy/class/ShamanTankPolicy.h"
 
 using namespace ai;
@@ -168,15 +170,70 @@ bool PullEndTrigger::IsActive()
 
 bool PullHoldExpiredTrigger::IsActive()
 {
-    // Keyed on the window's own clock, not on the anchor marker or the combat
-    // clock: combat end, death and movement orders drop the marker and zero
-    // the combat clock, and a window read through them was never ended.
+    // Keyed on the window's own clock (PlayerbotAI::StartPullWindow /
+    // RestampPullWindow), not on the anchor marker or the combat clock: combat
+    // end, death and movement orders drop the marker and zero the combat
+    // clock, and a window read through them was never ended.
     if (!ai->HasPullWindow())
         return false;
     AiObjectContext* context = ai->GetAiObjectContext();
     if (!context)
         return false;
-    return ai->PullWindowExpired(AI_VALUE(uint8, "wait for attack time"));
+    // The window's own clock is the ceiling (a pullback that never lands
+    // still frees the party when it expires), not the gate: a lead-keyed
+    // window asks the lead rule while it still runs, so the early release
+    // (pack on the tank at the join delay) and the held-bot rescue (a held
+    // bot is hit -> release at once) fire before the cap.
+    if (ai->PullWindowExpired(AI_VALUE(uint8, "wait for attack time")))
+    {
+        ai->SetPullReleaseReason("expired");
+        return true;
+    }
+    if (!ai->PullWindowLeadKeyed())
+        return false;
+    // A run leader's lead-keyed pull: the held DPS open once every mob near
+    // the tank is on it (join delay at the earliest, the cap at the latest),
+    // or at once when a mob hits them or the tank drops under 60 %.
+    ai::PullLeadFacts facts;
+    facts.landed = ai->PullWindowLanded();
+    facts.elapsedSeconds = ai->PullWindowElapsed();
+    facts.minSeconds = ai->PullWindowMinSeconds();
+    Player* tank = nullptr;
+    if (bot->GetGroup())
+    {
+        for (Player* member : LiveGroupMembers(bot->GetGroup()))
+        {
+            if (!member || !member->IsAlive() || !member->IsInWorld() || member->GetMapId() != bot->GetMapId())
+                continue;
+            if (PlayerbotAI::IsTank(member, true))
+            {
+                tank = member;
+                break;
+            }
+        }
+    }
+    facts.tankAlive = tank != nullptr;
+    if (tank)
+        facts.tankLow = tank->GetHealthPercent() < ai::kPullLeadPanicHpPct;
+    for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (!unit || !unit->IsAlive())
+            continue;
+        if (unit->GetVictim() == bot)
+            facts.botIsVictim = true;
+        if (!unit->IsInCombat() || !tank || !(tank->IsWithinDistInMap(unit, ai::kPullLeadPackYd) || bot->IsWithinDistInMap(unit, ai::kPullLeadPackYd)))
+            continue;
+        if (ai::FindNonCcTargetStrategy::IsCrowdControlled(ai, unit))
+            continue;
+        ++facts.packUnits;
+        if (unit->GetVictim() == tank)
+            ++facts.packOnTank;
+    }
+    const char* reason = ai::PullLeadReleaseReason(facts);
+    if (reason != nullptr)
+        ai->SetPullReleaseReason(reason);
+    return reason != nullptr;
 }
 
 bool PullAnchorDoneTrigger::IsActive()

@@ -20,7 +20,9 @@
 // window. No rule on icons or action numbers can tell those apart, so a bot talks
 // only to NPC entries an operator listed in AiPlayerbot.BotGossipNpcs after
 // reading what their scripts do (empty by default: the order is off). The order
-// checks the list before anything is sent to the NPC.
+// checks the list before anything is sent to the NPC. Since fix/plan-gossip-allow
+// (SFK r27) the one exception was a run-bound bot at its run's current gossip
+// step: that step's NPC passed too (MayTalkTo), and nothing else.
 //
 // Plain data and the standard library only. World thread only, like the rest of
 // the commander.
@@ -85,6 +87,37 @@ inline uint32_t ParseNpcList(std::string const& text, std::set<uint32_t>& out)
 inline bool IsAllowedNpc(std::set<uint32_t> const& allowed, uint32_t entry)
 {
     return allowed.count(entry) != 0;
+}
+
+// The gossip step of a bot's dungeon run, as the glue reads it from the run's
+// loaded plan (DungeonRun::RunGossipStepOf): bound = the bot is in the party of
+// a running or paused run; atGossip = that run's current step is a gossip step;
+// entry = the NPC that step names (GossipStep orders only that entry; a step's
+// `entries` are not read). Plain data, so this policy needs no plan types.
+struct RunGossipStep
+{
+    bool bound = false;
+    bool atGossip = false;
+    uint32_t entry = 0;
+};
+
+// The current gossip step of the bot's run names this NPC.
+inline bool RunStepNamesNpc(RunGossipStep const& step, uint32_t entry)
+{
+    if (!step.bound || !step.atGossip || entry == 0)
+        return false;
+    return entry == step.entry;
+}
+
+// The gate of `cmd gossip` (the order and the act): an NPC in the allowlist, or
+// the NPC the current gossip step of the bot's active run names (SFK r27: the
+// plan's own step needed Deathstalker Adamant, 3849, and was refused not-allowed).
+// A plan is installed by the operator with the module's SQL, so its gossip steps
+// stand as audited like the allowlist does; every other order keeps the
+// allowlist alone.
+inline bool MayTalkTo(std::set<uint32_t> const& allowed, RunGossipStep const& step, uint32_t entry)
+{
+    return IsAllowedNpc(allowed, entry) || RunStepNamesNpc(step, entry);
 }
 
 inline std::string NotAllowedText(std::set<uint32_t> const& allowed)

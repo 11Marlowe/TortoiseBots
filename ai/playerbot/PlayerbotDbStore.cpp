@@ -29,7 +29,7 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
     // comes back, so the stored set and values below are what is left (a
     // snapshot without "co"/"nc" rows leaves the live engines alone, and a
     // preset's own "wait for attack time" must win over the pre-pull one).
-    ai->EndPullWindow();
+    ai->EndPullWindow("reload");
 
     auto results = CharacterDatabase.PQuery("SELECT `key`,`value` FROM `ai_playerbot_db_store` WHERE `guid` = '%lu' AND `preset` = '%s'", guid, preset.c_str());
     if (results)

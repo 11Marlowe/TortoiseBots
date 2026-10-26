@@ -24,6 +24,7 @@
 #include "ModuleLog.h"
 #include "ModuleVersion.h"
 
+#include <atomic>
 #include <cctype>
 #include <string>
 
@@ -78,9 +79,16 @@ BotHostAdapter::BotHostAdapter()
 {
 }
 
-void BotHostAdapter::OnAfterConfigLoad(bool /*reload*/)
+// Set by a `.reload config` (OnAfterConfigLoad, on whichever thread ran the
+// command); the next world tick reads the run leader's keys again (OnUpdate),
+// on the thread that reads them.
+static std::atomic<bool> s_dungeonRunKeysDue{false};
+
+void BotHostAdapter::OnAfterConfigLoad(bool reload)
 {
     ModuleLog::Instance().ApplyConfig();
+    if (reload)
+        s_dungeonRunKeysDue.store(true);
 }
 
 void BotHostAdapter::OnStartup()
@@ -155,6 +163,11 @@ void BotHostAdapter::OnUpdate(uint32 diff)
     // drain included: a `.bot hire` drops its level-up echo right after the
     // jump), so their packet hooks on this thread reach the AI inline.
     BotPacketAdapter::MarkWorldThread();
+
+    // A `.reload config` came: the run leader's keys (AiPlayerbot.DungeonSelfClear,
+    // AiPlayerbot.DungeonRun*) are read again from aiplayerbot.conf, only those.
+    if (s_dungeonRunKeysDue.exchange(false))
+        sPlayerbotAIConfig.ReloadDungeonRunKeys();
 
     // Initialization stops before service configuration when AI is disabled.
     // Do not tick those services against an uninitialized registry/config.

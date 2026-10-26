@@ -216,6 +216,7 @@ static void TestFoldedRouteReplaysTheEarlierHole()
 {
     DungeonPlan plan = FoldedPlan();
     Facts f = At(165, 5);
+    f.walkBackRescue = false;
     Run r = DiesAndRevivesAt(plan, 165, 5);
     CHECK(!r.routeKnown); // came back away from where it fell: where it is on the route is not known
     CHECK(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, 0, 0, 0) > kSeeYd);
@@ -252,11 +253,33 @@ static void TestFoldedRouteReplaysTheEarlierHole()
         sent = Tick(w, dead);
     CHECK(sent == "revive party" && w.regroup && w.walkBackDue);
     Facts back = At(165, 5);
+    back.walkBackRescue = false; // the replay path pinned: the rescue below covers the teleport
     back.members = {Mem("Tanky", 0), Mem("Bearcaller", 3)};
     back.approachKnown = true;
     for (int i = 0; i < 6 && w.regroup; ++i)
         Tick(w, back);
     CHECK(!w.regroup && w.walkBack && w.walkBackIdx == 1 && !w.routeKnown);
+    // The same wipe with the rescue on: the hole replay is a rescue, armed bot-only, replaying on refusal.
+    Run v = Start(&plan, 7);
+    NoteCheckpoint(v, 5);
+    Facts alive2 = At(150, 150);
+    NoteLeadDeath(v, alive2);
+    Facts dead2 = alive2;
+    dead2.leadAlive = false;
+    dead2.dead = 1;
+    dead2.alive = 4;
+    dead2.deadNames = {"Tanky"};
+    std::string sent2;
+    for (int i = 0; i < 3 && sent2 != "revive party"; ++i)
+        sent2 = Tick(v, dead2);
+    CHECK(sent2 == "revive party" && v.regroup && v.walkBackDue);
+    Facts on2 = At(165, 5);
+    on2.members = {Mem("Tanky", 0), Mem("Bearcaller", 3)};
+    on2.approachKnown = true;
+    for (int i = 0; i < 6 && v.regroup; ++i)
+        Tick(v, on2);
+    CHECK(!v.regroup && v.strandDue && v.strandIdx == 6 && v.strandBotOnly && v.strandReplay && !v.routeKnown);
+    CHECK(v.note.find("a direct step is on the way (step 3)") != std::string::npos);
 }
 
 // Codex round 3 on #1079: no failure passes a direct step the lead bot has not crossed (its hole would be skipped), and
@@ -341,8 +364,16 @@ static void TestEntranceReviveReplaysEveryHole()
     DungeonPlan plan = FoldedPlan();
     Run r = DiesAndRevivesAt(plan, 2, 1);
     CHECK(!r.routeKnown);
-    StartWalkBack(r, At(2, 1));
+    Facts off = At(2, 1);
+    off.walkBackRescue = false; // the replay path pinned: the rescue below covers the teleport
+    StartWalkBack(r, off);
     CHECK(r.walkBack && r.walkBackDirect && r.walkBackIdx == 1);
+    // The same revive with the rescue on: past the hole the safe point is a rescue, not a replay.
+    Run s = DiesAndRevivesAt(plan, 2, 1);
+    Facts on = At(2, 1);
+    StartWalkBack(s, on);
+    CHECK(s.strandDue && s.strandBotOnly && s.strandReplay);
+    CHECK(s.walkBack && s.note.find("a direct step is on the way") != std::string::npos);
 }
 
 // Raised where it fell, past every hole: no replay of the holes, straight to the last point; a fallback replay stays
@@ -372,8 +403,21 @@ static void TestRevivePastAllHolesNeedsNoReplay()
     Pause(q, "test");
     NoteLeadDeath(q, At(165, 5));
     CHECK(!q.routeKnown);
-    StartWalkBack(q, At(165, 5));
+    Facts qoff = At(165, 5);
+    qoff.walkBackRescue = false; // the replay path pinned: the rescue below covers the teleport
+    StartWalkBack(q, qoff);
     CHECK(q.walkBack && q.walkBackIdx == 1);
+    // The same spot with the rescue on: past the hole the safe point is a rescue, not a replay. A resume ends the
+    // pause first (a rescue only fires while running), then the regrouped party walks back the same way.
+    Run t = Start(&plan, 7);
+    NoteCheckpoint(t, 5);
+    NoteLeadDeath(t, At(150, 150));
+    Pause(t, "test");
+    NoteLeadDeath(t, At(165, 5));
+    CHECK(Resume(t));
+    StartWalkBack(t, At(165, 5));
+    CHECK(t.strandDue && t.strandBotOnly && t.strandReplay);
+    CHECK(t.walkBack && t.note.find("a direct step is on the way") != std::string::npos);
 }
 
 // No direct step in the plan: the old rule, whatever the checkpoint.

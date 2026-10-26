@@ -311,6 +311,7 @@ namespace ai
             creators["unreachable targets"] = [](PlayerbotAI* ai) { return new UnreachableTargetsValue(ai); };
             creators["unreachable entries"] = [](PlayerbotAI* ai) { return new UnreachableEntriesValue(ai); };
             creators["keepout set aside"] = [](PlayerbotAI* ai) { return new KeepoutSetAsideValue(ai); };
+            creators["runners let go"] = [](PlayerbotAI* ai) { return new RunnersLetGoValue(ai); };
             creators["next rpg action"] = [](PlayerbotAI* ai) { return new NextRpgActionValue(ai); };
             creators["talk target"] = [](PlayerbotAI* ai) { return new TalkTargetValue(ai); };
             creators["attack target"] = [](PlayerbotAI* ai) { return new AttackTargetValue(ai); };

@@ -15,6 +15,8 @@
 // human member close by. This header holds the pure parts: the inside test
 // (the same math as the core's IsPointInAreaTriggerZone), the filters, and the
 // edge detection that fires each trigger once per entry.
+// Since fix/plan-gossip-allow a dungeon run's bots also fired the unlisted triggers
+// its move steps name, from the step until fired once (IsBotAreaTriggerArmed).
 // Unit-tested in tools/test_bot_area_trigger_policy.cpp.
 
 #include <algorithm>
@@ -33,6 +35,9 @@ struct BotAreaTriggerShape
     float radius = 0.0f;
     float boxX = 0.0f, boxY = 0.0f, boxZ = 0.0f;
     float boxOrientation = 0.0f;
+    // On AiPlayerbot.BotAreaTriggers. An unlisted one fires only while the bot's run's
+    // current move step names it (IsBotAreaTriggerArmed).
+    bool listed = false;
 };
 
 // A sphere when radius > 0, else a box rotated about z (the core's rule).
@@ -64,9 +69,26 @@ inline bool IsInsideAreaTriggerShape(BotAreaTriggerShape const& at, float px, fl
 // the core's handler also treats as a teleport (instance entrances and exits),
 // a tavern or a battleground entrance. Those need the client's own checks and
 // replies, and a bot following its leader must never be ported.
+inline bool IsBotIndexableAreaTrigger(bool hasScript, bool dungeonMap, bool isTeleport, bool isTavern, bool isBgEntrance)
+{
+    return hasScript && dungeonMap && !isTeleport && !isTavern && !isBgEntrance;
+}
+
 inline bool IsBotFireableAreaTrigger(bool listed, bool hasScript, bool dungeonMap, bool isTeleport, bool isTavern, bool isBgEntrance)
 {
-    return listed && hasScript && dungeonMap && !isTeleport && !isTavern && !isBgEntrance;
+    return listed && IsBotIndexableAreaTrigger(hasScript, dungeonMap, isTeleport, isTavern, isBgEntrance);
+}
+
+// Which indexed trigger a bot's check tests: a listed one, or one the bot's running
+// or paused dungeon run has armed (runArmed, DungeonRun::RunArmedTriggersOf; null =
+// none): a move / move_direct step's `entry` the run has reached and that has not
+// fired yet for it. Plan-driven, so a shipped plan needs no allowlist edit
+// (Zul'Farrak walks into 962, at_zumrah); any other unlisted trigger stays off.
+inline bool IsBotAreaTriggerArmed(bool listed, uint32_t id, std::vector<uint32_t> const* runArmed)
+{
+    if (listed)
+        return true;
+    return id != 0 && runArmed && std::find(runArmed->begin(), runArmed->end(), id) != runArmed->end();
 }
 
 template <class List>
@@ -91,6 +113,9 @@ constexpr float kBotAreaTriggerLeaveMargin = 2.0f;
 // How often a bot checks its map's triggers (ms). A bot runs about 7 yd/s, so
 // it moves under 4 yd between checks: it cannot step over a 10 yd sphere.
 constexpr uint32_t kBotAreaTriggerCheckMs = 500;
+// A trigger whose script refused (OnAreaTrigger false: at_zumrah with Zum'rah not
+// within 30 yd yet) is tried again this often while the bot stays inside it.
+constexpr uint32_t kBotAreaTriggerRetryMs = 2000;
 
 // Edge detection, per bot: the triggers it is inside and the instance they
 // belong to. Entering a new map or instance forgets them all.
@@ -99,6 +124,26 @@ struct BotAreaTriggerState
     uint32_t mapId = 0;
     uint32_t instanceId = 0;
     std::vector<uint32_t> inside;
+    // Refused scripts to try again: trigger id and the checks left until the next try.
+    struct Retry
+    {
+        uint32_t id = 0;
+        uint32_t checksLeft = 0;
+    };
+    std::vector<Retry> retry;
+
+    // The script of a trigger this check fired returned false: try it again in
+    // kBotAreaTriggerRetryMs while the bot stays inside (or within the leave margin).
+    void Refused(uint32_t id)
+    {
+        for (Retry& r : retry)
+            if (r.id == id)
+            {
+                r.checksLeft = kBotAreaTriggerRetryMs / kBotAreaTriggerCheckMs;
+                return;
+            }
+        retry.push_back(Retry{id, kBotAreaTriggerRetryMs / kBotAreaTriggerCheckMs});
+    }
 
     // insideNow: triggers the bot is inside now (delta 0).
     // nearNow: triggers within kBotAreaTriggerLeaveMargin (a superset).
@@ -110,6 +155,7 @@ struct BotAreaTriggerState
         if (map != mapId || instance != instanceId)
         {
             inside.clear();
+            retry.clear();
             mapId = map;
             instanceId = instance;
         }
@@ -128,10 +174,36 @@ struct BotAreaTriggerState
         for (uint32_t id : entered)
             kept.push_back(id);
         inside.swap(kept);
+
+        // Refused scripts: dropped once the bot left (not even within the margin), else
+        // counted down and tried again once due and the bot stands inside.
+        std::vector<Retry> waiting;
+        for (Retry r : retry)
+        {
+            bool const near = std::find(nearNow.begin(), nearNow.end(), r.id) != nearNow.end() ||
+                              std::find(insideNow.begin(), insideNow.end(), r.id) != insideNow.end();
+            if (!near)
+                continue;
+            if (r.checksLeft > 0)
+                --r.checksLeft;
+            bool const in = std::find(insideNow.begin(), insideNow.end(), r.id) != insideNow.end();
+            if (r.checksLeft == 0 && in)
+            {
+                if (std::find(entered.begin(), entered.end(), r.id) == entered.end())
+                    entered.push_back(r.id);
+                continue; // the caller notes Refused again if the script refuses again
+            }
+            waiting.push_back(r);
+        }
+        retry.swap(waiting);
         return entered;
     }
 
-    void Clear() { inside.clear(); }
+    void Clear()
+    {
+        inside.clear();
+        retry.clear();
+    }
 
     // One check: partyAllowed is only asked for (the callable runs) while the
     // bot stands inside a trigger. A party that may not fire forgets the

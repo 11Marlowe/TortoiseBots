@@ -25,7 +25,12 @@
 #include "playerbot/CastKeepsRunningPolicy.h"
 #include "playerbot/JumpPolicy.h"
 #include "playerbot/MagmaHazardPolicy.h"
+#include "playerbot/SwimPathPolicy.h"
+#include "playerbot/MoveFailNotePolicy.h"
+#include "playerbot/BoundRunMapGuard.h"
+#include "../../../../runtime/CommandedGroupQuery.h"
 #include "host/ModuleLog.h"
+#include "vmap/VMapFactory.h"
 #include "playerbot/BotActionLog.h"
 #include "Database/DBCStores.h"
 
@@ -37,9 +42,20 @@ using namespace ai;
 // subterranean terrain fallback is not.
 static constexpr float kMaxWaypointDrop = 4.0f;
 
+// Thin floor over magma (specs/dmr-step453.md Fix B): collision (vmap-only)
+// floor confirmation, in yards — probe from navmeshZ + 1.0, accept within 1.0,
+// search down 2.0. VMapManager2::getHeight is a pure vmap raycast (StaticMapTree):
+// VMAP_INVALID_HEIGHT_VALUE when nothing is hit (IVMapManager.h). Map::GetHeight
+// is banned here: it mixes .map terrain and dynamic trees and retries a failed
+// vmap lookup with a 10000 yd search.
+static constexpr float kMagmaFloorProbeAboveZ = 1.0f;
+static constexpr float kMagmaFloorWindowZ = 1.0f;
+static constexpr float kMagmaFloorSearchDistZ = 2.0f;
+
 // MagmaHazardPolicy.h mirrors the core's liquid values (it has no core
 // includes); these pin the copies to GridMapDefines.h.
 static_assert(ai::kMagmaLiquidTypeFlag == MAP_LIQUID_TYPE_MAGMA, "magma type flag differs from the core");
+static_assert(ai::kSlimeLiquidTypeFlag == MAP_LIQUID_TYPE_SLIME, "slime type flag differs from the core");
 static_assert(ai::kLiquidStatusWaterWalk == static_cast<uint32>(LIQUID_MAP_WATER_WALK), "water-walk status differs from the core");
 static_assert(ai::kLiquidStatusInWater == static_cast<uint32>(LIQUID_MAP_IN_WATER), "in-water status differs from the core");
 static_assert(ai::kLiquidStatusUnderWater == static_cast<uint32>(LIQUID_MAP_UNDER_WATER), "under-water status differs from the core");
@@ -57,9 +73,14 @@ static void LogMagmaRefusal(Player* bot, LastMovement& lastMove, const WorldPosi
         at.getY(), at.getZ(), at.GetMapId(), what);
 }
 
-// MagmaHazardPolicy.h: whether the route walks into magma after dry ground
-// (`magmaAt` then says roughly where: the path point ending the leg).
-static bool RouteEntersMagma(Player* bot, const WorldPosition& startPos, TravelPath& movePath, WorldPosition& magmaAt)
+// MagmaHazardPolicy.h: whether the route walks into a liquid hazard after dry
+// ground (`hazardAt` then says roughly where: the path point ending the leg).
+// ONE sampled guard for magma AND slime (round 2): the predicate asks the
+// core's liquid at every CutPathBeforeMagma sample (same spacing, same
+// traversal), magma always, slime too when `withSlime` (the 0x81, 0x1 and
+// swim-out hand-off routes); `hazardIsSlime` tells a slime hit from magma.
+static bool RouteEntersLiquidHazard(Player* bot, const WorldPosition& startPos, TravelPath& movePath,
+    WorldPosition& hazardAt, bool withSlime, bool& hazardIsSlime)
 {
     TerrainInfo const* terrain = bot->GetMap()->GetTerrain();
     std::vector<PathNodePoint>& points = movePath.GetPath();
@@ -77,15 +98,33 @@ static bool RouteEntersMagma(Player* bot, const WorldPosition& startPos, TravelP
     start.x = startPos.getX();
     start.y = startPos.getY();
     start.z = startPos.getZ();
+    ai::LiquidHazard hazard = ai::LiquidHazard::None;
     uint32 const mapId = bot->GetMapId();
-    ai::MagmaPathCut const cut = ai::CutPathBeforeMagma(start, route, [terrain, mapId](ai::MagmaPoint const& m)
+    ai::MagmaPathCut const cut = ai::CutPathBeforeMagma(start, route, [terrain, mapId, withSlime, &hazard](ai::MagmaPoint const& m)
     {
-        return WorldPosition(mapId, m.x, m.y, m.z).isInMagma(terrain);
+        GridMapLiquidData liquid{};
+        GridMapLiquidStatus const status = terrain->getLiquidStatus(m.x, m.y, m.z + 0.01f, MAP_ALL_LIQUIDS, &liquid);
+        if (status == LIQUID_MAP_NO_WATER)
+            return false;
+        ai::LiquidHazard const at = ai::ClassifyLiquidHazard(liquid.type_flags, static_cast<uint32>(status), withSlime);
+        if (at == ai::LiquidHazard::None)
+            return false;
+        hazard = at;
+        return true;
     });
     if (!cut.cut)
         return false;
-    magmaAt = points[cut.keepPoints].point;
+    hazardIsSlime = hazard == ai::LiquidHazard::Slime;
+    hazardAt = points[cut.keepPoints].point;
     return true;
+}
+
+// Ordinary moves: the same sampled guard, magma only (slime does no damage in
+// this core and refusing it would strand bots in Undercity).
+static bool RouteEntersMagma(Player* bot, const WorldPosition& startPos, TravelPath& movePath, WorldPosition& magmaAt)
+{
+    bool hazardIsSlime = false;
+    return RouteEntersLiquidHazard(bot, startPos, movePath, magmaAt, false, hazardIsSlime);
 }
 
 // The magma guard refuses the whole move: nothing is dispatched (no hop to
@@ -646,6 +685,19 @@ bool MovementAction::WaitForTransport()
     return false;
 }
 
+void MovementAction::BeforeExecute()
+{
+    failNoteMark = AI_VALUE(LastMovement&, "last movement").moveTries;
+}
+
+std::string MovementAction::GetFailNote()
+{
+    LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+    bool const tried = lastMove.moveTries != failNoteMark;
+    return MoveFailNote(MoveFailNoteReason(failNoteMark, lastMove.moveTries, MoveFailReasonName(lastMove.moveFailReason)),
+        bot->IsInWater(), bot->IsUnderwater(), bot->HasMovementFlag(MOVEFLAG_SWIMMING), tried ? lastMove.movePathType : 0);
+}
+
 std::atomic<uint32_t> MovementAction::routeReuseCount{ 0 };
 std::atomic<uint32_t> MovementAction::routeRebuildCount{ 0 };
 
@@ -983,20 +1035,86 @@ bool MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bo
     {
         bool normalizeZ = true;
 
+        // Hoisted for the magma floor guard below: the loop runs per path
+        // point, the two liquid lookups only on a lowered point.
+        TerrainInfo const* dispatchTerrain = bot->GetMap()->GetTerrain();
+        bool const dispatchMagmaGuard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());
+        LastMovement& dispatchMove = AI_VALUE(LastMovement&, "last movement");
+
         for (auto& p : pointPath)
         {
             if (bot->GetTransport())
                 bot->GetTransport()->CalculatePassengerPosition(p.x, p.y, p.z);
             float const navmeshZ = p.z;
             bot->UpdateAllowedPositionZ(p.x, p.y, p.z);
+            // ORIGINAL clamp, before either restore path below: the magma/slime
+            // classification must see what the core produced, not what the
+            // stair workaround already restored.
+            float const clampedZ = p.z;
+            bool const magmaFloorLowered = clampedZ < navmeshZ;
+            // Cheap first: the clamped point's liquid status is usually dry, so
+            // it gates the navmesh lookup and the vmap query behind it. Both
+            // WorldPosition overloads are null-terrain safe.
+            bool magmaFloorClampedWet = false;
+            bool magmaFloorNavmeshWet = false;
+            if (!bot->GetTransport() && magmaFloorLowered && dispatchMagmaGuard &&
+                (WorldPosition(bot->GetMapId(), p.x, p.y, clampedZ).isInMagma(dispatchTerrain) ||
+                    WorldPosition(bot->GetMapId(), p.x, p.y, clampedZ).isInSlime(dispatchTerrain)))
+            {
+                magmaFloorClampedWet = true;
+                magmaFloorNavmeshWet =
+                    WorldPosition(bot->GetMapId(), p.x, p.y, navmeshZ).isInMagma(dispatchTerrain);
+            }
             // Crypt stairs (issue #217): a 3D navmesh waypoint carries the true
             // floor elevation. UpdateAllowedPositionZ re-derives the floor with a
             // downward raycast; when that ray starts underneath an uphill step it
             // misses the structure and the waypoint is clamped to the
             // subterranean terrain fallback - the bot then walks through the
-            // floor. Keep the navmesh elevation when the rewrite is a big drop.
-            if (p.z < navmeshZ && navmeshZ - p.z > kMaxWaypointDrop)
+            // floor. Keep the navmesh elevation on a big dry drop only: a big
+            // drop into magma/slime (an unconfirmed polygon over a hole or an
+            // open liquid pool) needs the confirmed-floor path below instead.
+            bool const stairRestore = ai::KeepStairNavmeshZ(magmaFloorLowered,
+                navmeshZ - clampedZ > kMaxWaypointDrop, magmaFloorClampedWet);
+            if (stairRestore)
                 p.z = navmeshZ;
+            // Thin floor over magma (specs/dmr-step453.md Fix B): over a WMO
+            // magma bed under a floor the core's GetWaterOrGroundLevel answers
+            // liquid level - 2 (swim=true, LIQUID_MAP_ABOVE_WATER), inside the
+            // magma; the 2.35 yd drop there is under the stair limit above.
+            // Keep the navmesh floor only when the core's COLLISION (vmap-only,
+            // no .map terrain, no dynamic tree) height confirms a real floor at
+            // the navmesh point: a dry navmesh z alone is no proof (bridged or
+            // eroded point over a hole, or a polygon a little above open lava).
+            // The vmap query runs only on the guard path that would otherwise
+            // restore — small drops want it (the thin floor), big drops too
+            // (the hole the stair path above refused to restore blindly).
+            bool magmaFloorConfirmed = false;
+            bool magmaFloorGuardFire = false;
+            if (!bot->GetTransport() && magmaFloorLowered && dispatchMagmaGuard && magmaFloorClampedWet &&
+                !magmaFloorNavmeshWet && !stairRestore)
+            {
+                // VMapManager2::getHeight is a pure vmap raycast down from
+                // navmeshZ + 1.0 over 2.0 yd: it reaches a thin floor at the
+                // navmesh point but not the lava bed or a deck far below/above.
+                // VMAP_INVALID_HEIGHT_VALUE (IVMapManager.h) means no hit.
+                float const collisionFloor = VMAP::VMapFactory::createOrGetVMapManager()->getHeight(
+                    bot->GetMapId(), p.x, p.y, navmeshZ + kMagmaFloorProbeAboveZ, kMagmaFloorSearchDistZ);
+                magmaFloorConfirmed = collisionFloor > VMAP_INVALID_HEIGHT_VALUE &&
+                    fabs(collisionFloor - navmeshZ) <= kMagmaFloorWindowZ;
+                magmaFloorGuardFire = ai::KeepNavmeshZOverMagma(dispatchMagmaGuard, magmaFloorLowered,
+                    true, false, magmaFloorConfirmed);
+            }
+            if (magmaFloorGuardFire)
+            {
+                p.z = navmeshZ;
+                time_t const now = time(nullptr);
+                if (!dispatchMove.magmaLogAt || now - dispatchMove.magmaLogAt >= kMagmaLogSeconds)
+                {
+                    dispatchMove.magmaLogAt = now;
+                    TB_LOG_DETAIL("TortoiseBots: %s: waypoint kept on the floor over magma at %.1f %.1f %.1f (clamp %.2f)",
+                        bot->GetName(), p.x, p.y, navmeshZ, clampedZ);
+                }
+            }
             if (bot->GetTransport())
                 bot->GetTransport()->CalculatePassengerOffset(p.x, p.y, p.z);
         }
@@ -1037,13 +1155,336 @@ Unit* MovementAction::GetMover(Player* bot)
     return bot;
 }
 
-bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react, bool noPath, bool ignoreEnemyTargets, PackHoldResult* packHold)
+static constexpr time_t kSwimHandoffLogSeconds = 10;
+
+static void LogSwimHandoff(Player* bot, LastMovement& lastMove, const char* kind, const WorldPosition& endPos, float yd,
+    uint32 coreType, size_t routePoints, float routeYd, const std::string& line)
+{
+    time_t const now = time(nullptr);
+    if (lastMove.swimHandoffLogAt && now - lastMove.swimHandoffLogAt < kSwimHandoffLogSeconds)
+        return;
+    lastMove.swimHandoffLogAt = now;
+    TB_LOG_DETAIL("TortoiseBots: %s: swim hand-off (%s) to %.1f %.1f %.1f, %.1f yd (core path 0x%x; own route %u points, "
+        "%.1f yd; swim line: %s)", bot->GetName(), kind, endPos.getX(), endPos.getY(), endPos.getZ(), yd, coreType,
+        static_cast<uint32>(routePoints), routeYd, line.c_str());
+}
+
+// The hand-off's refusal line (round 1, Codex + Opus 2026-10-25): a stall the hand-off will not take
+// logs why, rate-limited on the same stamp as a taken hand-off, so the run leader can tell a stall
+// from a quiet old-style failure. `kind` names the branch that refused ("core path", "core line",
+// "swim out"); `reason` names the check ("clipped", "magma", "slime").
+static void LogSwimHandoffRefused(Player* bot, LastMovement& lastMove, const char* kind, const char* reason,
+    const WorldPosition& endPos, uint32 coreType, size_t routePoints, float routeYd)
+{
+    time_t const now = time(nullptr);
+    if (lastMove.swimHandoffLogAt && now - lastMove.swimHandoffLogAt < kSwimHandoffLogSeconds)
+        return;
+    lastMove.swimHandoffLogAt = now;
+    TB_LOG_DETAIL("TortoiseBots: %s: swim hand-off refused (%s: %s) to %.1f %.1f %.1f (core path 0x%x; own route %u points, "
+        "%.1f yd)", bot->GetName(), kind, reason, endPos.getX(), endPos.getY(), endPos.getZ(), coreType,
+        static_cast<uint32>(routePoints), routeYd);
+}
+
+// A hand-off leg run through the SAME ClipPath (hostile/hazard + packHold) as an ordinary route (round
+// 1: the hand-off used to run before ClipPath and swim through packs, enemies and hazards). Each 2-point
+// segment is clipped on its own: the brief's "2-point line" has no travelled tail, so the window start
+// cannot cut it, but an enemy ("ClipPath" melee clip), a hazard or a pack hold on the segment shortens
+// it and the hand-off is refused. Returns false when any segment clips.
+static bool SwimHandoffLegClear(PlayerbotAI* ai, Unit* mover, bool ignoreEnemyTargets, PackHoldResult* packHold,
+    const std::vector<WorldPosition>& leg)
+{
+    if (leg.size() < 2)
+        return false;
+    for (size_t i = 1; i < leg.size(); ++i)
+    {
+        TravelPath clipped;
+        clipped.addPath({ leg[i - 1], leg[i] });
+        clipped.ClipPath(ai, mover, ignoreEnemyTargets, packHold);
+        // Any clip shortens the segment: the walked route would not be the validated line.
+        if (clipped.GetPointPath().size() < 2)
+            return false;
+    }
+    return true;
+}
+
+// SwimPathPolicy.h ChooseSwimHandoff: a bot in water whose own route makes no progress hands the move to the
+// core's own swim (0x81 or the mid-water 0x11 shortcut via MovePoint with pathfinding, 0x1 by walking the
+// module's spline over the core's clipped points) or swims up and out to a shore point at the waterline.
+// Round 1 runs every hand-off route through the SAME ClipPath (hostile/hazard + packHold) as an ordinary route,
+// guards the walked 0x1 path (not the chord) against magma, and refuses slime and groundless swim-out ends. The
+// cheap gates come first: a route that walks never costs a path query.
+MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPosition& startPos, const WorldPosition& endPos,
+    TravelPath& movePath, LastMovement& lastMove, PackHoldResult* packHold, bool ignoreEnemyTargets)
+{
+    if (!(bot->IsInWater() || bot->IsUnderwater() || bot->HasMovementFlag(MOVEFLAG_SWIMMING)))
+        return SwimHandoffResult::NotTaken;
+    // Round 1 (a): a follow that holds before packs keeps the old behaviour: never hand off.
+    if (packHold != nullptr)
+        return SwimHandoffResult::NotTaken;
+    std::vector<WorldPosition> const route = movePath.GetPointPath();
+    ai::SwimHandoffFacts f;
+    f.inWater = true;
+    f.excluded = ai->IsRealPlayer() || bot->GetTransport() || bot->IsFlying() || bot->IsTaxiFlying() ||
+        endPos.GetMapId() != bot->GetMapId();
+    // Round 1: a 1-point route far away is not "no progress": its distance is its progress.
+    f.routeEndFromBot = route.empty() ? 0.0f : route.back().distance(startPos);
+    f.endFromBot = startPos.distance(endPos);
+    if (f.excluded || !(f.endFromBot > ai::kSwimNoProgressYd) || f.routeEndFromBot > ai::kSwimNoProgressYd)
+        return SwimHandoffResult::NotTaken;
+
+    PathFinder path(bot);
+    path.calculate(endPos.getX(), endPos.getY(), endPos.getZ(), false);
+    f.coreType = static_cast<uint32>(path.getPathType());
+    Vector3 const coreEnd = path.getActualEndPosition();
+    Map* const map = bot->GetMap();
+    bool const isShortcut0x11 = f.coreType == (ai::kPathTypeNormal | ai::kPathTypeNotUsingPath);
+    f.coreLineHitsModel = isShortcut0x11
+        ? map->FindCollisionModel(startPos.getX(), startPos.getY(), startPos.getZ(),
+            coreEnd.x, coreEnd.y, coreEnd.z + 0.5f) != nullptr
+        : map->FindCollisionModel(startPos.getX(), startPos.getY(), startPos.getZ(),
+            coreEnd.x, coreEnd.y, coreEnd.z) != nullptr;
+    TerrainInfo const* const terrain = map->GetTerrain();
+    GridMapLiquidData here{};
+    f.swimmableHere = terrain->IsSwimmable(startPos.getX(), startPos.getY(), startPos.getZ(), 1.5f, &here);
+    f.endSwimmable = terrain->IsSwimmable(endPos.getX(), endPos.getY(), endPos.getZ());
+    // Karazhan Crypt shaft dive (Fix 2): for the mid-water 0x11 shortcut, the end must be in water too.
+    // Sampled at +0.5 yd like SwimPathFits' sight test, so the floor under the end is not read as a wall.
+    if (f.coreType == (ai::kPathTypeNormal | ai::kPathTypeNotUsingPath))
+    {
+        GridMapLiquidData endData{};
+        std::uint32_t const endStatus = terrain->getLiquidStatus(endPos.getX(), endPos.getY(), endPos.getZ() + 0.5f,
+            ai::kSwimLiquidRequest, &endData);
+        f.endInWater = ai::SwimSampleInWater(endStatus, endData.type_flags);
+    }
+    f.endGroundYd = std::sqrt(startPos.sqDistance2d(endPos));
+    float const surfaceZ = here.level - ai::kSwimOutSurfaceDepthYd;
+    f.endFromSurfaceYd = f.swimmableHere ? endPos.getZ() - here.level : 1000.0f;
+    // Round 1: the swim-out end must have ground under it (a floor query within 1 yd below it).
+    if (f.swimmableHere && !f.endSwimmable)
+    {
+        float const floorZ = map->GetHeight(endPos.getX(), endPos.getY(), endPos.getZ() + 0.5f);
+        f.endHasGround = floorZ > INVALID_HEIGHT && endPos.getZ() - floorZ >= 0.0f && endPos.getZ() - floorZ <= 1.0f;
+    }
+    else
+        f.endHasGround = false;
+    f.surfaceLineClear = f.swimmableHere &&
+        map->isInLineOfSight(startPos.getX(), startPos.getY(), startPos.getZ() + 0.5f,
+            startPos.getX(), startPos.getY(), surfaceZ, true) &&
+        map->isInLineOfSight(startPos.getX(), startPos.getY(), surfaceZ,
+            endPos.getX(), endPos.getY(), endPos.getZ() + 0.5f, true);
+    ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);
+    // Round 1: name the stall the hand-off will not take (the brief's "model on the line, over
+    // 100 yd" cases), rate-limited on the hand-off stamp. Anything else silent stays silent: it is
+    // the old behaviour (on land, walking, a land line, a partial path), not a stall. Fix 2 covers the
+    // 0x11 shortcut too when both ends are in water; a refused 0x11 falls through to the swim-out below.
+    bool const swimShortcutWanted = f.coreType == (ai::kPathTypeNormal | ai::kPathTypeUnderwater) ||
+        (f.coreType == (ai::kPathTypeNormal | ai::kPathTypeNotUsingPath) && f.swimmableHere && f.endInWater);
+    if (kind == ai::SwimHandoff::None)
+    {
+        if (f.inWater && !f.excluded && f.endFromBot > ai::kSwimNoProgressYd &&
+            f.routeEndFromBot <= ai::kSwimNoProgressYd && swimShortcutWanted)
+        {
+            if (f.coreLineHitsModel)
+                LogSwimHandoffRefused(bot, lastMove, "core line", "model on the line", endPos, f.coreType,
+                    route.size(), f.routeEndFromBot);
+            else if (!(f.endFromBot <= ai::kSwimHandoffMaxLineYd))
+                LogSwimHandoffRefused(bot, lastMove, "core line", "over 100 yd", endPos, f.coreType,
+                    route.size(), f.routeEndFromBot);
+        }
+        return SwimHandoffResult::NotTaken;
+    }
+
+    // The 0x1 core path, as the module's own spline over the core's points (round 1 (b)/(2)):
+    // the core's MovePoint would recompute a different route; the module walks exactly the path
+    // it validated. It runs through the SAME ClipPath (hostile/hazard + packHold) as an ordinary
+    // route; a cut route is dispatched when 2+ points remain, else the hand-off is refused.
+    // path.getPath()[0] is the bot's own spot, so it is kept once, not duplicated (a zero-length
+    // first leg would freeze the spline: Launch overwrites legs[0] with the live position).
+    std::vector<WorldPosition> coreRoute;
+    if (kind == ai::SwimHandoff::CoreLine && f.coreType == ai::kPathTypeNormal)
+    {
+        for (G3D::Vector3 const& p : path.getPath())
+        {
+            WorldPosition const wp(bot->GetMapId(), p.x, p.y, p.z);
+            if (coreRoute.empty() && wp.distance(startPos) < 0.1f)
+                continue;
+            coreRoute.push_back(wp);
+        }
+        coreRoute.insert(coreRoute.begin(), startPos);
+        if (coreRoute.size() < 2)
+            return SwimHandoffResult::NotTaken;
+        TravelPath clipped;
+        clipped.addPath(coreRoute);
+        clipped.ClipPath(ai, bot, ignoreEnemyTargets, packHold);
+        std::vector<WorldPosition> const kept = clipped.GetPointPath();
+        if (kept.size() < coreRoute.size())
+        {
+            if (kept.size() < 2)
+            {
+                LogSwimHandoffRefused(bot, lastMove, "core path", "clipped", endPos, f.coreType, route.size(),
+                    f.routeEndFromBot);
+                return SwimHandoffResult::Refused;
+            }
+            coreRoute = kept;
+        }
+    }
+
+    // The line the bot will take, for the magma/slime guard, the clip check and the spline.
+    std::vector<WorldPosition> linePoints{ startPos };
+    if (kind == ai::SwimHandoff::CoreLine)
+    {
+        if (f.coreType == ai::kPathTypeNormal)
+            linePoints = coreRoute;
+        else
+            linePoints.push_back(WorldPosition(bot->GetMapId(), coreEnd.x, coreEnd.y, coreEnd.z));
+    }
+    else
+    {
+        if (ai::SwimOutNeedsRise(startPos.getZ(), here.level))
+            linePoints.push_back(WorldPosition(bot->GetMapId(), startPos.getX(), startPos.getY(), surfaceZ));
+        linePoints.push_back(endPos);
+    }
+    // Fix 2: the 0x11 shortcut is a straight swim line like 0x81: same ClipPath, and the magma/slime guard below
+    // runs for it too.
+    bool const swimShortcut = f.coreType == (ai::kPathTypeNormal | ai::kPathTypeUnderwater) || f.coreType ==
+        (ai::kPathTypeNormal | ai::kPathTypeNotUsingPath);
+    if (kind == ai::SwimHandoff::SwimOut || swimShortcut)
+    {
+        if (!SwimHandoffLegClear(ai, bot, ignoreEnemyTargets, packHold, linePoints))
+        {
+            LogSwimHandoffRefused(bot, lastMove,
+                kind == ai::SwimHandoff::CoreLine ? "core line" : "swim out", "clipped", endPos, f.coreType,
+                route.size(), f.routeEndFromBot);
+            return SwimHandoffResult::Refused;
+        }
+    }
+    // Round 3 (Codex HIGH 2026-10-25): CutPathBeforeMagma spends one
+    // route-wide budget of kMagmaMaxInteriorSamples interior samples (~96
+    // yd); past it later legs are checked only at their endpoints, so
+    // slime/magma between two safe late waypoints is missed. A hand-off route
+    // longer than the budget covers at full density is refused instead (the
+    // bot keeps the old behaviour); other callers keep the shared budget.
+    std::vector<ai::MagmaPoint> guardRoute;
+    guardRoute.reserve(linePoints.size());
+    for (WorldPosition const& p : linePoints)
+    {
+        ai::MagmaPoint m;
+        m.x = p.getX();
+        m.y = p.getY();
+        m.z = p.getZ();
+        guardRoute.push_back(m);
+    }
+    if (ai::MagmaGuardApplies(map->IsDungeon()) && ai::MagmaRouteTooLongToCheck(guardRoute))
+    {
+        LogSwimHandoffRefused(bot, lastMove,
+            kind == ai::SwimHandoff::CoreLine ? "core line" : "swim out", "route too long to check", endPos,
+            f.coreType, route.size(), f.routeEndFromBot);
+        return SwimHandoffResult::Refused;
+    }
+    TravelPath line;
+    line.addPath(linePoints);
+    WorldPosition hazardAt;
+    // Round 2: ONE sampled liquid-hazard guard for magma AND slime (Codex HIGH
+    // 2026-10-25): the old waypoint-only slime loop checked only the route's
+    // points, so a leg between two safe points could cross a slime pool. Now
+    // the hand-off routes (0x81, 0x1, swim-out) sample every leg for slime
+    // exactly as for magma (same CutPathBeforeMagma spacing and traversal);
+    // slime off would be the old missed crossing.
+    bool hazardIsSlime = false;
+    if (ai::MagmaGuardApplies(map->IsDungeon()) &&
+        RouteEntersLiquidHazard(bot, startPos, line, hazardAt, true, hazardIsSlime))
+    {
+        if (hazardIsSlime)
+        {
+            lastMove.setPath(TravelPath());
+            lastMove.moveFailReason = MOVE_FAIL_MAGMA;
+            LogSwimHandoffRefused(bot, lastMove,
+                kind == ai::SwimHandoff::CoreLine ? "core line" : "swim out", "slime", endPos, f.coreType,
+                route.size(), f.routeEndFromBot);
+        }
+        else
+        {
+            lastMove.setPath(TravelPath());
+            RefuseMagmaMove(bot, lastMove, endPos, hazardAt, &startPos, "swim");
+            LogSwimHandoffRefused(bot, lastMove,
+                kind == ai::SwimHandoff::CoreLine ? "core line" : "swim out", "magma", endPos, f.coreType,
+                route.size(), f.routeEndFromBot);
+        }
+        return SwimHandoffResult::Refused;
+    }
+
+    // The taken line only: a 0x11 that fell to SwimOut logs the swim-out line, never the refused shortcut.
+    std::string const why = kind == ai::SwimHandoff::CoreLine && swimShortcut
+        ? WorldPosition::SwimLineWhy({ startPos, linePoints.back() }, bot) : std::string("-");
+    MotionMaster& mm = *bot->GetMotionMaster();
+    mm.Clear();
+    float length = 0.0f;
+    if (kind == ai::SwimHandoff::CoreLine && f.coreType == ai::kPathTypeNormal)
+    {
+        // Launch exactly the validated (and clipped) path: the module's own spline over those
+        // points, as DispatchMovement walks an ordinary route (no fresh core recompute).
+        std::vector<G3D::Vector3> pointPath = WorldPosition().toPointsArray(linePoints);
+        length = WorldPosition().GetPathLength(linePoints);
+        Movement::MoveSplineInit init(*bot, "SwimHandoffCore");
+        init.MovebyPath(pointPath);
+        init.SetWalk(false);
+        init.Launch();
+    }
+    else if (kind == ai::SwimHandoff::CoreLine)
+    {
+        mm.MovePoint(endPos.GetMapId(), endPos.getX(), endPos.getY(), endPos.getZ(), MOVE_RUN_MODE | MOVE_PATHFINDING);
+        length = path.Length() > 0.0f ? path.Length() : f.endFromBot;
+    }
+    else
+    {
+        Movement::PointsArray points;
+        for (WorldPosition& p : linePoints)
+            points.push_back(p.getVector3());
+        for (size_t i = 1; i < points.size(); ++i)
+            length += (points[i] - points[i - 1]).length();
+        Movement::MoveSplineInit init(*bot, "SwimOut");
+        init.MovebyPath(points);
+        init.SetWalk(false);
+        init.Launch();
+    }
+    lastMove.setPath(TravelPath()); // not reused: the next try asks again
+    lastMove.movePathType = f.coreType;
+    lastMove.moveFailReason = MOVE_FAIL_NONE;
+    WaitForReach(length);
+    LogSwimHandoff(bot, lastMove, kind == ai::SwimHandoff::CoreLine ? "core line" : "swim out", endPos, length,
+        f.coreType, route.size(), f.routeEndFromBot, why);
+    return SwimHandoffResult::Moving;
+}
+
+ 
+ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react, bool noPath, bool ignoreEnemyTargets, PackHoldResult* packHold)
 {
     LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+    // A new try: its own fail reason and path type only (the FAILED line's note).
+    ++lastMove.moveTries;
+    lastMove.moveFailReason = MOVE_FAIL_NONE;
+    lastMove.movePathType = 0;
 
     if (!endPos.isValid())
     {
         lastMove.moveFailReason = MOVE_FAIL_INVALID_DEST;
+        return false;
+    }
+
+    // A bound run's bot never leaves the plan's map by its own move (pip S2
+    // Deadmines 2026-10-26: a player's ghost outside made the follow ping-pong
+    // through the portal). The cheap map compare comes first, so the run lookup
+    // runs only for a cross-map destination.
+    if (endPos.GetMapId() != bot->GetMapId() &&
+        ai::BoundRunRefusesMapChange(bot->GetMapId(), endPos.GetMapId(), TortoiseBots::BotCommands::BoundRunPlanMap(bot)))
+    {
+        // A walk already headed off the map (built before the run bound it) is dropped too.
+        if (!lastMove.lastPath.empty() && lastMove.lastPath.GetBack().GetMapId() != bot->GetMapId())
+        {
+            lastMove.clear();
+            ai->StopMoving();
+        }
+        lastMove.moveFailReason = MOVE_FAIL_BOUND_RUN_MAP;
         return false;
     }
 
@@ -1118,9 +1559,21 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
 
     bool isWalking = false;
 
+    WorldPosition::LastPathStepType() = 0;
     TravelPath movePath = ResolveMovePath(startPos, endPos, mover, lastMove);
+    lastMove.movePathType = WorldPosition::LastPathStepType();
 
     lastMove.setPath(movePath);
+
+    // A bot in water whose own route goes nowhere: the core's swim (SwimHandoff). Round 1: the
+    // follow's packHold reaches the hand-off (a hold never hands off); the hand-off clips its own
+    // route with the same ClipPath instead of running before it.
+    switch (SwimHandoff(startPos, endPos, movePath, lastMove, packHold, ignoreEnemyTargets))
+    {
+        case SwimHandoffResult::Moving: return true;
+        case SwimHandoffResult::Refused: return false;
+        case SwimHandoffResult::NotTaken: break;
+    }
 
     if (movePath.empty())
     {
@@ -1135,6 +1588,13 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     if (movePath.empty())
     {
         lastMove.setPath(movePath);
+        // The collapsed route goes nowhere: in water the core's swim may (SwimHandoff).
+        switch (SwimHandoff(startPos, endPos, movePath, lastMove, packHold, ignoreEnemyTargets))
+        {
+            case SwimHandoffResult::Moving: return true;
+            case SwimHandoffResult::Refused: return false;
+            case SwimHandoffResult::NotTaken: break;
+        }
         return true; // Path collapsed — will rebuild next tick.
     }
 
@@ -1368,6 +1828,8 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
 bool MovementAction::MoveTo(Unit* target, float distance)
 {
     LastMovement& unitMove = AI_VALUE(LastMovement&, "last movement");
+    ++unitMove.moveTries;
+    unitMove.moveFailReason = MOVE_FAIL_NONE;
 
     if (!target || !target->IsInWorld())
     {

@@ -60,7 +60,7 @@ bool PullTargetEngaged(Unit* target, Player* bot)
 // Re-stamp every held party bot's combat-start clock, optionally narrowing
 // its wait window. Shared by the pull landing (once the cast lands) and the
 // pull end (when a pullback's tank is back and takes the fight over).
-void RestampPullParty(Player* tank, uint32 waitSeconds, bool narrowWindow)
+void RestampPullParty(Player* tank, uint32 waitSeconds, bool narrowWindow, bool landedNow)
 {
     if (!tank)
         return;
@@ -76,10 +76,16 @@ void RestampPullParty(Player* tank, uint32 waitSeconds, bool narrowWindow)
         if (!memberAi->HasPullWindow())
             continue;
         if (narrowWindow)
-            memberAi->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(static_cast<uint8>(waitSeconds));
+            memberAi->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(
+                memberAi->PullWindowLeadKeyed()
+                    ? static_cast<uint8>(std::min<uint32>(std::max<uint32>(waitSeconds, ai::kPullLeadCapSeconds), 255))
+                    : static_cast<uint8>(waitSeconds));
+        else if (landedNow && memberAi->PullWindowLeadKeyed() &&
+            memberAi->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Get() < ai::kPullLeadCapSeconds)
+            memberAi->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(ai::kPullLeadCapSeconds);
         memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
         // The window's own clock ("pull hold expired").
-        memberAi->RestampPullWindow();
+        memberAi->RestampPullWindow(landedNow);
     }
 }
 } // namespace
@@ -497,7 +503,7 @@ bool PullAction::Execute(Event& event)
                     // clock so an ordinary pull holds for the full delay after
                     // the shot lands. Pullbacks keep the wide return-covering
                     // window here; the pull end narrows it to the join delay.
-                    RestampPullParty(bot, 0, false);
+                    RestampPullParty(bot, 0, false, !strategy->IsCommandPullback());
                 }
                 return true;
             }
@@ -637,7 +643,7 @@ bool PullEndAction::Execute(Event& event)
         // arrive joinDelay after the tank is back instead of after the wide
         // return-covering window placed at the command.
         if (landed && wasCommand && wasPullback)
-            RestampPullParty(bot, strategy->GetCommandJoinDelay(), true);
+            RestampPullParty(bot, strategy->GetCommandJoinDelay(), true, true);
 
         // Remove the saved pull position
         AiObjectContext* context = ai->GetAiObjectContext();
@@ -748,7 +754,12 @@ bool ReleasePullHoldAction::Execute(Event& event)
     // Ending the pull's window is the release: dropping its own "wait for
     // attack" frees the anchor hold (marker + the stay it owns) with it
     // (PlayerbotAI::ChangeStrategy), and a "wait for attack" the player set
-    // stays while only the anchor goes.
-    ai->EndPullWindow();
+    // stays while only the anchor goes. The release line and the reason
+    // clear live in EndPullWindow (the single release point), so the direct
+    // callers (strategy orders, resets, preset reloads) log and clear too;
+    // the trigger's stored reason (or "order" when empty) travels as the
+    // explicit reason here.
+    std::string const reason = ai->PullReleaseReason();
+    ai->EndPullWindow(reason.empty() ? "order" : reason.c_str());
     return true;
 }

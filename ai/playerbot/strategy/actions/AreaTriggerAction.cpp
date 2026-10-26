@@ -3,6 +3,8 @@
 #include "AreaTriggerAction.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/RandomBotFacade.h"
+#include "playerbot/BoundRunMapGuard.h"
+#include "../../../../runtime/CommandedGroupQuery.h"
 
 using namespace ai;
 
@@ -23,6 +25,10 @@ bool ReachAreaTriggerAction::Execute(Event& event)
         return false;
 
     AreaTrigger const* at = sObjectMgr.GetAreaTrigger(triggerId);
+    if (AreaTriggerTeleport const* exitTele = sObjectMgr.GetAreaTriggerTeleport(triggerId))
+        if (ai::BoundRunRefusesMapChange(bot->GetMapId(), exitTele->destination.mapId,
+                TortoiseBots::BotCommands::BoundRunPlanMap(bot)))
+            return false; // the bot does not walk to the player's portal
     if (!at)
     {
         WorldPacket p1(CMSG_AREATRIGGER);
@@ -66,6 +72,10 @@ bool AreaTriggerAction::Execute(Event& event)
     AreaTrigger const* at = sObjectMgr.GetAreaTrigger(triggerId);
     if (!at)
         return true;
+    if (AreaTriggerTeleport const* exitTele = sObjectMgr.GetAreaTriggerTeleport(triggerId))
+        if (ai::BoundRunRefusesMapChange(bot->GetMapId(), exitTele->destination.mapId,
+                TortoiseBots::BotCommands::BoundRunPlanMap(bot)))
+            return true; // the trigger is not fired; lastAreaTrigger is already 0
 
     WorldPosition const before(bot);
     WorldPacket p(CMSG_AREATRIGGER);
