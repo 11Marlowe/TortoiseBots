@@ -374,6 +374,15 @@ public:
     void StartPullWindow(uint8 windowSeconds, bool leadKeyed = false, uint8 minSeconds = 0);
     void RestampPullWindow(bool landedNow) { pullWindow_.Restamp(time(0), landedNow); }
     bool HasPullWindow() const { return pullWindow_.Running(); }
+    // The run leader (.bot run) keeps a healer to heals while a run is going:
+    // its off-spec damage rows (healer should attack / healer should wand) and
+    // the wand stay off, and a pull's join window never gates its heals. Memory
+    // only, set and cleared by the run leader's sync (commands/BotCommands.cpp).
+    bool RunHealOnly() const { return runHealOnly_; }
+    void SetRunHealOnly(bool on) { runHealOnly_ = on; }
+    bool PullWindowExpired(uint8 seconds) const { return pullWindow_.Expired(time(0), seconds); }
+    bool PullWindowAdded(BotState type) const { return pullWindow_.Added(static_cast<unsigned>(type)); }
+    uint8 PullWindowSavedSeconds() const { return static_cast<uint8>(pullWindow_.savedWaitSeconds); }
     bool PullWindowLeadKeyed() const { return pullWindow_.leadKeyed; }
     bool PullWindowLanded() const { return pullWindow_.landed; }
     uint8 PullWindowMinSeconds() const { return static_cast<uint8>(pullWindow_.minSeconds); }
