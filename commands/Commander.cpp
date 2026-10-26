@@ -540,15 +540,25 @@ Player* FindOnlineByName(std::string name)
         player = sObjectAccessor.FindPlayerByName(name.c_str());
     return player;
 }
-} // close the file's opening anonymous namespace for the BotCommands-scope glue below
-
-} // namespace
-
-namespace BotCommands {
+// ---------------------------------------------------------------------------
 // Item-leg skip glue (spec D). runtime/RunItemNeedPolicy.h owns Member / GiveOrder /
 // StartVerdict (CheckStart, BotOnly); the ledger mirror structs live in
 // BotCommandHandlers.h so that header never includes the policy header.
 // ---------------------------------------------------------------------------
+// File-local mirrors of the policy header's Member / GiveOrder (same fields, same
+// order); the header never includes the policy header.
+struct RunNeedMemberPlain
+{
+    std::string name;
+    bool bot = false;
+    uint32_t lockpick = 0;
+    std::vector<uint32_t> carries;
+};
+struct RunGiveOrderPlain
+{
+    std::string bot;
+    uint32_t item = 0;
+};
 std::vector<RunNeedMemberPlain> RunNeedParty(Player* lead, const std::vector<uint32_t>& items)
 {
     std::vector<RunNeedMemberPlain> out;
@@ -721,7 +731,7 @@ static std::vector<TortoiseBots::RunItemNeed::Member> RunItemNeedMembers(
 // The crash ledger's login cleanup (spec D7): rows for this bot while no live
 // run slot holds a `given` record for it -> destroy to count, delete rows.
 // World thread only.
-void CleanupRunGivenItems(Player* player)
+static void CleanupRunGivenItemsImpl(Player* player)
 {
     if (!player)
         return;
@@ -748,7 +758,7 @@ void CleanupRunGivenItems(Player* player)
     } while (rows->NextRow());
 }
 static bool RunGivenCleanupDone = false;
-void CleanupRunGivenItemsTick()
+static void CleanupRunGivenItemsTickImpl()
 {
     if (RunGivenCleanupDone)
         return;
@@ -766,13 +776,8 @@ void CleanupRunGivenItemsTick()
     for (uint32 guidLow : guids)
         if (Player* bot = ObjectAccessor::FindPlayer(ObjectGuid(HIGHGUID_PLAYER, guidLow)))
             if (bot->IsInWorld())
-                CleanupRunGivenItems(bot);
+                CleanupRunGivenItemsImpl(bot);
 }
-
-} // namespace BotCommands
-
-namespace {
-// re-open the file's anonymous namespace for the rest of the glue
 
 // Every live bot of the group, the lead bot first, resolved from the group's
 // member slots through ObjectAccessor (never the GroupReference list, #225).
@@ -2016,6 +2021,12 @@ uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::s
     message.clear();
     return raw;
 }
+
+// Item-leg skip cross-TU forwarders (spec D7): the Impl definitions above are
+// file-local; host/BotPlayerAdapter.cpp and host/BotHostAdapter.cpp call these.
+void CleanupRunGivenItems(Player* player) { CleanupRunGivenItemsImpl(player); }
+void CleanupRunGivenItemsTick() { CleanupRunGivenItemsTickImpl(); }
+
 
 bool HandleCommander(ChatHandler* handler, char const* args)
 {
