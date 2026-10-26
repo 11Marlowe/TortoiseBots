@@ -1,9 +1,9 @@
 -- Deadmines (map 36) hall: the golem and the two Engineer pulls get approach stands on the hall's west
 -- side, so that the 622 Goblin Engineers (each summons a Remote-Controlled Golem, 2520, spell 3605, and flees
 -- at 15 %) come in pieces. This file replaces the rows of 20261025002800_world.sql (that file stays as
--- applied). Exported from turtle-agent prep/dm-hall f2c230c (dungeons/deadmines.json: prep/dm-jared 456efc5
+-- applied). Exported from turtle-agent prep/dm-hall 25b7aef (dungeons/deadmines.json: prep/dm-jared 456efc5
 -- plus the hall stands) with the options of 20261025002800:
---   turtle-agent plan-export --mmaps <map 36 mmaps> --allow-draft --approach-hops --rev f2c230c --stamp 20261025003200 deadmines
+--   turtle-agent plan-export --mmaps <map 36 mmaps> --allow-draft --approach-hops --rev 25b7aef --stamp 20261025003200 deadmines
 -- NO PLAN ROW IS HAND-SET (the exporter writes cc_priority, cc_always and kill_first from the plan).
 -- 18 legs, 254 steps, 273 rows (20261025002800: 251 steps, 270 rows). The 3 new rows are hall pull groups
 -- 2, 3 and 4's approach moves (leg 7 seqs 3, 5 and 7: -201 -534 z 51.31, -186 -533 z 51.31, -176 -544
@@ -19,11 +19,12 @@
 --     61962 ... (7.5 yd from it; was 23.6 yd, los no)". The party stood at -207.6 -548.3 51.5, south of the
 --     hall's inner wall; the tank walked in to 7.5 yd (the wall's face is at -193.6 -535.5 on the server's
 --     map 36 vmaps).
---   * the fight sat at -187 -533, 17.8 yd from the 622 Engineer at -170.4 -535.2. The hunter had moved east
---     for its own sight to -175.4 -534.5 (5.0 yd from that Engineer, trace frame 11:29:35), the Engineer
---     aggroed at 11:29:37 ("the tank picks up 622 off the party (23.5 yd)"), the tank was ordered 23.5 yd
---     east, and the fight ran to -162 -558: three 622 Engineers (guids ...69f6, ...69fa, ...69fc) and a 1731
---     Craftsman joined. The third Engineer, 2583036 at -152.7 -570.5, is harvester pull group 0's.
+--   * the fight sat at -187 -533, 17.8 yd from the 622 Engineer at -170.4 -535.2. The tank stood 4.9 yd from
+--     that Engineer at 11:29:44 and the hunter 5.0 yd from it at 11:29:35; the tank was then ordered 23.5 yd
+--     to pick it up ("the tank picks up 622 off the party (23.5 yd)"), three distinct 622 Engineers (trace
+--     guids ...69f6, ...69fa, ...69fc) and one 1731 Craftsman joined, and the fight ran to -162 -558, where
+--     E's 622 (group 4) stood 5.4 yd and harvester group 0's Engineer 2583036 (-152.7 -570.5) 15.9 yd from
+--     the lead's death spot.
 --   * the golem row read "0 joiners expected": the run leader's aggro estimate cannot count a pack the fight
 --     walks into, and the plan had no stand for the pull.
 -- THE FIX (plan data only): hall pull groups 2, 3 and 4 carry the approach stands the run leader walks to
@@ -32,18 +33,20 @@
 --   * group 2 (61962, 61962): stand -201 -534 z 51.31. 13.0 yd from the static golem 2583031 at -188.01
 --     -532.94 and 17.8 yd from the patrol golem 2582923 at -183.97 -528.75, los yes to both (also at the
 --     golem's own sight height); 30.6 yd from the 622 at -170.4 -535.2 and 41.5 yd from the 622 at -163.6
---     -552.5, so both golems come to the west room and no Engineer can reach the fight. The pulled golem is
+--     -552.5, so both golems come to the west room and no Engineer joins the fight (the aggro reach of a
+--     level 18-19 mob against this level-22 party is about 20 yd). The pulled golem is
 --     the static one (the group's first position); the patrol golem assists at 6.4 yd (family assist 10).
 --   * group 3 (622): stand -186 -533 z 51.31, 15.7 yd from the Engineer, los yes; 29.8 yd from the 622 of
 --     group 4 and 24.8 yd from the golem patrol's nearest path point.
 --   * group 4 (622, 1731): stand -176 -544 z 51.26, 15.1 yd from the Engineer and 20.7 yd from its Craftsman,
---     los yes to both; 28.2 yd from harvester group 0's Engineer 2583036 at -152.7 -570.5.
+--     los yes to both; 35.2 yd from harvester group 0's Engineer 2583036 at -152.7 -570.5 and 35.9 yd from
+--     that group's own row point (-150.3 -569.1).
 --   The old stand saw neither golem: lostool blocks the sight at -193.6 -535.5 (the wall). Each stand is a
 --   point of the navmesh (plan-check walks it) and the pack is reachable from it (the strict replay below).
 -- WHAT THIS DOES NOT DO: the plan cannot make 622 not flee (the run leader's fleer rule chases a runner) and
 -- the patrol blocks are plan-only (the rows have no patrol column), so a golem that is away from its spawn
--- when group 2 is pulled can still come back later; the three Engineers are now 29-41 yd from the fight that
--- pulled them, which is the manageable piece the run's logs ask for. The plan stays draft.
+-- when group 2 is pulled can still come back later; the golem fight now stands 30.6 and 41.5 yd from the hall's two
+-- Engineers, which is the manageable piece the run's logs ask for. The plan stays draft.
 -- Plan check (turtle-agent plan-check, the server's exact path query ServerPath on the map 36 mmaps): ok, 266
 -- points, 0 issues; 1 warning, the pre-existing estimated catwalk Overseer patrol of leg harvester; the hall's
 -- run-leader-hop notes drop from 4 to 1 (the craftsman row, 60 yd from the leg's `to`, pulled as before).
@@ -64,7 +67,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'deadmines';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'deadmines';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'deadmines';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent f2c230c dungeons/deadmines.json', 'plan v1, draft (not mapped, not live-checked)');
+('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 25b7aef dungeons/deadmines.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('deadmines', 0, 'mine_a', ''),
 ('deadmines', 1, 'lab_tunnel', ''),
