@@ -9168,6 +9168,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         if (Group* tickGroup = tickLead->GetGroup())
             for (Group::MemberSlot const& member : tickGroup->GetMemberSlots())
                 giveIn.groupBots.push_back(member.guid.GetRawValue());
+        else
+            giveIn.groupBots.push_back(binding->leadGuid); // alone (or the group disbanded): the lead keeps its own given items
         TortoiseBots::RunItemNeed::GiveTickPlan const givePlan = TortoiseBots::RunItemNeed::DecideGiveTick(giveIn);
         for (uint64 leftBot : givePlan.takeBots)
             TakeRunItems(slot, leftBot); // the bot left the party: its given items go back now

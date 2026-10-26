@@ -425,6 +425,23 @@ static void TestGiveTickPlayerJoinPausesOnlyOnTheTakeTick()
     GiveTickPlan const keep = DecideGiveTick(In(k, group, true, false, true));
     CHECK(!keep.takeAll && !keep.pauseForPlayer && keep.takeBots.empty() && !keep.giveAgain);
 }
+// Review round 3 Opus fix 1: the lead bot alone (no group) still holds its
+// given items. The glue counts the lead itself as in the group, so with
+// groupBots = just the lead nothing is taken and nothing is given again; an
+// empty group instead takes the lead's items back and gives them again every
+// tick (the churn this replaces).
+static void TestGiveTickLeadAloneKeepsItsItems()
+{
+    GlueLedger l;
+    l.given = {7};
+    std::vector<std::uint64_t> const alone = {7};
+    GiveTickPlan const plan = DecideGiveTick(In(l, alone, false));
+    CHECK(plan.takeBots.empty());
+    CHECK(!plan.takeAll && !plan.pauseForPlayer && !plan.giveAgain);
+    GiveTickPlan const churn = DecideGiveTick(In(l, {}, false));
+    CHECK(churn.takeBots == std::vector<std::uint64_t>{7} && churn.giveAgain);
+}
+
 
 // The player leaves again (bots only, running, nothing given): given again once; then nothing more.
 static void TestGiveTickGivesAgainWhenBotsOnly()
@@ -496,6 +513,7 @@ int main()
     TestPlayerPartyDoorWarnsNamingKey();
     TestPlayerPartyOptionalNeverWarns();
     TestBlockingWarnsWithPlayer();
+    TestGiveTickLeadAloneKeepsItsItems();
     TestBotKeysFlagGivesWithPlayer();
     TestGiveTickTakesFromBotsThatLeft();
     TestGiveTickPlayerJoinPausesOnlyOnTheTakeTick();
