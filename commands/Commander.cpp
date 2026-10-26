@@ -320,6 +320,7 @@ struct RunSpeedEntry
     float rate = 1.0f;
     float appliedRun = 1.0f;
     float appliedWalk = 1.0f;
+    uint32 waitSinceMs = 0; // the first refused restore while a bot swims a spline (0: none latched; WorldTimer::getMSTime)
 };
 
 std::unordered_map<uint64, RunSpeedEntry>& RunSpeedBots()
@@ -8865,13 +8866,34 @@ static bool SpeedCheatOn(Player* bot)
     return ai && ai->HasCheat(BotCheatMask::movespeed);
 }
 
-void ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)
+// Karazhan Crypt shaft dive (2026-10-25): do not change a bot's run or walk
+// rate while it is in water and its spline is still moving. The change would
+// re-launch DispatchMovement's stale PointMovementGenerator, whose Initialize
+// drops the module's dive spline. A bot in water always swims
+// (MovementAction::UpdateMovementState), so the test speed never changes the
+// swim speed: waiting costs nothing. The caller keeps the bot listed and
+// retries on the next tick.
+static bool SpeedChangeWaitsFor(Player* bot)
 {
+    if (!bot)
+        return false;
+    bool const inWater = bot->IsInWater() || bot->IsUnderwater() ||
+        bot->HasMovementFlag(MOVEFLAG_SWIMMING);
+    bool const splineMoving = !bot->movespline->Finalized();
+    return TortoiseBots::DungeonRun::SpeedChangeWaits(inWater, splineMoving);
+}
+
+bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)
+{
+    if (SpeedChangeWaitsFor(bot))
+        return false;
     bot->UpdateSpeed(MOVE_RUN, true, rate);
     bot->UpdateSpeed(MOVE_WALK, true, rate);
     entry.rate = rate;
     entry.appliedRun = bot->GetSpeedRate(MOVE_RUN);
     entry.appliedWalk = bot->GetSpeedRate(MOVE_WALK);
+    entry.waitSinceMs = 0;
+    return true;
 }
 
 // A following pet out of combat slower than its bot (reset by an aura of its own) gets the rate too. A pet that is
@@ -8897,9 +8919,21 @@ void CatchUpPet(Player* bot, float rate)
     }
 }
 
-// The bot and its pet back to their own rates (the auras' and the template's, ratio 1).
-void RestoreBotSpeed(Player* bot)
+// The bot and its pet back to their own rates (the auras' and the template's, ratio 1). When the rule above says
+// wait, neither is touched (the pet waits with its bot) and the caller keeps the bot listed for the next retry.
+// The wait is bounded (lead decision 2026-10-25): a run a real player joined restores at once, never waits;
+// otherwise the wait lasts at most kSpeedRestoreWaitMs from the first refused restore, stamped in the entry.
+bool RestoreBotSpeed(Player* bot, RunSpeedEntry& entry, std::uint32_t nowMs)
 {
+    auto const run = DungeonRuns().find(entry.commanderRaw);
+    bool const playerBlocked = run != DungeonRuns().end() && run->second.run.speedPlayerBlocked;
+    if (SpeedChangeWaitsFor(bot))
+    {
+        if (entry.waitSinceMs == 0)
+            entry.waitSinceMs = nowMs == 0 ? 1 : nowMs;
+        if (TortoiseBots::DungeonRun::SpeedRestoreWaits(playerBlocked, nowMs - entry.waitSinceMs))
+            return false;
+    }
     bot->UpdateSpeed(MOVE_RUN, true, 1.0f);
     bot->UpdateSpeed(MOVE_WALK, true, 1.0f);
     if (Pet* const pet = bot->GetPet())
@@ -8907,6 +8941,8 @@ void RestoreBotSpeed(Player* bot)
         pet->UpdateSpeed(MOVE_RUN, true, 1.0f);
         pet->UpdateSpeed(MOVE_WALK, true, 1.0f);
     }
+    entry.waitSinceMs = 0;
+    return true;
 }
 
 // Same Map object (same instance), not just the same map id: a bot in another instance of the map stays 1.0
@@ -8958,7 +8994,7 @@ void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const
                 }
                 else
                 {
-                    RestoreBotSpeed(bot);
+                    if (!RestoreBotSpeed(bot, entry->second, WorldTimer::getMSTime())) continue;
                     listed.erase(entry);
                 }
             }
@@ -8979,8 +9015,9 @@ void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const
 // cheatless and one of the lead bot's commanded bots; else it goes back (on the movespeed-cheat branch it is
 // erased without restoring: the cheat owns the rate; round 2, Codex). A listed bot (or its pet) in a fight sends
 // every listed bot of its run back at once (DungeonRun::SpeedFightSeen: the settle starts again), not on the next
-// tick. A real player in the bound group latches the run blocked and sends every listed bot of the run back in the
-// same update (round 1, Codex): no fast tick leaks between his join and the next run tick.
+// tick. A real player in the bound group latches the run blocked at the top of the loop and sends every listed
+// bot of the run back in the same update (round 1, Codex; scan hoisted round 2): no fast tick leaks between his
+// join and the next run tick.
 void SyncRunSpeed()
 {
     auto& listed = RunSpeedBots();
@@ -8995,6 +9032,24 @@ void SyncRunSpeed()
         auto const run = DungeonRuns().find(it->second.commanderRaw);
         RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(it->second.commanderRaw);
         Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+        // Round 2 (Codex): the bound group's real-player scan runs for every listed entry with a live
+        // run/binding, BEFORE keep is decided and before any restore. A player joining after keep
+        // already went false (fight, pause, stop, speedNow back at 1.0) still latches the run
+        // blocked on that same call, so a bot waiting out a swim-spline restore goes back at once.
+        if (run != DungeonRuns().end() && binding && lead && lead->GetGroup() &&
+            !run->second.run.speedPlayerBlocked)
+        {
+            for (Group::MemberSlot const& member : lead->GetGroup()->GetMemberSlots())
+            {
+                if (member.guid.GetRawValue() == binding->commanderGuid ||
+                    BotManager::Instance().IsBot(member.guid))
+                    continue;
+                run->second.run.speedPlayerBlocked = true;
+                TortoiseBots::DungeonRun::SpeedFightSeen(run->second.run);
+                playerBlocked.insert(it->second.commanderRaw);
+                break;
+            }
+        }
         bool keep = bot && run != DungeonRuns().end() &&
             run->second.run.state == TortoiseBots::DungeonRun::State::Running && run->second.run.speedNow > 1.0f &&
             !run->second.run.speedPlayerBlocked &&
@@ -9004,18 +9059,6 @@ void SyncRunSpeed()
         {
             FillCommandedBots(lead->GetGroup(), lead, members);
             keep = std::find(members.begin(), members.end(), bot) != members.end();
-        }
-        if (keep && lead && lead->GetGroup())
-        {
-            for (Group::MemberSlot const& member : lead->GetGroup()->GetMemberSlots())
-            {
-                if (member.guid.GetRawValue() == binding->commanderGuid ||
-                    BotManager::Instance().IsBot(member.guid))
-                    continue;
-                playerBlocked.insert(it->second.commanderRaw);
-                keep = false;
-                break;
-            }
         }
         bool const fight = keep && MemberInCombat(bot);
         if (fight)
@@ -9033,8 +9076,7 @@ void SyncRunSpeed()
             it = listed.erase(it);
             continue;
         }
-        if (bot)
-            RestoreBotSpeed(bot);
+        if (bot && !RestoreBotSpeed(bot, it->second, WorldTimer::getMSTime())) { ++it; continue; }
         it = listed.erase(it);
     }
     for (uint64 commanderRaw : playerBlocked)
@@ -9065,7 +9107,9 @@ void SyncRunSpeed()
             continue;
         }
         if (Player* bot = FindCharacter(it->first))
-            RestoreBotSpeed(bot);
+        {
+            if (bot && !RestoreBotSpeed(bot, it->second, WorldTimer::getMSTime())) { ++it; continue; }
+        }
         it = listed.erase(it);
     }
 }

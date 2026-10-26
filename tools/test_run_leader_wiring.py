@@ -1197,11 +1197,11 @@ class RunTestSpeedWiringTest(unittest.TestCase):
 
     def test_the_rate_is_forced_and_goes_back(self):
         code = strip_comments(COMMANDS)
-        apply = body(code, "void ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
+        apply = body(code, "bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
         self.assertIn("bot->UpdateSpeed(MOVE_RUN, true, rate);", apply)
         self.assertIn("bot->UpdateSpeed(MOVE_WALK, true, rate);", apply)
         self.assertNotIn("MOVE_SWIM", apply)
-        restore = body(code, "void RestoreBotSpeed(Player* bot)", "\n}\n")
+        restore = body(code, "bool RestoreBotSpeed(Player* bot, RunSpeedEntry& entry,", "\n}\n")
         self.assertIn("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);", restore)
         self.assertIn("pet->UpdateSpeed(MOVE_RUN, true, 1.0f);", restore)
         each = body(code, "void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)\n{", "\n}\n")
@@ -1234,16 +1234,76 @@ class RunTestSpeedWiringTest(unittest.TestCase):
         # RestoreBotSpeed on the cheat branch fails a pin.
         self.assertIn("RestoreNonFollowingPet(bot);", each)
         self.assertIn("RestoreNonFollowingPet(bot);", sync)
-        cheat_each = each[each.index("if (SpeedCheatOn(bot))"):each.index("CatchUpPet(bot, rate);")]
-        self.assertNotIn("RestoreBotSpeed(bot);", cheat_each.split("else")[0])
-        self.assertIn("RestoreNonFollowingPet(bot);", cheat_each.split("else")[0])
-        self.assertLess(cheat_each.index("listed.erase(entry);"), cheat_each.index("RestoreBotSpeed(bot);"))
+        cheat_each = each[each.index("if (SpeedCheatOn(bot))"):each.index("RestoreNonFollowingPet(bot);\n                    listed.erase(entry);")]
+        self.assertNotIn("RestoreBotSpeed(bot);", cheat_each)
+        self.assertLess(each.index("listed.erase(entry);"), each.index("if (!RestoreBotSpeed(bot, entry->second, WorldTimer::getMSTime()))"))
         cheat_at = sync.index("if (bot && SpeedCheatOn(bot))")
         cheat_sync = sync[cheat_at:sync.index("continue;", cheat_at)]
         self.assertNotIn("RestoreBotSpeed(bot);", cheat_sync)
         self.assertIn("RestoreNonFollowingPet(bot);", cheat_sync)
         self.assertNotIn("SetSpeedRatePersistance", code)
         self.assertNotIn("UpdateSpeed(MOVE_RUN, false", apply + restore + each)
+
+    def test_speed_change_waits_for_a_swimming_spline(self):
+        code = strip_comments(COMMANDS)
+        apply = body(code, "bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
+        self.assertIn("SpeedChangeWaitsFor(bot)", apply)
+        self.assertLess(apply.index("SpeedChangeWaitsFor(bot)"), apply.index("bot->UpdateSpeed(MOVE_RUN, true, rate);"))
+        self.assertIn("return false;", apply)
+        self.assertIn("waitSinceMs = 0;", apply)
+        restore = body(code, "bool RestoreBotSpeed(Player* bot, RunSpeedEntry& entry,", "\n}\n")
+        self.assertIn("SpeedChangeWaitsFor(bot)", restore)
+        self.assertLess(restore.index("SpeedChangeWaitsFor(bot)"), restore.index("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);"))
+        self.assertLess(restore.index("SpeedChangeWaitsFor(bot)"), restore.index("pet->UpdateSpeed"))
+        self.assertIn("return false;", restore)
+        gate = body(code, "static bool SpeedChangeWaitsFor(Player* bot)", "\n}\n")
+        self.assertIn("bot->IsInWater() || bot->IsUnderwater() ||", gate)
+        self.assertIn("bot->HasMovementFlag(MOVEFLAG_SWIMMING)", gate)
+        self.assertIn("!bot->movespline->Finalized()", gate)
+        self.assertIn("TortoiseBots::DungeonRun::SpeedChangeWaits(", gate)
+        each = body(code, "void ApplyRunSpeed(uint64 commanderRaw, Player* lead, std::vector<Player*> const& bots, float rate)\n{", "\n}\n")
+        self.assertIn("if (!RestoreBotSpeed(bot, entry->second, WorldTimer::getMSTime()))", each)
+        sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
+        self.assertEqual(sync.count("if (bot && !RestoreBotSpeed(bot, it->second, WorldTimer::getMSTime()))"), 2)
+        self.assertEqual(each.count("if (!RestoreBotSpeed(bot, entry->second, WorldTimer::getMSTime()))"), 1)
+
+    def test_speed_restore_wait_is_bounded(self):
+        code = strip_comments(COMMANDS)
+        restore = body(code, "bool RestoreBotSpeed(Player* bot, RunSpeedEntry& entry,", "\n}\n")
+        # The restore wait is bounded (lead decision 2026-10-25): a run a real
+        # player joined restores at once, never waits; otherwise at most 15 s
+        # from the first refused restore per bot, stamped in the speed entry.
+        self.assertIn("speedPlayerBlocked", restore)
+        self.assertIn("waitSinceMs", restore)
+        self.assertIn("TortoiseBots::DungeonRun::SpeedRestoreWaits(", restore)
+        self.assertIn("WorldTimer::getMSTime()", code)
+        self.assertLess(restore.index("SpeedChangeWaitsFor(bot)"), restore.index("bot->UpdateSpeed(MOVE_RUN, true, 1.0f);"))
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        self.assertIn("kSpeedRestoreWaitMs = 15000", policy)
+        self.assertIn("inline bool SpeedRestoreWaits(bool playerBlocked", policy)
+        entry = body(code, "struct RunSpeedEntry", "\n};")
+        self.assertIn("waitSinceMs", entry)
+        apply = body(code, "bool ApplyBotSpeed(Player* bot, float rate, RunSpeedEntry& entry)", "\n}\n")
+        self.assertIn("waitSinceMs = 0;", apply)
+
+    def test_player_scan_runs_before_keep_is_decided(self):
+        code = strip_comments(COMMANDS)
+        sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
+        # Round 2 (Codex): the bound group's real-player scan runs for EVERY listed entry with a
+        # live run/binding, BEFORE keep is decided and BEFORE any restore. A real player joining
+        # after keep already went false (fight, pause, stop, speedNow back at 1.0) still latches
+        # the run blocked on that same call, so a bot already waiting out a swim-spline restore
+        # (waitSinceMs set) goes back at once instead of up to 15 s later.
+        loop = sync[sync.index("for (auto it = listed.begin(); it != listed.end();)"):]
+        self.assertLess(loop.index("GetMemberSlots()"), loop.index("speedNow > 1.0f"))
+        self.assertLess(loop.index("GetMemberSlots()"), loop.index("RestoreBotSpeed(bot, it->second"))
+        # The scan is not gated on keep: the first keep gate comes after the scan.
+        self.assertLess(loop.index("GetMemberSlots()"), loop.index("if (keep)"))
+        self.assertIn("playerBlocked.insert(it->second.commanderRaw)", loop)
+        # Latched at once: the flag is set before any same-call restore, so RestoreBotSpeed
+        # (which restores at once when speedPlayerBlocked is set) does not wait out the swim.
+        self.assertLess(loop.index("speedPlayerBlocked = true;"), loop.index("RestoreBotSpeed(bot, it->second"))
+
 
     def test_every_clear_of_the_runs_syncs_the_speed(self):
         code = strip_comments(COMMANDS)

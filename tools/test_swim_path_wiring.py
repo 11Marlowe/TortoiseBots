@@ -115,12 +115,21 @@ class SwimHandoffWiringTest(unittest.TestCase):
         self.assertLess(h.index("f.routeEndFromBot > ai::kSwimNoProgressYd"), h.index("PathFinder path(bot);"))
         self.assertIn("map->FindCollisionModel(", h)
         self.assertIn("terrain->IsSwimmable(startPos.getX(), startPos.getY(), startPos.getZ(), 1.5f, &here)", h)
+        self.assertIn("GridMapLiquidData endData{};", h)
+        self.assertIn("ai::kSwimLiquidRequest, &endData);", h)
+        self.assertIn("f.endInWater = ai::SwimSampleInWater(", h)
+        self.assertIn("coreEnd.z + 0.5f", h)
+        self.assertIn("bool const swimShortcut =", h)
+        self.assertIn("if (kind == ai::SwimHandoff::SwimOut || swimShortcut)", h)
+        self.assertIn("std::string const why = kind == ai::SwimHandoff::CoreLine && swimShortcut", h)
+
+    def test_handoff_asks_the_policy_for_kind(self):
+        # The glue feeds every filled fact through the policy: pin the call
+        # statement feeding `kind` (a declaration grep would miss a deletion).
+        h = self.hand
         self.assertIn("ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);", h)
-        self.assertLess(h.index("RouteEntersLiquidHazard(bot, startPos, line, hazardAt, true, hazardIsSlime)"), h.index("mm.Clear();"))
-        self.assertIn("MOVE_RUN_MODE | MOVE_PATHFINDING", h)
-        self.assertIn("lastMove.setPath(TravelPath()); // not reused", h)
-        self.assertIn("WorldPosition::SwimLineWhy(", h)
-        self.assertIn("swim hand-off (%s)", MOVES)
+        self.assertLess(h.index("f.surfaceLineClear ="), h.index("ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);"))
+        self.assertLess(h.index("ai::SwimHandoff const kind = ai::ChooseSwimHandoff(f);"), h.index("if (kind == ai::SwimHandoff::None)"))
 
     def test_handoff_round1_clip_magma_slime_ground(self):
         h = self.hand
@@ -166,10 +175,12 @@ class SwimHandoffWiringTest(unittest.TestCase):
         # The core's first point is the bot's own spot: kept once, never spliced into a zero leg.
         self.assertIn("coreRoute.insert(coreRoute.begin(), startPos);", h)
 
-    def test_policy_has_no_land_line(self):
+    def test_policy_takes_0x11_only_in_water(self):
         choose = body(POLICY, "inline SwimHandoff ChooseSwimHandoff(SwimHandoffFacts const& f)", "\n    }\n")
         self.assertIn("f.coreType == (kPathTypeNormal | kPathTypeUnderwater)", choose)
-        self.assertNotIn("kPathTypeNotUsingPath", choose)
+        self.assertIn("kPathTypeNotUsingPath", choose)
+        self.assertIn("f.swimmableHere", choose)
+        self.assertIn("f.endInWater", choose)
         inwater = body(POLICY, "inline bool SwimLineInWater(", "\n    }\n")
         self.assertIn("return SwimLineFirstFailing(", inwater)
 

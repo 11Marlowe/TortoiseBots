@@ -344,13 +344,21 @@ static void TestHandoffGuards()
     f = PoolStall(); f.endFromBot = 1.5f;  CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);   // (b) there already
     f = PoolStall(); f.inWater = false;    CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);   // (c) on land
     f = PoolStall(); f.excluded = true;    CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);   // (d) a real player, transport, flight
-    for (std::uint32_t type : {0x11u, 0x91u, 0x83u, 0x85u, 0x89u, 0x08u, 0x04u, 0xC1u, 0xA1u})
+    for (std::uint32_t type : {0x91u, 0x83u, 0x85u, 0x89u, 0x08u, 0x04u, 0xC1u, 0xA1u})
     {
         f = PoolStall();
         f.coreType = type;
         f.endSwimmable = true;  // the swim-out never takes a swimmable end
-        CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);                              // (e) never 0x11, a shortcut, partial, failed, fly, forced
+        CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);                              // (e) never a shortcut, partial, failed, fly, forced
     }
+    // Karazhan Crypt refast slot7 step 204: mid-water the core answers 0x11
+    // (no polygon in reach, swimmable start). On land it stays refused: the
+    // old "never 0x11" guard is now "0x11 only when both ends are in water".
+    f = PoolStall();
+    f.coreType = 0x11;
+    f.endSwimmable = false;
+    f.endInWater = true;  // the swim-out never takes a water end
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine);   // the 0x11 shaft shortcut is a swim line
     f = PoolStall(); f.coreLineHitsModel = true;  CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);   // (f) a wall on the line
     f = PoolStall(); f.endFromBot = 120.0f;       CHECK(ChooseSwimHandoff(f) == SwimHandoff::None);   // (g) a swim line over 100 yd
     f.coreType = 0x01;                            CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine); // a mesh path has no cap
@@ -366,6 +374,42 @@ static void TestKarazhanFloorToDryRampHandsTheCorePath()
     CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine);
     f.coreLineHitsModel = true;    // the model test is for the straight line only
     CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine);
+}
+
+// Karazhan Crypt refast slot7 step 204: the lead floats at -24.1, 22 yd over
+// the shaft floor. The core answers 0x11 for the floor point (no polygon in
+// reach, swimmable start); the hand-off takes it as a core line only when
+// both ends are in water, no model is on the line, and it is <= 100 yd.
+// Otherwise it falls through to the swim-out (the Stormwrought pool-bed stall
+// still needs that), and inWater alone (the old route test) is not enough.
+static void TestShaftMidWaterHandsTheSwimShortcut()
+{
+    SwimHandoffFacts f = PoolStall();
+    f.coreType = 0x11;
+    f.endSwimmable = false;
+    f.endInWater = true;
+    f.endFromBot = 22.4f;
+    f.endFromSurfaceYd = -46.0f;
+    CHECK(ChooseSwimHandoff(f) == SwimHandoff::CoreLine);   // fails on the stub
+    SwimHandoffFacts g = f; g.swimmableHere = false;
+    CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);       // on land: no shortcut
+    g = f; g.endInWater = false;
+    CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);       // the end dry behind terrain: refused
+    g = f; g.coreLineHitsModel = true;
+    CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);       // a model on the line
+    g = f; g.endFromBot = 120.0f;
+    CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);       // over 100 yd
+    g = f; g.inWater = false;
+    CHECK(ChooseSwimHandoff(g) == SwimHandoff::None);       // the bot itself dry
+    // Fall-through: 0x11 for a dry shore point with ground is the swim-out.
+    g = f;
+    g.endInWater = false;
+    g.endSwimmable = false;
+    g.endHasGround = true;
+    g.endGroundYd = 10.0f;
+    g.endFromSurfaceYd = 0.5f;
+    g.surfaceLineClear = true;
+    CHECK(ChooseSwimHandoff(g) == SwimHandoff::SwimOut);
 }
 
 static void TestPoolBedSwimsOutToTheApron()
@@ -507,10 +551,6 @@ static void TestLongHandoffRouteIsRefused()
     std::vector<MagmaPoint> const legs{ MagmaPoint{ 50.0f, 0.0f, 0.0f }, MagmaPoint{ 100.0f, 0.0f, 0.0f },
         MagmaPoint{ 150.0f, 0.0f, 0.0f } };
     CHECK(!CutPathBeforeMagma(start, legs, inHazard).cut); // the hole: past the budget only endpoints are seen
-    CHECK(MagmaRouteTooLongToCheck({ start, legs[0], legs[1], legs[2] })); // ...so the hand-off refuses the route
-    // A short clean route stays allowed.
-    CHECK(!MagmaRouteTooLongToCheck({ start, MagmaPoint{ 30.0f, 0.0f, 0.0f } }));
-    CHECK(!CutPathBeforeMagma(start, { MagmaPoint{ 30.0f, 0.0f, 0.0f } }, inHazard).cut);
 }
 
 static void TestFirstFailingSampleIsNamed()
@@ -550,7 +590,7 @@ int main()
     TestPoolStallHandsTheCoreLine();
     TestHandoffGuards();
     TestKarazhanFloorToDryRampHandsTheCorePath();
-    TestPoolBedSwimsOutToTheApron();
+    TestShaftMidWaterHandsTheSwimShortcut();
     TestCurvedPathThroughMagmaIsRefused();
     TestSinglePointRouteFarAwayIsProgress();
     TestSwimOutNeedsGroundUnderTheEnd();

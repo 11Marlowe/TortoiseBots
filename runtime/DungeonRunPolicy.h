@@ -3418,6 +3418,23 @@ inline float SpeedRateNow(Run& r, const Facts& f, std::uint32_t dt)
     return r.speedNow;
 }
 
+// Karazhan Crypt shaft dive (2026-10-25): the test speed waits while a bot
+// swims a spline. Changing the run/walk rate re-launches DispatchMovement's
+// stale PointMovementGenerator, whose Initialize drops the module's dive
+// spline; a bot in water always swims, so waiting costs nothing.
+inline bool SpeedChangeWaits(bool inWater, bool splineMoving) { return inWater && splineMoving; }
+constexpr std::uint32_t kSpeedRestoreWaitMs = 15000; // a refused restore while a bot swims a spline waits at most this long
+
+// The speed-restore wait is bounded (lead decision 2026-10-25): a run a real
+// player joined restores at once, never waits; otherwise a refused restore
+// waits at most kSpeedRestoreWaitMs from the first refusal, then restores anyway.
+inline bool SpeedRestoreWaits(bool playerBlocked, std::uint32_t waitedMs)
+{
+    if (playerBlocked)
+        return false;
+    return waitedMs < kSpeedRestoreWaitMs;
+}
+
 // The glue saw a listed bot (or its pet) of the run enter a fight between ticks and put the party back to 1.0.
 inline void SpeedFightSeen(Run& r)
 {
