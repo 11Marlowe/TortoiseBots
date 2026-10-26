@@ -612,16 +612,17 @@ class DungeonPlanSql(unittest.TestCase):
 
 
     def test_deadmines_pack_fixes(self):
-        # 20261025002800 (turtle-agent 456efc5, Deadmines: the laboratory and Jared Voss added after mine_a) re-exports the whole plan of
-        # 20261022200000 (turtle-agent 16efe83, r12-19z29 / r14-19z32: the Engineers and Craftsmen in the cc lists, the Sneed patroller's group
-        # first, the Harvester room's golem split off, the Gilnid ramp pulled from the spiral and the floor ring camp by camp) with two new legs
-        # after leg 0 and the Voss boss row. The old legs 2-15 are legs 4-17 now; every pin below fails when its rows are cut.
+        # 20261025003200 (turtle-agent f2c230c, Deadmines: the hall's golem and Engineer pulls get west stands after the proof20d4
+        # wipe) re-exports 20261025002800 (turtle-agent 456efc5, the laboratory and Jared Voss added after mine_a), which re-exports
+        # 20261022200000 (turtle-agent 16efe83, r12-19z29 / r14-19z32: the Engineers and Craftsmen in the cc lists, the Sneed patroller's
+        # group first, the Harvester room's golem split off, the Gilnid ramp pulled from the spiral and the floor ring camp by camp) with
+        # two new legs after leg 0 and the Voss boss row. The old legs 2-15 are legs 4-17 now; every pin below fails when its rows are cut.
         name, text = newest_plan_text("deadmines")
-        self.assertEqual(name, "20261025002800_world.sql")
-        self.assertIn("('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 456efc5 dungeons/deadmines.json',", text)
+        self.assertEqual(name, "20261025003200_world.sql")
+        self.assertIn("('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent f2c230c dungeons/deadmines.json',", text)
         rows = [r for r in self.step_rows(text) if r["plan"] == "deadmines"]
-        self.assertEqual(len(rows), 251)
-        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (5, 8, 9, 10)}, {5: 11, 8: 11, 9: 41, 10: 8})
+        self.assertEqual(len(rows), 254)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (5, 7, 8, 9, 10)}, {5: 11, 7: 9, 8: 11, 9: 41, 10: 8})
         # The laboratory: leg 1 lab_tunnel, leg 2 laboratory. The boss row at Voss's spawn, its approach stand 21.3 yd out, and the pair
         # next to him (2583084/2583081, 15.4 yd from the boss) as one pull from -96 -501.
         lab = leg_steps(rows, 2)
@@ -670,6 +671,31 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["entry"], r["entries"], r["x"], r["y"]) for r in leg_steps(rows, 9) if r["kind"] == "boss"],
                          [("1763", "1731", "-177.362", "-574.458")])
         self.assertNotIn(("622,1731", 11, -187.1), pulls(10))
+        # The hall (proof20d4 wipe, 2026-10-26): the golem pull and the two Engineer pulls each walk to a west stand first. Row 123 of
+        # 20261025002800 (the golems) was pulled from -207.6 -548.3, south of the inner wall, 23.6 yd away with los no; the run leader
+        # walked the tank in to 7.5 yd, the fight sat 6 yd from the 622 at -170.4 -535.2 and three Engineers (the third 20 yd away in
+        # harvester group 0) plus a Craftsman joined: 5 deaths, the run's one wipe. The stands below are the plan's own approach points:
+        # line of sight to the pack at the core's sight heights on the server's map 36 vmaps, and the next pack 29 yd or more away.
+        hall = leg_steps(rows, 7)
+        self.assertEqual([(r["kind"], r["comment"]) for r in hall],
+                         [("move", "to"), ("pull", "pull group 0"), ("pull", "pull group 1"),
+                          ("move", "pull group 2 approach"), ("pull", "pull group 2"),
+                          ("move", "pull group 3 approach"), ("pull", "pull group 3"),
+                          ("move", "pull group 4 approach"), ("pull", "pull group 4")])
+        stands = {2: (-201.0, -534.0, 51.31), 3: (-186.0, -533.0, 51.31), 4: (-176.0, -544.0, 51.26)}
+        hall_pulls = {2: ("61962", -185.99, -530.84), 3: ("622", -170.37, -535.16), 4: ("622,1731", -162.19, -555.34)}
+        for group, (x, y, z) in stands.items():
+            move, pull = hall[2 * group - 1], hall[2 * group]
+            self.assertEqual((move["kind"], move["comment"]), ("move", "pull group %d approach" % group))
+            self.assertEqual((float(move["x"]), float(move["y"]), float(move["z"])), (x, y, z))
+            self.assertEqual((pull["kind"], pull["comment"]), ("pull", "pull group %d" % group))
+            self.assertEqual((pull["entries"], float(pull["x"]), float(pull["y"])), hall_pulls[group])
+        # The golem pull's stand is 30.6 yd from the Engineer row it used to drag in, and every stand is 29 yd or more from the next
+        # pack the plan pulls (2-D, as the run leader sees it); the third Engineer is harvester group 0's, 35.9 yd on.
+        self.assertGreaterEqual(dist(hall[3], float(hall[6]["x"]), float(hall[6]["y"])), 29.0)   # golem stand -> the 622 row
+        self.assertGreaterEqual(dist(hall[5], float(hall[8]["x"]), float(hall[8]["y"])), 29.0)   # 622 stand -> the next 622 row
+        harvester = leg_steps(rows, 8)
+        self.assertGreaterEqual(dist(hall[7], float(harvester[1]["x"]), float(harvester[1]["y"])), 29.0)  # -> harvester 0's 622
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["61961", "644", "642", "61963", "1763", "646", "647", "639"])
 
     def test_scholomance_is_the_plan_with_the_malicia_pack_splits(self):
