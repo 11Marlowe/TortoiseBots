@@ -1688,6 +1688,15 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("(329, 10440, 'kill_first', 0, 0, 1, 0, 'Rivendare: engage him the moment he is in combat with the party (r28d slotD)');", old)
 
     def test_stormwrought_ruins_is_the_census_fixed_draft(self):
+        # 20261025002100 (turtle-agent 050c168, 2026-10-25): SW-FIX7. RUN-LESSONS rf6 stormwrought_ruins slot6 (FULL
+        # 823/823) paused 3 times at step 249 (leg 5 deathlord_tidebane): the lead stood in the lake at -6271.7
+        # -4055.6 216.5, 6.3 yd from -6265.6 -4056 218.2, and a GM move to that point fixed it. The first move after
+        # the group-3 pull was -6265.6 -4056 218.189; the lead's post-pull stand -6278.9 -4055.4 218.0 is EAST of it,
+        # so the walk went west along y -4055.4, where the client floor is 215.8-217.3 (WMO 215.97-217.19, water
+        # 217.81) under a navmesh shelf at 218.7. Group 4 now has two approach rows, -6276 -4059 218.189 (the dry
+        # shelf, WMO 218.14) and -6265.6 -4056 218.189 (the old step), so the first move after the pull is the dry via
+        # and the exporter's cut rows follow from -6265.6. Every new hop is server-exact 0x1 (0.2-0.5 yd short); the
+        # real lead stand -6278.9 -> -6276 is 0x1, 4.7 yd. 824 steps (+1), was 823.
         # 20261025001700 (turtle-agent a2a91b3, 2026-10-25): SW-FIX6. RUN-LESSONS r41 stormwrought_ruins slot6 (FULL
         # 821/821) entered the lake-shore island again at leg 5: the hop from the group-11 approach row -6330 -3942
         # 219.9 to -6340 -3950 218.6 crosses the 8 yd mesh hole at x -6341..-6333, y -3945..-3947 (Floors empty at
@@ -1745,8 +1754,8 @@ class DungeonPlanSql(unittest.TestCase):
         # groups are gone. The nine packs inside a boss's 18 yd detection are still their leg's last pull, and
         # Remains of the Innocent 62670 (boss-grade trash) is still in leg 11 and in kill_first.
         name, text = newest_plan_text("stormwrought_ruins")
-        self.assertEqual(name, "20261025001700_world.sql")
-        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent a2a91b3 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025002100_world.sql")
+        self.assertIn("('stormwrought_ruins', 818, '62535,62540,62541,62543,62651,62659,62663,62536', '', '62650,62647,62539,62669,62670', 'turtle-agent 050c168 dungeons/stormwrought_ruins.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(leg_rows(text, "stormwrought_ruins"),
                          {0: ("dagar_the_glutton", ""), 1: ("oronok_torn-heart", ""),
                           2: ("librarian_theodorus", ""), 3: ("duke_balor_the_iv", ""),
@@ -1755,7 +1764,7 @@ class DungeonPlanSql(unittest.TestCase):
                           8: ("mycellakos", ""), 9: ("eldermaw_the_primordial", ""),
                           10: ("lady_drazare", ""), 11: ("ighal'for", "")})
         rows = [r for r in self.step_rows(text) if r["plan"] == "stormwrought_ruins"]
-        self.assertEqual(len(rows), 823)
+        self.assertEqual(len(rows), 824)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(12)],
                          [11, 28, 18, 19, 19, 31, 27, 10, 9, 10, 30, 12])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
@@ -1794,9 +1803,12 @@ class DungeonPlanSql(unittest.TestCase):
                 approach.setdefault(r["comment"], []).append(r)
         self.assertEqual(sorted(approach), ["pull group 10 approach", "pull group 11 approach",
                                             "pull group 12 approach", "pull group 13 approach",
-                                            "pull group 14 approach"])
+                                            "pull group 14 approach", "pull group 4 approach"])
         order = sorted(approach, key=lambda c: int(c.split()[2]))
-        self.assertEqual([len(approach[c]) for c in order], [3, 4, 1, 1, 4])
+        self.assertEqual([len(approach[c]) for c in order], [2, 3, 4, 1, 1, 4])
+        # SW-FIX7's group-4 approach is the dry-shore via, not a stand: its last point is the old step 249, 116 yd
+        # from group 5's pack, and the exporter cuts the hop from it. The SW-FIX2/FIX4/FIX6 stands are groups 10-14.
+        order = [c for c in order if c != "pull group 4 approach"]
         stands = {c: (float(approach[c][-1]["x"]), float(approach[c][-1]["y"]), float(approach[c][-1]["z"])) for c in order}
         self.assertEqual(stands, {
             "pull group 10 approach": (-6325.5, -3920.0, 222.5),
@@ -1816,6 +1828,24 @@ class DungeonPlanSql(unittest.TestCase):
             lo = pos[id(pulls5[n - 1])] if n else -1
             hi = pos[id(pull)]
             self.assertTrue(all(lo < i < hi for i in (pos[id(r)] for r in approach[c])), c)
+        # SW-FIX7: the dry-shore via after the group-3 pull (step 248). r6 slot6 paused 3 times at step 249 with the
+        # lead in the lake at -6271.7 -4055.6 216.5: the first move after the pull was -6265.6 -4056 218.189, and
+        # the lead's post-pull stand -6278.9 -4055.4 218.0 is EAST of it, so the walk went west along y -4055.4,
+        # where the client floor is 215.8-217.3 (WMO 215.97-217.19, water 217.81) under a navmesh shelf at 218.7.
+        # Group 4 now gets -6276 -4059 218.189 (the dry shelf, WMO 218.14) then the old point; the first move after
+        # the pull is the dry via, and the exporter's cut rows follow from -6265.6.
+        a4 = approach["pull group 4 approach"]
+        self.assertEqual([(r["kind"], r["x"], r["y"], r["z"]) for r in a4],
+                         [("move", "-6276", "-4059", "218.189"),
+                          ("move", "-6265.6", "-4056", "218.189")])
+        p3 = pulls5[3]
+        self.assertEqual(steps5[pos[id(p3)] + 1], a4[0])
+        self.assertEqual(steps5[pos[id(p3)] + 2], a4[1])
+        self.assertEqual((steps5[pos[id(p3)] + 3]["x"], steps5[pos[id(p3)] + 3]["y"],
+                          steps5[pos[id(p3)] + 3]["z"]), ("-6266.6665", "-4055.7332", "218.189"))
+        self.assertEqual((steps5[pos[id(p3)] + 4]["x"], steps5[pos[id(p3)] + 4]["y"],
+                          steps5[pos[id(p3)] + 4]["z"]), ("-6312.2666", "-4062.6665", "218.189"))
+        self.assertEqual(steps5[pos[id(p3)] + 5], pulls5[4])
         # SW-FIX4: group 14's approach keeps to the solid shore strip at y -3950 and the ramp (2-6 yd south of the
         # 8 yd mesh hole at x -6341..-6333, y -3947), ending on the ledge at the point the r37 hand move used.
         a14 = approach["pull group 14 approach"]
