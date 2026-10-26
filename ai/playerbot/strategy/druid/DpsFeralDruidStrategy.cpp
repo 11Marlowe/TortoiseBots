@@ -627,6 +627,7 @@ public:
             (actionName == "dps assist") ||
             (actionName == "select new target") ||
             (actionName == "follow") ||
+            (actionName == "release pull hold") ||
             (actionName == "reach melee") ||
             (actionName == "set behind") ||
             (actionName == "set combat state") ||
