@@ -19,7 +19,7 @@
 --     61962 ... (7.5 yd from it; was 23.6 yd, los no)". The party stood at -207.6 -548.3 51.5, south of the
 --     hall's inner wall; the tank walked in to 7.5 yd (the wall's face is at -193.6 -535.5 on the server's
 --     map 36 vmaps).
---   * the fight sat at -187 -533, 17.8 yd from the 622 Engineer at -170.4 -535.2. The tank stood 4.9 yd from
+--   * the fight sat at -187 -533, 16.8 yd from the 622 Engineer at -170.4 -535.2. The tank stood 4.9 yd from
 --     that Engineer at 11:29:44 and the hunter 5.0 yd from it at 11:29:35; the tank was then ordered 23.5 yd
 --     to pick it up ("the tank picks up 622 off the party (23.5 yd)"), three distinct 622 Engineers (trace
 --     guids ...69f6, ...69fa, ...69fc) and one 1731 Craftsman joined, and the fight ran to -162 -558, where
