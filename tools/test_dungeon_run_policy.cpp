@@ -14554,12 +14554,14 @@ static void TestLeadOffMapPauseResumesByItself()
     PauseLeadOffMap(r, 36);
     CHECK(!LeadBackWhilePaused(r, true, 10000) && r.state == State::Paused);
     // A player's pause never self-resumes, and clears the lead-back mark.
-    PausePlayer(r, "paused by .bot run pause");
-    CHECK(!r.leadOffMapPaused);
-    CHECK(!LeadBackWhilePaused(r, true, 10000) && r.state == State::Paused);
+    Run p = Start(&plan);
+    PauseLeadOffMap(p, 36);
+    PausePlayer(p, "paused by .bot run pause");
+    CHECK(!p.leadOffMapPaused);
+    CHECK(!LeadBackWhilePaused(p, true, 10000) && p.state == State::Paused);
     // ... and the guard holds on its own even if the mark were left set.
-    r.leadOffMapPaused = true;
-    CHECK(!LeadBackWhilePaused(r, true, 10000) && r.state == State::Paused);
+    p.leadOffMapPaused = true;
+    CHECK(!LeadBackWhilePaused(p, true, 10000) && p.state == State::Paused);
     // Any other pause after the lead-back one clears it.
     Run o = Start(&plan);
     PauseLeadOffMap(o, 36);
@@ -14627,12 +14629,14 @@ static void TestPlayerHoldPauseResumesByItself()
     g.players = {HoldPlayer("Pipwren", true, true, 10.0f)};
     CHECK(!PlayerHoldBackWhilePaused(r, g, 10000) && r.state == State::Paused);
     // A player's pause never self-resumes, and clears the hold mark.
-    PausePlayer(r, "paused by .bot run pause");
-    CHECK(!r.playerHoldPaused);
-    CHECK(!PlayerHoldBackWhilePaused(r, g, 10000) && r.state == State::Paused);
+    Run h = Start(&plan);
+    PausePlayerHold(h, hold);
+    PausePlayer(h, "paused by .bot run pause");
+    CHECK(!h.playerHoldPaused);
+    CHECK(!PlayerHoldBackWhilePaused(h, g, 10000) && h.state == State::Paused);
     // ... and the guard holds on its own even if the mark were left set.
-    r.playerHoldPaused = true;
-    CHECK(!PlayerHoldBackWhilePaused(r, g, 10000) && r.state == State::Paused);
+    h.playerHoldPaused = true;
+    CHECK(!PlayerHoldBackWhilePaused(h, g, 10000) && h.state == State::Paused);
     // Any other pause after the hold one clears it.
     Run o = Start(&plan);
     PausePlayerHold(o, hold);
