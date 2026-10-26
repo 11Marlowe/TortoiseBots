@@ -180,9 +180,9 @@ struct BotAreaTriggerState
         std::vector<Retry> waiting;
         for (Retry r : retry)
         {
-            bool const near = std::find(nearNow.begin(), nearNow.end(), r.id) != nearNow.end() ||
+            bool const nearby = std::find(nearNow.begin(), nearNow.end(), r.id) != nearNow.end() ||
                               std::find(insideNow.begin(), insideNow.end(), r.id) != insideNow.end();
-            if (!near)
+            if (!nearby)
                 continue;
             if (r.checksLeft > 0)
                 --r.checksLeft;
