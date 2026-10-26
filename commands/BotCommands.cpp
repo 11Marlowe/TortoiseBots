@@ -485,6 +485,7 @@ static BotCommandEntry const botCommands[] = {
     {"status", HandleStatus, "status <online bot name>", {}, AlwaysVisible},
     {"lease", HandleLease, "lease [status]", {}, AlwaysVisible},
     {"version", HandleVersion, "version", {"v", "about", "credits"}, AlwaysVisible},
+    {"features", HandleFeatures, "features", {}, AlwaysVisible},
     {"pullback", HandlePullback, "pullback", {"pull-back"}, AlwaysVisible},
     {"role", HandleRole, "role <online bot name/self/your name> <tank/healer/dps/clear>", {}, AlwaysVisible},
     {"summon", HandleSummon, "summon <online bot name>", {}, AlwaysVisible},

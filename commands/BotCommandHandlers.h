@@ -40,6 +40,7 @@ bool HandleStats(ChatHandler* handler, char const* args);
 bool HandleStatus(ChatHandler* handler, char const* args);
 bool HandleLease(ChatHandler* handler, char const* args);
 bool HandleVersion(ChatHandler* handler, char const* args);
+bool HandleFeatures(ChatHandler* handler, char const* args);
 bool HandlePullback(ChatHandler* handler, char const* args);
 bool HandleRole(ChatHandler* handler, char const* args);
 bool HandleSummon(ChatHandler* handler, char const* args);

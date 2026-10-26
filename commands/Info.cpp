@@ -219,6 +219,39 @@ bool HandleVersion(ChatHandler* handler, char const* /*args*/)
     handler->PSendSysMessage("%s", AttributionLine().c_str());
     return true;
 }
+// The server's player-facing switches, for the addon's Info window: one
+// summary line for chat and TBM:FEATURE|<key>|<value>|<label> per switch.
+bool HandleFeatures(ChatHandler* handler, char const* /*args*/)
+{
+    struct Feature { char const* key; std::string value; char const* label; };
+    auto onOff = [](bool on) { return std::string(on ? "on" : "off"); };
+    PlayerbotAIConfig const& c = sPlayerbotAIConfig;
+    std::vector<Feature> const features = {
+        { "dungeon-run", onOff(c.dungeonSelfClear), "Dungeon runs" },
+        { "player-led", onOff(c.dungeonRunPlayerLed), "Player-led runs (I lead)" },
+        { "remote-commander", onOff(c.remoteCommander), "Remote commander" },
+        { "dungeon-tactics", onOff(c.dungeonTactics), "Boss tactics for every bot" },
+        { "bot-lfg", onOff(c.botLfgGroups), "Bot LFG groups" },
+        { "hiring", onOff(c.hireEnabled), "Hiring" },
+        { "hire-max", std::to_string(c.hireMaxBotsPerPlayer), "Hires per player" },
+        { "hire-pvp", onOff(c.hireAllowPvP), "Hires in battlegrounds" },
+        { "hire-anywhere", onOff(c.hireAnywhere), "Hire away from recruiters" },
+        { "hire-tier", std::to_string(c.hireGearStartTier), "Hire gear start tier" },
+        { "world-buffs", onOff(c.worldBuffsEnabled), "World buffs from recruiters" },
+        { "autogear-all", onOff(c.playerAutogearForAll), "Autogear for every player" },
+        { "alt-bots", onOff(c.altBots), "Alt bots" },
+        { "ah-market", onOff(c.ahMarketEnabled), "Auction house market" },
+        { "random-bots", std::to_string(c.maxRandomBots), "World bots (max)" },
+        { "run-trace", onOff(c.runTrace), "Run trace" },
+    };
+    std::string summary;
+    for (Feature const& f : features)
+        summary += (summary.empty() ? "" : ", ") + std::string(f.key) + " " + f.value;
+    handler->PSendSysMessage("Server features: %s", summary.c_str());
+    for (Feature const& f : features)
+        handler->PSendSysMessage("TBM:FEATURE|%s|%s|%s", f.key, f.value.c_str(), f.label);
+    return true;
+}
 bool HandleLease(ChatHandler* handler, char const* args)
 {
     std::string sub = Trim(args ? args : "");

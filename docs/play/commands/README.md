@@ -152,6 +152,7 @@ The table below lists all primary commands and links to their authoritative docu
 | [`.bot stats`](bot-panel.md#bot-stats) | Inspection | Summarizes controlled bot fleet statistics. |
 | [`.bot lease`](bot-panel.md#bot-lease) | Inspection | Reports active autonomous activity leases. |
 | [`.bot version`](bot-panel.md#bot-version) | Inspection | Displays module version, protocol line, and credits. |
+| [`.bot features`](bot-panel.md#bot-features) | Inspection | Lists the server's player-facing switches (the addon's Info window). |
 | [`.bot help`](bot-panel.md#bot-help) | Inspection | Prints bot system version header. |
 | [`.bot inv`](bot-panel.md#bot-inv) | Bot Panel | Emits inventory, equipped gear, and money details. |
 | [`.bot item <Name> trade`](bot-panel.md#bot-item-trade) | Bot Panel | Opens direct trade window with a bot. |

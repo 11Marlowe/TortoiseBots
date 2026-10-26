@@ -23,6 +23,7 @@ TortoiseBots includes a structured command interface for inspecting companion vi
 | [`.bot trace`](#bot-trace) | `start <run_id> [party\|bot <Name>] [driver=...]` / `stop` / `status` | Opt-in run recorder (`AiPlayerbot.RunTrace.Enabled`). |
 | [`.bot lease`](#bot-lease) | `[status]` | Reports autonomous activity leases and active timers. |
 | [`.bot version`](#bot-version) | None | Displays module version, protocol string, and author credits. |
+| [`.bot features`](#bot-features) | None | Lists the server's player-facing switches and their values. |
 | [`.bot help`](#bot-help) | None | Prints the current bot system version header. |
 | [`.bot inv`](#bot-inv) | `<Name>` | Emits detailed inventory, equipped gear, and coin count. |
 | [`.bot item <Name> trade`](#bot-item-trade) | None | Prompts the bot to open a direct trade window with you. |
@@ -97,6 +98,16 @@ Displays module version details, addon protocol handshake line, and author credi
 ```
 
 Prints `TortoiseBots <BuildVersion>`, the `TBM:VERSION|<BuildVersion>` protocol line, and the project attribution line. The same credit line is sent to every real (networked game client) player on login and written to the server startup log. Aliases include `.bot v`, `.bot about`, and `.bot credits`. Available to all players.
+
+### `.bot features`
+
+Lists the server's player-facing switches: dungeon runs, player-led runs, the remote commander, boss tactics, bot LFG groups, hiring and its limits, world buffs, autogear for every player, alt bots, the auction house market, the world bot count and the run trace.
+
+```text
+.bot features
+```
+
+Prints one `Server features: ...` line and a `TBM:FEATURE|<key>|<value>|<label>` line per switch (`on`, `off` or a number). The addon's Info window reads them. Available to all players.
 
 ### `.bot help`
 
