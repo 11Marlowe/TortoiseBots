@@ -28,6 +28,8 @@ int main()
     CHECK(!BoundRunRefusesMapChange(0, 36, 36));
     // No running or paused run: no guard.
     CHECK(!BoundRunRefusesMapChange(36, 0, 0));
+    // No run (map 0 is the sentinel, never a plan's map) and the bot on map 0: still free.
+    CHECK(!BoundRunRefusesMapChange(0, 36, 0));
     // A move on the same map is allowed.
     CHECK(!BoundRunRefusesMapChange(36, 36, 36));
     // A bot elsewhere, not on the plan's map, is free.
