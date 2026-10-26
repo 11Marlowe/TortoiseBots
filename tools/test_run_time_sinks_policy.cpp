@@ -1825,6 +1825,20 @@ static void TestCeilingPauseFollowsTheFightingLeadBot()
     TrackRouteWhilePaused(p, true, 104, 8, 0);
     TrackRouteWhilePaused(p, true, 106, 12, 0);
     CHECK(p.routeSpotX == 95.0f);
+    // No ceiling flag (an ordinary pause, not a fight ceiling's): no follow either, even step by step. This guards
+    // the `!r.ceilingPaused` check in TrackRouteWhilePaused: dropping it tracks here and must fail the check below.
+    Run q = Start(&plan, 5);
+    NoteCheckpoint(q, 4);
+    q.leadSeen = true;
+    q.leadLastX = 95;
+    q.leadLastY = 0;
+    q.leadLastZ = 0;
+    Pause(q, "a fight lasted more than 180 s");
+    TrackRouteWhilePaused(q, true, 98, 0, 0);
+    TrackRouteWhilePaused(q, true, 101, 3, 0);
+    TrackRouteWhilePaused(q, true, 104, 8, 0);
+    TrackRouteWhilePaused(q, true, 106, 12, 0);
+    CHECK(q.routeSpotX == 95.0f);
 }
 
 static void TestCeilingPauseDropsTheRouteOnAJump()
