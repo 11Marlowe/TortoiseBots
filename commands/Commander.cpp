@@ -540,7 +540,11 @@ Player* FindOnlineByName(std::string name)
         player = sObjectAccessor.FindPlayerByName(name.c_str());
     return player;
 }
-// ---------------------------------------------------------------------------
+} // close the file's opening anonymous namespace for the BotCommands-scope glue below
+
+} // namespace
+
+namespace BotCommands {
 // Item-leg skip glue (spec D). runtime/RunItemNeedPolicy.h owns Member / GiveOrder /
 // StartVerdict (CheckStart, BotOnly); the ledger mirror structs live in
 // BotCommandHandlers.h so that header never includes the policy header.
@@ -764,6 +768,11 @@ void CleanupRunGivenItemsTick()
             if (bot->IsInWorld())
                 CleanupRunGivenItems(bot);
 }
+
+} // namespace BotCommands
+
+namespace {
+// re-open the file's anonymous namespace for the rest of the glue
 
 // Every live bot of the group, the lead bot first, resolved from the group's
 // member slots through ObjectAccessor (never the GroupReference list, #225).

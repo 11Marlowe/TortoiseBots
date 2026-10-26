@@ -144,6 +144,8 @@ static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts,
         } while (result->NextRow());
     }
 
+    // Bosses no boss step names (the telemetry's boss rank, DungeonPlanTable::IsBossEntry).
+    std::uint32_t& skippedBosses = counts.skippedBosses;
     if (std::unique_ptr<QueryResult> result{WorldDatabase.Query("SELECT `map`, `entry` FROM `ai_dungeon_boss`")})
     {
         do
