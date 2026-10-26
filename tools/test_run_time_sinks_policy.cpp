@@ -1781,6 +1781,180 @@ static void TestResumeKeepsTheRescueLatch()
     CHECK(!r.strandDue);
 }
 
+// ta268 Part A: a fight-ceiling pause follows the lead bot while it fights.
+static DungeonPlan CeilingPausePlan()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(0, 0), Move(20, 0), Direct(40, 0), Move(60, 0), Move(80, 0), Pull(100, 0, 7206)};
+    return plan;
+}
+
+static void TestCeilingPauseFollowsTheFightingLeadBot()
+{
+    DungeonPlan plan = CeilingPausePlan();
+    Run r = Start(&plan, 5);
+    NoteCheckpoint(r, 4);
+    r.leadSeen = true;
+    r.leadLastX = 95;
+    r.leadLastY = 0;
+    r.leadLastZ = 0;
+    Pause(r, "a fight lasted more than 180 s");
+    r.ceilingPaused = true;
+    TrackRouteWhilePaused(r, true, 98, 0, 0);
+    TrackRouteWhilePaused(r, true, 101, 3, 0);
+    TrackRouteWhilePaused(r, true, 104, 8, 0);
+    TrackRouteWhilePaused(r, true, 106, 12, 0);
+    CHECK(CeilingFightOverWhilePaused(r, false, kCeilingQuietMs));
+    Facts f = Party(106, 12, 0);
+    f.total = 5;
+    f.alive = 5;
+    Tick(r, f);
+    CHECK(CheckpointKnown(r));
+    CHECK(FirstUncrossedDirect(r) == static_cast<std::size_t>(-1));
+    // A player's pause never follows, even when armed as a ceiling one: only the guard is tested.
+    Run p = Start(&plan, 5);
+    NoteCheckpoint(p, 4);
+    p.leadSeen = true;
+    p.leadLastX = 95;
+    p.leadLastY = 0;
+    p.leadLastZ = 0;
+    PausePlayer(p, "player order (cmd move): .bot run resume to go on");
+    p.ceilingPaused = true;
+    TrackRouteWhilePaused(p, true, 98, 0, 0);
+    TrackRouteWhilePaused(p, true, 101, 3, 0);
+    TrackRouteWhilePaused(p, true, 104, 8, 0);
+    TrackRouteWhilePaused(p, true, 106, 12, 0);
+    CHECK(p.routeSpotX == 95.0f);
+}
+
+static void TestCeilingPauseDropsTheRouteOnAJump()
+{
+    DungeonPlan plan = CeilingPausePlan();
+    Run r = Start(&plan, 5);
+    NoteCheckpoint(r, 4);
+    r.leadSeen = true;
+    r.leadLastX = 95;
+    r.leadLastY = 0;
+    r.leadLastZ = 0;
+    Pause(r, "a fight lasted more than 180 s");
+    r.ceilingPaused = true;
+    TrackRouteWhilePaused(r, true, 98, 0, 0);
+    TrackRouteWhilePaused(r, true, 140, 0, 0); // a 42 yd jump: a teleport, a GM move, a fall
+    CHECK(CeilingFightOverWhilePaused(r, false, kCeilingQuietMs));
+    Tick(r, Party(140, 0, 0));
+    CHECK(!CheckpointKnown(r));
+}
+
+static void TestCeilingPauseKeepsTheDeadLeadBotsSpot()
+{
+    DungeonPlan plan = CeilingPausePlan();
+    Run r = Start(&plan, 5);
+    NoteCheckpoint(r, 4);
+    r.leadSeen = true;
+    r.leadLastX = 95;
+    r.leadLastY = 0;
+    r.leadLastZ = 0;
+    Pause(r, "a fight lasted more than 180 s");
+    r.ceilingPaused = true;
+    TrackRouteWhilePaused(r, false, 80, 0, 0); // dead: no follow, although only 15 yd away
+    TrackRouteWhilePaused(r, true, 55, 0, 0);  // alive again 40 yd away: a jump, no follow
+    CHECK(CeilingFightOverWhilePaused(r, false, kCeilingQuietMs));
+    Tick(r, Party(55, 0, 0));
+    CHECK(!CheckpointKnown(r));
+}
+
+// ta268 Part B: a long hole-branch replay is a rescue (bot-only party).
+static DungeonPlan HoleShape(std::size_t& wipe, std::size_t& hole)
+{
+    DungeonPlan plan;
+    plan.name = "hole-shape";
+    for (int i = 0; i <= 5; ++i)
+        plan.steps.push_back(Move(20.0f * i, 0.0f)); // 0 .. 100
+    plan.steps.push_back(Direct(110.0f, 0.0f));
+    hole = plan.steps.size() - 1;
+    for (int i = 0; i <= 20; ++i)
+        plan.steps.push_back(Move(120.0f + 20.0f * i, 0.0f)); // 120 .. 520
+    plan.steps.push_back(Pull(540.0f, 0.0f, 7300));
+    wipe = plan.steps.size() - 1;
+    return plan;
+}
+
+static void TestLongHoleReplayIsRescued()
+{
+    std::size_t wipe = 0, hole = 0;
+    DungeonPlan plan = HoleShape(wipe, hole);
+    (void)hole;
+    Run r = Start(&plan, wipe);
+    Facts f = Party(0, 0); // revived at the entrance, route unknown
+    StartWalkBack(r, f);
+    CHECK(r.strandDue && r.strandIdx == IndexOf(plan, 500.0f, 0.0f));
+    CHECK(r.note.find("a direct step is on the way (step 7) and the plan's points from step 6 would walk") !=
+        std::string::npos);
+    // The arrival itself records the teleport point as the checkpoint, past the hole: fire the send, move the lead
+    // bot to the target as the glue would, then let the settle elapse on the point, before the walk re-checkpoints
+    // the later points on its own.
+    Facts g = Party(0, 0);
+    std::string order;
+    CHECK(WalkBack(r, g, kTickMs, order)); // the send: strandOn, settling (order "rescue from ... to ...")
+    CHECK(!r.strandDue && r.strandOn);
+    g.leadX = plan.steps[r.strandIdx].x;
+    g.leadY = plan.steps[r.strandIdx].y;
+    g.leadZ = plan.steps[r.strandIdx].z;
+    CHECK(WalkBack(r, g, kStrandSettleMs, order)); // settled on the point: the checkpoint
+    CHECK(CheckpointKnown(r) && r.checkpoint == r.strandIdx);
+    CHECK(FirstUncrossedDirect(r) == static_cast<std::size_t>(-1));
+    WalkBackSim const sim = SimulateWalkBack(r, g);
+    CHECK(sim.walked < 60.0f && !r.walkBack && r.step == wipe);
+}
+
+static void TestShortHoleReplayAndPlayersKeepTheReplay()
+{
+    std::size_t wipe = 0, hole = 0;
+    DungeonPlan longPlan = HoleShape(wipe, hole);
+    (void)hole;
+    // (a) A short replay: walked, not rescued.
+    DungeonPlan plan;
+    for (int i = 0; i <= 5; ++i)
+        plan.steps.push_back(Move(20.0f * i, 0.0f)); // 0 .. 100
+    plan.steps.push_back(Direct(110.0f, 0.0f));
+    for (int i = 0; i <= 3; ++i)
+        plan.steps.push_back(Move(120.0f + 20.0f * i, 0.0f)); // 120 .. 180
+    plan.steps.push_back(Pull(200.0f, 0.0f, 7300));
+    Run a = Start(&plan, plan.steps.size() - 1);
+    StartWalkBack(a, Party(90, 0));
+    CHECK(!a.strandDue && a.walkBack && a.walkBackDirect && a.walkBackStart == 5);
+    // (b) A real player in the party walks back with it.
+    Facts withPlayer = Party(0, 0);
+    PlayerFact p;
+    p.name = "Hypeer";
+    p.yd = 5.0f;
+    withPlayer.players.push_back(p);
+    Run b = Start(&longPlan, wipe);
+    StartWalkBack(b, withPlayer);
+    CHECK(!b.strandDue && b.walkBack && b.walkBackStart == 5);
+    // (c) The rescue off.
+    Facts off = Party(0, 0);
+    off.walkBackRescue = false;
+    Run c = Start(&longPlan, wipe);
+    StartWalkBack(c, off);
+    CHECK(!c.strandDue);
+    // (d) The only safe point is the direct step itself: before the hole, so the replay as before.
+    DungeonPlan tight;
+    for (int i = 0; i <= 20; ++i)
+        tight.steps.push_back(Move(20.0f * i, 0.0f)); // 0 .. 400
+    tight.steps.push_back(Direct(410.0f, 0.0f));
+    tight.steps.push_back(Pull(440.0f, 0.0f, 7301, 5.0f));
+    Run d = Start(&tight, tight.steps.size() - 1);
+    StartWalkBack(d, Party(0, 0));
+    CHECK(!d.strandDue && d.walkBack && d.walkBackStart == 20);
+}
+
+// ta268 Part C: one "walk back: " prefix.
+static void TestWalkBackNotePrefixOnce()
+{
+    CHECK(WalkBackNote("gathering before a pull") == "walk back: gathering before a pull");
+    CHECK(WalkBackNote(WalkBackNote("x")) == "walk back: x");
+}
 int main()
 {
     TestWipeWalkBackOnAGnomereganShapedPlan();
@@ -1813,6 +1987,12 @@ int main()
     TestPlacedRescueGoesToTheSafePointByTheWipe();
     TestPlacedRescueFallsBackToTheFirstSafePoint();
     TestDeathPauseRearmsTheRescue();
+    TestCeilingPauseFollowsTheFightingLeadBot();
+    TestCeilingPauseDropsTheRouteOnAJump();
+    TestCeilingPauseKeepsTheDeadLeadBotsSpot();
+    TestLongHoleReplayIsRescued();
+    TestShortHoleReplayAndPlayersKeepTheReplay();
+    TestWalkBackNotePrefixOnce();
     std::cout << "test_run_time_sinks_policy: ok\n";
     return 0;
 }

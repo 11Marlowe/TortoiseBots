@@ -111,6 +111,8 @@ constexpr float kApproachProgressYd = 5.0f;       // a hop that ends this much n
 constexpr std::uint32_t kMaxWalkBackHops = 40;    // a walk back straight to its last point: hops before the replay
 constexpr float kRouteSpotYd = 10.0f;             // a lead bot this close to where it died (or stood at a pause) is
                                                   // still on its route checkpoint's stretch (Run::routeKnown)
+constexpr float kRouteTrackStepYd = 30.0f; // a paused fight's lead bot moved at most this far since the last tick (a Charge is 25 yd)
+constexpr float kRouteTrackDzYd = 6.0f;    // ... and at most this far up or down (a drop into a navmesh hole is more)
 constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point may be stood in for by a
                                                   // reachable one at most this far from it ...
 constexpr float kMoveFallbackYd = 25.0f;          // ... a plain move's point, this far (r22-19z40 Razorfen Kraul step 85)
@@ -4002,6 +4004,24 @@ inline bool CeilingFightOverWhilePaused(Run& r, bool partyInCombat, std::uint32_
         return false;
     r.note = "the fight past the ceiling is over: going on by itself (regrouping)";
     return true;
+}
+
+// A fight-ceiling pause (Run::ceilingPaused, not a player's): the fight goes on and the lead bot moves with it, as in a
+// running fight, so the route spot follows each tick's living lead bot while it moves at most kRouteTrackStepYd and
+// kRouteTrackDzYd from the last spot (r18-19z36 Uldaman step 68: 14 yd from the pause's spot after the fight, and the walk
+// back replayed steps 40-67). A dead lead bot leaves the spot where it was; a jump (a teleport, a GM move, a fall) is not
+// followed, so the first running tick after the resume finds the route unknown as before. The glue calls it on every
+// paused tick before CeilingFightOverWhilePaused.
+inline void TrackRouteWhilePaused(Run& r, bool leadAlive, float x, float y, float z)
+{
+    if (r.state != State::Paused || !r.ceilingPaused || PausedByPlayer(r) || !r.routeCheck || !leadAlive)
+        return;
+    if (ai::PlanDistance(x, y, z, r.routeSpotX, r.routeSpotY, r.routeSpotZ) > kRouteTrackStepYd ||
+        std::fabs(z - r.routeSpotZ) > kRouteTrackDzYd)
+        return;
+    r.routeSpotX = x;
+    r.routeSpotY = y;
+    r.routeSpotZ = z;
 }
 
 // A player's pause: only `.bot run resume` (or skip) goes on from it.
@@ -7972,6 +7992,8 @@ inline bool IslandWalkBackRescue(Run& r, const Facts& f, const std::string& why)
     return true;
 }
 
+inline bool HoleReplayRescue(Run& r, const Facts& f, std::size_t hole); // defined below (StartWalkBack's hole branch calls it)
+
 // The point a replayed walk back goes on to after reaching point `i`: the latest plain move point k > i, before the
 // current step, within kRouteLinkYd on the ground and kRouteLinkDzYd up or down of point i, with no direct step, exact
 // point (or its launch) or uncleared pack between them; i + 1's turn (i itself) when there is none.
@@ -8058,6 +8080,8 @@ inline void StartWalkBack(Run& r, const Facts& f)
     std::size_t const hole = FirstUncrossedDirect(r);
     if (hole != static_cast<std::size_t>(-1))
     {
+        if (HoleReplayRescue(r, f, hole))
+            return;
         r.walkBack = true;
         r.walkBackIdx = LastPointBeforeDirect(r, hole);
         r.walkBackDirect = r.walkBackIdx < hole; // a navmesh point first; a direct step is replayed as such
@@ -8103,6 +8127,40 @@ inline void StartWalkBack(Run& r, const Facts& f)
     r.walkBackRestarted = false;
     r.approachHops = 0;
     EnterPhase(r, Phase::Begin);
+}
+
+// A walk back with a direct step (a navmesh hole) the lead bot has not crossed (StartWalkBack's hole branch) replays the
+// plan's points from the last point before the hole; when that walk (the lead bot's leg to that point, then point to
+// point) would be kReplayRescueYd or more before the safe point on the way it came, and that safe point lies past the
+// hole, the rescue teleport goes to that point instead, by ReplayRescue's rule and bounds (a bot-only party, RescueAllowed,
+// a safe point, never onto the lead bot's own spot; armed bot-only, refused kStrandTries times it replays the plan's
+// points: StrandFailed). Uldaman 19z16 (wipe at step 84: 'point of step 40' -> 61 -> 84, 4 min) and r18-19z36 (after the
+// Stone Keeper fight-ceiling pause: steps 40-67, about 5 min). True when the rescue is due.
+inline bool HoleReplayRescue(Run& r, const Facts& f, std::size_t hole)
+{
+    if (!f.players.empty() || !RescueAllowed(r, f) || !r.plan || hole >= r.plan->steps.size())
+        return false;
+    std::size_t const last = LastReachedBefore(r, r.step);
+    if (last == static_cast<std::size_t>(-1) || last >= r.plan->steps.size())
+        return false;
+    std::size_t const target = SafePointAtOrBefore(r, f.team, last);
+    if (target == static_cast<std::size_t>(-1) || target <= hole)
+        return false; // a safe point before the hole: the straight walk there is the short way
+    const PlanStep& t = r.plan->steps[target];
+    if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, t.x, t.y, t.z) <= kArriveYd)
+        return false;
+    std::size_t const from = LastPointBeforeDirect(r, hole);
+    const PlanStep& a = r.plan->steps[from];
+    float const yd = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, a.x, a.y, a.z) + PointsYards(r, from, target);
+    if (yd < kReplayRescueYd)
+        return false;
+    RescueDue(r, f, target);
+    r.strandBotOnly = true; // armed bot-only: StrandedTeleportTick rechecks for a joined player before the send
+    r.strandReplay = true;  // refused kStrandTries times: the walk back replays the plan's points (StrandFailed)
+    r.note = "walk back: a direct step is on the way (step " + std::to_string(hole + 1) + ") and the plan's points from step " +
+        std::to_string(from + 1) + " would walk " + Num(yd) + " yd: the lead bot is teleported to a safe point on the way it " +
+        "came (step " + std::to_string(target + 1) + ") out of combat";
+    return true;
 }
 
 // On to the next walk-back point, with fresh tries, hops and gather waiver.
@@ -8198,6 +8256,7 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
             return true;
         }
         r.strandStep = r.step;
+        NoteCheckpoint(r, r.strandIdx); // the lead bot stands on that point (kArriveYd): past every hole before it
         r.strandReplay = false; // used: no replay after it
         r.strandBotOnly = false; // used: no player recheck after it
         r.strandFromOtherPart = false; // used: no player pause after it
@@ -8313,6 +8372,13 @@ inline bool StrandedTeleportTick(Run& r, const Facts& f, std::uint32_t dt, std::
     return true;
 }
 
+// The walk back's prefix on a hop pull's note, once (r18-19z36: 'walk back: walk back: ... gathering before a pull').
+inline std::string WalkBackNote(const std::string& note)
+{
+    static const std::string prefix = "walk back: ";
+    return note.compare(0, prefix.size(), prefix) == 0 ? note : prefix + note;
+}
+
 inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
 {
     if (!r.walkBack)
@@ -8355,7 +8421,7 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
     {
         PullUnit(r, f, *hopUnit, order, nullptr, true, dt);
         if (r.state == State::Running)
-            r.note = "walk back: " + r.note;
+            r.note = WalkBackNote(r.note);
         return true;
     }
     const PlanStep& p = r.plan->steps[r.walkBackIdx];
