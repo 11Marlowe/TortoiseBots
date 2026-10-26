@@ -1,3 +1,7 @@
+-- SUPERSEDED 2026-10-26: the shipped plan data/sql/world/20261025002900_world.sql carries this gahzrilla leg now (ported
+-- row for row from this file). This file is kept as the export's provenance and is NOT applied; the shipped file's header
+-- says how the Mallet is given before a run.
+--
 -- OPT-IN, FOR TEST RUNS ONLY. NOT A MIGRATION: data/sql/world/ is applied automatically, this folder is not.
 -- Zul'Farrak (map 209) with the optional gahzrilla leg: the whole plan of data/sql/world/20261022210000_world.sql (Bly's gossip row with flag 512) plus Gahz'rilla.
 -- Exported from the same turtle-agent revision with the same options plus --with-optional gahzrilla:
