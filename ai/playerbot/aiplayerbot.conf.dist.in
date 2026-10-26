@@ -878,9 +878,9 @@ AiPlayerbot.DungeonSelfClear = 1
 # Needs AiPlayerbot.DungeonSelfClear = 1 (with it off the server log says the
 # feature stays dormant). Does not need AiPlayerbot.RemoteCommander.
 # `.reload config` reads this key again.
-# 0 - off
-# 1 - on (Default)
-AiPlayerbot.BotLfgGroups = 1
+# 0 - off (Default)
+# 1 - on
+AiPlayerbot.BotLfgGroups = 0
 
 # The run leader's walk back after a guarded fight. When the tank left its stand
 # to take mobs off the party, the run used to walk the tank and the party back to

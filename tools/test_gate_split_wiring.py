@@ -89,14 +89,14 @@ class GateSplitWiringTest(unittest.TestCase):
     def test_config_keys(self):
         keys = body(CONFIG, "void PlayerbotAIConfig::LoadDungeonRunKeys()", "\n}\n")
         self.assertIn('dungeonSelfClear = config.GetBoolDefault("AiPlayerbot.DungeonSelfClear", true);', keys)
-        self.assertIn('botLfgGroups = config.GetBoolDefault("AiPlayerbot.BotLfgGroups", true);', keys)
+        self.assertIn('botLfgGroups = config.GetBoolDefault("AiPlayerbot.BotLfgGroups", false);', keys)
         self.assertIn(
             "AiPlayerbot.BotLfgGroups = 1 needs AiPlayerbot.DungeonSelfClear = 1: bot LFG groups stay dormant.",
             keys)
 
     def test_template(self):
         self.assertIn("AiPlayerbot.DungeonSelfClear = 1", TEMPLATE)
-        self.assertIn("AiPlayerbot.BotLfgGroups = 1", TEMPLATE)
+        self.assertIn("AiPlayerbot.BotLfgGroups = 0", TEMPLATE)
         self.assertIn("#AiPlayerbot.RemoteCommander = 0", TEMPLATE)
         self.assertNotIn("Needs AiPlayerbot.RemoteCommander = 1 and a binding", TEMPLATE)
 

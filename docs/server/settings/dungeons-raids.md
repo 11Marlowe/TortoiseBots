@@ -22,7 +22,7 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.AvoidCreatureAuras`](#aiplayerbotavoidcreatureauras) | `1` | Steers bots away from permanent damaging creature auras and hazardous monsters. |
 | [`AiPlayerbot.BombRunoutDistance`](#aiplayerbotbombrunoutdistance) | `30.0` | Distance in yards bomb debuff carriers run clear of the living group. |
 | [`AiPlayerbot.BotAreaTriggers`](#aiplayerbotbotareatriggers) | *(empty)* | Audited allowlist of scripted area triggers a bot party may fire (off when empty; opt in with `962`). |
-| [`AiPlayerbot.BotLfgGroups`](#aiplayerbotbotlfggroups) | `1` | The server's own bot LFG dungeon groups clear a dungeon with the run leader (needs `AiPlayerbot.DungeonSelfClear`). |
+| [`AiPlayerbot.BotLfgGroups`](#aiplayerbotbotlfggroups) | `0` | The server's own bot LFG dungeon groups clear a dungeon with the run leader (needs `AiPlayerbot.DungeonSelfClear`). |
 | [`AiPlayerbot.DungeonRunAggroCeiling`](#aiplayerbotdungeonrunaggroceiling) | `6` | Joiners above which the run leader rests the party before a pull (needs the estimate on). |
 | [`AiPlayerbot.DungeonRunAggroEstimate`](#aiplayerbotdungeonrunaggroestimate) | `0` | The run leader estimates how many creatures a pull brings and rests first when it is many. |
 | [`AiPlayerbot.DungeonRunFightForward`](#aiplayerbotdungeonrunfightforward) | `1` | After a won fight the next pack within 30 yd is pulled from where the tank stands when the way there is direct and clear. |
@@ -100,7 +100,7 @@ Allowlist of creature entries the `.bot cmd gossip` order may talk to (issue #10
 
 ### `AiPlayerbot.BotLfgGroups`
 The server's own bot LFG dungeon groups clear a dungeon with the run leader.
-**Default:** `1` · **Values:** `0` off, `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
+**Default:** `0` · **Values:** `0` off, `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
 
 <details>
 <summary>How it works in detail</summary>
