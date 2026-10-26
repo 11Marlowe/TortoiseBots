@@ -98,6 +98,102 @@ namespace ai
         return step;
     }
 
+    // Short straight step for the dungeon rescue below: a stair or walkway
+    // span the mesh does not link. The caller checks sight (no step through
+    // a wall) and floor along the whole segment near the walked line (no
+    // step off a ledge or over a pit), because the map is known only to the
+    // caller.
+    constexpr float kDungeonFollowStepYd = 12.0f;
+
+    // Climb up to this above the bot. SFK's Odo room sits ~9 yd above the
+    // walkway (z 91 -> 100.1 at ~9 yd 2D), beyond the open step's 8 yd.
+    constexpr float kDungeonFollowStepUpYd = 10.0f;
+    // Drop at most this below the bot; larger drops belong to the ledge
+    // step-down with its own landing checks, not to this straight step.
+    constexpr float kDungeonFollowStepDownYd = 5.0f;
+
+    // Only when the leader is this close: the bot is at the broken span,
+    // not crossing the dungeon.
+    constexpr float kDungeonFollowStepLeaderYd = 15.0f;
+
+    // The target must end this much closer to the leader than the bot
+    // stands, or the step is pointless.
+    constexpr float kDungeonFollowStepHeadwayYd = 2.0f;
+
+    // Same shape as the open step, shorter with a taller climb. A bound
+    // exactly on the limit is allowed.
+    inline bool DungeonFollowStepAllowed(float horizontal, float vertical, bool seesLeader)
+    {
+        if (!seesLeader)
+            return false;
+        if (!std::isfinite(horizontal) || !std::isfinite(vertical))
+            return false;
+        if (horizontal > kDungeonFollowStepYd || vertical < -kDungeonFollowStepDownYd || vertical > kDungeonFollowStepUpYd)
+            return false;
+        return true;
+    }
+
+    inline bool DungeonFollowStepLeaderNear(float horizontal, float vertical)
+    {
+        if (!std::isfinite(horizontal) || !std::isfinite(vertical))
+            return false;
+        if (horizontal > kDungeonFollowStepLeaderYd || vertical < -kDungeonFollowStepDownYd || vertical > kDungeonFollowStepUpYd)
+            return false;
+        return true;
+    }
+
+    inline OpenFollowStep DungeonFollowStepToward(float botX, float botY, float leaderX, float leaderY)
+    {
+        OpenFollowStep step{ leaderX, leaderY };
+        float const dx = leaderX - botX;
+        float const dy = leaderY - botY;
+        float const dist = std::sqrt(dx * dx + dy * dy);
+        if (dist > kDungeonFollowStepYd && dist > 0.0f)
+        {
+            step.x = botX + dx / dist * kDungeonFollowStepYd;
+            step.y = botY + dy / dist * kDungeonFollowStepYd;
+        }
+        return step;
+    }
+
+    // Target ground must sit near the leader's feet, so the step lands on
+    // the leader's floor and not in the drop below it.
+    constexpr float kDungeonFollowStepGroundSlackYd = 1.5f;
+
+    inline bool DungeonFollowStepGroundNearLeader(float stepGroundZ, float leaderZ)
+    {
+        if (!std::isfinite(stepGroundZ) || !std::isfinite(leaderZ))
+            return false;
+        return std::fabs(stepGroundZ - leaderZ) <= kDungeonFollowStepGroundSlackYd;
+    }
+
+    // A refused step is checked again only this often, so its sight and
+    // height queries do not run every tick while the bot stands.
+    constexpr unsigned kDungeonFollowStepRecheckMs = 2000;
+
+    // Samples along a straight floor segment, every this far: a missing
+    // sample is a hole the bot must not cross.
+    constexpr float kDungeonFollowStepSampleYd = 1.5f;
+    // Each sample's ground must sit this close to the walked line between
+    // the bot's feet and the step target: a stair hugs the line, a pit or
+    // a drop between balconies does not.
+    constexpr float kDungeonFollowStepLineSlackYd = 2.0f;
+
+    // Interpolated line height at fraction `t` of the segment bot -> target.
+    inline float DungeonFollowStepLineZ(float botZ, float targetZ, float t)
+    {
+        return botZ + (targetZ - botZ) * t;
+    }
+
+    // Floor-continuity verdict for one ground sample: missing ground, or
+    // ground off the walked line, refuses the step.
+    inline bool DungeonFollowStepSampleOk(bool hasGround, float groundZ, float lineZ)
+    {
+        if (!hasGround || !std::isfinite(groundZ) || !std::isfinite(lineZ))
+            return false;
+        return std::fabs(groundZ - lineZ) <= kDungeonFollowStepLineSlackYd;
+    }
+
     // Headway bookkeeping: counts steps in a row whose end was not at least
     // kOpenFollowStepHeadwayYd closer to the leader than the previous step's
     // start. True while the rescue may keep stepping.

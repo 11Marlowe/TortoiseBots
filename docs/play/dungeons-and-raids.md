@@ -125,6 +125,8 @@ Inside an instance, a healer or caster that has line of sight to its target but 
 
 Dungeon navmeshes sometimes contain raised platforms or dais platforms (such as in Uldaman's Hall of the Keepers) that are not linked by stairs to the surrounding floor. Inside dungeons and raids, a bot that lands on an isolated dais steps off the edge: it searches for walkable floor 2–8 yards lower within 8 yards forward. The bot runs over the edge and drops down safely. It will not drop while actively taking melee hits. If no safe landing floor exists, use [`.bot summon <Name>`](commands/roster-and-hiring.md#bot-summon) out of combat.
 
+The opposite case also happens: a short flight of stairs or a ramp that the navmesh does not link (for example the walkway up into Odo's room in Shadowfang Keep), so a following bot gets no path and stands still. Out of combat in a dungeon, when you are within 15 yards, in sight and at most 10 yards above (or 5 yards below) the bot, it takes one straight step of up to 12 yards toward you. It does this only when there is floor along the whole step close to the straight line between you, so it never walks through a wall or over a gap, and it tries again only every few seconds.
+
 ### Followers That Stand Still
 
 When following out of combat inside instances, navmesh paths can occasionally stop responding if a bot is stuck on complex geometry. A bot that is more than 3 yards beyond its follow distance and has remained stationary for 2 seconds automatically attempts a local rescue walk to rejoin the leader.

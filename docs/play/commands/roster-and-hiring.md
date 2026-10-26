@@ -68,7 +68,7 @@ Logs out an active companion bot.
 .bot remove <CharacterName>
 ```
 
-Aliases include `.bot logout`. When used on an **owned alt**, the character safely logs out and retains all progress. When used on a **hired companion**, the hire agreement ends and the temporary character is deleted immediately.
+Aliases include `.bot logout` and `.bot rm`. When used on an **owned alt**, the character safely logs out and retains all progress. When used on a **hired companion**, the hire agreement ends and the temporary character is deleted immediately.
 
 ### `.bot hire`
 
@@ -88,7 +88,7 @@ By default (`AiPlayerbot.HireAnywhere = 0`), the `.bot hire` chat command always
 - **Intro & Respec:** Once it is grouped with you (and in world), it posts its spec/spell intro once in party chat. Hiring a tier kit respecs talents and refits equipment.
 - **Equipment Tiers:** Level 60 companions can be hired in fixed Best-in-Slot gear sets (Tiers 0 through 7). Tiers unlock per character via recruiter quests (or account-wide if [`AiPlayerbot.HireGearUnlockAccountWide`](../../server/settings/hiring.md#aiplayerbothiregearunlockaccountwide) is enabled): Tier 0 (Standard), Tier 1 (Pre-raid), Tier 2 (Zul'Gurub), Tier 3 (Molten Core), Tier 4 (Blackwing Lair), Tier 5 (Ahn'Qiraj), Tier 6 (Naxxramas), Tier 7 (Karazhan).
 - **Temporary Character:** Hires exist while you are online, plus a disconnect grace period ([`AiPlayerbot.HireDisconnectGracePeriod`](../../server/settings/hiring.md#aiplayerbothiredisconnectgraceperiod)). Removing them deletes the temporary character.
-
+- **PvE-only:** Hired companions leave you when you enter a battleground ([`AiPlayerbot.HireAllowPvP`](../../server/settings/hiring.md#aiplayerbothireallowpvp) = `1` keeps today's behaviour).
 </details>
 
 ### `.bot hire raid`
@@ -121,6 +121,7 @@ Overrides party role assignments used by the AI strategy engine to select specs 
 
 - `<Name>`: Sets the role for a specific companion bot and rebuilds its combat strategy kit. You may use your own character name instead of `self`. `.bot role self` sets the requesting player's own runtime role override and does not target a bot.
 - `tank`, `healer` (alias `heal`), `dps`: Sets the designated combat role. `tank` on a shaman bot installs the shaman tank kit.
+- Class-spec ids (`arms`, `fury`, `protection`, `holy`, `retribution`, `discipline`, `shadow`, `hybrid`, `restoration`, `balance`, `boomkin`, `cat`, `bear`, `bm`, `mm`, `survival`, `combat`, `assa`, `subtlety`, `ele`, `enh`, `frost`, `fire`, `arcane`, `affliction`, `demonology`, `destruction`): map to the role and apply that spec's strategies for the bot's own class, so `holy`, `protection` and `restoration` mean the right spec on each class. Rejected when the bot's class has no such spec.
 - `clear` (aliases `none`, `reset`): Clears the override and restores automatic role inference based on talents and gear.
 
 ### `.bot invite`

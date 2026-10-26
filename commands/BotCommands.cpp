@@ -466,7 +466,7 @@ static BotCommandEntry const botCommands[] = {
     {"trace", HandleTrace, "trace <start|stop|status> ...", {}, TraceVisible},
     {"run", HandleDungeonRun, "run <start|pause|resume|skip|stop|status|list> ...", {}, RunVisible},
     {"add", HandleAdd, "add <characterName>", {}, AlwaysVisible},
-    {"remove", HandleRemove, "remove <characterName>", {}, AlwaysVisible},
+    {"remove", HandleRemove, "remove <characterName>", {"rm"}, AlwaysVisible},
     {"logout", HandleLogout, "logout <online bot name>", {}, AlwaysVisible},
     {"roster", HandleRoster, "roster", {}, AlwaysVisible},
     {"follow", HandleFollow, "follow <botName>", {}, AlwaysVisible},
@@ -479,6 +479,7 @@ static BotCommandEntry const botCommands[] = {
     {"attack", HandleAttack, "attack <online bot name>", {}, AlwaysVisible},
     {"interrupt", HandleInterrupt, "interrupt <online bot name>", {}, AlwaysVisible},
     {"formation", HandleFormation, "formation [botName] <formation>", {}, AlwaysVisible},
+    {"cc", HandleCc, "cc <mark> [bot] | cc clear [bot]", {}, AlwaysVisible},
     {"list", HandleList, "list", {}, AlwaysVisible},
     {"stats", HandleStats, "stats", {}, AlwaysVisible},
     {"status", HandleStatus, "status <online bot name>", {}, AlwaysVisible},
@@ -505,7 +506,7 @@ static BotCommandEntry const botCommands[] = {
     {"item", HandleItem, "item <bot> <trade|equip|unequip|give ...>", {}, AlwaysVisible},
     {"behavior", HandleBehavior, "behavior <bot|party|raid> <behavior> <on|off>", {"behaviour"}, AlwaysVisible},
     {"totem", HandleTotem, "totem <bot|party|raid> ...", {}, AlwaysVisible},
-    {"strategy", HandleStrategy, "strategy <+/-/~><strategy name> [role or botName]", {}, AlwaysVisible},
+    {"strategy", HandleStrategy, "strategy <+/-/~><strategy name> [role or botName] | strategy reset", {}, AlwaysVisible},
     {"help", HandleHelp, "help", {"h"}, AlwaysVisible},
 };
 

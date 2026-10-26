@@ -310,9 +310,34 @@ bool HandleStrategy(ChatHandler* handler, char const* args)
         return true;
     }
     std::string input = Trim(args ? args : "");
+    std::string lowered = input;
+    for (char& character : lowered)
+        character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    if (lowered == "reset")
+    {
+        BotCommandContext resetContext = BuildContext(requester);
+        std::vector<Player*> resetScope = ResolveDynamicScope(resetContext);
+        if (resetScope.empty())
+        {
+            handler->PSendSysMessage("No live owned party bots are controllable.");
+            return true;
+        }
+        uint32 resetCount = 0;
+        for (Player* bot : resetScope)
+        {
+            PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+            if (!ai)
+                continue;
+            ai->ResetStrategies();
+            sPlayerbotDbStore.Save(ai);
+            ++resetCount;
+        }
+        handler->PSendSysMessage("Strategy change 'reset' applied to %u bot(s).", resetCount);
+        return true;
+    }
     if (input.empty() || (input[0] != '+' && input[0] != '-' && input[0] != '~'))
     {
-        handler->PSendSysMessage("Usage: .bot strategy [+/-/~]<strategy name> [role or BotName] (roles: @tank, @dps, @heal, @melee, @ranged)");
+        handler->PSendSysMessage("Usage: .bot strategy [+/-/~]<strategy name> [role or BotName] (roles: @tank, @dps, @heal, @melee, @ranged) or .bot strategy reset");
         return true;
     }
     BotCommandContext context = BuildContext(requester);
@@ -680,6 +705,68 @@ bool HandleFormation(ChatHandler* handler, char const* args)
     return true;
 }
 
+// Accepted `.bot cc` forms: "cc <mark> [bot]" assigns a crowd-control mark
+// through the same order as `.bot action cc`; "cc clear [bot]" clears it.
+// Without a bot the requester's selected bot (or the owned party) decides.
+bool HandleCc(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+    std::string input = Trim(args ? args : "");
+    BotCommandContext context = BuildContext(requester);
+    if (input.empty())
+    {
+        SendActionError(handler, "cc", "invalid", "Usage: .bot cc <mark> [bot] | .bot cc clear [bot]");
+        return true;
+    }
+    std::string lowered = input;
+    for (char& character : lowered)
+        character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    if (lowered == "clear" || lowered.compare(0, 6, "clear ") == 0)
+    {
+        std::string clearArgs = lowered.size() == 5 ? std::string() : Trim(input.substr(6));
+        if (clearArgs.empty())
+            return HandleAction(handler, "cc clear");
+        Player* named = nullptr;
+        BotRecord* namedRecord = nullptr;
+        std::string namedName;
+        if (!ResolveOwnedBot(handler, clearArgs.c_str(), named, namedRecord, namedName))
+        {
+            SendActionError(handler, "cc clear", "no-bot", "Unknown or uncontrollable bot name for cc clear.");
+            return true;
+        }
+        return HandleAction(handler, ("cc clear " + namedName).c_str());
+    }
+    size_t separator = input.find_first_of(" \t");
+    std::string mark = separator == std::string::npos ? input : input.substr(0, separator);
+    std::string loweredMark = mark;
+    for (char& character : loweredMark)
+        character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    if (!IsRaidTargetMark(loweredMark))
+    {
+        SendActionError(handler, "cc " + mark, "invalid", "Usage: .bot cc <mark> [bot] | .bot cc clear [bot]");
+        return true;
+    }
+    std::string botToken = separator == std::string::npos ? std::string() : Trim(input.substr(separator + 1));
+    if (!botToken.empty())
+    {
+        Player* named = nullptr;
+        BotRecord* namedRecord = nullptr;
+        std::string namedName;
+        if (!ResolveOwnedBot(handler, botToken.c_str(), named, namedRecord, namedName))
+        {
+            SendActionError(handler, "cc " + loweredMark, "no-bot", "Unknown or uncontrollable bot name for cc assignment.");
+            return true;
+        }
+        return RunCcOrder(handler, context, requester, "cc " + loweredMark + " " + namedName, "cc " + loweredMark);
+    }
+    return RunCcOrder(handler, context, requester, "cc " + loweredMark, "cc " + loweredMark);
+}
+
 // Explicit role designation (Player Agency First): a leveling Arms/Fury
 // warrior, Ret paladin, or Feral druid can serve as the party tank without
 // changing talents. The tank kit mirrors AiFactory's native tank strategies
@@ -687,6 +774,65 @@ bool HandleFormation(ChatHandler* handler, char const* args)
 // Both spec placeholders are offered; each class context keeps the one it
 // knows ("protection" for Warrior/Paladin, "tank feral" for Druid) and the
 // engine silently ignores the unknown name.
+//
+// Accepted class-spec ids (spec pickers send these instead of a role) map to
+// the role and apply that spec's strategies on the bot, validated against the
+// bot's own registry. Unknown ids are rejected with usage, never applied.
+struct SpecRow { char const* id; uint8 cls; uint8 role; char const* change; };
+static SpecRow const kSpecRows[] = {
+    { "arms", CLASS_WARRIOR, 4, "+arms,-protection,-fury" },
+    { "fury", CLASS_WARRIOR, 4, "+fury,-protection,-arms" },
+    { "protection", CLASS_WARRIOR, 1, "+protection,-arms,-fury" },
+    { "holy", CLASS_PALADIN, 2, "+holy,-protection,-retribution" },
+    { "protection", CLASS_PALADIN, 1, "+protection,-holy,-retribution" },
+    { "retribution", CLASS_PALADIN, 4, "+retribution,-protection,-holy" },
+    { "bm", CLASS_HUNTER, 4, "+beast mastery,-marksmanship,-survival" },
+    { "mm", CLASS_HUNTER, 4, "+marksmanship,-beast mastery,-survival" },
+    { "survival", CLASS_HUNTER, 4, "+survival,-beast mastery,-marksmanship" },
+    { "assa", CLASS_ROGUE, 4, "+assassination,-combat,-subtlety" },
+    { "combat", CLASS_ROGUE, 4, "+combat,-assassination,-subtlety" },
+    { "subtlety", CLASS_ROGUE, 4, "+subtlety,-combat,-assassination" },
+    { "discipline", CLASS_PRIEST, 2, "+discipline,-holy,-shadow" },
+    { "holy", CLASS_PRIEST, 2, "+holy,-discipline,-shadow" },
+    { "shadow", CLASS_PRIEST, 4, "+shadow,-holy,-discipline,-offdps" },
+    { "hybrid", CLASS_PRIEST, 2, "+holy,+offdps,-shadow" },
+    { "ele", CLASS_SHAMAN, 4, "+elemental,-restoration,-enhancement" },
+    { "enh", CLASS_SHAMAN, 4, "+enhancement,-restoration,-elemental" },
+    { "restoration", CLASS_SHAMAN, 2, "+restoration,-elemental,-enhancement" },
+    { "arcane", CLASS_MAGE, 4, "+arcane,-frost,-fire" },
+    { "fire", CLASS_MAGE, 4, "+fire,-frost,-arcane" },
+    { "frost", CLASS_MAGE, 4, "+frost,-fire,-arcane" },
+    { "affliction", CLASS_WARLOCK, 4, "+affliction,-demonology,-destruction" },
+    { "demonology", CLASS_WARLOCK, 4, "+demonology,-affliction,-destruction" },
+    { "destruction", CLASS_WARLOCK, 4, "+destruction,-affliction,-demonology" },
+    { "balance", CLASS_DRUID, 4, "+balance,-tank feral,-dps feral,-restoration" },
+    { "boomkin", CLASS_DRUID, 4, "+balance,-tank feral,-dps feral,-restoration" },
+    { "cat", CLASS_DRUID, 4, "+dps feral,-tank feral,-restoration,-balance" },
+    { "bear", CLASS_DRUID, 1, "+tank feral,-dps feral,-restoration,-balance" },
+    { "restoration", CLASS_DRUID, 2, "+restoration,-tank feral,-dps feral,-balance" },
+};
+
+// A spec id names the same role for every class that has it.
+static bool SpecRole(std::string const& id, uint8& role)
+{
+    for (SpecRow const& row : kSpecRows)
+        if (id == row.id)
+        {
+            role = row.role;
+            return true;
+        }
+    return false;
+}
+
+// The bot's own class decides the strategies of a shared id (holy, protection, restoration).
+static std::string SpecChangeFor(std::string const& id, uint8 cls)
+{
+    for (SpecRow const& row : kSpecRows)
+        if (id == row.id && row.cls == cls)
+            return row.change;
+    return std::string();
+}
+
 bool HandleRole(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
@@ -698,6 +844,8 @@ bool HandleRole(ChatHandler* handler, char const* args)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
     uint8 role = 255;
+    bool isSpec = false;
+    std::string specChange;
     if (roleToken == "tank")
         role = static_cast<uint8>(ai::BOT_ROLE_TANK);
     else if (roleToken == "healer" || roleToken == "heal")
@@ -706,6 +854,8 @@ bool HandleRole(ChatHandler* handler, char const* args)
         role = static_cast<uint8>(ai::BOT_ROLE_DPS);
     else if (roleToken == "clear" || roleToken == "none" || roleToken == "reset")
         role = static_cast<uint8>(ai::BOT_ROLE_NONE);
+    else
+        isSpec = SpecRole(roleToken, role);
 
     if (requester && role != 255 &&
         (botToken == "self" || botToken == requester->GetName()))
@@ -739,6 +889,14 @@ bool HandleRole(ChatHandler* handler, char const* args)
         return true;
     }
 
+    if (isSpec)
+        specChange = SpecChangeFor(roleToken, bot->GetClass());
+    if (isSpec && (specChange.empty() || !KnownStrategyChange({ bot }, specChange)))
+    {
+        handler->PSendSysMessage("Bot %s does not use that spec.", name.c_str());
+        return true;
+    }
+
     // Rebuild from the talent spec plus the forced role so a previous
     // designation cannot leak its strategy kit into the new role. The stored
     // snapshot is spec-dependent, so drop its strategy rows first (independent
@@ -746,6 +904,8 @@ bool HandleRole(ChatHandler* handler, char const* args)
     ai->SetForcedRole(role);
     sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
     ai->ResetStrategies();
+    if (!specChange.empty())
+        ai->ChangeStrategy(specChange, BotState::BOT_STATE_ALL);
     if (role == static_cast<uint8>(ai::BOT_ROLE_TANK))
     {
         if (bot->GetClass() == CLASS_SHAMAN)
@@ -1136,6 +1296,7 @@ void SendBotStateLine(ChatHandler* handler, Player* bot)
     std::string fields = "move=" + movement;
     for (BehaviorToggle const& toggle : BehaviorToggles)
         fields += std::string(",") + toggle.key + "=" + (IsBehaviorOn(ai, toggle) ? "on" : "off");
+    fields += std::string(",sap=") + (ai->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT) ? "off" : "on");
     handler->PSendSysMessage("TBM:BOTSTATE|%s|%s", ProtocolSafe(bot->GetName()).c_str(), fields.c_str());
 }
 

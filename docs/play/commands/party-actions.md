@@ -52,6 +52,11 @@ Companion bots follow special navigation rules inside dungeons and raids to avoi
 | [`.bot action learn`](#bot-action-learn) | Controller | None | Orders bots to learn spells from nearby trainers. |
 | [`.bot action trade`](#bot-action-trade) | Controller | Companion Bot | Opens a direct trade window with targeted bot. |
 | [`.bot action ready`](#bot-action-ready) | Controller | None | Initiates a group readiness check across all bots. |
+| [`.bot action end pull`](#bot-action-end-pull) | Controller | None | Aborts a running pull maneuver. |
+| [`.bot action stance`](#bot-action-stance) | Controller | None | Sets per-bot combat facing. |
+| [`.bot action rebuff`](#bot-action-rebuff) | Controller | None | Refreshes expiring party buffs out of combat. |
+| [`.bot action guard`](#bot-action-guard) | Controller | None | Holds ground at each bot's current spot. |
+| [`.bot action free`](#bot-action-free) | Controller | None | Releases bots to autonomous movement. |
 | [`.bot action raid status`](#bot-action-raid-status) | Controller | None | Displays active raid strategies for party bots. |
 | [`.bot action raid tankface`](#bot-action-raid-tankface) | Controller | Dragon Target | Directs tank to face dragon boss away from group. |
 | [`.bot action raid douse`](#bot-action-raid-douse) | Controller | None | Orders bots to douse nearby Molten Core runes. |
@@ -235,14 +240,14 @@ Clears crowd control mark assignments from party bots.
 .bot action cc clear [bot]
 ```
 
-Specifying a bot name clears only that bot's assigned mark; targeting an owned bot clears that bot; omitting both clears marks from all companion bots in the party.
+Specifying a bot name clears only that bot's assigned mark; targeting an owned bot clears that bot; omitting both clears marks from all companion bots in the party. The accepted `.bot cc <mark> [bot]` / `.bot cc clear [bot]` forms behave identically.
 
 ### `.bot action auto cc`
 
 Toggles smart autonomous crowd control on loose hostile adds.
 
 ```text
-.bot action auto cc [on|off]
+.bot action auto cc [on|off|status]
 ```
 
 With no argument, it toggles the setting. When enabled:
@@ -259,14 +264,14 @@ Controls whether rogues sneak up and apply *Sap* to their crowd control mark bef
 .bot action sap [on|off] [bot]
 ```
 
-Pre-pull Sap is on by default. Specifying a bot name (or targeting a bot) scopes to that bot, else all party rogues; non-rogues are skipped. If no rogues are in scope, returns `no-rogue`. The server acknowledges with `on`, `off`, or `mixed`.
+Pre-pull Sap is on by default. Specifying a bot name (or targeting a bot) scopes to that bot, else all party rogues; non-rogues are skipped. If no rogues are in scope, returns `no-rogue`. The server acknowledges with `on`, `off`, or `mixed`. `sap=on|off` also rides the `TBM:BOTSTATE` line per bot.
 
 ### `.bot action aoe`
 
 Toggles area-of-effect (AoE) abilities across all companion bots.
 
 ```text
-.bot action aoe [on|off]
+.bot action aoe [on|off|status]
 ```
 
 Bare `aoe` toggles the switch. AoE is on by default. Turning it off applies the `no aoe` strategy (shared with `.bot behavior <bot> aoe` and persisted across sessions), preventing bots from casting multi-target spells and abilities that might break CC. The `dps aoe` target picker also stops picking cluster targets while AoE is off.
@@ -292,7 +297,7 @@ Bare `aoe` toggles the switch. AoE is on by default. Turning it off applies the 
 Toggles corpse looting on or off across companion bots.
 
 ```text
-.bot action loot [on|off]
+.bot action loot [on|off|status]
 ```
 
 Corpse looting is on by default. Omitting the argument flips the current state and returns an acknowledgment with the resulting setting.
@@ -373,6 +378,53 @@ Opens a direct player-to-bot trade window with your targeted companion bot.
 ```
 
 See [Bot Panel: .bot item trade](bot-panel.md#bot-item-trade).
+
+### `.bot action end pull`
+
+Aborts a running pull maneuver across scoped bots.
+
+```text
+.bot action end pull
+```
+
+### `.bot action stance`
+
+Sets per-bot combat facing across scoped bots.
+
+```text
+.bot action stance <near|tank|turnback|behind>
+```
+
+`turn` is accepted as `turnback`. The acknowledgement detail names the stance
+each bot took.
+
+### `.bot action rebuff`
+
+Refreshes expiring party buffs out of combat across scoped bots.
+
+```text
+.bot action rebuff
+```
+
+Uses the same 2-minute expiration pass as the whisper form.
+
+### `.bot action guard`
+
+Orders scoped bots to hold ground at their current positions.
+
+```text
+.bot action guard
+```
+
+Captures each bot's current spot as its guard position.
+
+### `.bot action free`
+
+Releases scoped bots from `stay` or `guard` back to autonomous movement.
+
+```text
+.bot action free
+```
 
 ### `.bot action ready`
 
@@ -547,6 +599,7 @@ Adds or removes strategies on a bot or the whole party.
 
 ```text
 .bot strategy [+|-|~]<strategy name> [@tank|@dps|@heal|@melee|@ranged|Name]
+.bot strategy reset
 ```
 
 Multiword strategy names are accepted as a whole, for example
@@ -556,7 +609,7 @@ word as a bot name. Comma-separated changes still work, for example
 `.bot strategy +loot,-passive @dps` (no spaces around commas).
 
 Without a suffix, the selected controllable bot is used, or otherwise the
-controllable party bots. A role suffix explicitly selects matching controllable
+controllable party bots. Bare `.bot strategy reset` restores default strategies on the same scope and replies `Strategy change 'reset' applied to N bot(s).` A role suffix explicitly selects matching controllable
 party bots, even when a bot is selected. A name selects that online owned bot.
 Ownership checks and strategy persistence are unchanged.
 
@@ -606,7 +659,6 @@ Shorthand rest command. See [`.bot action rest`](#bot-action-rest).
 Aliased as `.bot drink` and `.bot eat`.
 
 > [!NOTE]
-> **Pet Stance, Autocast, Rebuff, and Boost Notes:**
+> **Pet Stance, Autocast, and Boost Notes:**
 > - There are no direct `.bot pet aggressive` or `.bot pet autocast` chat commands. Pet commands are issued via whisper (`/w <Bot> pet aggressive`, `/w <Bot> pet autocast <spell>`) or the proxy (`.bot command <Bot> pet aggressive`, `.bot command <Bot> pet autocast <spell>`).
-> - There is no direct `.bot rebuff` chat command. Send `/w <Bot> rebuff` or `.bot command <Bot> rebuff` to top off expiring party buffs out of combat.
 > - There is no direct `.bot boost` chat command. Configure boost targets via `/w <Bot> boost target +<Name>` or `.bot command <Bot> boost target +<Name>`.
