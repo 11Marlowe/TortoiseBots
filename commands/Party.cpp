@@ -1302,7 +1302,7 @@ void SendBotStateLine(ChatHandler* handler, Player* bot)
     static char const* const SpecStrategies[] = {
         "tank feral", "dps feral", "balance", "restoration", "protection", "holy", "retribution", "arms", "fury",
         "beast mastery", "marksmanship", "survival", "combat", "assassination", "subtlety", "shadow", "discipline",
-        "offdps", "elemental", "enhancement", "frost", "fire", "arcane", "affliction", "demonology", "destruction",
+        "offdps", "elemental", "enhancement", "tank shaman", "frost", "fire", "arcane", "affliction", "demonology", "destruction",
     };
     std::string specs;
     for (char const* strategy : SpecStrategies)
