@@ -712,9 +712,11 @@ void GiveRunItems(DungeonRunSlot& slot, Player* lead, const std::vector<RunGiveO
 }
 // Takes back exactly the instances the run gave (by item GUID), never a bot's
 // own copy of the same entry. A bot not in the world keeps its ledger rows for
-// its login cleanup; the slot's record goes either way.
+// its login cleanup; the slot's record goes either way. Core
+// src/game/Objects/Player.cpp:10600 (Player::GetItemByGuid) searches the
+// equipment, keyring, bags, bank and bank bags, so one lookup finds the given
+// instance wherever it sits.
 void TakeRunItems(DungeonRunSlot& slot, uint64_t guid /*0 = all*/)
-{
     for (auto it = slot.given.begin(); it != slot.given.end();)
     {
         if (guid && it->first != guid)

@@ -99,6 +99,12 @@ class GivenItemProvenanceWiringTest(unittest.TestCase):
         self.assertLess(full.index("slot.bagsFullLogged.insert("), full.index("TB_LOG_DETAIL("))
         self.assertIn("std::unordered_set<uint64> bagsFullLogged;", body(COMMANDS, "struct DungeonRunSlot"))
 
+    def test_take_back_names_the_core_lookup_covering_bank_and_keyring(self):
+        take = body(COMMANDS, "// Takes back exactly the instances the run gave")
+        self.assertIn("src/game/Objects/Player.cpp:10600", take)
+        for place in ("keyring", "bank"):
+            self.assertIn(place, take)
+
     def test_ledger_table_keys_the_item_instance(self):
         self.assertIn("`item_guid` int unsigned NOT NULL", CHAR_MIGRATION)
         self.assertIn("PRIMARY KEY (`item_guid`)", CHAR_MIGRATION)
