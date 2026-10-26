@@ -663,6 +663,57 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertNotIn(("622,1731", 11, -187.1), pulls(8))
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["644", "642", "61963", "1763", "646", "647", "639"])
 
+    def test_scholomance_is_the_plan_with_the_malicia_pack_splits(self):
+        # 20261025002400 (turtle-agent 1a544f5, proof20d2 scholomance m910q-4, 2026-10-26): 13 of the run's 15 wipes came
+        # before the Vectus leg, 11 of them in leg 0. Group 4 (step 11: 8 at once, the 10489 patroller and the 14861 steward
+        # joining) is four single pulls from the stair stand, group 18 (step 41: 21 at once, 54 distinct, 2 wipes / 10
+        # deaths) three, and the corpse room (step 61: a single 10481 on group 29's OWN spawn point, pulled from a stand 8-9
+        # yd from the unpulled group-31 pack: 24 at once, 3 wipes / 19 deaths) is entered from the ramp, group 31 first and
+        # the north-east cluster in two rows. Every pin fails when its rows are cut.
+        name, text = newest_plan_text("scholomance")
+        self.assertEqual(name, "20261025002400_world.sql")
+        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', "
+                      "'turtle-agent 1a544f5cb16db95c9b40c4277ff19960eb74cf36 dungeons/s',", text)
+        rows = [r for r in self.step_rows(text) if r["plan"] == "scholomance"]
+        self.assertEqual(len(rows), 591)
+        leg0 = leg_steps(rows, 0)
+        self.assertEqual(len(leg0), 97)
+        pulls = [(r["entries"], float(r["radius"]), r["x"], r["y"]) for r in leg0 if r["kind"] == "pull"]
+        self.assertEqual(len(pulls), 45)
+
+        # step 11: the 4-member pack is four single pulls, in order (the healer 10471 first), and the old row is gone.
+        self.assertEqual(pulls[4:8], [("10471", 5.0, "240.78", "45.35"), ("10470", 5.0, "241.01", "52.07"),
+                                      ("10471", 5.0, "239.28", "53.66"), ("10499", 5.0, "241.6", "48.4")])
+        self.assertNotIn(("10471,10470,10499", 5.0, "240.67", "49.87"), pulls)
+        # step 41: the 3-member pack is three single pulls; the old row is gone.
+        self.assertEqual(pulls[21:24], [("10477", 5.0, "276.2", "150.87"), ("10469", 5.0, "272.36", "155.6"),
+                                        ("10498", 5.0, "276.71", "153.88")])
+        self.assertNotIn(("10477,10469,10498", 5.0, "275.09", "153.45"), pulls)
+        # The corpse room: the single 10481 pull at 221.92 96.4 (group 29's own spawn point, 0.0 yd from its 10485) is gone;
+        # the group-31 6-pack is the room's first row, then the north-east cluster in two rows (the deleted unit is in the 4).
+        self.assertNotIn(("10481", 5.0, "221.92", "96.4"), pulls)
+        self.assertEqual(pulls[33:36], [("10495,10485,10481", 6.1, "200.73", "97.84"),
+                                        ("10485", 5.0, "216.28", "99.3"),
+                                        ("10485,10481,10495", 5.0, "221.94", "100.15")])
+
+        # The stands: the group-31 row from the ramp 198 118 109.2, the two north-east rows from 201 114 107.8 (a move row
+        # before each, as the exporter writes an approach per group), the east 6-pack from its unchanged stand.
+        def stand_before(x, y):
+            for i, r in enumerate(leg0):
+                if r["kind"] == "pull" and r["x"] == x and r["y"] == y:
+                    self.assertEqual(leg0[i - 1]["kind"], "move", "the pull at %s %s has no move row before it" % (x, y))
+                    self.assertTrue(leg0[i - 1]["comment"].endswith("approach"), leg0[i - 1]["comment"])
+                    return leg0[i - 1]["x"], leg0[i - 1]["y"], leg0[i - 1]["z"]
+            self.fail("no pull at %s %s in leg 0" % (x, y))
+
+        self.assertEqual(stand_before("200.73", "97.84"), ("198", "118", "109.2"))
+        self.assertEqual(stand_before("216.28", "99.3"), ("201", "114", "107.8"))
+        self.assertEqual(stand_before("221.94", "100.15"), ("201", "114", "107.8"))
+        self.assertEqual(stand_before("217.93", "79.94"), ("226.1333", "102.7743", "106.1562"))
+        # The boss rows are still the plan's ten, in leg order.
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
+                         ["10505", "10507", "10901", "10502", "10503", "11622", "10432", "10508", "11261", "10504"])
+
     def test_scarlet_library_is_the_plan_with_the_pack_fixes(self):
         # 20261022210600 (turtle-agent prep/scarlet_library, library census 2026-10-22): the draft with the unit lists
         # (fleers 4287 4288 4291 4296 4299, cc 4299 4296, cc_always 4299, kill_first 4291), Loksey's three hounds and
@@ -4129,34 +4180,35 @@ class DungeonPlanSql(unittest.TestCase):
 
 
     def test_scholomance_is_the_census_fixed_draft(self):
-        # 20261024153800 (turtle-agent e76875c, 2026-10-24): the Scholomance draft with the census fixes of
+        # 20261025002400 (turtle-agent 1a544f5, 2026-10-26): the Scholomance draft with the census fixes of
         # PREP-SCHOLOMANCE-2026-10-24.md, leg 0's route clear after the r28c slotC first run, the step-11 reorder after the
         # r29 slot8 run (RUN-LESSONS.md), the hall-stand fix after the r30 slotC run (spec scholo-leg0-kill-order.md section 7),
         # the Vectus fix after the r34 slotA run and the Vectus-room clear after the r35 slot8b run (spec
         # scholo-vectus-fight.md): the r35 slot8b FULL run chained the Marduk pull into Vectus and all 32 students and wiped
         # 12 times, so leg vectus clears the 32 students 10475 first in ten pulls (groups 18-27) from stands 26+ yd from
         # every later student and 31+ yd from Vectus before the boss row (Marduk 10433 first, then Vectus):
-        # the landing-to-Malicia walk is 554 yd and passes 40 census packs within 30 yd, so leg 0 is those 40 pulls with their
-        # approach rows instead of one move row. The r30 run wiped on the step-16 stands (215 22, 218 30, 220 24: 11-20 yd from
+        # the landing-to-Malicia walk is 554 yd and passes 40 census packs within 30 yd, so leg 0 is those packs with their
+        # approach rows instead of one move row (45 pulls since the proof20d2 splits, see the pin after this one). The r30 run
+        # wiped on the step-16 stands (215 22, 218 30, 220 24: 11-20 yd from
         # the unpulled 48845 pack and the 91341/91350 pair), so the 48849 pack is pulled from the stairs (224.2 48.1), the lone
         # 10471 and the 48844 pack from the stair foot (229.6 45.9), the southern 48841 pair from 220 38. No row hand-set, and the
-        # boss rows of map 289 scoped to this plan's ten entries. 10 legs, 581 steps (162 pulls, 10 bosses, 409 moves), bosses in
+        # boss rows of map 289 scoped to this plan's ten entries. 10 legs, 591 steps (167 pulls, 10 bosses, 414 moves), bosses in
         # leg order. The plan row carries cc_priority, the undead no_cc is not a column and kill_first; the 55 Rats 4075 and the
         # Black Rat 2110 are out of every pull, as are the disabled Kormok 16118 and his trigger 16047. Every pull is at most six
         # members and its radius (5-13.1 yd) covers its own positions; Alexei's linked Risen Guards 10489 and Rattlegore's linked
         # Risen Construct 10488 are the boss rows' first.
         name, text = newest_plan_text("scholomance")
-        self.assertEqual(name, "20261024153800_world.sql")
-        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', 'turtle-agent e76875c", text)
+        self.assertEqual(name, "20261025002400_world.sql")
+        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', 'turtle-agent 1a544f5", text)
         legs = leg_rows(text, "scholomance")
         self.assertEqual([legs[i][0] for i in range(10)],
                          ["instructor_malicia", "the_ravenian", "lorekeeper_polkelt", "lady_illucia_barov",
                           "jandice_barov", "rattlegore", "vectus", "ras_frostwhisper",
                           "doctor_theolen_krastinov", "lord_alexei_barov"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "scholomance"]
-        self.assertEqual(len(rows), 581)
+        self.assertEqual(len(rows), 591)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
-                         [40, 7, 4, 14, 36, 25, 28, 3, 2, 3])
+                         [45, 7, 4, 14, 36, 25, 28, 3, 2, 3])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
                          ["10505", "10507", "10901", "10502", "10503", "11622", "10432", "10508", "11261", "10504"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -4166,15 +4218,17 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
                          ["", "", "", "", "", "10488", "10433", "", "", "10489"])
         pulls = [r for r in rows if r["kind"] == "pull"]
-        self.assertEqual(len(pulls), 162)
-        # Leg 0 is the whole route: every pull is preceded by its approach move row, and the 40 packs are the stair guards, the
+        self.assertEqual(len(pulls), 167)
+        # Leg 0 is the whole route: every pull is preceded by its approach move row, and the pulls are the stair guards, the
         # 115.8 hall, the 109.7 ring, the 104.8 hall and Malicia's room, in that order.
         leg0 = leg_steps(rows, 0)
-        self.assertEqual(len(leg0), 87)
-        self.assertEqual([r["kind"] for r in leg0].count("move"), 46)
-        self.assertEqual(len([r for r in leg0 if r["kind"] == "move" and r["comment"].endswith(" approach")]), 45)
+        self.assertEqual(len(leg0), 97)
+        self.assertEqual([r["kind"] for r in leg0].count("move"), 51)
+        # 50 approach rows for 45 pulls: the new ramp stands split five approaches into hops (the exporter cuts an
+        # approach longer than its hop length).
+        self.assertEqual(len([r for r in leg0 if r["kind"] == "move" and r["comment"].endswith(" approach")]), 50)
         pulls0 = [r for r in leg0 if r["kind"] == "pull"]
-        self.assertEqual(len(pulls0), 40)
+        self.assertEqual(len(pulls0), 45)
         for i, r in enumerate(leg0):
             if r["kind"] == "pull":
                 self.assertEqual(leg0[i - 1]["kind"], "move")
@@ -4183,10 +4237,11 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((leg0[0]["x"], leg0[0]["y"], leg0[0]["z"]), ("190.819", "126.329", "137.227"))
         self.assertEqual(leg0[-1]["kind"], "boss")
         self.assertEqual(pulls0[0]["entries"], "10489")
-        # The z 115.8 hall cluster: the 48849 pack, the lone 10471, the 48844 pack and the southern 48841 pair come in that order.
-        entries0 = [r["entries"] for r in pulls0[:8]]
-        self.assertEqual(entries0[4:8],
-                         ["10471,10470,10499", "10471", "10470,10471", "10471,10470"])
+        # The z 115.8 hall cluster: the 48849 pack (four single pulls since proof20d2), the lone 10471, the 48844 pack and
+        # the southern 48841 pair come in that order.
+        entries0 = [r["entries"] for r in pulls0[:11]]
+        self.assertEqual(entries0[4:11],
+                         ["10471", "10470", "10471", "10499", "10471", "10470,10471", "10471,10470"])
         # The r34 Vectus fix: the boss row walks to its stand (128 105 102.4, 16.7 yd from Vectus, 25.1 yd from Marduk)
         # before the boss, and the ras leg leaves the room north (via 124 116, 120 115, 110 110, all 25.9+ yd from Vectus
         # and 40 yd from the nearest hostile-233 pack) instead of the through-room path at 9.2 yd from him. Legs 0-5, 8
