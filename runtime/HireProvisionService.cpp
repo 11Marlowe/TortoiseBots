@@ -1075,6 +1075,9 @@ bool HireProvisionService::ProvisionNow(Player* bot, PendingProvision& pending)
         // entry so the next tick retries; the reunite attempt cap bounds it.
         if (!pending.introSent)
             return false;
+        // The summon's portal (PlayerConvenience::RequestSummon) where the hire arrives.
+        bot->SummonGameObject(179944, bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(),
+            bot->GetOrientation(), 0.0f, 0.0f, 0.0f, 0.0f, 5, false);
         auto totalElapsedMs =
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
         TB_LOG_BASIC("TortoiseBots: hired companion %s (level %u role %u) joined %s (provision %lldms, total %lldms)",
