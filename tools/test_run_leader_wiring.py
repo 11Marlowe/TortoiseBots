@@ -656,7 +656,7 @@ class RunLeaderWiringTest(unittest.TestCase):
                       "                    f.units.push_back(unit);", read)
         self.assertIn("if (f.pullStand)\n                    fact.losLead = lead->IsWithinLOSInMap(unit);\n"
                       "                f.hopUnits.push_back(fact);", read)
-        self.assertTrue(read.rstrip().endswith("ReadRunNeedFacts(slot, lead, lead->GetGroup(), f);"))
+        self.assertTrue(read.rstrip().endswith("ReadRunNeedFacts(slot, lead, f);"))
         stand = body(COMMANDS, "void ReadPullStand(DungeonRunSlot const& slot,", "\n}\n")
         self.assertIn("if ((!f.pullStand && !standStep) || !lead->IsAlive() || !lead->IsInWorld())\n        return;", stand)
         # leadShotYd is the module's PullStrategy::GetRange(), for a ranged weapon shot only (0 for spell and body pulls).
@@ -817,7 +817,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         # Switched off by a reload, every run ends as `.bot run stop` ends one: its held bots are let go
         # (ReleaseRunHold, which also restores a loot detour's method), not left on stay at hold stands.
         off = body(COMMANDS, "    // Switched off by a config reload: every run ends, with a last status line.",
-                   "DungeonRuns().clear();")
+                   "for (uint64 raw : switchedOff)")
         self.assertIn("ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);", off)
         self.assertLess(off.index("SendRunLine(FindCharacter(entry.first), entry.second, false);"),
                         off.index("ReleaseRunHold("))
@@ -1322,9 +1322,10 @@ class RunTestSpeedWiringTest(unittest.TestCase):
         self.assertLess(update.index("SyncRunSpeed();"), update.index("if (DungeonRuns().empty())\n"))
         remote = body(code, "void UpdateRemoteCommanders(uint32_t diff)", "\n}\n")
         empty = remote[remote.index("if (CommanderBindings().Empty())"):remote.index("s_commanderSweepMs += diff;")]
-        self.assertLess(empty.index("DungeonRuns().clear();"), empty.index("SyncRunSpeed();"))
+        # The runs are cleared through EraseAllRunSlots (it takes the given items back first, item-leg skip).
+        self.assertLess(empty.index("EraseAllRunSlots();"), empty.index("SyncRunSpeed();"))
         clear = body(code, "void ClearRemoteCommanders()", "\n}\n")
-        self.assertLess(clear.index("DungeonRuns().clear();"), clear.index("SyncRunSpeed();"))
+        self.assertLess(clear.index("EraseAllRunSlots();"), clear.index("SyncRunSpeed();"))
 
 
 if __name__ == "__main__":

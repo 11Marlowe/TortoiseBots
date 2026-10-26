@@ -9196,6 +9196,23 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             GiveRunItems(slot, tickLead, give);
         }
     }
+    // A paused run whose hold is done (DungeonRun::HoldDoneWhilePaused): the
+    // step ends and the run resumes by itself (a player's pause stays paused).
+    if (slot.run.state == TortoiseBots::DungeonRun::State::Paused && commander)
+        if (ai::PlanStep const* current = TortoiseBots::DungeonRun::Current(slot.run))
+            if (current->kind == ai::PlanStepKind::Hold)
+                if (Player* lead = FindCharacter(binding->leadGuid))
+                    if (lead->IsInWorld() && lead->GetMapId() == slot.run.plan->map)
+                    {
+                        TortoiseBots::DungeonRun::Facts doneFacts;
+                        ReadHoldDone(*current, lead, doneFacts);
+                        if (TortoiseBots::DungeonRun::HoldDoneWhilePaused(slot.run, doneFacts))
+                        {
+                            TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(),
+                                slot.run.note.c_str());
+                            SendRunLine(commander, slot, false);
+                        }
+                    }
     // The door hold's pause (item-leg skip, review round 2 Codex 2) ends by itself only once the door reads open
     // (DungeonRun::DoorOpenWhilePaused); `.bot run resume` keeps it while closed (DungeonRun::ResumeChecked).
     if (slot.run.state == TortoiseBots::DungeonRun::State::Paused && slot.run.doorPaused && commander)
@@ -10651,7 +10668,10 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
         done = ResumeChecked(slot.run, spot, refusal);
         if (!refusal.empty())
         {
-            SendActionError(handler, intent, slot.run.doorPaused ? "state" : "lead-other-part", refusal.c_str());
+            if (slot.run.doorPaused) // the door hold: only the door read open ends it (item-leg skip)
+                SendActionError(handler, intent, "state", refusal.c_str());
+            else
+                SendActionError(handler, intent, "lead-other-part", refusal.c_str());
             SendRunLine(commander, slot, true); // still paused, with its note
             return true;
         }
