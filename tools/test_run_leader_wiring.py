@@ -1304,6 +1304,17 @@ class RunTestSpeedWiringTest(unittest.TestCase):
         # (which restores at once when speedPlayerBlocked is set) does not wait out the swim.
         self.assertLess(loop.index("speedPlayerBlocked = true;"), loop.index("RestoreBotSpeed(bot, it->second"))
 
+    def test_commander_join_blocks_like_any_real_player(self):
+        code = strip_comments(COMMANDS)
+        sync = body(code, "void SyncRunSpeed()\n{", "\n}\n")
+        # A GM commander who starts a bot-only test-speed run and then joins the bound group blocks it on that
+        # same call: only bots are skipped, never the commander GUID.
+        self.assertIn("SpeedMemberBlocksRun(member.guid.GetRawValue(),", sync)
+        self.assertIn("BotManager::Instance().IsBot(member.guid)", sync)
+        self.assertNotIn("member.guid.GetRawValue() == binding->commanderGuid", sync)
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        decision = body(policy, "inline bool SpeedMemberBlocksRun(", "\n}\n")
+        self.assertIn("return !memberIsBot;", decision)
 
     def test_every_clear_of_the_runs_syncs_the_speed(self):
         code = strip_comments(COMMANDS)

@@ -3487,6 +3487,14 @@ inline bool SpeedRestoreWaits(bool playerBlocked, std::uint32_t waitedMs)
         return false;
     return waitedMs < kSpeedRestoreWaitMs;
 }
+// The bound-group scan of SyncRunSpeed (commands/Commander.cpp): which member slots block the test speed for the
+// rest of the run. The GUIDs ride along so the call site and the test name the commander case; only the bot flag
+// decides: the commander is never exempt, so a GM commander joining a bot-only test-speed run blocks it on that
+// same call like any other real player.
+inline bool SpeedMemberBlocksRun(std::uint64_t /*memberRaw*/, std::uint64_t /*commanderRaw*/, bool memberIsBot)
+{
+    return !memberIsBot;
+}
 
 // The glue saw a listed bot (or its pet) of the run enter a fight between ticks and put the party back to 1.0.
 inline void SpeedFightSeen(Run& r)
