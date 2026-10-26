@@ -162,14 +162,16 @@ class DoorAndLegFactsWiringTest(unittest.TestCase):
     def test_resume_goes_through_resume_checked(self):
         run = body(COMMANDS, "bool HandleDungeonRun(ChatHandler* handler, char const* args)")
         resume = body(run, 'else if (verb == "resume")', "\n    }\n")
-        self.assertIn("done = ResumeChecked(slot.run, spot, refusal, doorRead);", resume)
+        self.assertIn("done = ResumeChecked(slot.run, spot, refusal, door);", resume)
         self.assertNotIn("Resume(slot.run)", resume.replace("ResumeChecked(slot.run", ""))
 
     def test_resume_tells_door_not_found_from_closed(self):
         run = body(COMMANDS, "bool HandleDungeonRun(ChatHandler* handler, char const* args)")
         resume = body(run, 'else if (verb == "resume")', "\n    }\n")
         self.assertIn("ReadRunNeedFacts(slot, doorLead, doorFacts);", resume)
-        self.assertIn("ResumeChecked(slot.run, spot, refusal, doorRead)", resume)
+        self.assertIn("ResumeChecked(slot.run, spot, refusal, door)", resume)
+        self.assertIn("DoorRead::Open", resume)
+        self.assertIn("doorNeedState", resume)
         self.assertIn("the door is out of sight of the lead bot",
             (ROOT / "runtime" / "DungeonRunPolicy.h").read_text())
 
