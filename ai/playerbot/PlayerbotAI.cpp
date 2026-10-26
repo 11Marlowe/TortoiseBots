@@ -2338,7 +2338,7 @@ bool PlayerbotAI::IsAllowedCommand(std::string text)
 
 // Issue #294: tiered bot command authorization. Single choke point keyed by
 // the command's first word. GM = sender session security > SEC_PLAYER (this
-// core has no separate GM rank: SEC_GAMEMASTER aliases SEC_ADMINISTRATOR,
+// core has no separate GM rank: SEC_GAMEMASTER aliases SEC_DEVELOPER,
 // so `> SEC_PLAYER` is the documented "any elevated account" check). Owner =
 // sender account == the bot's durable owner account (BotManager ownership
 // record, falling back to the character account for pre-ownership records).

@@ -9643,7 +9643,7 @@ static bool IsGmCliHandler(ChatHandler* handler)
 #endif
 }
 
-// .bot run reloadplans (SEC_GAMEMASTER, which the compat shim makes SEC_ADMINISTRATOR = 4 on this core; owner goal 2026-10-22): reads ai_dungeon_plan, ai_dungeon_leg, ai_dungeon_step,
+// .bot run reloadplans (SEC_GAMEMASTER, which the compat shim makes SEC_DEVELOPER = 3 on this core; owner goal 2026-10-22): reads ai_dungeon_plan, ai_dungeon_leg, ai_dungeon_step,
 // ai_dungeon_boss and ai_boss_tactic again through the startup loaders (ai::ReloadDungeonPlans) and swaps them in only when
 // every row passes; a refused row or a plan gone keeps the old set and answers why. A run in progress keeps the plan it
 // started with (its table stays alive, DungeonPlanReloadPolicy.h); the next `.bot run start` takes the new one. Then the

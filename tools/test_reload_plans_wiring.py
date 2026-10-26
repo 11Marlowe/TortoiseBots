@@ -47,11 +47,11 @@ class ReloadPlansWiring(unittest.TestCase):
         self.assertIn("if (!handler || handler->GetSession())\n        return false;", cli)
         self.assertIn("cli && cli->GetAccessLevel() >= SEC_GAMEMASTER", cli)
         # the GM rank: account security >= SEC_GAMEMASTER, which this core has only as the shim's alias of
-        # SEC_ADMINISTRATOR (4); the docs name the value
+        # SEC_DEVELOPER (3); the docs name the value
         shim = (ROOT / "ai/cmangos-compat-shim.h").read_text()
-        self.assertIn("#define SEC_GAMEMASTER SEC_ADMINISTRATOR", shim)
-        self.assertIn("`SEC_ADMINISTRATOR` = **4**", DOC_CMD)
-        self.assertIn("`SEC_ADMINISTRATOR`, which is **4**", DOC_RUN)
+        self.assertIn("#define SEC_GAMEMASTER SEC_DEVELOPER", shim)
+        self.assertIn("`SEC_DEVELOPER` = **3**", DOC_CMD)
+        self.assertIn("`SEC_DEVELOPER`, which is **3**", DOC_RUN)
         admin = (ROOT / "commands/BotCommandContext.cpp").read_text()
         self.assertIn("requester->GetSession()->GetSecurity() >= SEC_GAMEMASTER", admin)
 

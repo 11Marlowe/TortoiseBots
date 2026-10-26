@@ -384,7 +384,7 @@ public:
     bool hireEnabled = true;
     // Minimum account security that may hire (0 = every player, 1 = observer,
     // 2 = moderator, 3 = developer, 4 = administrator). Note there is no
-    // separate gamemaster rank on this core (SEC_GAMEMASTER aliases admin).
+    // separate gamemaster rank on this core (SEC_GAMEMASTER aliases developer, 3).
     uint32 hireMinAccountSecurity = 0;
     // Maximum hired companions per player. Party hires cap at 4 regardless;
     // raise toward 39 to fill a full 40-man raid (player + hires).
