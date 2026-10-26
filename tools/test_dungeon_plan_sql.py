@@ -20,7 +20,7 @@ KINDS = {"move", "move_direct", "move_hop_exact", "pull", "boss", "loot", "open"
          "wait_clear", "rest", "ritual", "hold", "gossip", "use_on"}
 # The opt-in Gahz'rilla plan for test runs (never applied automatically: not under data/sql/world).
 OPT_IN = pathlib.Path(ROOT) / "tools/optional-plans/zulfarrak-gahzrilla.sql"
-TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_boss")
+TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_leg_need", "ai_dungeon_boss")
 # The plans whose bosses ai_dungeon_boss lists, and their maps.
 BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36,
               "stormwind_stockade": 34,
@@ -4391,6 +4391,64 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["scholomance"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (289) AND `entry` IN (10505,10507,10901,10502,10503,11622,10432,10508,11261,10504);", text)
         self.assertEqual(len(re.findall(r"(?m)^\(289, \d+, '", text)), 10)
+
+    # Spec item-leg-skip F22-24: the ai_dungeon_leg_need table and its rows.
+    EXPECTED_LEG_NEEDS = {
+        # plan: {(leg, item): (mode, pick, object)}; 1 optional, 2 door.
+        "zulfarrak": {(9, 9240): (1, 0, 0)},
+        "blackrock_depths": {(l, 11000): (2, 250, 170560) for l in (1, 2, 3, 4, 5, 6, 7, 8)},
+        "scarlet_cathedral": {(0, 7146): (2, 175, 104591)},
+        "scarlet_armory": {(1, 7146): (2, 175, 101854)},
+        "stratholme_undead": {(l, 12382): (2, 300, 175357) for l in (0, 1)},
+        "scholomance": {(l, 13873): (2, 0, 175167) for l in (1, 2, 3, 4, 8)},
+        "dire_maul_west": {(l, 18249): (2, 300, 300601) for l in (2, 3, 4, 5)},
+        "dire_maul_north": {(2, 18266): (2, 0, 177219), (2, 18268): (2, 200, 177217),
+                            (3, 18268): (2, 200, 177217)},
+        "gnomeregan": {(2, 6893): (2, 150, 90858)},
+        "stormwrought_ruins": {(l, 41913): (2, 185, 2020233) for l in (4, 5)},
+        "dragonmaw_retreat": {(3, 41876): (2, 160, 2020232)},
+    }
+
+    def need_rows(self, text):
+        for block in re.findall(r"INSERT INTO `ai_dungeon_leg_need` \(([^)]*)\) VALUES(.*?);", text, re.S):
+            cols = [c.strip(" `") for c in block[0].split(",")]
+            for row in re.findall(r"(?m)^\((.*)\)[,;]?\s*$", block[1]):
+                values = [v.strip() for v in re.findall(r"\s*('(?:[^']|'')*'|[^,]+)", row)]
+                plain = [v[1:-1] if len(v) >= 2 and v[0] == "'" and v[-1] == "'" else v for v in values]
+                yield dict(zip(cols, plain))
+
+    def test_leg_need_table_is_created_idempotently(self):
+        seen = [name for name, text in migrations() if "CREATE TABLE IF NOT EXISTS `ai_dungeon_leg_need`" in text]
+        self.assertEqual(len(seen), 1, seen)
+        self.assertEqual(seen[0], "20261026130000_world.sql", seen)
+
+    def test_leg_need_rows_match_the_plans(self):
+        full = "\n".join(text for _name, text in migrations())
+        rows = {}
+        for row in self.need_rows(full):
+            rows.setdefault(row["plan"], {})[(int(row["leg"]), int(row["item"]))] = (
+                int(row["mode"]), int(row["pick"]), int(row["object"]))
+        for plan, want in self.EXPECTED_LEG_NEEDS.items():
+            self.assertEqual(rows.get(plan, {}), want, plan)
+        self.assertEqual(set(rows), set(self.EXPECTED_LEG_NEEDS))
+        # Every need leg has a step with that leg in the newest plan migration; the loader refuses the rest.
+        for plan, want in self.EXPECTED_LEG_NEEDS.items():
+            _name, text = newest_plan_text(plan)
+            have = {int(m.group(1)) for m in re.finditer(r"\('%s', (\d+)," % plan, text)}
+            for leg, _item in want:
+                self.assertIn(leg, have, "%s leg %d" % (plan, leg))
+
+    def test_leg_need_zulfarrak_leg_is_gahzrilla(self):
+        full = "\n".join(text for _name, text in migrations())
+        zf = [r for r in self.need_rows(full) if r["plan"] == "zulfarrak"]
+        self.assertEqual(len(zf), 1, zf)
+        row = zf[0]
+        self.assertEqual((row["leg"], row["item"], row["mode"]), ("9", "9240", "1"))
+
+    def test_leg_need_gahz_pins_stay(self):
+        name, text, rows = newest_zulfarrak_rows()
+        self.assertIn("7273", [r["entry"] for r in rows if r["kind"] == "boss"], name)
+
 
 if __name__ == "__main__":
     unittest.main()

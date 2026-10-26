@@ -79,7 +79,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", early)
         offmap = body(tick, "PauseLeadOffMap(slot.run, slot.run.plan->map);", "return;")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", offmap)
-        stop = body(COMMANDS, 'EndRunEarly(slot.run, RunStopNote(rawArg));', "DungeonRuns().erase(it);")
+        stop = body(COMMANDS, 'EndRunEarly(slot.run, RunStopNote(rawArg));', "EraseRunSlot(commanderRaw);")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", stop)
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("f.deadNames.push_back(bot->GetName());", facts)
@@ -656,7 +656,7 @@ class RunLeaderWiringTest(unittest.TestCase):
                       "                    f.units.push_back(unit);", read)
         self.assertIn("if (f.pullStand)\n                    fact.losLead = lead->IsWithinLOSInMap(unit);\n"
                       "                f.hopUnits.push_back(fact);", read)
-        self.assertTrue(read.rstrip().endswith("ReadPullStand(slot, lead, f);"))
+        self.assertTrue(read.rstrip().endswith("ReadRunNeedFacts(slot, lead, lead->GetGroup(), f);"))
         stand = body(COMMANDS, "void ReadPullStand(DungeonRunSlot const& slot,", "\n}\n")
         self.assertIn("if ((!f.pullStand && !standStep) || !lead->IsAlive() || !lead->IsInWorld())\n        return;", stand)
         # leadShotYd is the module's PullStrategy::GetRange(), for a ranged weapon shot only (0 for spell and body pulls).
@@ -885,11 +885,11 @@ class RunHoldsItsDeadWiringTest(unittest.TestCase):
     def test_stop_and_time_limit_erase_the_run(self):
         stop = body(COMMANDS, 'if (verb == "stop")', 'if (verb == "status")')
         self.assertIn("EndRunEarly(slot.run, RunStopNote(rawArg));", stop) # Done, with the deferred packs left alive
-        self.assertIn("DungeonRuns().erase(it);", stop)
+        self.assertIn("EraseRunSlot(commanderRaw);", stop)
         limit = body(COMMANDS, "RunTimeLimitReached(slot.elapsedMs", "return;")
         self.assertIn("TortoiseBots::DungeonRun::EndRunEarly(slot.run,\n"
                       "            TortoiseBots::DungeonRun::RunTimeLimitNote(", limit)
-        self.assertIn("DungeonRuns().erase(it);", limit)
+        self.assertIn("EraseRunSlot(", limit)
 
     def test_walk_after_rest_stands_the_lead_up_before_the_order(self):
         # Blackfathom Deeps r22 step 85, r23 slot 6b step 8: the lead bot stood idle after eating. The walk sent again

@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-
+class Group;
 class ChatHandler;
 class Player;
 
@@ -20,6 +20,41 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args);
 bool HandleTrace(ChatHandler* handler, char const* args);
 bool HandleDungeonRun(ChatHandler* handler, char const* args);
 uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::string& code, std::string& message);
+// Item-leg skip glue (spec D, Commander.cpp): the party read for CheckStart and
+// the given-item ledger. runtime/RunItemNeedPolicy.h (SliceRunPolicy) owns
+// Member / GiveOrder / StartVerdict / CheckStart / BotOnly; the declarations
+// here use only plain data so this header never includes that policy header.
+// The CheckStart call sites in Commander.cpp compile only when the policy
+// header has landed (RUN_ITEM_NEED_POLICY_READY, set by SliceRunPolicy).
+struct RunNeedMemberPlain
+{
+    std::string name;
+    bool bot = false;
+    uint32_t lockpick = 0;
+    std::vector<uint32_t> carries;
+};
+struct RunGiveOrderPlain
+{
+    std::string bot;
+    uint32_t item = 0;
+};
+// Every online group member slot of the lead's group (an offline member is
+// skipped and counts as a real player only if !IsBot(guid)).
+std::vector<RunNeedMemberPlain> RunNeedParty(Player* lead, const std::vector<uint32_t>& items);
+// A real player in the lead's group, as the L6 block scans it (the binding's
+// commander outside the group never counts).
+bool RunGroupHasRealPlayer(Player* lead);
+struct DungeonRunSlot;
+void GiveRunItems(DungeonRunSlot& slot, Player* lead, const std::vector<RunGiveOrderPlain>& orders);
+void TakeRunItems(DungeonRunSlot& slot, uint64_t guid /*0 = all*/);
+// Every place a run slot goes away routes through this (it takes back the
+// given items first); the only caller of DungeonRuns().erase.
+void EraseRunSlot(uint64_t commanderRaw);
+// The crash ledger's login cleanup (BotPlayerAdapter::OnLogin): destroy to the
+// recorded count and delete the rows for bots whose given items have no live
+// run slot. World thread only.
+void CleanupRunGivenItems(Player* player);
+void CleanupRunGivenItemsTick();
 bool HandleAdd(ChatHandler* handler, char const* args);
 bool HandleRemove(ChatHandler* handler, char const* args);
 bool HandleLogout(ChatHandler* handler, char const* args);

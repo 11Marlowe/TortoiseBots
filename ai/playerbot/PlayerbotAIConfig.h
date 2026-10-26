@@ -595,6 +595,12 @@ public:
     // the run leader pulls the plan's packs near him (within dungeonRunPlayerLedPullYd, default 40 yd).
     bool dungeonRunPlayerLed;
     float dungeonRunPlayerLedPullYd;
+    // The run leader's bot-only giving (spec item-leg-skip D1): every needed item goes to every bot at the start
+    // and is taken back at the end (default on). The warn/hold/skip check is always on.
+    bool dungeonRunGiveItems;
+    // With a real player in the party, bots also carry the needed dungeon keys/items and open the doors for them
+    // (spec item-leg-skip D1 rule 5; default off: players bring their own key, the bots stop and ask).
+    bool dungeonRunBotKeysForPlayers;
     // ... and how long the leading player may be out of the plan's dungeon before the run stops (minutes, default 10).
     uint32 dungeonRunPlayerLedAwayMinutes;
     // Bot LFG dungeon groups (SystemRunPolicy.h; default on); dormant while dungeonSelfClear is off.
