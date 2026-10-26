@@ -10,6 +10,7 @@
 - Hunters fire Multi-Shot only when the splash around their target catches a second fighting enemy, and never into a crowd-controlled mob standing beside it, so the shot now scales with the pack instead of firing on cooldown.
 - Hunters use Freezing Trap again as crowd control in dungeon runs without assigned marks: they trap an extra attacker that is not the group's kill target, and only once they know Feign Death.
 - Fixed: a stealthed rogue no longer stays held after the pull while the rest of the party fights.
+- In a run leader's pull, the held DPS open once every mob near the tank is on it (join delay at the earliest, 10 s after the tank is back at the latest), or at once when a mob hits them or the tank drops under 60 %.
 
 ### Commands
 - New `.autogear` command gears a real player the way a spawned bot gets geared: items picked for the level and spec from the same gear pool the bots use, upgrades only, replaced items to the bags or the mailbox. GameMasters can gear any player; `AiPlayerbot.PlayerAutogearForAll` (default `0`) lets every player gear themselves.

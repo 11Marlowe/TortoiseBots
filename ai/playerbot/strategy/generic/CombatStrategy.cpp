@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "CombatStrategy.h"
 #include "playerbot/ServerFacade.h"
+#include "../../../../runtime/CommandedGroupQuery.h"
 
 using namespace ai;
 
@@ -129,10 +130,13 @@ bool WaitForAttackStrategy::ShouldWait(PlayerbotAI* ai)
     // Only check if the bot has the strategy enabled
     if (ai->HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT))
     {
-        // Only check if bot is in a group with a real player
+        // Only check if bot is in a group with a real player or a party bound
+        // to a dungeon run (bot-only run parties have no player master, but
+        // the run leader still issues the pull and owns the hold).
         Player* bot = ai->GetBot();
         AiObjectContext* context = ai->GetAiObjectContext();
-        if (bot->GetGroup() && ai->HasRealPlayerMaster())
+        if (bot->GetGroup() && (ai->HasRealPlayerMaster() ||
+            TortoiseBots::BotCommands::IsInRunningDungeonRun(bot)))
         {
             // Don't wait if the current target is an enemy player
             bool enemyPlayer = false;
