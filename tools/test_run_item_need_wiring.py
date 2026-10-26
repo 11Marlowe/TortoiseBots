@@ -151,5 +151,42 @@ class DoorAndLegFactsWiringTest(unittest.TestCase):
         self.assertNotIn("Resume(slot.run)", resume.replace("ResumeChecked(slot.run", ""))
 
 
+
+class GiveTickWiringTest(unittest.TestCase):
+    """Opus 4/5 + the note: TickDungeonRun calls RunItemNeed::DecideGiveTick with the slot's given bots and the lead
+    bot's group, and acts on every field of the plan (take from bots that left, take all, the join pause only when
+    the plan says so, give again). DungeonRuns() loses slots only through the helpers that take back first."""
+
+    def tick(self):
+        return body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)")
+
+    def test_tick_calls_the_pure_decision(self):
+        tick = self.tick()
+        self.assertIn("TortoiseBots::RunItemNeed::DecideGiveTick(giveIn)", tick)
+        self.assertIn("giveIn.givenBots.push_back(entry.first);", tick)
+        self.assertIn("giveIn.groupBots.push_back(member.guid.GetRawValue());", tick)
+        self.assertIn("giveIn.system = binding->system;", tick)
+
+    def test_tick_acts_on_every_field(self):
+        tick = self.tick()
+        self.assertIn("for (uint64 leftBot : givePlan.takeBots)\n            TakeRunItems(slot, leftBot);", tick)
+        self.assertIn("if (givePlan.takeAll)\n            TakeRunItems(slot, 0);", tick)
+        self.assertIn("if (givePlan.giveAgain && slot.run.plan)", tick)
+        # The join pause only inside the plan's pauseForPlayer (once, the tick the items were taken).
+        self.assertEqual(tick.count('"a real player joined: "'), 1)
+        pause = body(tick, "if (givePlan.pauseForPlayer && slot.run.plan)", "\n        }\n")
+        self.assertIn('PausePlayer(slot.run, "a real player joined: " + needVerdict.warn);', pause)
+        self.assertNotIn("TakeRunItems(slot, 0); // done: nothing given", tick)
+
+    def test_slots_go_only_through_the_take_back_helpers(self):
+        erase = body(COMMANDS, "void EraseRunSlot(uint64_t commanderRaw)")
+        clear = body(COMMANDS, "void EraseAllRunSlots()")
+        self.assertIn("TakeRunItems(it->second, 0);", erase)
+        self.assertIn("TakeRunItems(entry.second, 0);", clear)
+        rest = COMMANDS.replace(erase, "").replace(clear, "")
+        self.assertNotIn("DungeonRuns().erase(", rest)
+        self.assertNotIn("DungeonRuns().clear()", rest)
+
+
 if __name__ == "__main__":
     unittest.main()

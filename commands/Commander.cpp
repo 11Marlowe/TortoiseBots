@@ -737,6 +737,13 @@ void EraseRunSlot(uint64_t commanderRaw)
     TakeRunItems(it->second, 0);
     DungeonRuns().erase(it);
 }
+// Every run slot at once (no commander bound any more, the module's clear): the given items go back first.
+void EraseAllRunSlots()
+{
+    for (auto& entry : DungeonRuns())
+        TakeRunItems(entry.second, 0);
+    DungeonRuns().clear();
+}
 // The policy header's Member from the plain mirror (same fields, same order).
 static std::vector<TortoiseBots::RunItemNeed::Member> RunItemNeedMembers(
     const std::vector<RunNeedMemberPlain>& plain)
@@ -9142,75 +9149,53 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             case TortoiseBots::SystemRun::JoinStep::None: break;
         }
     }
-    // Item-leg skip (spec D5): the given-item ledger, every run kind, at the
-    // same place as the system run's L6 block.
+    // Item-leg skip (spec D5, review round 2 Opus 4/5): the given items, every run kind, at the same place as the
+    // system run's L6 block. RunItemNeed::DecideGiveTick decides; the glue acts on its plan, in its order.
+    if (Player* tickLead = FindCharacter(binding->leadGuid))
     {
-        Player* tickLead = FindCharacter(binding->leadGuid);
         bool const botKeys = sPlayerbotAIConfig.dungeonRunBotKeysForPlayers;
-        bool const realPlayer = RunGroupHasRealPlayer(tickLead);
-        if (slot.giveRun && realPlayer && !botKeys && !slot.given.empty())
-            TakeRunItems(slot, 0); // a real player joined: the bots carry nothing (rule 4)
-        if (slot.giveRun && !realPlayer && slot.given.empty() &&
-            slot.run.state == TortoiseBots::DungeonRun::State::Running)
+        TortoiseBots::RunItemNeed::GiveTickIn giveIn;
+        giveIn.giveRun = slot.giveRun;
+        giveIn.realPlayer = RunGroupHasRealPlayer(tickLead);
+        giveIn.botKeys = botKeys;
+        giveIn.system = binding->system;
+        giveIn.running = slot.run.state == TortoiseBots::DungeonRun::State::Running;
+        giveIn.done = slot.run.state == TortoiseBots::DungeonRun::State::Done;
+        for (auto const& entry : slot.given)
+            giveIn.givenBots.push_back(entry.first);
+        if (Group* tickGroup = tickLead->GetGroup())
+            for (Group::MemberSlot const& member : tickGroup->GetMemberSlots())
+                giveIn.groupBots.push_back(member.guid.GetRawValue());
+        TortoiseBots::RunItemNeed::GiveTickPlan const givePlan = TortoiseBots::RunItemNeed::DecideGiveTick(giveIn);
+        for (uint64 leftBot : givePlan.takeBots)
+            TakeRunItems(slot, leftBot); // the bot left the party: its given items go back now
+        if (givePlan.takeAll)
+            TakeRunItems(slot, 0); // done, or a real player joined (rule 4): nothing given stays in a bot's bags
+        if (givePlan.pauseForPlayer && slot.run.plan)
         {
-            // Bots only again and the resume gave nothing back yet: give again
-            // from the current step (the system run's auto-resume, or a resumed
-            // non-system run whose player left).
-            std::vector<uint32_t> needItems;
-            if (slot.run.plan)
-                for (ai::PlanLegNeed const& needRow : slot.run.plan->needs)
-                    if (needRow.item)
-                        needItems.push_back(needRow.item);
-            std::sort(needItems.begin(), needItems.end());
-            needItems.erase(std::unique(needItems.begin(), needItems.end()), needItems.end());
-            std::vector<RunNeedMemberPlain> const needParty = RunNeedParty(tickLead, needItems);
-            TortoiseBots::RunItemNeed::StartVerdict const needVerdict = TortoiseBots::RunItemNeed::CheckStart(
-                *slot.run.plan, slot.run.step, RunItemNeedMembers(needParty),
-                sPlayerbotAIConfig.dungeonRunGiveItems, botKeys);
-            std::vector<RunGiveOrderPlain> give;
-            for (TortoiseBots::RunItemNeed::GiveOrder const& order : needVerdict.give)
-                give.push_back({order.bot, order.item});
-            GiveRunItems(slot, tickLead, give);
-        }
-        if (!binding->system && slot.giveRun && realPlayer && !botKeys &&
-            slot.run.state == TortoiseBots::DungeonRun::State::Running)
-        {
-            // Non-system runs take the items at once too (above); when the
-            // rest of the plan still needs keys the run pauses with the start
-            // warning prefixed (system runs: the existing L6 pause).
-            std::vector<uint32_t> needItems;
-            if (slot.run.plan)
-                for (ai::PlanLegNeed const& needRow : slot.run.plan->needs)
-                    if (needRow.item)
-                        needItems.push_back(needRow.item);
-            std::sort(needItems.begin(), needItems.end());
-            needItems.erase(std::unique(needItems.begin(), needItems.end()), needItems.end());
-            std::vector<RunNeedMemberPlain> const needParty = RunNeedParty(tickLead, needItems);
+            // Only the tick the items were taken: when the rest of the plan still needs keys the run pauses with
+            // the start warning prefixed (system runs: the existing L6 pause).
+            std::vector<RunNeedMemberPlain> const needParty =
+                RunNeedParty(tickLead, TortoiseBots::RunItemNeed::PlanNeedItems(*slot.run.plan, slot.run.step));
             TortoiseBots::RunItemNeed::StartVerdict const needVerdict = TortoiseBots::RunItemNeed::CheckStart(
                 *slot.run.plan, slot.run.step, RunItemNeedMembers(needParty), false, false);
             if (!needVerdict.warn.empty())
                 TortoiseBots::DungeonRun::PausePlayer(slot.run, "a real player joined: " + needVerdict.warn);
         }
-        if (slot.run.state == TortoiseBots::DungeonRun::State::Done && !slot.given.empty())
-            TakeRunItems(slot, 0); // done: nothing given stays in a bot's bags
+        if (givePlan.giveAgain && slot.run.plan)
+        {
+            // Nothing given any more and no real player (the system run's auto-resume, or a resumed non-system run
+            // whose player left): give again from the current step.
+            std::vector<RunNeedMemberPlain> const needParty =
+                RunNeedParty(tickLead, TortoiseBots::RunItemNeed::PlanNeedItems(*slot.run.plan, slot.run.step));
+            TortoiseBots::RunItemNeed::StartPlan const again = TortoiseBots::RunItemNeed::PlanStart(*slot.run.plan,
+                slot.run.step, RunItemNeedMembers(needParty), sPlayerbotAIConfig.dungeonRunGiveItems, botKeys);
+            std::vector<RunGiveOrderPlain> give;
+            for (TortoiseBots::RunItemNeed::GiveOrder const& order : again.give)
+                give.push_back({order.bot, order.item});
+            GiveRunItems(slot, tickLead, give);
+        }
     }
-    // A paused run whose hold is done (DungeonRun::HoldDoneWhilePaused): the
-    // step ends and the run resumes by itself (a player's pause stays paused).
-    if (slot.run.state == TortoiseBots::DungeonRun::State::Paused && commander)
-        if (ai::PlanStep const* current = TortoiseBots::DungeonRun::Current(slot.run))
-            if (current->kind == ai::PlanStepKind::Hold)
-                if (Player* lead = FindCharacter(binding->leadGuid))
-                    if (lead->IsInWorld() && lead->GetMapId() == slot.run.plan->map)
-                    {
-                        TortoiseBots::DungeonRun::Facts doneFacts;
-                        ReadHoldDone(*current, lead, doneFacts);
-                        if (TortoiseBots::DungeonRun::HoldDoneWhilePaused(slot.run, doneFacts))
-                        {
-                            TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(),
-                                slot.run.note.c_str());
-                            SendRunLine(commander, slot, false);
-                        }
-                    }
     // The door hold's pause (item-leg skip, review round 2 Codex 2) ends by itself only once the door reads open
     // (DungeonRun::DoorOpenWhilePaused); `.bot run resume` keeps it while closed (DungeonRun::ResumeChecked).
     if (slot.run.state == TortoiseBots::DungeonRun::State::Paused && slot.run.doorPaused && commander)
@@ -10708,7 +10693,7 @@ void UpdateRemoteCommanders(uint32_t diff)
         SweepCommanderAutonomy();
         s_commanderSweepMs = 0;
         if (!DungeonRuns().empty())
-            DungeonRuns().clear();
+            EraseAllRunSlots(); // the given items go back first
         if (!RunSpeedBots().empty())
             SyncRunSpeed(); // no run left: every bot of a test-speed run walks at its own rate again
         CommanderOrderLog().Clear();
@@ -11780,7 +11765,7 @@ void ClearRemoteCommanders()
     CommanderOrderLog().Clear();
     CommanderBindings().Clear();
     CommanderViews().clear();
-    DungeonRuns().clear();
+    EraseAllRunSlots(); // the given items go back first
     if (!RunSpeedBots().empty())
         SyncRunSpeed();
     DropPendingRunCcIcons();

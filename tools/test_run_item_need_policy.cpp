@@ -345,46 +345,102 @@ static void TestBotKeysFlagGivesWithPlayer()
     CHECK(w.warn.find("item 8444") != std::string::npos);
 }
 
-// GivenLedger + DecideGiveTick glue (spec F 15-21): TakeAll / TakeAllAndRecheck / GiveAgain / None.
-static void TestLedgerTakeAll()
+// The per-tick given-item glue (spec D5, review round 2 Opus 4/5), as TickDungeonRun applies it tick after tick:
+// the glue's records (bot -> given) change by the plan's takes and gives.
+struct GlueLedger
 {
-    GivenLedger ledger;
-    ledger.add("A", 9240, 1);
-    ledger.add("B", 9240, 1);
-    CHECK(!ledger.empty());
-    GiveTick t = DecideGiveTick(true, true, false, true, false, false);
-    CHECK(t == GiveTick::TakeAll);
-    ledger.takeAll();
-    CHECK(ledger.empty());
+    std::vector<std::uint64_t> given; // the bots holding given items
+    int pauses = 0;
+    int gives = 0;
+    void Apply(const GiveTickPlan& plan, const std::vector<std::uint64_t>& groupBots)
+    {
+        for (std::uint64_t bot : plan.takeBots)
+            given.erase(std::remove(given.begin(), given.end(), bot), given.end());
+        if (plan.takeAll)
+            given.clear();
+        if (plan.pauseForPlayer)
+            ++pauses;
+        if (plan.giveAgain)
+        {
+            ++gives;
+            given = groupBots;
+        }
+    }
+};
+
+static GiveTickIn In(const GlueLedger& l, const std::vector<std::uint64_t>& group, bool realPlayer, bool system = false,
+    bool botKeys = false)
+{
+    GiveTickIn in;
+    in.giveRun = true;
+    in.realPlayer = realPlayer;
+    in.botKeys = botKeys;
+    in.system = system;
+    in.running = true;
+    in.givenBots = l.given;
+    in.groupBots = group;
+    return in;
 }
 
-static void TestLedgerTakeAllAndRecheck()
+// Opus 5: every tick, a given bot no longer in the lead bot's group gives its items back; the others keep theirs.
+static void TestGiveTickTakesFromBotsThatLeft()
 {
-    GiveTick t = DecideGiveTick(true, true, false, true, false, true);
-    CHECK(t == GiveTick::TakeAllAndRecheck);
+    GlueLedger l;
+    l.given = {1, 2, 3};
+    std::vector<std::uint64_t> const group = {1, 3, 9};
+    GiveTickPlan const plan = DecideGiveTick(In(l, group, false));
+    CHECK(plan.takeBots == std::vector<std::uint64_t>{2});
+    CHECK(!plan.takeAll && !plan.pauseForPlayer && !plan.giveAgain);
+    l.Apply(plan, group);
+    CHECK((l.given == std::vector<std::uint64_t>{1, 3}));
+    // Not running, done: still taken from a bot that left; done takes the rest.
+    GiveTickIn done = In(l, {1}, false);
+    done.running = false;
+    done.done = true;
+    GiveTickPlan const end = DecideGiveTick(done);
+    CHECK(end.takeBots == std::vector<std::uint64_t>{3} && end.takeAll && !end.giveAgain);
 }
 
-static void TestLedgerGiveAgain()
+// Opus 4: a real player joins a non-system run: the items go at once and the run pauses ONCE (the tick they were
+// taken), not every tick the player stays.
+static void TestGiveTickPlayerJoinPausesOnlyOnTheTakeTick()
 {
-    GiveTick t = DecideGiveTick(true, false, true, true, false, false);
-    CHECK(t == GiveTick::GiveAgain);
+    GlueLedger l;
+    std::vector<std::uint64_t> const group = {1, 2, 7};
+    l.given = {1, 2};
+    for (int tick = 0; tick < 5; ++tick)
+        l.Apply(DecideGiveTick(In(l, group, true)), group);
+    CHECK(l.given.empty());
+    CHECK(l.pauses == 1);
+    CHECK(l.gives == 0);
+    // A system run: taken at once, its own L6 pause (no pause here).
+    GlueLedger s;
+    s.given = {1, 2};
+    for (int tick = 0; tick < 3; ++tick)
+        s.Apply(DecideGiveTick(In(s, group, true, true)), group);
+    CHECK(s.given.empty() && s.pauses == 0);
+    // The flag on: the bots keep carrying for the party.
+    GlueLedger k;
+    k.given = {1, 2};
+    GiveTickPlan const keep = DecideGiveTick(In(k, group, true, false, true));
+    CHECK(!keep.takeAll && !keep.pauseForPlayer && keep.takeBots.empty() && !keep.giveAgain);
 }
 
-static void TestLedgerNone()
+// The player leaves again (bots only, running, nothing given): given again once; then nothing more.
+static void TestGiveTickGivesAgainWhenBotsOnly()
 {
-    CHECK(DecideGiveTick(false, true, false, true, false, false) == GiveTick::None);
-    CHECK(DecideGiveTick(false, false, false, true, false, false) == GiveTick::None);
-    CHECK(DecideGiveTick(true, false, true, false, false, false) == GiveTick::None);
-    CHECK(DecideGiveTick(true, false, true, true, true, false) == GiveTick::None);
-    // takeBot drops only that bot's record.
-    GivenLedger ledger;
-    ledger.add("A", 9240, 1);
-    ledger.add("B", 11000, 2);
-    ledger.takeBot("A");
-    CHECK(ledger.takeAllFor("A").empty());
-    std::vector<std::pair<std::uint32_t, std::uint32_t>> took = ledger.takeAllFor("B");
-    CHECK(took.size() == 1 && took.front().first == 11000 && took.front().second == 2);
-    CHECK(ledger.empty());
+    GlueLedger l;
+    std::vector<std::uint64_t> const group = {1, 2};
+    l.Apply(DecideGiveTick(In(l, group, false)), group);
+    CHECK(l.gives == 1 && l.given == group);
+    l.Apply(DecideGiveTick(In(l, group, false)), group);
+    CHECK(l.gives == 1);
+    GiveTickIn off = In(GlueLedger(), group, false);
+    off.giveRun = false;
+    CHECK(!DecideGiveTick(off).giveAgain);
+    GiveTickIn paused = In(GlueLedger(), group, false);
+    paused.running = false;
+    CHECK(!DecideGiveTick(paused).giveAgain);
 }
 
 // Codex fix 3: the start's glue plan. A bot-only refusal (giveOn 0, a blocking
@@ -441,10 +497,9 @@ int main()
     TestPlayerPartyOptionalNeverWarns();
     TestBlockingWarnsWithPlayer();
     TestBotKeysFlagGivesWithPlayer();
-    TestLedgerTakeAll();
-    TestLedgerTakeAllAndRecheck();
-    TestLedgerGiveAgain();
-    TestLedgerNone();
+    TestGiveTickTakesFromBotsThatLeft();
+    TestGiveTickPlayerJoinPausesOnlyOnTheTakeTick();
+    TestGiveTickGivesAgainWhenBotsOnly();
     TestStartPlanRefusalCarriesText();
     TestPlanNeedItemsIncludeDerived();
     std::cout << "ok\n";

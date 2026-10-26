@@ -15,14 +15,9 @@
 //   every bot missing it (by item, then party order; never refuse/warn).
 //   Bot-only + giveOn false: doors ignored (bots walk through); an unmade,
 //   uncarried Blocking need refuses. Player + flag off: nothing given.
-// - GivenLedger + DecideGiveTick: the per-tick take-back/give-again glue
-//   (D5; rule 4 take-all on player join, auto re-give when alone again).
-//   The Commander glue calls DecideGiveTick(giveRun, realPlayer, ledgerEmpty,
-//   running, done, system): TakeAll (non-system join: take, then the glue
-//   rechecks CheckStart for the pause warning) / TakeAllAndRecheck (system
-//   join: take, the system L6 watch rechecks) / GiveAgain (alone again,
-//   ledger empty, running) / None. With DungeonRunBotKeysForPlayers = 1 the
-//   caller skips the take (rule 5: the bots keep carrying).
+// - DecideGiveTick: the per-tick take-back/give-again glue (D5; rule 4 take-all
+//   on player join, take back from a bot that left, auto re-give when alone
+//   again); the Commander glue fills GiveTickIn and acts on the plan.
 //
 // Plain data + std only, includable without core.
 
@@ -32,7 +27,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -319,64 +313,53 @@ inline StartPlan PlanStart(const ai::DungeonPlan& plan, std::size_t fromStep, co
     return p;
 }
 
-// The run's given items (D4-D7): bot name -> (item, count given). Counts merge
-// (the REPLACE INTO ledger row holds the running count); takeBot/takeAll drop
-// the records (the glue destroys up to the recorded count and deletes the row;
-// a bot not in the world keeps its ledger row for the login cleanup).
-struct GivenLedger
+// The per-tick given-item glue (spec D5; review round 2 Opus 4/5): what TickDungeonRun does with the run's given
+// items this tick. The glue fills GiveTickIn from the slot (its given bots), the binding (system run) and the lead
+// bot's group, calls DecideGiveTick and acts on every field of the plan, in this order: takeBots, takeAll,
+// pauseForPlayer, giveAgain.
+struct GiveTickIn
 {
-    void add(const std::string& bot, std::uint32_t item, std::uint32_t n = 1)
-    {
-        if (bot.empty() || !item || !n)
-            return;
-        for (auto& have : records_[bot])
-            if (have.first == item)
-            {
-                have.second += n;
-                return;
-            }
-        records_[bot].push_back(std::make_pair(item, n));
-    }
-
-    void takeBot(const std::string& bot) { records_.erase(bot); }
-
-    void takeAll() { records_.clear(); }
-
-    bool empty() const { return records_.empty(); }
-
-    // Takes (returns and drops) one bot's records.
-    std::vector<std::pair<std::uint32_t, std::uint32_t>> takeAllFor(const std::string& bot)
-    {
-        auto it = records_.find(bot);
-        if (it == records_.end())
-            return {};
-        std::vector<std::pair<std::uint32_t, std::uint32_t>> out = it->second;
-        records_.erase(it);
-        return out;
-    }
-
-private:
-    std::unordered_map<std::string, std::vector<std::pair<std::uint32_t, std::uint32_t>>> records_;
+    bool giveRun = false;    // the run gives (bot-only at start, or DungeonRunBotKeysForPlayers = 1)
+    bool realPlayer = false; // a real player is in the lead bot's group now
+    bool botKeys = false;    // AiPlayerbot.DungeonRunBotKeysForPlayers (read live)
+    bool system = false;     // a system run (its own L6 pause handles a player joining)
+    bool running = false;    // the run's state is Running
+    bool done = false;       // the run's state is Done
+    std::vector<std::uint64_t> givenBots; // the bots holding the run's given items (the slot's records)
+    std::vector<std::uint64_t> groupBots; // every member of the lead bot's group now (online or not)
 };
 
-enum class GiveTick : std::uint8_t
+struct GiveTickPlan
 {
-    None = 0,
-    TakeAll,           // a real player joined a non-system run: take everything back at once
-    TakeAllAndRecheck, // ... of a system run: take back, the system L6 watch rechecks
-    GiveAgain,         // bots alone again, ledger empty, run running: give again
+    std::vector<std::uint64_t> takeBots; // given bots no longer in the group: take back from each, this tick
+    bool takeAll = false;        // done, or a real player is in the party (flag 0): take back every given item
+    bool pauseForPlayer = false; // a non-system running run whose items were taken THIS tick for a joined player:
+                                 // the glue rechecks CheckStart from the current step and pauses with its warning
+    bool giveAgain = false;      // nothing given any more, no real player (or the flag on), running: give again
 };
 
-// Pure per-tick glue (D5). With DungeonRunBotKeysForPlayers = 1 the caller
-// skips the take (rule 5: the bots keep carrying for the party).
-inline GiveTick DecideGiveTick(
-    bool giveRun, bool realPlayer, bool ledgerEmpty, bool running, bool done, bool system)
+inline GiveTickPlan DecideGiveTick(const GiveTickIn& in)
 {
-    if (!giveRun || !running || done)
-        return GiveTick::None;
-    if (realPlayer)
-        return ledgerEmpty ? GiveTick::None : (system ? GiveTick::TakeAllAndRecheck : GiveTick::TakeAll);
-    return ledgerEmpty ? GiveTick::GiveAgain : GiveTick::None;
+    GiveTickPlan plan;
+    std::vector<std::uint64_t> kept;
+    for (std::uint64_t bot : in.givenBots)
+        if (std::find(in.groupBots.begin(), in.groupBots.end(), bot) == in.groupBots.end())
+            plan.takeBots.push_back(bot); // the bot left the party (rule 1)
+        else
+            kept.push_back(bot);
+    if (in.done)
+    {
+        plan.takeAll = !kept.empty();
+        return plan;
+    }
+    if (in.giveRun && in.realPlayer && !in.botKeys && !kept.empty())
+    {
+        plan.takeAll = true; // rule 4: at once, the tick the player is seen
+        plan.pauseForPlayer = !in.system && in.running;
+        return plan;
+    }
+    plan.giveAgain = in.giveRun && in.running && kept.empty() && (!in.realPlayer || in.botKeys);
+    return plan;
 }
 
 } // namespace RunItemNeed
