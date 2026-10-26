@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.12.0 (2026-10-26)
+
+### Dungeons
+- Bots can now lead or follow a full dungeon run and clear it using ready-made routes. [#1250](https://github.com/Sagiroth/TortoiseBots/pull/1250)
+- There are routes for 36 dungeons, including the classic five-player dungeons and Turtle's own. [#1250](https://github.com/Sagiroth/TortoiseBots/pull/1250)
+- During a run, bots walk the route and pull each group from a safe spot. [#1250](https://github.com/Sagiroth/TortoiseBots/pull/1250)
+
+### Addon & Interface
+- The Party tab now shows each bot's real spec, so a retribution paladin or balance druid no longer looks like a tank. [#1253](https://github.com/Sagiroth/TortoiseBots/pull/1253)
+- A shaman using the tank kit now shows as Enhancement Tank in the Party tab. [#1254](https://github.com/Sagiroth/TortoiseBots/pull/1254), [TortoiseBotsManager #44](https://github.com/Sagiroth/TortoiseBotsManager/pull/44)
+
+### Commands
+- Server owners can use `.bot features all <text>` to list up to 200 matching bot settings, with secret values hidden. [#1252](https://github.com/Sagiroth/TortoiseBots/pull/1252)
+- You can now ask which dungeon route plan you are currently in. [#1252](https://github.com/Sagiroth/TortoiseBots/pull/1252)
+
+### Behind the scenes
+- Fixed a Windows-only problem so the dungeon feature builds correctly on Windows. [#1252](https://github.com/Sagiroth/TortoiseBots/pull/1252)
+- Updated the documentation for the messages the server sends to the addon. [#1253](https://github.com/Sagiroth/TortoiseBots/pull/1253)
+
+---
+
 ## v1.11.0 (2026-10-25)
 
 ### Companions & Battlegrounds
