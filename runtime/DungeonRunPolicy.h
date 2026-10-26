@@ -162,9 +162,10 @@ constexpr std::uint32_t kWalkRetryMs = 12000;     // no progress for this long: 
 constexpr std::uint32_t kShortStallMs = 3000;     // a plain walk within kStalledArriveYd that gains nothing this long arrived
 constexpr std::uint32_t kWalkTries = 3;           // ... at most this often, then pause
 constexpr float kTooFarLegYd = 120.0f;            // a move refused too-far (ReactDistance) goes out in legs this long ...
-constexpr std::uint32_t kMaxTooFarLegs = 6;       // ... at most this many per walk, then the refusal pauses as before
+constexpr std::uint32_t kMaxTooFarLegs = 16;      // ... at most this many per walk (Windhorn Canyon step 1179: the way
+                                                  // round the terrace took more than 6), then the refusal pauses as before
 constexpr float kLegProgressYd = 5.0f;            // a leg stalled after this much way toward it is done (else: a stall)
-constexpr float kLegRepeatYd = 3.0f;              // a next leg ending this close to the last one is not sent (the pause)
+constexpr float kLegRepeatYd = 3.0f;              // a next leg ending this close to any earlier leg's end is not sent (the pause)
 constexpr float kWalkProgressYd = 2.0f;
 // A walk whose lead bot moves (kWalkProgressYd from its spot at the last progress) without getting nearer to the point
 // still makes progress, for at most this long in all of one walk (Gnomeregan r27 slot 4 steps 583 and 610: three
@@ -1138,6 +1139,7 @@ struct Run
     // clears them.
     bool legOn = false;
     float legX = 0.0f, legY = 0.0f, legZ = 0.0f;
+    std::vector<float> legEnds; // x, y, z of every leg this walk sent (TooFarLegRepeats), three floats a leg
     float legBestYd = 0.0f;
     float legStartYd = 0.0f; // the lead bot's distance to the leg when it went out
     std::uint32_t walkLegs = 0;
@@ -5638,6 +5640,7 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         r.stallStandInWanted = false;
         r.legOn = false;
         r.walkLegs = 0;
+        r.legEnds.clear();
         r.walkMoveX = f.leadX;
         r.walkMoveY = f.leadY;
         r.walkMoveZ = f.leadZ;
@@ -7290,16 +7293,32 @@ inline bool TooFarLegWanted(const Run& r, const std::string& order, const std::s
         order == MoveOrder(r.walkX, r.walkY, r.walkZ, false) && r.walkLegs < kMaxTooFarLegs;
 }
 
-// Whether the glue's next leg ends within kLegRepeatYd of the last leg this walk sent:
+// The 0-based leg index whose end (legEnds[3k..3k+2]) lies within kLegRepeatYd of
+// (lx, ly, lz), or npos if none does. An empty legEnds gives npos (as does a fresh
+// walk), so the walkLegs > 0 meaning is kept.
+inline std::size_t RepeatedLeg(const Run& r, float lx, float ly, float lz)
+{
+    for (std::size_t k = 0; k + 3 <= r.legEnds.size(); k += 3)
+        if (ai::PlanDistance(lx, ly, lz, r.legEnds[k], r.legEnds[k + 1], r.legEnds[k + 2]) <= kLegRepeatYd)
+            return k / 3;
+    return static_cast<std::size_t>(-1);
+}
+
+// Whether the glue's next leg ends within kLegRepeatYd of any leg this walk sent:
 // the lead bot made no way toward it, so the same leg is not sent again (the refusal
 // pauses, TooFarLegRepeatNote saying why).
 inline bool TooFarLegRepeats(const Run& r, float lx, float ly, float lz)
 {
-    return r.walkLegs > 0 && ai::PlanDistance(lx, ly, lz, r.legX, r.legY, r.legZ) <= kLegRepeatYd;
+    return RepeatedLeg(r, lx, ly, lz) != static_cast<std::size_t>(-1);
 }
 
 inline std::string TooFarLegRepeatNote(const Run& r, float lx, float ly, float lz)
 {
+    std::size_t const k = RepeatedLeg(r, lx, ly, lz);
+    if (k != static_cast<std::size_t>(-1) && k + 1 < r.walkLegs)
+        return " (the next leg of the way, " + Num(lx) + " " + Num(ly) + " " + Num(lz) + ", ends where leg " +
+            std::to_string(k + 1) + " did, " + Num(r.legEnds[3 * k]) + " " + Num(r.legEnds[3 * k + 1]) + " " +
+            Num(r.legEnds[3 * k + 2]) + ": the lead bot made no way toward it)";
     return " (the next leg of the way, " + Num(lx) + " " + Num(ly) + " " + Num(lz) + ", ends where the last one did, " +
         Num(r.legX) + " " + Num(r.legY) + " " + Num(r.legZ) + ": the lead bot made no way toward it)";
 }
@@ -7323,6 +7342,7 @@ inline bool TooFarLegTaken(Run& r, const Facts& f, float lx, float ly, float lz,
     r.legZ = lz;
     r.legBestYd = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, lx, ly, lz);
     r.legStartYd = r.legBestYd;
+    r.legEnds.insert(r.legEnds.end(), {lx, ly, lz});
     ++r.walkLegs;
     r.walkStillMs = 0;
     r.note = "the move to " + Num(r.walkX) + " " + Num(r.walkY) + " " + Num(r.walkZ) +

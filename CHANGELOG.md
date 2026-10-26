@@ -23,6 +23,7 @@
 - Fixed the run leader still pausing (and refusing resume) when a bot was a ghost a few seconds longer than the lead in another part of the instance: it waits, then teleports.
 - Fixed the run leader dropping a focus skull with no retry and keeping a stale skull across pauses.
 - Fixed bots in deep water standing still on a swim the server allows: their move now goes to the server's own swim, or up and out onto a shore within 30 yd.
+- Fixed: a long winding walk refused too-far no longer pauses after six legs (up to 16; a leg back at an earlier leg's end still pauses).
 
 ### Dungeons & Maps
 - New: the server can run a dungeon with a bot-only party of world bots by itself (behind `AiPlayerbot.BotLfgGroups`); GameMasters test it with `.bot run system`.

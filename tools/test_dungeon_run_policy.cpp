@@ -2329,8 +2329,8 @@ static void TestMoveRefusedTooFarGoesInLegsAlongThePath()
     for (std::uint32_t i = 0; i < kMaxTooFarLegs; ++i)
     {
         CHECK(TooFarLegWanted(b, move, tooFar));
-        CHECK(TooFarLegTaken(b, k, 20.0f * (i + 1), 0, 0, true, ""));
-        k.leadX = 20.0f * (i + 1); // the leg walked, the point refused again from here
+        CHECK(TooFarLegTaken(b, k, 10.0f * (i + 1), 0, 0, true, ""));
+        k.leadX = 10.0f * (i + 1); // the leg walked, the point refused again from here
         CHECK(Tick(b, k) == move);
     }
     CHECK(!TooFarLegWanted(b, move, tooFar));
@@ -2339,6 +2339,59 @@ static void TestMoveRefusedTooFarGoesInLegsAlongThePath()
     Tick(b, k);
     CHECK(b.step == 1);
     CHECK(Tick(b, k) == "move 210.0 0.0 0.0" && b.walkLegs == 0 && !b.legOn);
+}
+
+// Windhorn Canyon step 1179: the way round the terrace took more than 6 legs of 120 yd.
+// Up to kMaxTooFarLegs (16) legs go out before the refusal pauses as before.
+static void TestTooFarLegsWalkALongWindingWay()
+{
+    std::string const tooFar = "too-far: The point is more than 150 yd (AiPlayerbot.ReactDistance) from the lead bot. "
+        "Move in shorter legs.";
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 2000)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts f = Party(0);
+    std::string const move = Tick(r, f);
+    CHECK(move == "move 2000.0 0.0 0.0");
+    for (int i = 0; i < 16; ++i)
+    {
+        CHECK(TooFarLegWanted(r, move, tooFar));
+        CHECK(TooFarLegTaken(r, f, 100.0f * (i + 1), 0, 0, true, ""));
+        f.leadX = 100.0f * (i + 1); // the leg walked, the point refused again from here
+        CHECK(Tick(r, f) == move);
+    }
+    CHECK(!TooFarLegWanted(r, move, tooFar)); // the 17th leg pauses as before
+}
+
+// A leg back at any earlier leg's end is a repeat (Windhorn-style bouncing must
+// not walk until the cap); a fresh walk forgets the old legs.
+static void TestTooFarLegBackToAnEarlierLegIsARepeat()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 300), Step(PlanStepKind::Move, 400)};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts f = Party(0);
+    std::string const move = Tick(r, f);
+    CHECK(move == "move 300.0 0.0 0.0");
+    CHECK(TooFarLegTaken(r, f, 120, 0, 0, true, ""));
+    f.leadX = 120;
+    CHECK(Tick(r, f) == move);
+    CHECK(TooFarLegTaken(r, f, 120, 60, 0, true, ""));
+    f.leadY = 60;
+    CHECK(Tick(r, f) == move);
+    CHECK(TooFarLegRepeats(r, 121, 0, 0)); // near the first leg's end, not the last
+    CHECK(!TooFarLegRepeats(r, 125, 0, 0));
+    CHECK(TooFarLegRepeatNote(r, 121, 0, 0).find("ends where leg 1 did, 120.0 0.0 0.0") != std::string::npos);
+    CHECK(TooFarLegRepeatNote(r, 120, 61, 0).find("ends where the last one did, 120.0 60.0 0.0") != std::string::npos);
+    // The step done, the next move sent: a fresh walk forgets the old legs.
+    f.leadX = 300;
+    f.leadY = 0;
+    Tick(r, f);
+    CHECK(r.step == 1);
+    CHECK(Tick(r, f) == "move 400.0 0.0 0.0" && r.walkLegs == 0 && !r.legOn);
+    CHECK(!TooFarLegRepeats(r, 121, 0, 0));
 }
 
 // Sunken Temple r25 slot 4 step 5: after the pulls of steps 2-4 every resume sent the
@@ -20958,6 +21011,8 @@ int main()
     TestOtherPullbackRefusalsStillPause();
     TestRefusedFiringPositionNeverLoops();
     TestMoveRefusedTooFarGoesInLegsAlongThePath();
+    TestTooFarLegsWalkALongWindingWay();
+    TestTooFarLegBackToAnEarlierLegIsARepeat();
     TestResumeWalksBackNoFartherThanTheLastClearedFight();
     TestItemCarrierIsPickedFromTheStepsOwnInputs();
     TestUseItemPausesOnSplitInputs();
