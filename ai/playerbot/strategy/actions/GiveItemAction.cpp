@@ -3,6 +3,7 @@
 #include "GiveItemAction.h"
 
 #include "playerbot/strategy/values/ItemCountValue.h"
+#include "../../../../runtime/RunGivenItemRegistry.h"
 
 using namespace ai;
 
@@ -29,6 +30,10 @@ bool GiveItemAction::Execute(Event& event)
     for (std::list<Item*>::iterator j = items.begin(); j != items.end(); j++)
     {
         Item* item = *j;
+
+        // A dungeon run's given item (key, mallet) stays with its bot until the run takes it back.
+        if (TortoiseBots::RunGivenItems::Has(item->GetGUIDLow()))
+            continue;
 
         if (receiver->CanUseItem(item->GetProto()) != EQUIP_ERR_OK)
             continue;

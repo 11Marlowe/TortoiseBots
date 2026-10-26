@@ -238,7 +238,14 @@ struct DungeonRunSlot
     // start (bot-only, or DungeonRunBotKeysForPlayers = 1): `given` is bot
     // guid -> (item, count given), taken back at done/stop/erase/bot leaves.
     bool giveRun = false;
-    std::unordered_map<uint64, std::vector<std::pair<uint32, uint32>>> given;
+    // bot guid -> the item instances given to it: (entry, item GUID low), the
+    // exact items the run created and wrote to the ledger (ai_run_given_item).
+    struct GivenItem
+    {
+        uint32 entry = 0;
+        uint32 itemGuid = 0;
+    };
+    std::unordered_map<uint64, std::vector<GivenItem>> given;
 };
 
 std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
@@ -616,16 +623,19 @@ bool RunGroupHasRealPlayer(Player* lead)
             return true;
     return false;
 }
-// The crash ledger (character DB, spec D7): guid -> (item, count given).
-// SliceDataLoader owns the table migration; these statements assume it exists.
-static void RunGivenRowReplace(uint32 guidLow, uint32 item, uint32 count)
+// The crash ledger (character DB, spec D7): one row per given item instance
+// (item_guid = the created item's GUID low, guid = the bot, item = the entry).
+// The insert is synchronous: a failed write refuses the give (the item is never
+// stored), so no given item exists without its row.
+static bool RunGivenRowInsert(uint32 itemGuidLow, uint32 botGuidLow, uint32 item)
 {
-    CharacterDatabase.PExecute("REPLACE INTO ai_run_given_item (`guid`, `item`, `count`) VALUES ('%u', '%u', '%u')",
-        guidLow, item, count);
+    return CharacterDatabase.DirectPExecute(
+        "INSERT INTO ai_run_given_item (`item_guid`, `guid`, `item`) VALUES ('%u', '%u', '%u')",
+        itemGuidLow, botGuidLow, item);
 }
-static void RunGivenRowDelete(uint32 guidLow, uint32 item)
+static void RunGivenRowDelete(uint32 itemGuidLow)
 {
-    CharacterDatabase.PExecute("DELETE FROM ai_run_given_item WHERE `guid` = '%u' AND `item` = '%u'", guidLow, item);
+    CharacterDatabase.PExecute("DELETE FROM ai_run_given_item WHERE `item_guid` = '%u'", itemGuidLow);
 }
 void GiveRunItems(DungeonRunSlot& slot, Player* lead, const std::vector<RunGiveOrderPlain>& orders)
 {
@@ -646,10 +656,10 @@ void GiveRunItems(DungeonRunSlot& slot, Player* lead, const std::vector<RunGiveO
                 break;
             }
         }
-        if (!bot || !bot->IsInWorld())
+        if (!bot || !bot->IsInWorld() || !BotManager::Instance().IsBot(bot->GetObjectGuid()))
             continue;
         if (bot->HasItemCount(order.item, 1, false))
-            continue;
+            continue; // its own copy: nothing given, and the take-back never touches it (by item GUID)
         ItemPosCountVec dest;
         if (bot->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, order.item, 1) != EQUIP_ERR_OK)
         {
@@ -657,25 +667,36 @@ void GiveRunItems(DungeonRunSlot& slot, Player* lead, const std::vector<RunGiveO
                 order.item, bot->GetName());
             continue;
         }
-        bot->StoreNewItem(dest, order.item, true);
-        uint64 const raw = bot->GetObjectGuid().GetRawValue();
-        std::vector<std::pair<uint32, uint32>>& rows = slot.given[raw];
-        bool found = false;
-        for (std::pair<uint32, uint32>& row : rows)
-            if (row.first == order.item)
-            {
-                ++row.second;
-                RunGivenRowReplace(bot->GetGUIDLow(), order.item, row.second);
-                found = true;
-                break;
-            }
-        if (!found)
+        // The exact instance: created, bound (the core refuses trade, mail and
+        // auction of a soulbound item), written to the ledger, and only then
+        // stored in the bot's bags.
+        Item* given = Item::CreateItem(order.item, 1, bot);
+        if (!given)
+            continue;
+        given->SetBinding(true);
+        uint32 const itemGuidLow = given->GetGUIDLow();
+        if (!RunGivenRowInsert(itemGuidLow, bot->GetGUIDLow(), order.item))
         {
-            rows.push_back({order.item, 1});
-            RunGivenRowReplace(bot->GetGUIDLow(), order.item, 1);
+            sLog.outError("TortoiseBots: run leader: the ledger write for item %u (guid %u) to %s failed: not given.",
+                order.item, itemGuidLow, bot->GetName());
+            delete given;
+            continue;
         }
+        Item* stored = bot->StoreItem(dest, given, true);
+        if (!stored || stored->GetGUIDLow() != itemGuidLow)
+        {
+            // Merged into a stack the bot had after all: no instance of the run's own stands in its bags.
+            RunGivenRowDelete(itemGuidLow);
+            continue;
+        }
+        TortoiseBots::RunGivenItems::Add(itemGuidLow);
+        uint64 const raw = bot->GetObjectGuid().GetRawValue();
+        slot.given[raw].push_back({order.item, itemGuidLow});
     }
 }
+// Takes back exactly the instances the run gave (by item GUID), never a bot's
+// own copy of the same entry. A bot not in the world keeps its ledger rows for
+// its login cleanup; the slot's record goes either way.
 void TakeRunItems(DungeonRunSlot& slot, uint64_t guid /*0 = all*/)
 {
     for (auto it = slot.given.begin(); it != slot.given.end();)
@@ -686,16 +707,14 @@ void TakeRunItems(DungeonRunSlot& slot, uint64_t guid /*0 = all*/)
             continue;
         }
         Player* bot = ObjectAccessor::FindPlayer(ObjectGuid(it->first));
-        uint32 const guidLow = bot ? bot->GetGUIDLow() : static_cast<uint32>(ObjectGuid(it->first).GetCounter());
         if (bot && bot->IsInWorld())
-            for (std::pair<uint32, uint32> const& row : it->second)
+            for (DungeonRunSlot::GivenItem const& row : it->second)
             {
-                uint32 const have = bot->HasItemCount(row.first, 1, false) ? bot->GetItemCount(row.first) : 0;
-                if (uint32 take = std::min(row.second, have))
-                    bot->DestroyItemCount(row.first, take, true);
-                RunGivenRowDelete(guidLow, row.first);
+                if (Item* item = bot->GetItemByGuid(ObjectGuid(HIGHGUID_ITEM, row.itemGuid)))
+                    bot->DestroyItem(item->GetBagSlot(), item->GetSlot(), true);
+                RunGivenRowDelete(row.itemGuid);
+                TortoiseBots::RunGivenItems::Erase(row.itemGuid);
             }
-        // A bot not in the world: keep the ledger row (login cleanup, spec D7), drop the slot record.
         it = slot.given.erase(it);
         if (guid)
             break;
@@ -728,38 +747,63 @@ static std::vector<TortoiseBots::RunItemNeed::Member> RunItemNeedMembers(
     }
     return out;
 }
-// The crash ledger's login cleanup (spec D7): rows for this bot while no live
-// run slot holds a `given` record for it -> destroy to count, delete rows.
-// World thread only.
+// The crash ledger's login cleanup (spec D7): the rows of a bot no live run
+// slot holds a record for -> destroy exactly those item instances and delete
+// the rows. Runs from the PlayerScript OnLogin hook, which the core calls after
+// the map add (CharacterHandler.cpp HandlePlayerLogin); a player not in the
+// world yet keeps its rows and is queued for the world tick. World thread only.
+static std::unordered_set<uint32>& PendingRunGivenCleanup()
+{
+    static std::unordered_set<uint32> pending;
+    return pending;
+}
 static void CleanupRunGivenItemsImpl(Player* player)
 {
     if (!player)
         return;
+    if (!player->IsInWorld())
+    {
+        PendingRunGivenCleanup().insert(player->GetGUIDLow()); // rows kept: the tick retries
+        return;
+    }
+    PendingRunGivenCleanup().erase(player->GetGUIDLow());
     uint64 const raw = player->GetObjectGuid().GetRawValue();
     for (auto const& entry : DungeonRuns())
         if (entry.second.given.count(raw))
             return; // a live run still owns this bot's items
     std::unique_ptr<QueryResult> rows(CharacterDatabase.PQuery(
-        "SELECT `item`, `count` FROM ai_run_given_item WHERE `guid` = '%u'", player->GetGUIDLow()));
+        "SELECT `item_guid` FROM ai_run_given_item WHERE `guid` = '%u'", player->GetGUIDLow()));
     if (!rows)
         return;
+    std::vector<uint32> itemGuids;
     do
     {
-        Field* fields = rows->Fetch();
-        uint32 const item = fields[0].GetUInt32();
-        uint32 const count = fields[1].GetUInt32();
-        if (item && count && player->IsInWorld())
-        {
-            uint32 const have = player->GetItemCount(item);
-            if (uint32 take = std::min(count, have))
-                player->DestroyItemCount(item, take, true);
-        }
-        RunGivenRowDelete(player->GetGUIDLow(), item);
+        itemGuids.push_back(rows->Fetch()[0].GetUInt32());
     } while (rows->NextRow());
+    for (uint32 itemGuidLow : itemGuids)
+    {
+        if (Item* item = player->GetItemByGuid(ObjectGuid(HIGHGUID_ITEM, itemGuidLow)))
+            player->DestroyItem(item->GetBagSlot(), item->GetSlot(), true);
+        RunGivenRowDelete(itemGuidLow);
+        TortoiseBots::RunGivenItems::Erase(itemGuidLow);
+    }
 }
 static bool RunGivenCleanupDone = false;
 static void CleanupRunGivenItemsTickImpl()
 {
+    // Bots whose login came before they were in the world: retried until they are (or gone).
+    if (!PendingRunGivenCleanup().empty())
+    {
+        std::vector<uint32> const pending(PendingRunGivenCleanup().begin(), PendingRunGivenCleanup().end());
+        for (uint32 guidLow : pending)
+        {
+            Player* bot = ObjectAccessor::FindPlayer(ObjectGuid(HIGHGUID_PLAYER, guidLow));
+            if (!bot)
+                PendingRunGivenCleanup().erase(guidLow); // logged out again: its next login cleans
+            else if (bot->IsInWorld())
+                CleanupRunGivenItemsImpl(bot);
+        }
+    }
     if (RunGivenCleanupDone)
         return;
     RunGivenCleanupDone = true;
