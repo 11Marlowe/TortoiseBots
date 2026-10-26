@@ -189,6 +189,13 @@ class GiveTickWiringTest(unittest.TestCase):
         self.assertIn("giveIn.groupBots.push_back(binding->leadGuid);", group)
         self.assertLess(group.index("giveIn.groupBots.push_back(binding->leadGuid);"),
                         group.index("TortoiseBots::RunItemNeed::DecideGiveTick(giveIn)"))
+
+    def test_tick_calls_the_pure_decision(self):
+        tick = self.tick()
+        self.assertIn("TortoiseBots::RunItemNeed::DecideGiveTick(giveIn)", tick)
+        self.assertIn("giveIn.givenBots.push_back(entry.first);", tick)
+        self.assertIn("giveIn.groupBots.push_back(member.guid.GetRawValue());", tick)
+        self.assertIn("giveIn.system = binding->system;", tick)
     def test_tick_acts_on_every_field(self):
         tick = self.tick()
         self.assertIn("for (uint64 leftBot : givePlan.takeBots)\n            TakeRunItems(slot, leftBot);", tick)

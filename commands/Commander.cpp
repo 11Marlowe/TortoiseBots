@@ -679,7 +679,7 @@ void GiveRunItems(DungeonRunSlot& slot, Player* lead, const std::vector<RunGiveO
                     order.item, bot->GetName());
                 if (!slot.run.note.empty())
                     slot.run.note += " ";
-                slot.run.note += std::string(bot->GetName()) + "'s bags are full: make room, then .bot run resume gives the item again";
+                slot.run.note += std::string(bot->GetName()) + "'s bags are full: item " + std::to_string(order.item) + " not given (the leg gate / step pause covers it)";
             }
             continue;
         }
