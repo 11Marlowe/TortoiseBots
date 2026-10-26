@@ -2620,16 +2620,16 @@ inline bool SummonStraggler(Run& r, const Facts& f, std::string& order, bool sti
         // bot that sticks 20-40 yd out is never summoned and the run pauses
         // (events-5 00:55:59, grimlok pull 93: Stoutster stood 34.9 yd away,
         // still, "the party did not gather within 30 s", twice).
-        bool const far = m.yd > kSummonYd || m.dz > kStragglerDzYd;
+        bool const tooFar = m.yd > kSummonYd || m.dz > kStragglerDzYd;
         bool const still = IsStill(r, m.name);
         // A bot past the gather radius that stands still is stuck (a busy one
         // never gets here, see above), exactly as in a regroup
         // (SummonStuckInRegroup). The far rule below keeps its own tests.
-        if (!far && !(still && m.yd > kGatherYd))
+        if (!tooFar && !(still && m.yd > kGatherYd))
             continue;
         if (!still)
         {
-            if (!far || stillOnly)
+            if (!tooFar || stillOnly)
                 continue;
             auto it = r.memberYd.find(m.name);
             if (it == r.memberYd.end() || it->second - m.yd >= kStragglerGainYd)
@@ -5414,14 +5414,14 @@ inline bool StallDirectLineClear(bool leadInWater, bool swimLine, const std::vec
 // bystanders: see the WaitClear case in TickBody.
 inline std::uint32_t WaitClearCount(const PlanStep& s, const Facts& f)
 {
-    std::uint32_t near = 0;
+    std::uint32_t nearCount = 0;
     for (const HostileSpot& h : f.clearUnits)
     {
         float const dx = h.x - s.x, dy = h.y - s.y;
         if (std::sqrt(dx * dx + dy * dy) <= s.radius)
-            ++near;
+            ++nearCount;
     }
-    return near;
+    return nearCount;
 }
 
 // Whether every remaining hostile stands on another floor and none fights the
@@ -11887,10 +11887,10 @@ inline void UpdateHold(Run& r, const Facts& f)
         {
             // The bot a direct step summoned (summonWait) stays held until it
             // arrives (kArriveYd), so a timed-out summon 3-20 yd off keeps it held.
-            float const near = name == r.summonWait ? kArriveYd : kGatherYd;
+            float const nearYd = name == r.summonWait ? kArriveYd : kGatherYd;
             for (const MemberFact& m : f.members)
                 if (m.name == name)
-                    return m.yd <= near;
+                    return m.yd <= nearYd;
             return true;
         }), r.hold.end());
 }
@@ -12221,15 +12221,15 @@ inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
             if (PlanBossOrHoldEntry(r, u.entry))
                 planUnit = true;
         bool const unattackable = letGo && !planUnit && HeldByUnattackable(m);
-        bool const far = !unattackable && !planUnit && farOff && HeldByFarUnitsOnly(m);
-        if (!unattackable && !far)
+        bool const farHeld = !unattackable && !planUnit && farOff && HeldByFarUnitsOnly(m);
+        if (!unattackable && !farHeld)
             continue;
         std::vector<std::uint64_t> set;
         for (const UnitFact& u : m.engaged)
             set.push_back(u.guid);
         std::sort(set.begin(), set.end());
         Run::CombatDropState st;
-        Run::CombatDropKind const kind = far ? Run::CombatDropKind::FarHeld : Run::CombatDropKind::Unattackable;
+        Run::CombatDropKind const kind = farHeld ? Run::CombatDropKind::FarHeld : Run::CombatDropKind::Unattackable;
         auto const it = r.combatDrop.find(m.name);
         if (it != r.combatDrop.end() && it->second.set == set && it->second.kind == kind)
             st = it->second;
@@ -12241,14 +12241,14 @@ inline std::string CombatDropTick(Run& r, const Facts& f, std::uint32_t dt)
         st.ms += dt;
         auto const last = r.combatDroppedAt.find(m.name);
         bool const spaced = last == r.combatDroppedAt.end() || r.runMs >= last->second + kCombatDropRepeatMs;
-        if (st.ms >= (far ? kFarHoldGraceMs : kUnattackableGraceMs) && spaced)
+        if (st.ms >= (farHeld ? kFarHoldGraceMs : kUnattackableGraceMs) && spaced)
         {
             r.combatDrops.push_back(m.name);
             r.combatDroppedAt[m.name] = r.runMs;
             std::string units;
             for (const UnitFact& u : m.engaged)
                 units += (units.empty() ? "entry " : ", entry ") + std::to_string(u.entry) +
-                    (far ? " (" + Num(u.distLead) + " yd away)"
+                    (farHeld ? " (" + Num(u.distLead) + " yd away)"
                          : std::string(m.offPlanMap ? " (outside the instance)" : " (cannot be attacked)"));
             note += (note.empty() ? "" : "; ") + m.name + " dropped combat with " + units;
         }
@@ -12580,11 +12580,11 @@ inline bool RegroupPlayerWait(Run& r, const Facts& f, std::uint32_t dt)
             return true;
         }
     r.playerHoldMs = 0;
-    const PlayerFact* far = nullptr;
+    const PlayerFact* farthest = nullptr;
     for (const PlayerFact& p : f.players)
-        if (p.alive && p.onMap && p.yd > kGatherYd && (!far || p.yd > far->yd))
-            far = &p;
-    if (!far)
+        if (p.alive && p.onMap && p.yd > kGatherYd && (!farthest || p.yd > farthest->yd))
+            farthest = &p;
+    if (!farthest)
     {
         r.playerGatherMs = 0;
         return false;
@@ -12593,11 +12593,11 @@ inline bool RegroupPlayerWait(Run& r, const Facts& f, std::uint32_t dt)
     if (r.playerGatherMs >= kPlayerGatherWaitMs)
     {
         r.playerGatherMs = 0;
-        PausePlayerHold(r, "regroup: waited " + std::to_string(kPlayerGatherWaitMs / 1000) + " s for " + far->name + " (" +
-            Num(far->yd) + " yd from the lead bot): come to the party, then .bot run resume");
+        PausePlayerHold(r, "regroup: waited " + std::to_string(kPlayerGatherWaitMs / 1000) + " s for " + farthest->name + " (" +
+            Num(farthest->yd) + " yd from the lead bot): come to the party, then .bot run resume");
         return true;
     }
-    r.note = "regroup: waiting for " + far->name + " (" + Num(far->yd) + " yd from the lead bot)";
+    r.note = "regroup: waiting for " + farthest->name + " (" + Num(farthest->yd) + " yd from the lead bot)";
     return true;
 }
 
@@ -13844,8 +13844,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             }
             if (r.phase != Phase::Wait)
                 EnterPhase(r, Phase::Wait);
-            std::uint32_t const near = WaitClearCount(*s, f);
-            if (near == 0)
+            std::uint32_t const nearCount = WaitClearCount(*s, f);
+            if (nearCount == 0)
                 NextStep(r, "no hostile left near the spot");
             else if (r.phaseMs >= s->timeoutS * 1000)
             {
@@ -13854,10 +13854,10 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                 // finish the step instead of pausing it. Anything engaged or
                 // on the spot's floor pauses exactly as before.
                 if (WaitClearOffFloorOnly(*s, f))
-                    NextStep(r, "the spot is clear on its floor: " + std::to_string(near) +
+                    NextStep(r, "the spot is clear on its floor: " + std::to_string(nearCount) +
                         " hostiles left on other floors (|dz| > 10)");
                 else
-                    Pause(r, "waited " + std::to_string(s->timeoutS) + " s; " + std::to_string(near) +
+                    Pause(r, "waited " + std::to_string(s->timeoutS) + " s; " + std::to_string(nearCount) +
                         " hostiles still near the spot");
             }
             else

@@ -219,10 +219,45 @@ bool HandleVersion(ChatHandler* handler, char const* /*args*/)
     handler->PSendSysMessage("%s", AttributionLine().c_str());
     return true;
 }
+// `.bot features all <text>`: every bot config key holding <text>, for the
+// addon's Info search. Capped, since the file holds thousands of keys.
+static bool SendConfigSearch(ChatHandler* handler, std::string const& filter)
+{
+    constexpr size_t kMaxShown = 200;
+    std::vector<std::pair<std::string, std::string>> const entries = sPlayerbotAIConfig.FindConfigEntries(filter);
+    size_t const shown = std::min(entries.size(), kMaxShown);
+    handler->PSendSysMessage("Config: %u keys match '%s'.", uint32(entries.size()), filter.c_str());
+    handler->PSendSysMessage("TBM:CONFIG_BEGIN|%u", uint32(entries.size()));
+    for (size_t i = 0; i < shown; ++i)
+    {
+        std::string key = entries[i].first;
+        if (key.compare(0, 12, "AiPlayerbot.") == 0)
+            key = key.substr(12);
+        std::string value = entries[i].second;
+        for (char& c : value)
+            if (c == '|')
+                c = '/';
+        handler->PSendSysMessage("TBM:CONFIG|%s|%s", key.c_str(), value.c_str());
+    }
+    handler->PSendSysMessage("TBM:CONFIG_END|%u|%u", uint32(shown), uint32(entries.size()));
+    return true;
+}
+
 // The server's player-facing switches, for the addon's Info window: one
 // summary line for chat and TBM:FEATURE|<key>|<value>|<label> per switch.
-bool HandleFeatures(ChatHandler* handler, char const* /*args*/)
+bool HandleFeatures(ChatHandler* handler, char const* args)
 {
+    std::string const words = Trim(args ? args : "");
+    if (words == "all" || words.compare(0, 4, "all ") == 0)
+    {
+        std::string const filter = Trim(words.substr(3));
+        if (filter.size() < 2)
+        {
+            handler->PSendSysMessage("Usage: .bot features all <at least two letters of a setting name>");
+            return true;
+        }
+        return SendConfigSearch(handler, filter);
+    }
     struct Feature { char const* key; std::string value; char const* label; };
     auto onOff = [](bool on) { return std::string(on ? "on" : "off"); };
     PlayerbotAIConfig const& c = sPlayerbotAIConfig;

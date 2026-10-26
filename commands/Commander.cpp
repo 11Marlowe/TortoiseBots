@@ -9946,7 +9946,7 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
         return HandleSystemRun(handler, rawArg, intent);
 
     if (verb != "start" && verb != "pause" && verb != "resume" && verb != "skip" && verb != "stop" &&
-        verb != "status" && verb != "list" && verb != "mode")
+        verb != "status" && verb != "list" && verb != "mode" && verb != "here")
     {
         SendActionError(handler, intent, "invalid", "Usage: .bot run start [plan] [from <leg|step N>] [speed=<1.0-3.0>] [player [tank <Bot>]] / pause / resume / skip / stop [reason] / status / mode / list / reloadplans (GameMaster)");
         return true;
@@ -9964,6 +9964,39 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
         return true;
     }
     uint64 const commanderRaw = commander->GetObjectGuid().GetRawValue();
+
+    // `.bot run here`: the plan whose route passes nearest the player on his
+    // map (a dungeon with wings, such as Scarlet Monastery, has one per wing).
+    if (verb == "here")
+    {
+        ai::DungeonPlan const* best = nullptr;
+        float bestYd = 0.0f;
+        for (ai::DungeonPlan const* plan : ai::GetDungeonPlans().All())
+        {
+            if (plan->map != commander->GetMapId())
+                continue;
+            for (ai::PlanStep const& step : plan->steps)
+            {
+                if (step.x == 0.0f && step.y == 0.0f && step.z == 0.0f)
+                    continue;
+                float const yd = commander->GetDistance(step.x, step.y, step.z);
+                if (!best || yd < bestYd)
+                {
+                    best = plan;
+                    bestYd = yd;
+                }
+            }
+        }
+        if (!best)
+        {
+            handler->PSendSysMessage("Run plan here: none for this map.");
+            handler->PSendSysMessage("TBM:RUN_HERE|-|0");
+            return true;
+        }
+        handler->PSendSysMessage("Run plan here: %s (%.0f yd from its route).", best->name.c_str(), bestYd);
+        handler->PSendSysMessage("TBM:RUN_HERE|%s|%u", best->name.c_str(), uint32(bestYd));
+        return true;
+    }
 
     if (verb == "list")
     {
