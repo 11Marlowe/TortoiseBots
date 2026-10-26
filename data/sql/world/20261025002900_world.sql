@@ -4,13 +4,13 @@
 -- PORTED, NOT RE-INVENTED. The leg and its rows are the export of turtle-agent a93caba's dungeons/zulfarrak.json with
 -- `turtle-agent plan-export --drop-companions-loot --carrier-chests --with-optional gahzrilla --mmaps <map 209 mmaps>
 -- --rev a93caba --stamp 20261022210000 zulfarrak`, kept in the tree as tools/optional-plans/zulfarrak-gahzrilla.sql
--- since 2026-10-21; that file is the source of every row below. The same plan data on prep/zf-gahz (74bbea2) adds the
--- boss's interruptible casts as `boss.tactics`, which writes no step row: the rows are identical to that export except
--- the plan row's `source` text. The leg was left out of 20261022210000 because no player or unattended run has the
--- Mallet of Zul'Farrak (9240) and every run would pause at the gong; it is in the shipped plan now because the audit
--- (EVERY-BOSS-2026-10-26, Zul'Farrak) counts Gahz'rilla 7273 and the leg was played live (zf-r5, 2026-10-16, server
--- 19z10: Mallet by give_items, `cmd use 9240 ... entry:141832@1650.9,1171.9,10.9`, Gahz'rilla seen 12 s later, dead
--- 116 s after that). THE MALLET IS STILL THE OPERATOR'S: no bot can obtain it in a run (only item 9241 from Qiaga the
+-- since 2026-10-21; that file is the source of every row below. The same plan data on prep/zf-gahz (051848d) adds the
+-- boss's interruptible casts as `boss.tactics` (no step row) and two `approach` stands (two `move` rows, in the rows
+-- below); the optional file carries them too, so the step rows are identical. The leg was left out of 20261022210000
+-- because no player or unattended run has the Mallet of Zul'Farrak (9240) and every run would pause at the gong; it is
+-- in the shipped plan now because the audit (EVERY-BOSS-2026-10-26, Zul'Farrak) counts Gahz'rilla 7273 and the leg
+-- was played live (zf-r5, 2026-10-16, server 19z10: Mallet by give_items, `cmd use 9240 ...
+-- entry:141832@1650.9,1171.9,10.9`, Gahz'rilla seen 12 s later, dead 116 s after that). THE MALLET IS STILL THE OPERATOR'S: no bot can obtain it in a run (only item 9241 from Qiaga the
 -- Keeper in The Hinterlands makes it, map 0), so before `.bot run start zulfarrak` a GM must `.additem 9240` on the
 -- lead bot (or the carrier). Without it the run leader pauses at the `use_on` naming item 9240; `.bot run skip` passes
 -- the rest of the leg and the plan goes on to the courtyard. A second ring of the gong summons a NEW Gahz'rilla that
