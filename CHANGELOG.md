@@ -22,6 +22,7 @@
 - Fixed the run leader still pausing (and refusing resume) when a bot was a ghost a few seconds longer than the lead in another part of the instance: it waits, then teleports.
 - Fixed the run leader dropping a focus skull with no retry and keeping a stale skull across pauses.
 - Fixed bots in deep water standing still on a swim the server allows: their move now goes to the server's own swim, or up and out onto a shore within 30 yd.
+- Fixed the run leader sending the tank at a mob its own crowd control was about to take, and bots keeping that sheep as their target after it landed: the guard and the engage on arrival leave an ordered-but-unlanded CC mark to its CC bot, and every bot's order on a landed one is dropped.
 
 ## v1.8.0 (2026-10-22)
 

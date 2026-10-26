@@ -16438,6 +16438,137 @@ static void TestUnattackableUnitIsNeverPulledOrPickedUp()
     for (int i = 0; i < 60 && w.state == State::Running; ++i)
         CHECK(Tick(w, wf).find(std::to_string(kBombGuid)) == std::string::npos);
 }
+// Issue #1160: the run's crowd control on a unit that has not landed yet keeps
+// the guard and the engage on arrival off it (CcOrderOut on Run::ccWatch).
+static Facts CcWatchParty()
+{
+    Facts f = Party(0);
+    f.anyInCombat = true;
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    return f;
+}
+
+static void TestEngageOnArrivalLeavesCcMarkToItsCcBot()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {6206})};
+    Run r = Start(&plan);
+    Run::CcWatch w;
+    w.guid = 90;
+    r.ccWatch = {w};
+    Facts g = CcWatchParty();
+    g.partyAttackers = {Hitter(90, 6206, 5, true), Hitter(91, 6206, 8, true)};
+    CHECK(EngageTarget(r, g) == &g.partyAttackers[1]);
+    r.ccWatch.clear();
+    SyncCcWatch(r);
+    CHECK(EngageTarget(r, g) == &g.partyAttackers[0]);
+    // Lead-attacker branch: the watched mark is not engaged either.
+    Facts t = CcWatchParty();
+    t.partyAttackers.clear();
+    t.leadHasAttacker = true;
+    t.leadAttacker = Hitter(90, 6206, 2);
+    Run wr = Start(&plan);
+    Run::CcWatch lw;
+    lw.guid = 90;
+    wr.ccWatch = {lw};
+    CHECK(EngageTarget(wr, t) == nullptr);
+    wr.ccWatch.clear();
+    SyncCcWatch(wr);
+    CHECK(EngageTarget(wr, t) == &t.leadAttacker);
+}
+
+static void TestGuardLeavesCcMarkToItsCcBot()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {6206})};
+    Run r = Start(&plan);
+    Run::CcWatch w;
+    w.guid = 90;
+    r.ccWatch = {w};
+    Facts g = CcWatchParty();
+    g.partyAttackers = {Hitter(90, 6206, 5), Hitter(91, 6206, 8)};
+    CHECK(GuardTarget(r, g) == &g.partyAttackers[1]);
+    r.ccWatch.clear();
+    SyncCcWatch(r);
+    CHECK(GuardTarget(r, g) == &g.partyAttackers[0]);
+}
+
+static void TestHoldEngageLeavesCcMarkToItsCcBot()
+{
+    DungeonPlan holdPlan;
+    PlanStep hold = Step(PlanStepKind::Hold);
+    hold.radius = 30;
+    holdPlan.steps = {hold};
+    Run hr = Start(&holdPlan);
+    hr.eventOn = true;
+    Run::CcWatch w;
+    w.guid = 90;
+    hr.ccWatch = {w};
+    Facts hf = CcWatchParty();
+    hf.units = {Engaged(Unit(90, 6206, 6)), Engaged(Unit(91, 6206, 8))};
+    CHECK(HoldEngageTarget(hr, hf) == &hf.units[1]);
+    hr.ccWatch.clear();
+    SyncCcWatch(hr);
+    CHECK(HoldEngageTarget(hr, hf) == &hf.units[0]);
+}
+
+static void TestCcLandingQueuesTheOrderDrop()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1, 100})};
+    plan.ccPriority = {100};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {CcMem("Magey", CcFamily::Polymorph)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(90, 100, 20, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "cc moon 90 Magey");
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.members[0].inCombat = true;
+    f.units[1].polymorphed = true; // the sheep landed
+    CHECK(Tick(r, f).empty());
+    CHECK(r.ccWatch.empty());
+    CHECK(r.ccLandedDrop.size() == 1 && r.ccLandedDrop[0] == 90);
+    // Not landed yet and not past the window: no drop queued.
+    Run n = Start(&plan);
+    Facts g = Party(0);
+    g.members = {CcMem("Magey", CcFamily::Polymorph)};
+    g.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(90, 100, 20, kCreatureHumanoid)};
+    CHECK(Tick(n, g) == "cc moon 90 Magey");
+    CHECK(Tick(n, g) == "pullback 1");
+    g.anyInCombat = true;
+    g.members[0].inCombat = true;
+    CHECK(Tick(n, g).empty());
+    CHECK(n.ccLandedDrop.empty());
+}
+
+static void TestSapLandingQueuesTheOrderDrop()
+{
+    DungeonPlan plan = CcPlan({100});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), CcMem("Roguey", CcFamily::Sap)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "cc moon 2 Roguey");
+    CHECK(r.ccPending == 2);
+    f.units[1].polymorphed = true; // sapped
+    f.maxMemberYd = 30;
+    f.members[1].yd = 30;
+    Tick(r, f);
+    CHECK(r.ccLandedDrop.size() == 1 && r.ccLandedDrop[0] == 2);
+}
+
+static void TestCcStateResetClearsTheDrop()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1, 100})};
+    Run r = Start(&plan);
+    r.ccLandedDrop = {90};
+    ResetStep(r);
+    CHECK(r.ccLandedDrop.empty());
+}
+
 
 // Gnomeregan r23 step 181: the bomb 7897 held the priest Varcus in combat 35 yd from the lead bot for 8 min; the
 // gather paused the run four times. The run drops the combat of a bot held by units the group cannot attack only,
@@ -20983,6 +21114,12 @@ int main()
     TestUnattackableOnlyFightIsNoFight();
     TestUnattackableUnitIsNeverPulledOrPickedUp();
     TestBotHeldByUnattackableDropsCombat();
+    TestEngageOnArrivalLeavesCcMarkToItsCcBot();
+    TestGuardLeavesCcMarkToItsCcBot();
+    TestHoldEngageLeavesCcMarkToItsCcBot();
+    TestCcLandingQueuesTheOrderDrop();
+    TestSapLandingQueuesTheOrderDrop();
+    TestCcStateResetClearsTheDrop();
     TestCombatDropNeverWhileHeldByAPlanBossOrHoldUnit();
     TestCombatDropKindChangeStartsTheGraceOver();
     TestLeadRevivedAwayRescueLeavesFightingFalse();
