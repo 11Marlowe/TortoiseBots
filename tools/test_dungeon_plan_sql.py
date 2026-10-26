@@ -4396,16 +4396,16 @@ class DungeonPlanSql(unittest.TestCase):
     EXPECTED_LEG_NEEDS = {
         # plan: {(leg, item): (mode, pick, object)}; 1 optional, 2 door.
         "zulfarrak": {(9, 9240): (1, 0, 0)},
-        "blackrock_depths": {(l, 11000): (2, 250, 170560) for l in (1, 2, 3, 4, 5, 6, 7, 8)},
+        # Review round 2 (Opus 3): one row per door, on the first leg whose route crosses it (DOOR_SPAWNS below).
+        "blackrock_depths": {(1, 11000): (2, 250, 170560), (4, 11000): (2, 250, 170559), (8, 11000): (2, 250, 170558)},
         "scarlet_cathedral": {(0, 7146): (2, 175, 104591)},
         "scarlet_armory": {(1, 7146): (2, 175, 101854)},
-        "stratholme_undead": {(l, 12382): (2, 300, 175357) for l in (0, 1)},
-        "scholomance": {(l, 13873): (2, 0, 175167) for l in (1, 2, 3, 4, 8)},
-        "dire_maul_west": {(l, 18249): (2, 300, 300601) for l in (2, 3, 4, 5)},
-        "dire_maul_north": {(2, 18266): (2, 0, 177219), (2, 18268): (2, 200, 177217),
-                            (3, 18268): (2, 200, 177217)},
+        "stratholme_undead": {(1, 12382): (2, 300, 175357)},
+        "scholomance": {(1, 13873): (2, 0, 175167)},
+        "dire_maul_west": {(2, 18249): (2, 300, 300601)},
+        "dire_maul_north": {(2, 18266): (2, 0, 177219), (3, 18268): (2, 200, 177217)},
         "gnomeregan": {(2, 6893): (2, 150, 90858)},
-        "stormwrought_ruins": {(l, 41913): (2, 185, 2020233) for l in (4, 5)},
+        "stormwrought_ruins": {(4, 41913): (2, 185, 2020233)},
         "dragonmaw_retreat": {(3, 41876): (2, 160, 2020232)},
     }
 
@@ -4437,6 +4437,39 @@ class DungeonPlanSql(unittest.TestCase):
             have = {int(m.group(1)) for m in re.finditer(r"\('%s', (\d+)," % plan, text)}
             for leg, _item in want:
                 self.assertIn(leg, have, "%s leg %d" % (plan, leg))
+
+    # The door objects' spawns on the plans' maps (Tortoise V2 world `gameobject`, the 2026-10-26 audit's source): the
+    # door hold looks for the door near the lead bot and stops only within kDoorNearYd (25) of it
+    # (runtime/DungeonRunPolicy.h DoorNear), so a door row sits on the first leg whose route crosses it.
+    DOOR_SPAWNS = {
+        170560: (569.589, -9.36154, -70.2566), 170559: (496.397, 16.0126, -70.2566),
+        170558: (1311.48, -343.072, -92.0093), 104591: (1069.95, 1399.14, 30.7956),
+        101854: (1933.69, -431.654, 18.671), 175357: (3727.29, -3599.08, 142.22),
+        175167: (174.378, 77.9398, 104.802), 300601: (50.5672, 501.383, -23.3041),
+        177219: (385.208, 373.802, -1.15898), 177217: (491.255, 518.678, 29.463),
+        90858: (-758.538, 260.386, -273.049), 2020233: (-6068.09, -4098.55, 218.912),
+        2020232: (-6120.35, -4402.09, 301.998),
+    }
+
+    def test_leg_need_door_rows_sit_on_the_leg_that_crosses_the_door(self):
+        # Review round 2 (Opus 3): each door row is on the first leg with a step within 6.5 yd of the door (the route
+        # crosses it there), or, where no step comes that close (Dire Maul North's courtyard, crossed between leg 1's
+        # boss and leg 2), the first leg with a step within the hold's 25 yd; and that leg has a step within 25 yd.
+        full = "\n".join(text for _name, text in migrations())
+        doors = [(n["plan"], int(n["leg"]), int(n["object"])) for n in self.need_rows(full) if n["mode"] == "2"]
+        self.assertTrue(doors)
+        for plan, leg, obj in doors:
+            _name, text = newest_plan_text(plan)
+            rows = [r for r in self.step_rows(text) if r["plan"] == plan]
+            door = self.DOOR_SPAWNS[obj]
+            near = {}
+            for r in rows:
+                d = math.dist((float(r["x"]), float(r["y"]), float(r["z"])), door)
+                near[int(r["leg"])] = min(near.get(int(r["leg"]), 1e9), d)
+            crossing = [l for l in sorted(near) if near[l] <= 6.5] or [l for l in sorted(near) if near[l] <= 25.0]
+            self.assertTrue(crossing, "%s door %d: no leg comes near it" % (plan, obj))
+            self.assertEqual(leg, crossing[0], "%s door %d" % (plan, obj))
+            self.assertLessEqual(near[leg], 25.0, "%s door %d" % (plan, obj))
 
     def test_leg_need_zulfarrak_leg_is_gahzrilla(self):
         full = "\n".join(text for _name, text in migrations())
