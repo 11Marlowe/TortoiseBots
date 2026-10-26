@@ -160,9 +160,11 @@ class FightStartHoldWiring(unittest.TestCase):
 
     def test_release_logs_its_reason(self):
         fn = body(PULL_ACTIONS, "bool ReleasePullHoldAction::Execute(Event& event)")
-        self.assertIn("pull-release", fn)
-        self.assertIn("reason=", fn)
-        self.assertLess(fn.index("pull-release"), fn.index("EndPullWindow()"))
+        self.assertIn("EndPullWindow(", fn)
+        self.assertIn("PullReleaseReason()", fn)
+        end = body(PLAYERBOT_AI_CPP, "void PlayerbotAI::EndPullWindow(")
+        self.assertIn("pull-release", end)
+        self.assertIn("reason=", end)
 
 
 if __name__ == "__main__":

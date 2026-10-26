@@ -402,8 +402,10 @@ public:
     // the player's "wait for attack time" back and release the anchor hold.
     // A "wait for attack" the player set stays. Also the end of any pull on a
     // reload of stored strategies (relog, reset, preset), and the release of
-    // the puller's own anchor, which never had a window.
-    void EndPullWindow();
+    // the puller's own anchor, which never had a window. Logs the release
+    // exactly once (nothing when no window runs) and clears the stored
+    // reason; every caller passes its explicit reason.
+    void EndPullWindow(const char* reason);
     // An order that sends the bot at a target ends a stay and a flee's
     // passive hold: drop "passive" and "stay", then, when that leaves no
     // movement mode, put the default (follow for a player's bot) back so it
@@ -1158,7 +1160,7 @@ protected:
     bool deathHandled_ = false; // this death was logged and counted; cleared when the bot is seen alive again
     ai::PullJoinWindow pullWindow_; // see StartPullWindow
     bool runHealOnly_ = false;      // see RunHealOnly
-    std::string pullReleaseReason_; // PullHoldExpiredTrigger's reason, logged by ReleasePullHoldAction
+    std::string pullReleaseReason_; // PullHoldExpiredTrigger's reason, logged by EndPullWindow
     // Pet stance the pull hold parked passive (PausePartyPullHold): the
     // stance from before the hold, restored by EndPullWindow on this same
     // bot - so a member that leaves the group, logs out or dies mid-hold
