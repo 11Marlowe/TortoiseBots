@@ -54,7 +54,7 @@ SEEDED_BOSSES = {
     (209, 7271): "Witch Doctor Zum'rah", (209, 7274): "Sandfury Executioner", (209, 7275): "Shadowpriest Sezz'ziz",
     (209, 7267): "Chief Ukorz Sandscalp", (209, 7273): "Gahz'rilla",
     (36, 644): "Rhahk'Zor", (36, 642): "Sneed's Shredder", (36, 643): "Sneed", (36, 1763): "Gilnid",
-    (36, 61963): "Masterpiece Harvester", (36, 646): "Mr. Smite", (36, 647): "Captain Greenskin",
+    (36, 61963): "Masterpiece Harvester", (36, 61961): "Jared Voss", (36, 646): "Mr. Smite", (36, 647): "Captain Greenskin",
     (36, 639): "Edwin VanCleef", (36, 645): "Cookie",
     (34, 1696): "Targorr the Dread", (34, 1663): "Dextren Ward", (34, 1666): "Kam Deepfury", (34, 1717): "Hamhock",
     (34, 1716): "Bazil Thredd",
@@ -612,15 +612,23 @@ class DungeonPlanSql(unittest.TestCase):
 
 
     def test_deadmines_pack_fixes(self):
-        # 20261022200000 (turtle-agent 16efe83, Deadmines r12-19z29 / r14-19z32, 2026-10-22): the plan again with the Engineers and
-        # Craftsmen in the cc lists, the Sneed patroller's group first, the Harvester room's golem split off, and the Gilnid ramp pulled from
-        # the spiral and the floor ring camp by camp (its pairs behind move rows to stands). Every pin below fails when its rows are cut.
+        # 20261025002800 (turtle-agent 456efc5, Deadmines: the laboratory and Jared Voss added after mine_a) re-exports the whole plan of
+        # 20261022200000 (turtle-agent 16efe83, r12-19z29 / r14-19z32: the Engineers and Craftsmen in the cc lists, the Sneed patroller's group
+        # first, the Harvester room's golem split off, the Gilnid ramp pulled from the spiral and the floor ring camp by camp) with two new legs
+        # after leg 0 and the Voss boss row. The old legs 2-15 are legs 4-17 now; every pin below fails when its rows are cut.
         name, text = newest_plan_text("deadmines")
-        self.assertEqual(name, "20261022200000_world.sql")
-        self.assertIn("('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 16efe83 dungeons/deadmines.json',", text)
+        self.assertEqual(name, "20261025002800_world.sql")
+        self.assertIn("('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 456efc5 dungeons/deadmines.json',", text)
         rows = [r for r in self.step_rows(text) if r["plan"] == "deadmines"]
-        self.assertEqual(len(rows), 210)
-        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (3, 6, 7, 8)}, {3: 11, 6: 11, 7: 41, 8: 8})
+        self.assertEqual(len(rows), 251)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (5, 8, 9, 10)}, {5: 11, 8: 11, 9: 41, 10: 8})
+        # The laboratory: leg 1 lab_tunnel, leg 2 laboratory. The boss row at Voss's spawn, its approach stand 21.3 yd out, and the pair
+        # next to him (2583084/2583081, 15.4 yd from the boss) as one pull from -96 -501.
+        lab = leg_steps(rows, 2)
+        self.assertEqual([(r["kind"], r["entry"]) for r in lab[-2:]], [("move", "0"), ("boss", "61961")])
+        self.assertEqual(lab[-2]["comment"], "boss approach")
+        self.assertEqual((lab[-2]["x"], lab[-2]["y"], lab[-2]["z"]), ("-91.5", "-505.5", "54.73"))
+        self.assertEqual((lab[-1]["x"], lab[-1]["y"], lab[-1]["z"]), ("-85.063", "-525.839", "54.4025"))
 
         def pulls(leg):
             return [(r["entries"], int(r["radius"]), round(float(r["x"]), 1)) for r in leg_steps(rows, leg) if r["kind"] == "pull"]
@@ -635,33 +643,34 @@ class DungeonPlanSql(unittest.TestCase):
                     return float(steps[i - 1]["x"]), float(steps[i - 1]["y"]), float(steps[i - 1]["z"])
             self.fail("no pull at %s %s in leg %d" % (x, y, leg))
 
+        self.assertEqual(pulls(2)[-1], ("61959,61960", 7, -99.3))
         # Sneed: the group of the Woodcarver 79207's beat (radius 19) is the first pull.
-        self.assertEqual(pulls(3)[0], ("641", 19, -277.3))
-        self.assertEqual(pulls(3)[1], ("641", 12, -288.3))
+        self.assertEqual(pulls(5)[0], ("641", 19, -277.3))
+        self.assertEqual(pulls(5)[1], ("641", 12, -288.3))
         # Harvester room: the Taskmaster over the west half of its beat only (radius 12: the disc stops 17 yd from the Harvester); the Craftsman,
         # the Engineer and the golem that assists them are ONE pull of three from the west stand, 23 yd from the ledge Overseer's beat; the first
         # pull of the room counts the patrolling golem 2582923.
-        hv = pulls(6)
+        hv = pulls(8)
         self.assertEqual(hv[0], ("622,61962", 11, -150.3))
         self.assertIn(("4417", 12, -95.9), hv)
         self.assertIn(("1731,622,61962", 9, -87.5), hv)
         self.assertNotIn(("61962", 6, -81.7), hv)
-        self.assertEqual(stand_before(6, -87.49, -580.41), (-112.0, -573.0, 52.5))
+        self.assertEqual(stand_before(8, -87.49, -580.41), (-112.0, -573.0, 52.5))
         # Gilnid ramp: the two terrace Engineers FIRST, from the spiral (z 36.5, over the open pit), then the Craftsman under the spiral from
         # the floor (a spiral stand has no sight of him), then the floor ring.
-        gl = pulls(7)
+        gl = pulls(9)
         self.assertEqual(gl[3:], [("622", 10, -202.7), ("1731", 8, -198.9), ("1731,622", 9, -233.8), ("1731,622", 5, -226.1),
                                   ("1731", 12, -209.6), ("1731,622", 8, -208.6), ("622,1731", 11, -187.1), ("1731", 6, -178.4)])
-        self.assertEqual(stand_before(7, -202.74, -584.35), (-195.0, -596.0, 36.5))
-        self.assertEqual(stand_before(7, -198.93, -603.78), (-215.0, -590.0, 21.1))
-        self.assertEqual(stand_before(7, -233.75, -572.8), (-221.0, -596.0, 21.8))
-        self.assertEqual(stand_before(7, -208.61, -552.0), (-217.0, -576.0, 21.1))
-        self.assertEqual(stand_before(7, -187.05, -551.48), (-207.0, -568.0, 21.1))
+        self.assertEqual(stand_before(9, -202.74, -584.35), (-195.0, -596.0, 36.5))
+        self.assertEqual(stand_before(9, -198.93, -603.78), (-215.0, -590.0, 21.1))
+        self.assertEqual(stand_before(9, -233.75, -572.8), (-221.0, -596.0, 21.8))
+        self.assertEqual(stand_before(9, -208.61, -552.0), (-217.0, -576.0, 21.1))
+        self.assertEqual(stand_before(9, -187.05, -551.48), (-207.0, -568.0, 21.1))
         # The boss row is where it was (no boss approach moved) and the pair 79196/79201 is pulled in leg 7 only.
-        self.assertEqual([(r["entry"], r["entries"], r["x"], r["y"]) for r in leg_steps(rows, 7) if r["kind"] == "boss"],
+        self.assertEqual([(r["entry"], r["entries"], r["x"], r["y"]) for r in leg_steps(rows, 9) if r["kind"] == "boss"],
                          [("1763", "1731", "-177.362", "-574.458")])
-        self.assertNotIn(("622,1731", 11, -187.1), pulls(8))
-        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["644", "642", "61963", "1763", "646", "647", "639"])
+        self.assertNotIn(("622,1731", 11, -187.1), pulls(10))
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["61961", "644", "642", "61963", "1763", "646", "647", "639"])
 
     def test_scholomance_is_the_plan_with_the_malicia_pack_splits(self):
         # 20261025002400 (turtle-agent 1a544f5, proof20d2 scholomance m910q-4, 2026-10-26): 13 of the run's 15 wipes came
