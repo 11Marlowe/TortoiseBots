@@ -19661,8 +19661,58 @@ static void TestSpeedLeashIsBoundedByTheGatherCap()
     CHECK(!r.speedLeash);
     std::string order;
     CHECK(!WalkTo(r, f, 500, 0, 0, false, kTickMs, order));
-    CHECK(order == "move 40.0 0.0 0.0"); // a new point re-arms the leash
-    CHECK(r.speedLeash);
+    CHECK(order == "move 500.0 0.0 0.0"); // spent for this step: the new point walks on, no new hold
+    CHECK(!r.speedLeash);
+}
+
+static void TestSpeedLeashNeedsNoRealPlayerThisTick()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = SpeedLeashRun(plan, f, 10);
+    CHECK(Tick(r, f) == "move 400.0 0.0 0.0");
+    f.leadX = 40;
+    SpeedLeashStraggler(f, 30);
+    PlayerFact p;
+    p.name = "Hypeer";
+    f.players.push_back(p); // joins this tick: speedPlayerBlocked still false
+    CHECK(!r.speedPlayerBlocked);
+    CHECK(Tick(r, f) == "");
+    CHECK(!r.speedLeash); // a real player in the party this tick: no hold order
+}
+
+static void TestSpeedLeashIgnoresOffMapBots()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = SpeedLeashRun(plan, f, 10);
+    CHECK(Tick(r, f) == "move 400.0 0.0 0.0");
+    f.leadX = 40;
+    MemberFact off;
+    off.name = "Krah";
+    off.yd = 1000;
+    off.x = 1000;
+    off.offPlanMap = true;
+    f.members = {off};
+    f.maxMemberYd = 1000;
+    f.walkBackRescue = false; // no `return` order: isolate the leash
+    CHECK(Tick(r, f) == "");
+    CHECK(!r.speedLeash); // an off-map bot never holds the lead
+}
+
+static void TestSpeedLeashNeedsSpeedWalking()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = SpeedLeashRun(plan, f, 10);
+    CHECK(Tick(r, f) == "move 400.0 0.0 0.0");
+    CHECK(SpeedWalking(r, f));
+    f.leadX = 40;
+    SpeedLeashStraggler(f, 30);
+    f.eating = 1; // a meal: SpeedWalking false on the tick's walk facts
+    CHECK(!SpeedWalking(r, f));
+    CHECK(Tick(r, f) == "");
+    CHECK(!r.speedLeash); // the first tick after a pull/shot-stand/meal sends no stop order
 }
 
 static void TestSpeedLeashResumesWhenTheRateDrops()
@@ -21285,6 +21335,9 @@ int main()
     TestSpeedChangeWaitsWhileSwimmingASpline();
     TestSpeedRestoreWaitIsBounded();
     TestSpeedLeashHoldsAFastWalkForAStraggler();
+    TestSpeedLeashNeedsNoRealPlayerThisTick();
+    TestSpeedLeashIgnoresOffMapBots();
+    TestSpeedLeashNeedsSpeedWalking();
     TestSpeedLeashLeavesOtherRunsAlone();
     TestSpeedLeashSkipsDirectWaterFightsAndEvents();
     TestSpeedLeashHoldsBeforeAFreshWalk();

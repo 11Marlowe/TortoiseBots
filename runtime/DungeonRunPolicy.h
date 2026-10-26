@@ -5526,20 +5526,23 @@ inline bool WalkBackStuckRescue(Run& r, const Facts& f, float dist, float x, flo
 
 // The test speed's leash (lead decision 2026-10-25, SCHOLO-REFAST-AUDIT 1.5): at 3x the followers fall 80-127 yd
 // behind (a core follow runs at the bot's own rate and never closes a gap; every cast or meal opens one 3x as fast),
-// and the party reached packs split. Only on a fast test walk: never at 1.0, after a real player, on a direct step,
-// with the lead bot in water (a stop could cut a swim spline), in a fight or an event.
+// and the party reached packs split. Only on a fast test walk: never at 1.0, with a real player in the party this
+// tick or blocked by one before, while the walking rule is off (SpeedWalking: a fight, a meal, a pull out or being
+// set up, a pack in sight), on a direct step, with the lead bot in water (a stop could cut a swim spline), in a
+// fight or an event.
 inline bool SpeedLeashApplies(const Run& r, const Facts& f, bool direct)
 {
-    return r.testSpeed > 1.0f && !r.speedPlayerBlocked && r.speedNow > 1.0f && !direct && !f.leadInWater &&
-        !f.anyInCombat && !f.leadInCombat && !r.fighting && !InEvent(r);
+    return r.testSpeed > 1.0f && f.players.empty() && !r.speedPlayerBlocked && r.speedNow > 1.0f && !direct &&
+        !f.leadInWater && !f.anyInCombat && !f.leadInCombat && !r.fighting && !InEvent(r) && SpeedWalking(r, f);
 }
 
-// The living bot farthest from the lead bot (Facts::members), or none.
+// The living bot farthest from the lead bot (Facts::members), or none. Only living bots on the plan's map count:
+// Members holds living bots only; a bot off the map or whose distance is unknown (1000 yd) never holds the lead.
 inline const MemberFact* SpeedLeashStraggler(const Facts& f)
 {
     const MemberFact* farthest = nullptr;
     for (const MemberFact& m : f.members)
-        if (!m.name.empty() && (!farthest || m.yd > farthest->yd))
+        if (!m.name.empty() && !m.offPlanMap && m.yd < 1000.0f && (!farthest || m.yd > farthest->yd))
             farthest = &m;
     return farthest;
 }
@@ -5555,7 +5558,7 @@ inline bool SpeedLeashTick(Run& r, const Facts& f, float x, float y, float z, bo
     {
         r.speedLeashMs += dt;
         bool const capped = r.speedLeashMs >= kGatherCapMs;
-        if (!SpeedLeashApplies(r, f, direct) || f.maxMemberYd <= kGatherYd || capped)
+        if (!SpeedLeashApplies(r, f, direct) || !farthest || farthest->yd <= kGatherYd || capped)
         {
             r.speedLeash = false;
             r.speedLeashMs = 0;
@@ -5578,7 +5581,7 @@ inline bool SpeedLeashTick(Run& r, const Facts& f, float x, float y, float z, bo
         r.note = "test speed: the walk waits for the party (" + who + ")";
         return true;
     }
-    if (r.speedLeashSpent || !SpeedLeashApplies(r, f, direct) || f.maxMemberYd <= kSpeedLeashYd)
+    if (r.speedLeashSpent || !SpeedLeashApplies(r, f, direct) || !farthest || farthest->yd <= kSpeedLeashYd)
         return false;
     r.speedLeash = true;
     r.speedLeashMs = 0;
@@ -5630,7 +5633,6 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         r.walkMovingMs = 0;
         r.speedLeash = false;
         r.speedLeashMs = 0;
-        r.speedLeashSpent = false;
         if (SpeedLeashTick(r, f, x, y, z, direct, dist, dt, order))
             return false; // a straggler already 25 yd off: hold before the walk goes out
         order = MoveOrder(x, y, z, direct);
