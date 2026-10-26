@@ -2,12 +2,17 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/AmmoStackPolicy.h"
+#include "playerbot/BossTacticsMgr.h"
+#include "playerbot/DungeonPlanMgr.h"
 #include "../../runtime/BotNames.h"
 #include "../../runtime/HireLevelPolicy.h"
 #include "../../runtime/HireFeePolicy.h"
 #include "../../runtime/HireRaidPolicy.h"
 #include "../../runtime/HireUnlockPolicy.h"
 #include "../../runtime/RemoteCommanderView.h"
+#include <algorithm>
+#include "../../runtime/RunTrace.h"
+#include "../../runtime/GossipOrderPolicy.h"
 #include <cerrno>
 #include <cstring>
 #include <thread>
@@ -126,6 +131,71 @@ inline ParsedUrl parseUrl(const std::string& url) {
     parsed.port = parsed.https ? 443 : (match[4].length() ? std::stoi(match[4]) : 80);
     parsed.path = match[5].length() ? match[5] : std::string("/");
     return parsed;
+}
+
+void PlayerbotAIConfig::LoadDungeonRunKeys()
+{
+    dungeonSelfClear = config.GetBoolDefault("AiPlayerbot.DungeonSelfClear", true);
+    dungeonRunMaxMinutes = static_cast<uint32>(std::max(0, config.GetIntDefault("AiPlayerbot.DungeonRunMaxMinutes", 180)));
+    dungeonRunAggroEstimate = config.GetBoolDefault("AiPlayerbot.DungeonRunAggroEstimate", false);
+    dungeonRunAggroCeiling = static_cast<uint32>(std::max(1, config.GetIntDefault("AiPlayerbot.DungeonRunAggroCeiling", 6)));
+    dungeonRunRezHold = config.GetBoolDefault("AiPlayerbot.DungeonRunRezHold", false);
+    dungeonRunPullStand = config.GetBoolDefault("AiPlayerbot.DungeonRunPullStand", false);
+    dungeonRunWalkBackAfterWonFight = config.GetBoolDefault("AiPlayerbot.DungeonRunWalkBackAfterWonFight", false);
+    dungeonRunRetreatAt2Dead = config.GetBoolDefault("AiPlayerbot.DungeonRunRetreatAt2Dead", false);
+    dungeonRunWalkBackRescue = config.GetBoolDefault("AiPlayerbot.DungeonRunWalkBackRescue", true);
+    dungeonRunFightForward = config.GetBoolDefault("AiPlayerbot.DungeonRunFightForward", true);
+    dungeonRunLightRest = config.GetBoolDefault("AiPlayerbot.DungeonRunLightRest", true);
+    dungeonRunLootFfa = config.GetBoolDefault("AiPlayerbot.DungeonRunLootFfa", false);
+    dungeonRunPlayerLed = config.GetBoolDefault("AiPlayerbot.DungeonRunPlayerLed", false);
+    dungeonRunPlayerLedPullYd = std::min(100.0f, std::max(5.0f, config.GetFloatDefault("AiPlayerbot.DungeonRunPlayerLedPullYd", 40.0f)));
+    dungeonRunPlayerLedAwayMinutes = static_cast<uint32>(std::min(60, std::max(1, config.GetIntDefault("AiPlayerbot.DungeonRunPlayerLedAwayMinutes", 10))));
+    botLfgGroups = config.GetBoolDefault("AiPlayerbot.BotLfgGroups", false);
+    if (botLfgGroups && !dungeonSelfClear)
+        sLog.outString("TortoiseBots: AiPlayerbot.BotLfgGroups = 1 needs AiPlayerbot.DungeonSelfClear = 1: bot LFG groups stay dormant.");
+}
+
+bool PlayerbotAIConfig::ReloadDungeonRunKeys()
+{
+    if (!enabled)
+        return false;
+    if (!config.Reload())
+    {
+        sLog.outError("TortoiseBots: config reload: %s could not be read again; the run leader keys keep their values.",
+            config.GetFilename().c_str());
+        return false;
+    }
+    LoadDungeonRunKeys();
+    sLog.outString("TortoiseBots: config reload: run leader keys read again from %s (DungeonSelfClear %d, "
+        "DungeonRunWalkBackAfterWonFight %d).", config.GetFilename().c_str(), dungeonSelfClear ? 1 : 0,
+        dungeonRunWalkBackAfterWonFight ? 1 : 0);
+    return true;
+}
+
+std::vector<std::pair<std::string, std::string>> PlayerbotAIConfig::FindConfigEntries(std::string const& filter)
+{
+    auto lower = [](std::string text)
+    {
+        for (char& c : text)
+            c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        return text;
+    };
+    std::string const wanted = lower(filter);
+    std::vector<std::string> keys;
+    config.GetKeys("AiPlayerbotConf", keys);
+    std::sort(keys.begin(), keys.end());
+    std::vector<std::pair<std::string, std::string>> out;
+    for (std::string const& key : keys)
+    {
+        std::string const name = lower(key);
+        if (!wanted.empty() && name.find(wanted) == std::string::npos)
+            continue;
+        bool const secret = name.find("apikey") != std::string::npos || name.find("llmapi") != std::string::npos ||
+            name.find("password") != std::string::npos || name.find("secret") != std::string::npos ||
+            name.find("token") != std::string::npos;
+        out.emplace_back(key, secret ? "***" : config.GetStringDefault(key.c_str(), ""));
+    }
+    return out;
 }
 
 bool PlayerbotAIConfig::Initialize()
@@ -265,6 +335,7 @@ bool PlayerbotAIConfig::Initialize()
     jumpFollow = config.GetBoolDefault("AiPlayerbot.JumpFollow", true);
     jumpChase = config.GetBoolDefault("AiPlayerbot.JumpChase", true);
     useKnockback = config.GetBoolDefault("AiPlayerbot.UseKnockback", true);
+    LoadList<std::list<uint32> >(config.GetStringDefault("AiPlayerbot.BotAreaTriggers", ""), botAreaTriggerIds);
 
     iterationsPerTick = config.GetIntDefault("AiPlayerbot.IterationsPerTick", 100);
 
@@ -618,12 +689,31 @@ bool PlayerbotAIConfig::Initialize()
     ownedBotSummonCooldown = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.OwnedBotSummonCooldown", 300));
     if (ownedBotSummonCooldown > 3600)
         ownedBotSummonCooldown = 3600;
-    // Issue #884: remote commander (off by default).
+    // Remote commander: the outside commander protocol (off by default).
     remoteCommander = config.GetBoolDefault("AiPlayerbot.RemoteCommander", false);
     // Issue #884, phase 2: the commander's TBM:VIEW feed period (250..60000 ms).
     remoteCommanderViewMs = TortoiseBots::RemoteCommander::View::ClampIntervalMs(
         config.GetIntDefault("AiPlayerbot.RemoteCommanderViewMs",
             static_cast<int>(TortoiseBots::RemoteCommander::View::kDefaultIntervalMs)));
+    // Run trace (opt-in): see docs/server/run-trace.md.
+    runTrace = config.GetBoolDefault("AiPlayerbot.RunTrace.Enabled", false);
+    runTraceIntervalMs = TortoiseBots::RunTrace::ClampIntervalMs(
+        config.GetIntDefault("AiPlayerbot.RunTrace.IntervalMs",
+            static_cast<int>(TortoiseBots::RunTrace::kDefaultIntervalMs)));
+    runTraceDir = config.GetStringDefault("AiPlayerbot.RunTrace.Dir", "traces");
+    runTraceGmOnly = config.GetBoolDefault("AiPlayerbot.RunTrace.GmOnly", true);
+    runTraceMaxFileMb = TortoiseBots::RunTrace::ClampMaxFileMb(
+        config.GetIntDefault("AiPlayerbot.RunTrace.MaxFileMb",
+            static_cast<int>(TortoiseBots::RunTrace::kDefaultMaxFileMb)));
+    {
+        // Issue #1012: the NPCs `.bot cmd gossip` may talk to. Empty (the default) = off.
+        std::string const gossipText = config.GetStringDefault("AiPlayerbot.BotGossipNpcs", "");
+        std::set<uint32_t> gossipNpcs;
+        if (uint32_t const bad = TortoiseBots::GossipOrder::ParseNpcList(gossipText, gossipNpcs))
+            sLog.outError("AiPlayerbot.BotGossipNpcs '%s': %u word(s) are not creature entries and were skipped",
+                gossipText.c_str(), bad);
+        botGossipNpcs = std::set<uint32>(gossipNpcs.begin(), gossipNpcs.end());
+    }
      openGoSpell = config.GetIntDefault("AiPlayerbot.OpenGoSpell", 6477);
 
     randomChangeMultiplier = config.GetFloatDefault("AiPlayerbot.RandomChangeMultiplier", 1.0);
@@ -970,6 +1060,8 @@ bool PlayerbotAIConfig::Initialize()
     hunterViperOnLowMana = config.GetBoolDefault("AiPlayerbot.HunterViperOnLowMana", true);
     paladinJudgementUpkeep = config.GetBoolDefault("AiPlayerbot.PaladinJudgementUpkeep", true);
     onyxiaWhelpsAndEggs = config.GetBoolDefault("AiPlayerbot.OnyxiaWhelpsAndEggs", true);
+    dungeonTactics = config.GetBoolDefault("AiPlayerbot.DungeonTactics", false);
+    LoadDungeonRunKeys();
     avoidCreatureAuras = config.GetBoolDefault("AiPlayerbot.AvoidCreatureAuras", true);
     allowRepairedTaxiPaths = config.GetBoolDefault("AiPlayerbot.AllowRepairedTaxiPaths", false);
     turnInRpg = config.GetBoolDefault("AiPlayerbot.TurnInRpg", false);
@@ -1179,6 +1271,10 @@ bool PlayerbotAIConfig::Initialize()
 
     sLog.outString("Loading named locations.");
     sRandomBotFacade.LoadNamedLocationCache();
+    sLog.outString("Loading boss tactics.");
+    ai::LoadBossTactics();
+    sLog.outString("Loading dungeon plans.");
+    ai::LoadDungeonPlans();
     sRandomBotFacade.LoadBattleMastersCache();
     sRandomBotFacade.LoadAuctionPrices();
 
@@ -1626,7 +1722,12 @@ void PlayerbotAIConfig::logEvent(PlayerbotAI* ai, std::string eventName, std::st
     // telemetry feature, not a CSV-logging one. EmitBotActivity filters to its
     // own whitelist and no-ops when the emitter is disabled.
     if (ai)
+    {
         sObservabilityEmitter.EmitBotActivity(eventName, info1, info2, ai->GetBot());
+        // Run trace: loot events of the traced bots (one atomic load when off).
+        if (TortoiseBots::RunTraceService::Instance().Active())
+            TortoiseBots::RunTraceService::Instance().NoteBotEvent(ai, eventName, info1, info2);
+    }
 };
 
 void PlayerbotAIConfig::logEvent(PlayerbotAI* ai, std::string eventName, ObjectGuid guid, std::string info2)

@@ -149,7 +149,6 @@ namespace ai
         virtual std::string GetTargetName() override { return "attacker of non-tank target"; }
         virtual std::string getName() override { return "taunt on attacker"; }
     };
-
     BUFF_ACTION(CastBloodrageAction, "bloodrage");
     MELEE_INTERRUPT_ACTION(CastShieldBashAction, "shield bash");
     ENEMY_HEALER_ACTION(CastShieldBashOnEnemyHealerAction, "shield bash");

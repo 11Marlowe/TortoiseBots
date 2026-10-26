@@ -37,6 +37,7 @@ Druids fulfill Tank, Healer, Melee DPS, or Ranged Caster roles using flexible sh
 - Drops threat with *Cower* at medium threat in party and raid encounters.
 - Fires *Ferocious Bite* early on targets below 25% health with 1 or more combo points (against targets under 4000 health; bosses keep Rip), avoiding clipping active *Rip* bleeds.
 - Out of combat or in battlegrounds, prowling cats maintain normal objective movement and routines.
+- A prowling druid still ends a pull's join window on time.
 
 ### Restoration (Healer)
 - Maintains *Rejuvenation* and *Regrowth* HoTs (Heal-over-Time spells) on injured allies.

@@ -1,5 +1,6 @@
 // pi-lens-ignore-file: all
 #include "BotCommandHandlers.h"
+#include "BotCommands.h"
 #include "CommandShared.h"
 #include "BotCommandContext.h"
 // pi-lens-ignore: clang:pp_file_not_found
@@ -943,7 +944,19 @@ bool HandleAction(ChatHandler* handler, char const* args)
     Player* requester = Requester(handler);
     std::string intent;
     std::string option;
-    if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
+    bool const parsed = requester && ParseAction(Trim(args ? args : ""), intent, option);
+    // Another player of a bound party (in-party binding): its bots take no `.bot action` of his.
+    if (parsed)
+        if (uint64 const owner = BoundForeignCommander(requester))
+        {
+            Player* commander = ObjectAccessor::FindPlayerNotInWorld(ObjectGuid(owner)); // FindCharacter is file-local to Commander.cpp
+            SendActionError(handler, "action " + intent, "run-bound",
+                RemoteCommander::RunBoundRefusalText(commander ? commander->GetName() : "its commander").c_str());
+            return true;
+        }
+    if (parsed)
+        PauseDungeonRunForPlayer(requester->GetObjectGuid().GetRawValue(), "action " + intent);
+    if (!parsed)
     {
         if (intent.empty())
         {

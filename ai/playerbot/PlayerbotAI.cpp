@@ -1,6 +1,7 @@
 #include "playerbot/GroupMembers.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/PerformanceMonitor.h"
+#include "../../runtime/CommandedGroupQuery.h"
 #include <stdarg.h>
 #include <deque>
 #include <iomanip>
@@ -9,11 +10,13 @@
 #include <thread>
 
 #include "playerbot/AiFactory.h"
+#include "playerbot/BotAreaTriggers.h"
 
 #include "../../runtime/ObservabilityEmitter.h"
 #include "../../runtime/WorldPvpPolicy.h"
 #include "../../runtime/AltBotPolicy.h"
 #include "../../runtime/AltBotService.h"
+#include "../../runtime/RunTrace.h"
 #include "../../runtime/BotActivityLease.h"
 #include "../../runtime/HireLifecycle.h"
 #include "../../runtime/HireMasterPolicy.h"
@@ -37,6 +40,7 @@
 #include "LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "PlayerbotAI.h"
+#include "BotAreaTriggers.h"
 #include "playerbot/InterruptCastingPolicy.h"
 #include "playerbot/strategy/values/MountValues.h"
 #include "playerbot/MountDismountPolicy.h"
@@ -330,6 +334,22 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     // read only, no DB/scan; the OnPlayerLogin call keeps owning first login.
     if (bot->watching_cinematic_entry)
         bot->CinematicEnd();
+
+    // Issue #984: a Headless bot never sends CMSG_AREATRIGGER, so a scripted
+    // area trigger (Zum'rah's at_zumrah) never fired for an all-bot party. Run
+    // the script of a trigger the bot just walked into, as the client would
+    // (dungeons only, not raids).
+    // A few position tests against the bot's map's index, twice a second: the listed
+    // triggers, and those the bot's dungeon run has armed (its move steps' triggers until they fired).
+    if (areaTriggerCheckDelay > elapsed)
+        areaTriggerCheckDelay -= elapsed;
+    else
+    {
+        areaTriggerCheckDelay = ai::kBotAreaTriggerCheckMs;
+        std::vector<uint32_t> const* runArmed = TortoiseBots::BotCommands::RunArmedAreaTriggers(bot);
+        if (!sPlayerbotAIConfig.botAreaTriggerIds.empty() || runArmed)
+            ai::UpdateBotAreaTriggers(bot, areaTriggerState, runArmed);
+    }
 
     // revalidate the
     // cached master pointer against ObjectAccessor BEFORE any code
@@ -1213,6 +1233,46 @@ void PlayerbotAI::OnCombatStarted()
         {
             ResetAIInternalUpdateDelay();
         }
+    }
+}
+void PlayerbotAI::StartFightStartHold()
+{
+    if (!bot || !aiObjectContext || HasPullWindow())
+        return;
+    ai::FightStartHoldFacts facts;
+    facts.runningRun = TortoiseBots::BotCommands::IsInRunningDungeonRun(bot);
+    facts.realPlayerMaster = HasRealPlayerMaster();
+    facts.pullWindow = HasPullWindow();
+    facts.isTank = IsTank(bot, true);
+    facts.isHealer = IsHeal(bot, true);
+    for (Player* member : LiveGroupMembers(bot->GetGroup()))
+    {
+        if (!member || member == bot || !member->IsAlive() || !member->IsInWorld() || member->GetMapId() != bot->GetMapId())
+            continue;
+        if (IsTank(member, true))
+        {
+            facts.tankInGroup = true;
+            break;
+        }
+    }
+    for (Unit* attacker : bot->GetAttackers())
+    {
+        if (!attacker || !attacker->IsAlive())
+            continue;
+        if (attacker->GetVictim() == bot)
+        {
+            facts.botIsVictim = true;
+            break;
+        }
+    }
+    Unit* ccMark = nullptr;
+    if (auto* ccValue = aiObjectContext->GetValue<Unit*>("rti cc target"))
+        ccMark = ccValue->Get();
+    facts.ccMark = ccMark != nullptr;
+    if (ai::FightStartHoldOpens(facts))
+    {
+        StartPullWindow(ai::kFightStartHoldSeconds, true, 0, true);
+        RestampPullWindow(true);
     }
 }
 
@@ -2278,7 +2338,7 @@ bool PlayerbotAI::IsAllowedCommand(std::string text)
 
 // Issue #294: tiered bot command authorization. Single choke point keyed by
 // the command's first word. GM = sender session security > SEC_PLAYER (this
-// core has no separate GM rank: SEC_GAMEMASTER aliases SEC_ADMINISTRATOR,
+// core has no separate GM rank: SEC_GAMEMASTER aliases SEC_DEVELOPER,
 // so `> SEC_PLAYER` is the documented "any elevated account" check). Owner =
 // sender account == the bot's durable owner account (BotManager ownership
 // record, falling back to the character account for pre-ownership records).
@@ -2530,6 +2590,10 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
                     BotCommandFirstWordLower(filtered) + "|denied|Not authorized for this bot command.");
             return;
         }
+        // A player's order to a bot of a party a run leader drives: the commander's whisper pauses the run;
+        // party chat is chatting (dropped as an order while the run runs); another player's whisper is refused.
+        if (!TortoiseBots::BotCommands::NoteHumanChatOrder(bot, fromPlayer, filtered, type == CHAT_MSG_WHISPER))
+            return;
     }
     if (!IsAllowedCommand(filtered) && !GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, type != CHAT_MSG_WHISPER, &fromPlayer))
         return;
@@ -2658,6 +2722,10 @@ void PlayerbotAI::PublishChatGate()
 
 void PlayerbotAI::SpellInterrupted(uint32 spellid)
 {
+    // Run trace (opt-in): the bot's own cast was cancelled.
+    if (TortoiseBots::RunTraceService::Instance().Active())
+        TortoiseBots::RunTraceService::Instance().NoteSpellInterrupted(this, spellid);
+
     LastSpellCast& lastSpell = aiObjectContext->GetValue<LastSpellCast&>("last spell cast")->Get();
     if (!spellid || lastSpell.id != spellid)
         return;
@@ -2831,6 +2899,12 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
     // mid-fight and, through the BotManager (ClaimForMaster / ReleaseMaster), replace
     // the Dungeon lease that keeps the random-bot services off the crew.
     bool const dungeonCrew = TortoiseBots::BotActivityLeaseManager::Instance().GetActivity(bot->GetGUIDLow()) == TortoiseBots::BotActivity::Dungeon;
+    // A bot of a group a remote commander bound keeps its master and its group's leader as the binding has them: no
+    // master strip below, no hand-over of the lead to a real player of the group and no adoption of a real player as
+    // master (`.bot commander bind ... inparty` keeps players in the group; the lead bot leads it, and another player
+    // must never become the bots' master, even while the commander is offline or gone until the binding is released;
+    // the release then takes the bots out of that party, BotCommands ReleaseBinding).
+    bool const commanded = TortoiseBots::BotCommands::IsInCommandedGroup(bot);
 
     // Issue #1014: a hire keeps its hirer. While the hirer changes maps it is out
     // of the world (FindPlayer misses it, so UpdateAI dropped the pointer) but
@@ -2850,7 +2924,7 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
     }
 
     //Remove bot masters not in our group.
-    if (!dungeonCrew && master && master != bot && !HasActivePlayerMaster() && (!group || group->GetLeaderGuid() != master->getObjectGuid()))
+    if (!dungeonCrew && !commanded && master && master != bot && !HasActivePlayerMaster() && (!group || group->GetLeaderGuid() != master->getObjectGuid()))
     {
         Player* replacementMaster = IsRealPlayer() ? bot : nullptr;
         if (TortoiseBots::BotManager::Instance().IsBot(bot->GetObjectGuid()))
@@ -2878,7 +2952,8 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
     if (!dungeonCrew && group && !IsRealPlayer())
     {
         // If this bot is group leader and there is a real player in the group, yield leadership to the real player.
-        if (group->IsLeader(bot->GetObjectGuid()))
+        // (Not in a commanded group, see `commanded`: handing the lead over would end the binding.)
+        if (group->IsLeader(bot->GetObjectGuid()) && !commanded)
         {
             // Resolve the new leader through the Group's member slots before any
             // change: the GroupReference list can hand out a Player* that is
@@ -2936,7 +3011,9 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
 
         // Issue #1014: never hand a hire to a bot, nor to anyone while its hirer
         // is only between maps.
+        // A commanded bot never takes a real player of its group as master (see `commanded`).
         if (newMaster && (!master || master != newMaster) && bot != newMaster &&
+            !(commanded && IsRealPlayer(newMaster)) &&
             TortoiseBots::HireAllowsMasterAdoption(hired, hirerBetweenMaps, IsRealPlayer(newMaster)))
         {
             bool masterChanged = true;
@@ -3314,7 +3391,7 @@ void PlayerbotAI::ResetStrategies(bool autoLoad)
     // pull's delay in "wait for attack time". End it first: the player's
     // delay comes back and the anchor goes (PullJoinWindowPolicy.h).
     if (HasPullWindow())
-        EndPullWindow();
+        EndPullWindow("reset");
 
     for (uint8 i = 0; i < (uint8)BotState::BOT_STATE_ALL; i++)
     {
@@ -4195,10 +4272,13 @@ void PlayerbotAI::ReleasePullHold()
     }
 }
 
-void PlayerbotAI::StartPullWindow(uint8 windowSeconds)
+void PlayerbotAI::StartPullWindow(uint8 windowSeconds, bool leadKeyed, uint8 minSeconds, bool fightStart)
 {
     if (!aiObjectContext)
         return;
+
+    // A restarted or chained window must not log the previous pull's reason.
+    SetPullReleaseReason(nullptr);
 
     auto* waitTime = aiObjectContext->GetValue<uint8>("wait for attack time");
     uint8 const previousSeconds = waitTime->Get();
@@ -4218,7 +4298,7 @@ void PlayerbotAI::StartPullWindow(uint8 windowSeconds)
     }
 
     waitTime->Set(windowSeconds);
-    pullWindow_.Start(time(0), added, previousSeconds);
+    pullWindow_.Start(time(0), added, previousSeconds, leadKeyed, minSeconds, fightStart);
 }
 
 void PlayerbotAI::SetPlayerWaitForAttackTime(uint8 seconds)
@@ -4247,15 +4327,28 @@ void PlayerbotAI::SyncPullWindow(BotState type)
     // (an attack or flee order, a player's `co -wait for attack` or toggle),
     // the hold is over. The player's delay goes back as the window ends.
     if (!HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT))
-        EndPullWindow();
+        EndPullWindow("order");
 }
 
-void PlayerbotAI::EndPullWindow()
+void PlayerbotAI::EndPullWindow(const char* reason)
 {
+    bool const running = pullWindow_.Running();
     ai::PullJoinWindow const window = pullWindow_;
     // Cleared first, so the removals below are not read as someone else's
     // change to the strategy (SyncPullWindow).
     pullWindow_.Clear();
+    // The single release line: only a running window logs, exactly once, and
+    // the stored reason dies with it so two consecutive windows never share
+    // one. The trigger names the rule (tank-first/hit/tank-low/tank-dead/
+    // cap/expired); direct callers name the path (order/reset/reload).
+    if (running && bot)
+    {
+        std::string const stored = PullReleaseReason();
+        std::string const logged = reason && *reason ? reason : (stored.empty() ? "order" : stored);
+        sLog.outBasic("[BOT] pull-release %s reason=%s kind=%s elapsed=%u", bot->GetName(), logged.c_str(),
+            window.fightStart ? "fight-start" : (window.leadKeyed ? "pull" : "chat"), window.start ? uint32(time(0) - window.start) : 0);
+    }
+    SetPullReleaseReason(nullptr);
 
     for (uint8 i = 0; i < (uint8)BotState::BOT_STATE_ALL; i++)
     {

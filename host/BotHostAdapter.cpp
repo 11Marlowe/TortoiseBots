@@ -11,6 +11,7 @@
 #include "../runtime/AhMarketService.h"
 #include "../runtime/BattlegroundQueueService.h"
 #include "../runtime/ObservabilityEmitter.h"
+#include "../runtime/RunTrace.h"
 #include "BotChatAdapter.h"
 #include "BotPacketAdapter.h"
 #include "HireRecruiterScript.h"
@@ -23,6 +24,7 @@
 #include "ModuleLog.h"
 #include "ModuleVersion.h"
 
+#include <atomic>
 #include <cctype>
 #include <string>
 
@@ -77,9 +79,16 @@ BotHostAdapter::BotHostAdapter()
 {
 }
 
-void BotHostAdapter::OnAfterConfigLoad(bool /*reload*/)
+// Set by a `.reload config` (OnAfterConfigLoad, on whichever thread ran the
+// command); the next world tick reads the run leader's keys again (OnUpdate),
+// on the thread that reads them.
+static std::atomic<bool> s_dungeonRunKeysDue{false};
+
+void BotHostAdapter::OnAfterConfigLoad(bool reload)
 {
     ModuleLog::Instance().ApplyConfig();
+    if (reload)
+        s_dungeonRunKeysDue.store(true);
 }
 
 void BotHostAdapter::OnStartup()
@@ -90,6 +99,10 @@ void BotHostAdapter::OnStartup()
     ModuleLog::Instance().ApplyConfig();
 
     bool configured = sPlayerbotAIConfig.Initialize();
+    // The dashboard's boss list: one pass over the creature spawns, here at start (the plans were just sealed), never in a 2 s snapshot.
+    // Only for the dungeon features that read it; everyone else skips the scan and the readers fall back.
+    if (sPlayerbotAIConfig.dungeonTactics || sPlayerbotAIConfig.dungeonSelfClear)
+        BotCommands::BuildBossSpawnCache();
     HireRecruiterScript::SyncUnlockFees();
     HireRecruiterScript::SyncHireUnlockChain();
     // Issue #490: static hire-gear sets, one pass over the table rows.
@@ -97,6 +110,8 @@ void BotHostAdapter::OnStartup()
     RandomBotService::Instance().Initialize();
     BattlegroundQueueService::Instance().Initialize();
     ClaimLifecycle::Instance().Initialize();
+    // Run trace: mark the summaries of runs the last server never finalised.
+    RunTraceService::Instance().Initialize();
 
     if (sConfig.GetBoolDefault("TortoiseBots.PendingAddRemoveTest", false))
     {
@@ -149,6 +164,11 @@ void BotHostAdapter::OnUpdate(uint32 diff)
     // jump), so their packet hooks on this thread reach the AI inline.
     BotPacketAdapter::MarkWorldThread();
 
+    // A `.reload config` came: the run leader's keys (AiPlayerbot.DungeonSelfClear,
+    // AiPlayerbot.DungeonRun*) are read again from aiplayerbot.conf, only those.
+    if (s_dungeonRunKeysDue.exchange(false))
+        sPlayerbotAIConfig.ReloadDungeonRunKeys();
+
     // Initialization stops before service configuration when AI is disabled.
     // Do not tick those services against an uninitialized registry/config.
     if (sPlayerbotAIConfig.enabled)
@@ -167,7 +187,12 @@ void BotHostAdapter::OnUpdate(uint32 diff)
 
     // Read again: a command may have reloaded the configuration.
     if (!sPlayerbotAIConfig.enabled)
+    {
+        // A run trace still going ends here ("disabled"); with none, this is
+        // its usual one atomic load.
+        RunTraceService::Instance().Update(diff);
         return;
+    }
 
     // Issue #839 / #844: the rest of the chat and packets that reached bots on
     // other threads (party / whisper commands included), before the bot update;
@@ -186,10 +211,13 @@ void BotHostAdapter::OnUpdate(uint32 diff)
     AhMarketService::Instance().Update(diff);
     BattlegroundQueueService::Instance().Update(diff);
     ObservabilityEmitter::Instance().Update(diff);
+    // Opt-in run trace (one atomic load per tick while no run is active).
+    RunTraceService::Instance().Update(diff);
 }
 
 void BotHostAdapter::OnShutdown()
 {
+    RunTraceService::Instance().Shutdown();
     ObservabilityEmitter::Instance().Shutdown();
     BattlegroundQueueService::Instance().Shutdown();
     BotCommandQueue::Instance().Clear();

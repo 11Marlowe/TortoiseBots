@@ -65,6 +65,8 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | [Addon (TortoiseBotsManager)](play/commands/addon.md) | In-game UI guide and silent addon communication protocol. |
 | [Dungeon and raid tactics](play/dungeons-and-raids.md) | Pull mechanics, boss tactics, hazard evasion, wipe runs, and loot rules. |
 | [Dungeon reference](play/dungeon-reference.md) | Kill orders, creature IDs, pooled rares, and events for 18 dungeons. |
+| [Dungeon run leader](play/dungeon-run-leader.md) | Opt-in `.bot run`: a bound party clears a stored dungeon plan by itself; plan tables and safety rules. |
+| [Boss tactics table](play/boss-tactics.md) | Opt-in per-boss rows (`ai_boss_tactic`): interrupts, kill order, stay behind. |
 | [Known limitations](play/known-limitations.md) | Engine limits, deliberate non-goals, targeting rules, and known quirks. |
 | [Glossary](play/glossary.md) | Abbreviations and TortoiseBots terms in plain words. |
 | [Classes overview](classes/overview.md) | Shared class AI, spec detection, combat roles, and interrupt logic. |
@@ -96,6 +98,7 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | [Admin commands](server/admin-commands.md) | GameMaster commands for bot pools, AH market control, and account adoption. |
 | [Bot pool management](server/bot-pool.md) | Managed pool registry, account structures, and safe pool reset procedures. |
 | [Observability dashboard](server/dashboard.md) | Real-time web dashboard, 2D live map, Prometheus metrics, and issue tracker. |
+| [Run trace](server/run-trace.md) | Opt-in recorder of a party's run (`.bot trace`), the `bt-trace` v1 schema, and the offline scorer. |
 | [Party settings](server/settings/party.md) | Follow distances, summon rules, alt-bot persistence, and loot rolling. |
 | [Hiring settings](server/settings/hiring.md) | Mercenary hiring fees, recruiter quests, gear tiers, and world buffs. |
 | [Class behavior settings](server/settings/class-behaviour.md) | AI flags for Aspect of the Viper, Judgements, threat drops, and demon choices. |

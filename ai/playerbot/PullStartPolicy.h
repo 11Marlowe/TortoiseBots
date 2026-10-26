@@ -30,8 +30,9 @@ namespace ai
     }
 
     // What the order clears on the tank before its decisions. A pull often
-    // comes a second after the last fight ends, while the tank sits eating:
-    // in an Uldaman run (build 19z11) the meal cast (24005) was live one
+    // comes a second after the last fight ends (the run leader pulls that
+    // soon), while the tank sits eating: in an Uldaman run (build 19z11) the
+    // meal cast (24005) was live one
     // second before the refused pullback. "reach pull" will not move a bot
     // that is casting (ReachTargetAction::isUseful), so the walk was never
     // launched and the order was refused. A human or commander order beats

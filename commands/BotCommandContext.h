@@ -5,6 +5,7 @@
 #include "../ai/playerbot/PullExecutorPolicy.h"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -31,6 +32,16 @@ struct BotCommandContext
     Group* group = nullptr;
     Player* selectedBot = nullptr;
     std::vector<Player*> partyBots;
+    // Set by the run leader (.bot run) for the orders it sends: a pull then
+    // holds the healer on its stand too (PausePartyDpsForPull) and keeps it
+    // to heals. `healerStand` gives the point behind the tank for one healer
+    // (false: no better point than the tank's own spot); empty for any other
+    // order.
+    bool runLeader = false;
+    std::function<bool(Player*, float&, float&, float&)> healerStand;
+    // Called for each healer a run-leader pull sets heal-only, so the run
+    // leader lists it (its sync lets it go again when it is not wanted).
+    std::function<void(Player*)> noteHealOnly;
 };
 
 // Every command path uses these checks. A BotRecord alone is not sufficient:
@@ -65,8 +76,12 @@ std::string PullBlockerDetail(BotCommandContext const& context);
 // Tally behind PullBlockerDetail, exposed for tests.
 void CountPullBlockers(BotCommandContext const& context, std::map<ai::PullExcludeReason, uint32>& counts);
 // Hold party DPS for the join delay while the tank pulls and
-// establishes threat. Tanks are untouched; healers heal but deal no damage
-// while the hold runs. For a pullback the
+// establishes threat. Tanks are untouched. Healers are untouched too, except
+// in the run leader's pulls (context.runLeader): a healer then stays on its
+// stand, 9 yd behind the tank, like the others, and can heal from there (no
+// wait gate, no damage spell, no following). (The party-chat pull hold,
+// ai::PausePartyPullHold, gives healers the join window without a stay: they
+// heal but deal no damage while it runs.) For a pullback the
 // window additionally covers the tank's return leg and is narrowed to the
 // join delay on arrival.
 void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, uint32 joinDelaySeconds, bool pullback = false);

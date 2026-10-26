@@ -141,7 +141,7 @@ Controls whether hired companions may enter battlegrounds.
 <details>
 <summary>How it works in detail</summary>
 
-When set to `0`, hired companions are PvE-only: queueing for a battleground warns the master once, entering dismisses the companions, hiring is refused while queued or inside, and hired companions never join the battleground queue on their own or through a group queue.
+When set to `0`, hired companions are PvE-only: queueing for a battleground warns the master once, entering dismisses the companions, hiring is refused while queued or inside, and hired companions never join the battleground queue on their own or through a group queue. Each recruiter's greeting ends with a red line saying its mercenaries are for PvE only; with `1` that line is left out.
 
 When set to `1`, hires may go to battlegrounds as before.
 

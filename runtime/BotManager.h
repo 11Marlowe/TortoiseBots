@@ -20,6 +20,7 @@ public:
     bool IsEmpty() const { return true; }
     bool IsPlayer() const { return true; }
     uint32_t GetCounter() const { return 0; }
+    uint64_t GetRawValue() const { return 0; }
     std::string GetString() const { return ""; }
     bool operator==(ObjectGuid const&) const { return true; }
     bool operator!=(ObjectGuid const&) const { return false; }

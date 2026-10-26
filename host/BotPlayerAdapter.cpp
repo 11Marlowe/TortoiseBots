@@ -11,6 +11,7 @@
 #include "../ai/playerbot/AiFactory.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
+#include "../ai/playerbot/strategy/actions/ReviveFromCorpseAction.h"
 #include "Log.h"
 #include "Map.h"
 #include "Player.h"
@@ -32,7 +33,11 @@ BotPlayerAdapter::BotPlayerAdapter()
         PLAYERHOOK_ON_BEFORE_LOGOUT,
         PLAYERHOOK_ON_LOGOUT,
         PLAYERHOOK_IS_MANAGED_BOT,
-        PLAYERHOOK_GET_BOT_ROLES })
+        PLAYERHOOK_GET_BOT_ROLES
+#ifdef TORTOISEBOTS_CORE_HAS_BOT_REPOP
+        , PLAYERHOOK_GET_BOT_REPOP_ENTRANCE
+#endif
+        })
 {
 }
 
@@ -42,6 +47,22 @@ bool BotPlayerAdapter::IsManagedBot(Player* who)
         return false;
     return BotManager::Instance().IsBot(who->GetObjectGuid());
 }
+
+// Player::RepopAtGraveyard calls this for a managed bot released inside a
+// dungeon, before it revives the bot at a door. The core's own pick
+// (GetMapEntranceTrigger, the lowest trigger id) is one fixed door: Scarlet
+// Monastery's Graveyard wing whatever wing the bot died in. Answer the
+// external door whose destination lies nearest the corpse (its trigger id);
+// 0 (not a bot of ours, a map not validated, no eligible door) keeps the
+// core's trigger.
+#ifdef TORTOISEBOTS_CORE_HAS_BOT_REPOP
+uint32 BotPlayerAdapter::GetBotRepopEntrance(Player* bot, uint32 mapId, float x, float y, float z)
+{
+    if (!bot || !BotManager::Instance().IsBot(bot->GetObjectGuid()))
+        return 0;
+    return ai::PickRepopEntrance(bot, mapId, x, y, z);
+}
+#endif
 
 uint8 BotPlayerAdapter::GetBotRoles(Player* who)
 {

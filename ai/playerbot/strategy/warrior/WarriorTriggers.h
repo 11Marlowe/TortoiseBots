@@ -10,6 +10,7 @@ namespace ai
     BUFF_TRIGGER_A(BerserkerStanceTrigger, "berserker stance");
     BUFF_TRIGGER_A(ShieldBlockTrigger, "shield block");
     DEBUFF_TRIGGER(RendDebuffTrigger, "rend");
+
     DEBUFF_TRIGGER_A(SunderArmorDebuffTrigger, "sunder armor");
     // Disarm only strips a target that carries a weapon and only with the
     // rage it costs; anything else fails the cast and stalls the rotation.

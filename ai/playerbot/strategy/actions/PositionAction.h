@@ -2,9 +2,14 @@
 #include "playerbot/PlayerbotAI.h"
 #include "MovementActions.h"
 #include "GenericActions.h"
+#include "playerbot/strategy/values/PositionValue.h"
 
 namespace ai
 {
+    // The stay walk is due now (runtime/StayArrivalPolicy.h StayWalkDue): its action's
+    // isUseful and its trigger both ask this.
+    bool StayWalkDueNow(PlayerbotAI* ai, Player* bot, PositionEntry const& stayPosition);
+
     class PositionAction : public ChatCommandAction
     {
     public:
@@ -53,6 +58,9 @@ namespace ai
     public:
         ReturnToStayPositionAction(PlayerbotAI* ai) : MoveToPositionAction(ai, "move to position", "stay") {}
         virtual bool isPossible() override;
+        // The shared stay arrival rule and back-off (runtime/StayArrivalPolicy.h), the ones its trigger uses.
+        virtual bool isUseful() override;
+        virtual bool Execute(Event& event) override;
     };
 
     class ReturnToPullPositionAction : public MoveToPositionAction

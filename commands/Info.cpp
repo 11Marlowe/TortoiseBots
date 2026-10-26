@@ -219,6 +219,74 @@ bool HandleVersion(ChatHandler* handler, char const* /*args*/)
     handler->PSendSysMessage("%s", AttributionLine().c_str());
     return true;
 }
+// `.bot features all <text>`: every bot config key holding <text>, for the
+// addon's Info search. Capped, since the file holds thousands of keys.
+static bool SendConfigSearch(ChatHandler* handler, std::string const& filter)
+{
+    constexpr size_t kMaxShown = 200;
+    std::vector<std::pair<std::string, std::string>> const entries = sPlayerbotAIConfig.FindConfigEntries(filter);
+    size_t const shown = std::min(entries.size(), kMaxShown);
+    handler->PSendSysMessage("Config: %u keys match '%s'.", uint32(entries.size()), filter.c_str());
+    handler->PSendSysMessage("TBM:CONFIG_BEGIN|%u", uint32(entries.size()));
+    for (size_t i = 0; i < shown; ++i)
+    {
+        std::string key = entries[i].first;
+        if (key.compare(0, 12, "AiPlayerbot.") == 0)
+            key = key.substr(12);
+        std::string value = entries[i].second;
+        for (char& c : value)
+            if (c == '|')
+                c = '/';
+        handler->PSendSysMessage("TBM:CONFIG|%s|%s", key.c_str(), value.c_str());
+    }
+    handler->PSendSysMessage("TBM:CONFIG_END|%u|%u", uint32(shown), uint32(entries.size()));
+    return true;
+}
+
+// The server's player-facing switches, for the addon's Info window: one
+// summary line for chat and TBM:FEATURE|<key>|<value>|<label> per switch.
+bool HandleFeatures(ChatHandler* handler, char const* args)
+{
+    std::string const words = Trim(args ? args : "");
+    if (words == "all" || words.compare(0, 4, "all ") == 0)
+    {
+        std::string const filter = Trim(words.substr(3));
+        if (filter.size() < 2)
+        {
+            handler->PSendSysMessage("Usage: .bot features all <at least two letters of a setting name>");
+            return true;
+        }
+        return SendConfigSearch(handler, filter);
+    }
+    struct Feature { char const* key; std::string value; char const* label; };
+    auto onOff = [](bool on) { return std::string(on ? "on" : "off"); };
+    PlayerbotAIConfig const& c = sPlayerbotAIConfig;
+    std::vector<Feature> const features = {
+        { "dungeon-run", onOff(c.dungeonSelfClear), "Dungeon runs" },
+        { "player-led", onOff(c.dungeonRunPlayerLed), "Player-led runs (I lead)" },
+        { "remote-commander", onOff(c.remoteCommander), "Remote commander" },
+        { "dungeon-tactics", onOff(c.dungeonTactics), "Boss tactics for every bot" },
+        { "bot-lfg", onOff(c.botLfgGroups), "Bot LFG groups" },
+        { "hiring", onOff(c.hireEnabled), "Hiring" },
+        { "hire-max", std::to_string(c.hireMaxBotsPerPlayer), "Hires per player" },
+        { "hire-pvp", onOff(c.hireAllowPvP), "Hires in battlegrounds" },
+        { "hire-anywhere", onOff(c.hireAnywhere), "Hire away from recruiters" },
+        { "hire-tier", std::to_string(c.hireGearStartTier), "Hire gear start tier" },
+        { "world-buffs", onOff(c.worldBuffsEnabled), "World buffs from recruiters" },
+        { "autogear-all", onOff(c.playerAutogearForAll), "Autogear for every player" },
+        { "alt-bots", onOff(c.altBots), "Alt bots" },
+        { "ah-market", onOff(c.ahMarketEnabled), "Auction house market" },
+        { "random-bots", std::to_string(c.maxRandomBots), "World bots (max)" },
+        { "run-trace", onOff(c.runTrace), "Run trace" },
+    };
+    std::string summary;
+    for (Feature const& f : features)
+        summary += (summary.empty() ? "" : ", ") + std::string(f.key) + " " + f.value;
+    handler->PSendSysMessage("Server features: %s", summary.c_str());
+    for (Feature const& f : features)
+        handler->PSendSysMessage("TBM:FEATURE|%s|%s|%s", f.key, f.value.c_str(), f.label);
+    return true;
+}
 bool HandleLease(ChatHandler* handler, char const* args)
 {
     std::string sub = Trim(args ? args : "");
@@ -448,8 +516,11 @@ bool HandleRoster(ChatHandler* handler, char const* /*args*/)
     // Capability trailer: pull-seconds = adjustable pull/pullback delays
     // (".bot action pull [seconds]", 0-60); flee = ".bot action flee";
     // inventory = ".bot inv" / ".bot item"; behavior = ".bot behavior" and the
-    // BOTSTATE snapshot. Old addons ignore unknown lines and items.
-    handler->PSendSysMessage("TBM:CAPS|pull-seconds,flee,inventory,behavior,claimed-roster");
+    // BOTSTATE snapshot; dungeon-run = ".bot run" and its TBM:RUN status lines,
+    // only while the dungeon run is enabled. Old addons ignore unknown lines and items.
+    bool const dungeonRun = RemoteCommander::RunSurfaceOn(CurrentCommanderGates());
+    handler->PSendSysMessage("TBM:CAPS|pull-seconds,flee,inventory,behavior,claimed-roster%s",
+        dungeonRun ? ",dungeon-run" : "");
     // Transport trailer: the addon sends its next commands over the addon
     // channel only while this says "party". See AddonCommandChannel.
     handler->PSendSysMessage("TBM:TRANSPORT|%s", AddonCommandChannel(requester));

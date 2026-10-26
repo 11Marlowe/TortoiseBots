@@ -20,11 +20,23 @@ TortoiseBots strives to make companion bots behave like human players. However, 
 - **Synthetic Auction Market:** While bots list and purchase items from their actual inventories, fully synthetic auction supply and synthetic buyers are optional features disabled by default ([`AiPlayerbot.AhMarketSyntheticSupply`](../server/settings/economy.md#aiplayerbotahmarketsyntheticsupply) and [`AiPlayerbot.AhMarketBuyer`](../server/settings/economy.md#aiplayerbotahmarketbuyer)). When enabled, synthetic items remain isolated from real player inventories.
 - **Pre-Movement Loot Admission:** Bots check loot rights for creature corpses before walking to them. However, the server engine currently lacks an upfront query for game object loot rights; a bot may occasionally walk toward a gathered herb or mined vein before determining that there is nothing lootable.
 
+## Opt-In Dungeon Clearing
+
+By default, 5-player dungeons and raids are cleared by a player (or a remote commander) directing companion bots; the run leader that walks a stored dungeon plan by itself is on by default (`AiPlayerbot.DungeonSelfClear = 1`), started with an `inparty` bind or a player-led run in the player's own party. The remote commander drives parties from outside. The **run leader** (`.bot run`) is described in [Dungeon Run Leader](dungeon-run-leader.md), and its setting in [Dungeon & raid settings](../server/settings/dungeons-raids.md#aiplayerbotdungeonselfclear). Its limits:
+
+- **A stored plan is needed:** a run follows a dungeon plan from the world tables (`ai_dungeon_plan`, `ai_dungeon_leg`, `ai_dungeon_step`). Plans are on the server for Uldaman, Zul'Farrak, Ragefire Chasm and Wailing Caverns, and for Deadmines, whose plan is still a draft in turtle-agent. No raid plan is listed.
+- **Bound parties only:** the run leads a bound party (`.bot commander bind`, with `inparty` for your own party). From 2026-10-23 a bind with `inparty` kept 1 to 4 real players (the commander among them) in the party, the lead bot leading; a remote bind (needs `AiPlayerbot.RemoteCommander = 1`) runs a bot-only party from outside. From 2026-10-24 a player-led run (`.bot run start ... player`, the player walks and the run pulls near him, [Dungeon Run Leader](dungeon-run-leader.md#player-led-runs)) was built in slices S1-S4 behind `AiPlayerbot.DungeonRunPlayerLed` (default 0), and S5-S6 (player down and away, key-item loot, object and event steps near the player), with no live proof yet; readable chat lines beside the `TBM:` ones were not built.
+- **The commander stays in control:** the commander (a player, or turtle-agent in observe mode) watches the run and may pause, skip, resume or stop it. Any commander order pauses it (another player's orders to bound bots are refused; party chat and normal play never pause it). Every wait has a time limit, and a ceiling pauses the run with the reason.
+- **Some plan steps are not carried over yet:** plan v1's `skip`, per-leg `rest`, `companions_loot`, `area_trigger` and gossip.
+- **Avoid boxes are not known to the run:** its hops are the server's navmesh paths, so a fight, a knockback or a pull onto a plan's avoid box (Ragefire Chasm's lava basin) is not covered.
+- **Little live evidence:** Wailing Caverns' ramp to Lord Serpentis is a `move_direct` (a straight walk down over a 3.9 yd gap). It was walked in one live observe clear of the whole plan (2026-10-20, a candidate result). The other dungeons have had partial runs.
+
+The separate `mod-dungeon-clear` module is not ported as a second autonomous pull and pathing brain; the run leader is TortoiseBots' own.
+
 ## Explicit Non-Goals
 
 TortoiseBots deliberately excludes certain features to maintain immersion, stability, and vanilla fidelity:
 
-- **Autonomous Dungeon Clearing:** Autonomous bot pathfinding that clears entire dungeons without a human leader is an explicit non-goal. 5-player dungeons and raids are designed for a human player directing companion bots.
 - **Expansion Content (TBC / WotLK):** No Death Knights, glyphs, vehicles, Outland/Northrend zones, or Arena ratings. Classes and mechanics strictly adhere to Vanilla 1.12 with Turtle WoW 1.18.1 additions.
 - **Synchronous LLM in Combat or Movement:** Combat decisions, healing triage (prioritizing wounds), interrupts, and movement never wait on external language model responses. The combat and reaction engine is entirely deterministic C++.
 - **Multi-Tab Guild Vaults:** Turtle WoW 1.18.1 does not support WotLK-style multi-tab guild banks. Bot interactions with unsupported guild bank actions fail closed safely.
@@ -35,7 +47,7 @@ When adventuring with bots, understanding their targeting rules helps avoid unex
 
 - **Pull Level Caps:** Autonomous pool bots below level 10 outside battlegrounds will only pull mobs up to 1 level above their own level. From level 10 upward, they can engage enemies up to 4 levels higher.
 - **Pull Health and Mana Thresholds:** Masterless pool bots outside battlegrounds will not initiate a new pull while wounded (health, or mana for mana users, below [`AiPlayerbot.MediumHealth`](../server/settings/combat.md#aiplayerbotmediumhealth) / [`AiPlayerbot.MediumMana`](../server/settings/combat.md#aiplayerbotmediummana)); revenge against an attacker that already holds the bot as victim is always answered. Healers without off-DPS start no fights on their own.
-- **Runner Finishing Policy:** When an enemy of the party's fight flees below 30% health, bots finish the runner according to [shared runner rules](../classes/overview.md#shared-bot-behaviors) to avoid pulling adjacent packs.
+- **Runner Finishing Policy:** When an enemy of the party's fight flees below 30% health, bots finish the runner according to [shared runner rules](../classes/overview.md#shared-bot-behaviors) to avoid pulling adjacent packs. In a dungeon run, bots do not follow a runner down a cliff (more than 6 yards below, with a cliff or no complete path on the way); a runner let go there may come back with help.
 - **Auto-Attack Engagement:** Bots arm the melee auto-attack when ordered to attack (healers excepted, and only for a bot with no usable ranged weapon when the strategy set calls it ranged), ensuring they do not stand idle when out of mana or within melee distance.
 
 ## Known Quirks and Workarounds

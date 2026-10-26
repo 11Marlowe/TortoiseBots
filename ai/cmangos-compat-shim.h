@@ -762,11 +762,10 @@ inline char const* GetSpellCastResultString(SpellCastResult res)
 #endif
 
 // === SEC_GAMEMASTER alias ===
-// Penqle has no intermediate GM rank: SEC_ADMINISTRATOR is the first elevated
-// account level. Native command ownership deliberately uses that level for
-// the documented GM override.
+// Penqle has no GM rank of its own; its GM accounts are rank 3 (developer),
+// so the module's GM-only commands start there.
 #ifndef SEC_GAMEMASTER
-#define SEC_GAMEMASTER SEC_ADMINISTRATOR
+#define SEC_GAMEMASTER SEC_DEVELOPER
 #endif
 
 // === FORCED_MOVEMENT_RUN / ForcedMovement (cmangos) ===

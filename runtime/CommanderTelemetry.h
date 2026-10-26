@@ -21,6 +21,10 @@
 // leader's run, the plan's steps of the current section (capped, rebuilt only when the step moves). The dashboard draws paths,
 // run steps, objects, stall spots and combat lines from these and from its own memory of the 2 s reports.
 //
+// Bosses (additive, same rule; owner request 2026-10-21): while the lead stands on a dungeon or raid map, every known boss of that map
+// (BossInfo) at its spawn point with its state in the lead's instance, so the dashboard map showed all of them all the time, alive or
+// dead, and its run line could count the bosses killed of the run's bosses.
+//
 // Cost rule: nothing here runs per bot tick. The emitter asks for the
 // bindings once per 2 s snapshot cycle, and only while at least one binding
 // exists; an order is noted when its reply is sent (a few per minute). The
@@ -34,6 +38,7 @@
 #include <cstdio>
 #include <deque>
 #include <iterator>
+#include <map>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -63,6 +68,10 @@ constexpr size_t kMaxRunStepsPerPayload = 32; // all bindings together
 constexpr size_t kMaxObjectsPerBinding = 16;
 constexpr size_t kMaxObjectsPerPayload = 24;
 constexpr size_t kMaxObjectName = 24;
+constexpr size_t kMaxBossesPerBinding = 32; // a longer roster is not sent at all (never cut short); the dashboard keeps 32 too
+constexpr size_t kMaxBossesPerPayload = 48;
+constexpr size_t kMaxBossName = 24;
+constexpr size_t kPayloadByteBudget = 60000; // the boss lists are left out of the bindings that would pass it
 constexpr size_t kMaxOrderDetail = 80;
 constexpr size_t kMaxOrderResult = 120;
 
@@ -83,12 +92,14 @@ inline char CcKind(bool stunned, bool confused, bool fleeing, bool rooted)
     return stunned ? 's' : confused ? 'c' : fleeing ? 'f' : rooted ? 'r' : 0;
 }
 
-// A creature's rank as one letter: b boss (world boss rank or one that binds the instance), e elite, r rare (or rare
-// elite); 0 = an ordinary unit.
-inline char RankKind(uint32_t rank, bool bindsInstance)
+// A creature's rank as one letter: b boss (world boss rank, one that binds the instance, or a dungeon boss), e elite,
+// r rare (or rare elite); 0 = an ordinary unit. A five-man boss carries rank 1 and no instance bind in the core's data
+// (Lord Cobrahn 3669, Oggleflint 11517), so `planBoss` makes it a boss: DungeonPlanTable::IsBossEntry, the entry of a
+// dungeon plan's boss step or an `ai_dungeon_boss` row, both by map.
+inline char RankKind(uint32_t rank, bool bindsInstance, bool planBoss)
 {
     // rank: 0 normal, 1 elite, 2 rare elite, 3 world boss, 4 rare
-    if (rank == 3 || bindsInstance)
+    if (rank == 3 || bindsInstance || planBoss)
         return 'b';
     if (rank == 1)
         return 'e';
@@ -211,6 +222,160 @@ struct ObjectInfo
     char state = 'r';
 };
 
+// One known boss of the lead's dungeon or raid map (owner 2026-10-21: every boss on the dashboard map, alive or dead): a creature of an
+// `ai_dungeon_boss` row, a plan's boss step, world-boss rank or the instance-bind flag, at its spawn point, with its state in the lead's
+// own instance. state: a alive, d killed, u not known (its grid is not loaded, or it has not spawned). inPlan: a plan of the map has a boss
+// step for the entry (the dashboard counts these as the run's bosses).
+struct BossInfo
+{
+    uint32_t entry = 0;
+    std::string name;
+    float x = 0.0f;
+    float y = 0.0f;
+    char state = 'u';
+    bool inPlan = false;
+};
+
+// The state of one boss spawn in an instance: found on the map -> alive, or a corpse (dead); not found -> dead while the instance still
+// holds its respawn time (killed, corpse gone), else unknown (the grid is not loaded, or the creature never spawned there).
+inline char BossState(bool found, bool alive, bool respawnPending)
+{
+    if (found)
+        return alive ? 'a' : 'd';
+    return respawnPending ? 'd' : 'u';
+}
+
+// The same from what the game hands over for one spawn row: whether the creature is on the instance's map and alive, and the respawn
+// time the instance holds for that row (unix seconds, 0 = none). A respawn time still in the future means it was killed.
+inline char BossSpawnState(bool found, bool alive, int64_t respawnAt, int64_t now)
+{
+    return BossState(found, alive, respawnAt > now);
+}
+
+// Of two reads of one boss entry (several spawn rows of one entry), the stronger: alive beats dead beats unknown; any other letter is unknown.
+inline char StrongerBossState(char a, char b)
+{
+    auto rankOf = [](char st) { return st == 'a' ? 2 : st == 'd' ? 1 : 0; };
+    int const ra = rankOf(a), rb = rankOf(b);
+    int const r = ra > rb ? ra : rb;
+    return r == 2 ? 'a' : r == 1 ? 'd' : 'u';
+}
+
+// One spawn row of a known boss as the spawn cache reads it: the `creature` row (0 for a plan boss step with no spawn row) and the boss.
+struct BossSpawnRow
+{
+    uint32_t dbGuid = 0;
+    BossInfo info;
+};
+
+// One entry of a map's roster with every spawn row of it (the cache's shape: each report reads the rows' states and keeps the strongest).
+struct BossEntrySpawns
+{
+    BossInfo info;                 // the first spawn's place and name; inPlan when any spawn is
+    std::vector<uint32_t> dbGuids; // the entry's spawn rows (empty: a plan boss with no spawn row)
+};
+
+// The spawns of a map grouped by entry, once when the cache is built (Codex review 2026-10-22: the report used to search its growing output
+// for every spawn): one row per entry in the order the entries first appear, the first spawn's place and name kept, in the plan when any
+// spawn is; a zero entry is dropped and a zero guid adds no spawn row. Not capped: a roster longer than kMaxBossesPerBinding is left out of
+// the payload whole (BuildPayload), never cut short.
+inline std::vector<BossEntrySpawns> GroupBossSpawns(std::vector<BossSpawnRow> const& rows)
+{
+    std::vector<BossEntrySpawns> out;
+    std::unordered_map<uint32_t, size_t> at; // entry -> its row in out
+    for (BossSpawnRow const& r : rows)
+    {
+        if (!r.info.entry)
+            continue;
+        auto const it = at.emplace(r.info.entry, out.size());
+        if (it.second)
+        {
+            BossEntrySpawns e;
+            e.info = r.info;
+            e.info.state = 'u';
+            out.push_back(std::move(e));
+        }
+        BossEntrySpawns& e = out[it.first->second];
+        e.info.inPlan = e.info.inPlan || r.info.inPlan;
+        if (r.dbGuid)
+            e.dbGuids.push_back(r.dbGuid);
+    }
+    return out;
+}
+
+// The killed latch (Codex review 2026-10-22, lead's decision): a killed boss whose respawn time ran out while its grid was not loaded is
+// not found and has no respawn time any more, so it read 'u' although nobody saw it alive. Once an entry was read killed ('d') in an
+// instance it stays killed there until a living creature of the entry is read ('a': the latch is cleared), the instance id is gone (a reset
+// deletes the respawn times and gives a new instance id, which starts fresh) or no binding has stood on the instance for kForgetAfterS
+// (Expire). At most kMaxLatches latches: past that the oldest is dropped. World thread only (the 2 s commander snapshot).
+class BossKillLatch
+{
+public:
+    static constexpr size_t kMaxLatches = 512;
+    static constexpr int64_t kForgetAfterS = 600;
+
+    // The state to report for one entry read as `state` in an instance at `now` (unix seconds). Instance id 0 is never latched.
+    char Apply(uint32_t instanceId, uint32_t entry, char state, int64_t now)
+    {
+        if (!instanceId)
+            return state;
+        lastSeen_[instanceId] = now;
+        Key const key{instanceId, entry};
+        if (state == 'a')
+        {
+            latches_.erase(key);
+            return state;
+        }
+        if (state == 'd')
+        {
+            if (latches_.find(key) == latches_.end())
+            {
+                if (latches_.size() >= kMaxLatches)
+                    DropOldest();
+                latches_.emplace(key, next_++);
+            }
+            return state;
+        }
+        return latches_.count(key) ? 'd' : state;
+    }
+
+    // Forget the instances no binding has stood on for kForgetAfterS, with their latches.
+    void Expire(int64_t now)
+    {
+        for (auto it = lastSeen_.begin(); it != lastSeen_.end();)
+        {
+            if (now - it->second < kForgetAfterS)
+            {
+                ++it;
+                continue;
+            }
+            uint32_t const id = it->first;
+            latches_.erase(latches_.lower_bound(Key{id, 0}), latches_.upper_bound(Key{id, UINT32_MAX}));
+            it = lastSeen_.erase(it);
+        }
+    }
+
+    bool Holds(uint32_t instanceId, uint32_t entry) const { return latches_.count(Key{instanceId, entry}) != 0; }
+    size_t Size() const { return latches_.size(); }
+
+private:
+    using Key = std::pair<uint32_t, uint32_t>; // (instance id, entry)
+
+    void DropOldest()
+    {
+        auto oldest = latches_.begin();
+        for (auto it = latches_.begin(); it != latches_.end(); ++it)
+            if (it->second < oldest->second)
+                oldest = it;
+        if (oldest != latches_.end())
+            latches_.erase(oldest);
+    }
+
+    std::map<Key, uint64_t> latches_;       // -> the order it was latched in (the oldest is dropped first)
+    std::map<uint32_t, int64_t> lastSeen_;  // instance id -> when a binding last read it
+    uint64_t next_ = 0;
+};
+
 // Which steps of a plan are listed: the current section's (leg's) steps, at most `cap`. legFirst..legEnd is the 0-based half-open range
 // of the section in the plan's step list, `current` the 0-based step the run stands at (it may lie past the end of a finished run).
 // A section longer than the cap shows the window that keeps the current step a few steps from its start, so what is coming up is
@@ -287,6 +452,9 @@ struct BindingRef
     RunInfo run;                     // the run leader's run of this binding, when it has one
     bool objectsReported = false;    // the object list was read (it may be empty)
     std::vector<ObjectInfo> objects; // game objects the bots have seen, on the lead's map
+    bool bossesReported = false;     // the lead is on a dungeon or raid map and its boss list was read (it may be empty)
+    uint32_t bossesMap = 0;          // that map
+    std::vector<BossInfo> bosses;    // every known boss of it, with its state in the lead's instance (one row per entry)
 };
 
 // One bound bot as the dashboard shows it.
@@ -336,6 +504,9 @@ struct BindingInfo
     RunInfo run;
     bool objectsReported = false;
     std::vector<ObjectInfo> objects;
+    bool bossesReported = false;
+    uint32_t bossesMap = 0;
+    std::vector<BossInfo> bosses;
 };
 
 inline std::string JsonEscape(std::string const& s)
@@ -389,7 +560,8 @@ inline void AppendMobJson(std::ostringstream& ss, MobInfo const& m)
 }
 
 // The COMMANDERS datagram. An empty list is a valid payload: it tells the
-// daemon the last binding ended.
+// daemon the last binding ended. The boss lists go in last, binding by binding, only while the datagram stays within
+// kPayloadByteBudget; a binding whose list does not fit leaves `bosses_map` and `bosses` out (the dashboard falls back).
 inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t seq, int64_t ts,
                                 std::vector<BindingInfo> const& bindings)
 {
@@ -405,6 +577,13 @@ inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t 
     size_t mobsTotal = 0;
     size_t stepsTotal = 0;
     size_t objectsTotal = 0;
+    struct BossList
+    {
+        size_t at;        // where the list goes: before its binding's orders
+        std::string json;
+        size_t count;     // bosses in it
+    };
+    std::vector<BossList> bossLists;
     for (BindingInfo const& b : bindings)
     {
         if (shown >= kMaxBindings)
@@ -543,6 +722,29 @@ inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t 
             }
             ss << "]";
         }
+        // A roster longer than kMaxBossesPerBinding is left out whole, never sent short: a short list reads as "these are all the
+        // bosses". Which lists go in (the per-datagram count and the byte budget) is decided below, once every binding is written.
+        if (b.bossesReported && b.bosses.size() <= kMaxBossesPerBinding)
+        {
+            std::ostringstream bs;
+            bs.setf(std::ios::fixed);
+            bs.precision(1);
+            bs << ",\"bosses_map\":" << b.bossesMap << ",\"bosses\":[";
+            size_t listed = 0;
+            for (BossInfo const& boss : b.bosses)
+            {
+                if (listed++)
+                    bs << ",";
+                bs << "{\"e\":" << boss.entry << ",\"n\":\"" << JsonEscape(Clip(boss.name, kMaxBossName)) << "\""
+                   << ",\"x\":" << boss.x << ",\"y\":" << boss.y
+                   << ",\"s\":\"" << (boss.state == 'a' || boss.state == 'd' ? boss.state : 'u') << "\"";
+                if (boss.inPlan)
+                    bs << ",\"p\":1";
+                bs << "}";
+            }
+            bs << "]";
+            bossLists.push_back(BossList{static_cast<size_t>(ss.tellp()), bs.str(), listed});
+        }
         ss << ",\"orders\":[";
         size_t orders = 0;
         for (OrderRecord const& o : b.orders)
@@ -560,7 +762,29 @@ inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t 
         ss << "]}";
     }
     ss << "]}";
-    return ss.str();
+    std::string out = ss.str();
+    // The lists that fit both the per-datagram count and the byte budget; only a list that goes in counts. The first list tried moves on
+    // with the snapshot sequence (Codex review 2026-10-22: in a fixed order a binding late in the list could lose its roster every time),
+    // so over as many snapshots as there are lists each one is tried first once and every roster that fits alone is sent whole. Inserted
+    // from the back so the earlier positions stay valid.
+    size_t total = out.size();
+    size_t bosses = 0;
+    std::vector<bool> keep(bossLists.size(), false);
+    size_t const start = bossLists.empty() ? 0 : static_cast<size_t>(seq % bossLists.size());
+    for (size_t n = 0; n < bossLists.size(); ++n)
+    {
+        size_t const i = (start + n) % bossLists.size();
+        if (bosses + bossLists[i].count <= kMaxBossesPerPayload && total + bossLists[i].json.size() <= kPayloadByteBudget)
+        {
+            keep[i] = true;
+            total += bossLists[i].json.size();
+            bosses += bossLists[i].count;
+        }
+    }
+    for (size_t i = bossLists.size(); i-- > 0;)
+        if (keep[i])
+            out.insert(bossLists[i].at, bossLists[i].json);
+    return out;
 }
 
 } // namespace CommanderTelemetry

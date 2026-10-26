@@ -85,7 +85,7 @@ The module transmits structured protocol lines (prefixed with `TBM:`) to keep th
 | `TBM:BOTSTATE\|<bot>\|<fields>` | Emits bot movement mode, 9 behavior toggles, and the sap switch. |
 | `TBM:CC_ASSIGN_BEGIN\|<n>` / `TBM:CC_ASSIGN_END` | Delimits active crowd control assignments. |
 | `TBM:CC_ASSIGN\|<bot>\|<mark>` | Emits a party bot's assigned CC raid mark. |
-| `TBM:CAPS\|<capabilities>` | Advertises server feature capabilities. Exact tokens: `pull-seconds,flee,inventory,behavior,claimed-roster`. |
+| `TBM:CAPS\|<capabilities>` | Advertises server feature capabilities. Exact tokens: `pull-seconds,flee,inventory,behavior,claimed-roster`, plus `dungeon-run` while the dungeon run is enabled (`AiPlayerbot.DungeonSelfClear = 1`). |
 | `TBM:ALTBOTS\|<names>` | Comma-separated list of owned characters active as autonomous alt-bots. |
 | `TBM:VERSION\|<version>` | Handshakes server module version (e.g. `2026-10-20-v1` or `dev`). |
 | `TBM:VIEW` | Real-time perception frame lines for Remote Commander. |
@@ -94,11 +94,12 @@ The module transmits structured protocol lines (prefixed with `TBM:`) to keep th
 
 ### Protocol Grammar & Semantics
 
-- **Capabilities (`TBM:CAPS`):** Emits exactly `TBM:CAPS|pull-seconds,flee,inventory,behavior,claimed-roster`. (`mimic` is a behavior toggle, not a capability token).
+- **Capabilities (`TBM:CAPS`):** Emits `TBM:CAPS|pull-seconds,flee,inventory,behavior,claimed-roster`, with `,dungeon-run` appended while the dungeon run is enabled. (`mimic` is a behavior toggle, not a capability token).
 - **Bot State Grammar (`TBM:BOTSTATE`):** Emitted for all controllable party bots (owned alts and hired companions). Format:
   ```text
-  TBM:BOTSTATE|<bot>|move=<follow|stay|guard|free|flee|custom>,loot=<on|off>,aoe=<on|off>,autocc=<on|off>,savemana=<on|off>,boost=<on|off>,threat=<on|off>,potions=<on|off>,mimic=<on|off>,spread=<on|off>,sap=<on|off>
+  TBM:BOTSTATE|<bot>|move=<follow|stay|guard|free|flee|custom>,loot=<on|off>,aoe=<on|off>,autocc=<on|off>,savemana=<on|off>,boost=<on|off>,threat=<on|off>,potions=<on|off>,mimic=<on|off>,spread=<on|off>,sap=<on|off>[,specs=<strategy>+<strategy>...]
   ```
+  `specs` lists the spec strategies the bot fights with (for example `retribution`, `balance`, `holy+offdps`), so the addon shows the real spec.
 - **CC Assignments (`TBM:CC_ASSIGN`):** Broadcasts assigned raid marks for controllable party bots (owned alts and hires). A bot is included only if it is in your party and has the `cc` combat strategy active with an assigned raid mark (including Moon; a mark assigned without the `cc` strategy active is excluded). Ungrouped alts are excluded.
 - **Message Length Cap:** Only `TBM:VIEW` perception lines are packed to 250 bytes (within the WoW client addon message buffer limit of 255 bytes); other protocol lines send without truncation.
 - **Delivery Guarantees:** Drained commands run in arrival order on the world tick before the bot update; deferred bot chat and packets queued ahead of each command run first.

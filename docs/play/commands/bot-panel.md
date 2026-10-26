@@ -20,8 +20,10 @@ TortoiseBots includes a structured command interface for inspecting companion vi
 | [`.bot list`](#bot-list) | None | Lists all online bots you control. |
 | [`.bot status`](#bot-status) | `<Name>` | Displays detailed lifecycle and movement state for a bot. |
 | [`.bot stats`](#bot-stats) | None | Summarizes online counts for your controllable bots. |
+| [`.bot trace`](#bot-trace) | `start <run_id> [party\|bot <Name>] [driver=...]` / `stop` / `status` | Opt-in run recorder (`AiPlayerbot.RunTrace.Enabled`). |
 | [`.bot lease`](#bot-lease) | `[status]` | Reports autonomous activity leases and active timers. |
 | [`.bot version`](#bot-version) | None | Displays module version, protocol string, and author credits. |
+| [`.bot features`](#bot-features) | None | Lists the server's player-facing switches and their values. |
 | [`.bot help`](#bot-help) | None | Prints the current bot system version header. |
 | [`.bot inv`](#bot-inv) | `<Name>` | Emits detailed inventory, equipped gear, and coin count. |
 | [`.bot item <Name> trade`](#bot-item-trade) | None | Prompts the bot to open a direct trade window with you. |
@@ -65,6 +67,18 @@ Summarizes metrics for the bots you control.
 
 Outputs the total count of online controllable bots, how many are random-pool bots, and how many currently have an active AI controller attached.
 
+### `.bot trace`
+
+Opt-in recorder for tests and tuning: it writes what a party's bots did during one run to a JSONL file, and `tools/trace_score.py` scores it offline. Off by default: needs `AiPlayerbot.RunTrace.Enabled = 1`, otherwise `.bot trace start` answers `TBM:ACTION_ERR|trace start|disabled|…`. Schema, files and oracles: [run trace](../../server/run-trace.md).
+
+| Command | What It Does |
+| :--- | :--- |
+| `.bot trace start <run_id> [party\|bot <Name>] [driver=<model>:<effort>:<run>]` | Starts a run. `party` (default) records the bots of your party (a bound [remote commander](commander.md) records the group it commands); `bot <Name>` records one bot you control. The run id (1-64 letters, digits, `.`, `_`, `-`) is stamped on every record, and names the files; an id that already has a trace is refused (`refused`). With `AiPlayerbot.RunTrace.GmOnly = 1` (the default) only a GameMaster may start a run (`forbidden`); with `0` a GameMaster may trace any party and everyone else only a party whose bots they control or command (`forbidden`). `driver=<model>:<effort>:<run>` (anywhere after the run id, once) says what drove the run, for example `driver=sonnet:medium:zf-ab-1-s2`; it goes into the summary as `driver`, self-reported and never verified (1-96 letters, digits and `. _ - : +`; otherwise `invalid`). Left out, the summary says `human` for a run nobody commands and `unknown` for a commanded or run-leader run. One run at a time. ACK: `TBM:ACTION_ACK|trace start|party\|bot:<Name>|<bots>|<run_id>`. |
+| `.bot trace stop` | Ends the run; the end record and the summary are written a moment later (a `start` in that moment is refused: `finishing`). Only a GameMaster or the player who started it (`forbidden`); `not-running` without one. ACK: `TBM:ACTION_ACK|trace stop|stopped|1|<run_id>`. |
+| `.bot trace status` | Prints the running run's id, scope, elapsed time, record counts, bytes written and lines dropped; the id and scope only to a GameMaster and the player who started it (anyone else sees that a run is going, with an empty run id). ACK: `TBM:ACTION_ACK|trace status|running\|finishing\|idle|<0\|1>|<run_id>`. |
+
+The permission is re-checked every frame, so bots of someone else who join your party are not recorded. A run ends on its own when the size cap is reached, when the party has had no bots you may record for 10 s (also when you log out), when the feature or the bot AI is switched off or at server shutdown; the summary says why (`end_reason`).
+
 ### `.bot lease`
 
 Reports autonomous activity leases across the bot population.
@@ -84,6 +98,18 @@ Displays module version details, addon protocol handshake line, and author credi
 ```
 
 Prints `TortoiseBots <BuildVersion>`, the `TBM:VERSION|<BuildVersion>` protocol line, and the project attribution line. The same credit line is sent to every real (networked game client) player on login and written to the server startup log. Aliases include `.bot v`, `.bot about`, and `.bot credits`. Available to all players.
+
+### `.bot features`
+
+Lists the server's player-facing switches: dungeon runs, player-led runs, the remote commander, boss tactics, bot LFG groups, hiring and its limits, world buffs, autogear for every player, alt bots, the auction house market, the world bot count and the run trace.
+
+```text
+.bot features
+```
+
+Prints one `Server features: ...` line and a `TBM:FEATURE|<key>|<value>|<label>` line per switch (`on`, `off` or a number). The addon's Info window reads them. Available to all players.
+
+`.bot features all <text>` searches every setting in the server's bot config file whose name holds `<text>` (at least two letters, any case) and lists it with its value: a `Config: N keys match` line, then `TBM:CONFIG_BEGIN|<matches>`, one `TBM:CONFIG|<key>|<value>` per setting (the `AiPlayerbot.` prefix left out; at most 200) and `TBM:CONFIG_END|<shown>|<matches>`. Values of API keys, passwords, tokens and secrets read `***`. Players use it to tell a server owner what their server has set.
 
 ### `.bot help`
 

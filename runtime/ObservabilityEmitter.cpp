@@ -1661,6 +1661,9 @@ void ObservabilityEmitter::EmitCommanders()
         info.mobs = ref.mobs; // at most kMaxMobsPerBinding, copied once per 2 s
         info.objectsReported = ref.objectsReported;
         info.objects = ref.objects; // at most kMaxObjectsPerBinding, copied once per 2 s
+        info.bossesReported = ref.bossesReported;
+        info.bossesMap = ref.bossesMap;
+        info.bosses = ref.bosses; // at most kMaxBossesPerBinding, copied once per 2 s
         // Since when the binding has stood (first seen here), for the dashboard's run timer; forgotten with the binding.
         int64_t& since = m_commanderSince[ref.commanderGuid];
         if (!since)

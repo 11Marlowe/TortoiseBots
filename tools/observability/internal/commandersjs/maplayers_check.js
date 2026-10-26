@@ -205,6 +205,7 @@ assert.strictEqual(L.setDim(def, "abc").dim, 30, "junk falls back");
 assert.strictEqual(L.setDim(def, NaN).dim, 30);
 assert.strictEqual(L.setDim(def, 12.6).dim, 13);
 assert.strictEqual(L.set(def, "dim", true).dim, 30, "dim is not a toggle");
+
 assert.strictEqual(L.setTrailLen(def, 60).trailLen, 60);
 assert.strictEqual(L.setTrailLen(def, 5).trailLen, 10);
 assert.strictEqual(L.setTrailLen(def, 5000).trailLen, 240);

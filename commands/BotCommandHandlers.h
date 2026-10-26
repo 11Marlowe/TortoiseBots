@@ -1,6 +1,11 @@
 #pragma once
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 class ChatHandler;
+class Player;
 
 namespace TortoiseBots {
 namespace BotCommands {
@@ -12,6 +17,9 @@ bool HandleAhBot(ChatHandler* handler, char const* args);
 bool HandleAction(ChatHandler* handler, char const* args);
 bool HandleCommander(ChatHandler* handler, char const* args);
 bool HandleCommanderOrder(ChatHandler* handler, char const* args);
+bool HandleTrace(ChatHandler* handler, char const* args);
+bool HandleDungeonRun(ChatHandler* handler, char const* args);
+uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::string& code, std::string& message);
 bool HandleAdd(ChatHandler* handler, char const* args);
 bool HandleRemove(ChatHandler* handler, char const* args);
 bool HandleLogout(ChatHandler* handler, char const* args);
@@ -32,6 +40,7 @@ bool HandleStats(ChatHandler* handler, char const* args);
 bool HandleStatus(ChatHandler* handler, char const* args);
 bool HandleLease(ChatHandler* handler, char const* args);
 bool HandleVersion(ChatHandler* handler, char const* args);
+bool HandleFeatures(ChatHandler* handler, char const* args);
 bool HandlePullback(ChatHandler* handler, char const* args);
 bool HandleRole(ChatHandler* handler, char const* args);
 bool HandleSummon(ChatHandler* handler, char const* args);
