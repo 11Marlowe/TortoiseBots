@@ -345,6 +345,14 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "POST_TARGETS")
     target_compile_definitions("${TORTOISEBOTS_TARGET}" PRIVATE
       "TORTOISEBOTS_CORE_REVISION=\"${TORTOISEBOTS_CORE_REVISION}\""
       "TORTOISEBOTS_CORE_DATE=\"${TORTOISEBOTS_CORE_DATE}\"")
+    # The dungeon repop door hook is in some core forks only; without it the
+    # core keeps its own door and the module still builds.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/src/game/ScriptObjects.h")
+      file(STRINGS "${CMAKE_SOURCE_DIR}/src/game/ScriptObjects.h" TORTOISEBOTS_REPOP_HOOK REGEX "GetBotRepopEntrance")
+      if(TORTOISEBOTS_REPOP_HOOK)
+        target_compile_definitions("${TORTOISEBOTS_TARGET}" PRIVATE TORTOISEBOTS_CORE_HAS_BOT_REPOP=1)
+      endif()
+    endif()
     target_include_directories("${TORTOISEBOTS_TARGET}" PRIVATE
       "${TORTOISEBOTS_ROOT}"
       "${TORTOISEBOTS_ROOT}/ai"
