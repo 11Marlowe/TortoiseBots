@@ -267,6 +267,8 @@ constexpr std::uint32_t kFightProgressWindowMs = 60000;
 constexpr std::uint32_t kFightProgressPermille = 20; // 2 percentage points
 constexpr std::uint32_t kFightHardCapMs = 1800000;
 constexpr std::uint32_t kCeilingQuietMs = 5000; // a ceiling pause whose party stays out of combat this long goes on by itself
+constexpr std::uint32_t kLeadBackSettleMs = 5000; // a lead bot back on the plan's map this long resumes its off-map pause
+constexpr std::uint32_t kPlayerHoldBackSettleMs = 5000; // a player back with the party this long resumes his hold pause
 constexpr std::uint32_t kStaleCombatGraceMs = 20000; // a combat flag with nothing hostile engaged is waited out this long in all of one fight, then the fight ceiling runs again
 constexpr std::uint32_t kStaleConfirmMs = 3000;      // ... and it must stand this long without a break before a wait_object is finished over it
 constexpr std::uint32_t kRestCapMs = 60000;
@@ -1614,6 +1616,16 @@ struct Run
     // (CeilingFightOverWhilePaused). Any other pause, Resume and Skip clear it.
     bool ceilingPaused = false;
     std::uint32_t ceilingQuietMs = 0;
+    // The pause is the lead bot's off the plan's map (PauseLeadOffMap): once the
+    // lead bot is back on it for kLeadBackSettleMs the run goes on by itself,
+    // once per step (LeadBackWhilePaused). Any other pause, Resume and Skip clear it.
+    bool leadOffMapPaused = false;
+    std::uint32_t leadBackMs = 0;
+    // The pause is the 5 min player hold's (PausePlayerHold): once the player is
+    // back with the party for kPlayerHoldBackSettleMs the run goes on by itself,
+    // once per step (PlayerHoldBackWhilePaused). Any other pause, Resume and Skip clear it.
+    bool playerHoldPaused = false;
+    std::uint32_t playerHoldBackMs = 0;
     // The last tick's combat was with units the group cannot attack only (UnattackableOnlyFight): the note
     // about it is made on the first tick of each such stretch.
     bool unattackableFight = false;
@@ -1667,6 +1679,8 @@ struct Run
     bool fightHpDeath = false;
     std::uint32_t fightHpDeathAt = 0;
     std::size_t ceilingResumedStep = static_cast<std::size_t>(-1); // the step that has used its one self-resume (ResetStep keeps it)
+    std::size_t leadBackResumedStep = static_cast<std::size_t>(-1); // the step that has used its one lead-back self-resume (ResetStep keeps it)
+    std::size_t playerHoldResumedStep = static_cast<std::size_t>(-1); // the step that has used its one player-hold self-resume (ResetStep keeps it)
     std::uint32_t eventIdleMs = 0; // out of a fight with an awake event unit standing
     std::uint32_t eventUp = 0, eventDown = 0, eventTotal = 0; // the event's units now: awake, dead, all seen
     // Run-wide counts for the report.
@@ -1935,6 +1949,10 @@ inline void Pause(Run& r, const std::string& why)
     r.pausedByPlayer = false; // PausePlayer sets it after
     r.ceilingPaused = false; // the fight ceiling sets it after
     r.ceilingQuietMs = 0;
+    r.leadOffMapPaused = false; // PauseLeadOffMap sets it after
+    r.leadBackMs = 0;
+    r.playerHoldPaused = false; // PausePlayerHold sets it after
+    r.playerHoldBackMs = 0;
     ClearRunBack(r); // a paused run leaves every bot to its own AI
     r.hold.clear();
     r.holdDue = false;
@@ -3920,6 +3938,8 @@ inline bool Resume(Run& r)
     r.state = State::Running;
     r.ceilingPaused = false;
     r.ceilingQuietMs = 0;
+    r.leadOffMapPaused = false;
+    r.playerHoldPaused = false;
     r.otherPartPaused = false;
     r.fighting = false;
     r.autoRegroups = 0;
@@ -4018,6 +4038,8 @@ inline bool Skip(Run& r)
     r.state = State::Running;
     r.ceilingPaused = false;
     r.ceilingQuietMs = 0;
+    r.leadOffMapPaused = false;
+    r.playerHoldPaused = false;
     r.otherPartPaused = false;
     NextStep(r, "skipped step " + std::to_string(skipped));
     if (wasPaused && r.state == State::Running)
@@ -4072,6 +4094,61 @@ inline void TrackRouteWhilePaused(Run& r, bool leadAlive, float x, float y, floa
     r.routeSpotX = x;
     r.routeSpotY = y;
     r.routeSpotZ = z;
+}
+
+// The lead bot off the plan's map (pip S2 Deadmines 2026-10-26: the pause waited > 2 min with the lead bot back
+// beside the player).
+inline void PauseLeadOffMap(Run& r, unsigned planMap)
+{
+    Pause(r, "the lead bot is not on the plan's map (" + std::to_string(planMap) + ")");
+    r.leadOffMapPaused = true;
+}
+// leadBack: the lead bot alive, in world, not teleporting, on the plan's map. Once per step; never a player's pause.
+inline bool LeadBackWhilePaused(Run& r, bool leadBack, std::uint32_t dt)
+{
+    if (r.state != State::Paused || !r.leadOffMapPaused || PausedByPlayer(r) || r.leadBackResumedStep == r.step)
+        return false;
+    if (!leadBack)
+    {
+        r.leadBackMs = 0;
+        return false;
+    }
+    r.leadBackMs += dt;
+    if (r.leadBackMs <= kLeadBackSettleMs)
+        return false;
+    r.leadBackResumedStep = r.step;
+    if (!Resume(r))
+        return false;
+    r.note = "the lead bot is back on the plan's map: going on by itself (regrouping)";
+    return true;
+}
+
+// The 5 min player hold's pause (O2, pip S2 Deadmines run 1 2026-10-25: the ghost was away 7.5 min, past the cap).
+inline void PausePlayerHold(Run& r, const std::string& why)
+{
+    Pause(r, why);
+    r.playerHoldPaused = true;
+}
+// The cause gone: every player of the party alive and back on the plan's map
+// within kGatherYd (the regroup's own gather line). Once per step; never a player's pause.
+inline bool PlayerHoldBackWhilePaused(Run& r, const Facts& f, std::uint32_t dt)
+{
+    if (r.state != State::Paused || !r.playerHoldPaused || PausedByPlayer(r) || r.playerHoldResumedStep == r.step)
+        return false;
+    for (const PlayerFact& p : f.players)
+        if (!p.alive || !p.onMap || p.yd > kGatherYd)
+        {
+            r.playerHoldBackMs = 0;
+            return false;
+        }
+    r.playerHoldBackMs += dt;
+    if (r.playerHoldBackMs <= kPlayerHoldBackSettleMs)
+        return false;
+    r.playerHoldResumedStep = r.step;
+    if (!Resume(r))
+        return false;
+    r.note = "the player is back with the party: going on by itself (regrouping)";
+    return true;
 }
 
 // A player's pause: only `.bot run resume` (or skip) goes on from it.
@@ -12479,7 +12556,7 @@ inline bool RegroupPlayerWait(Run& r, const Facts& f, std::uint32_t dt)
             if (r.playerHoldMs >= kPlayerHoldCapMs)
             {
                 r.playerHoldMs = 0;
-                Pause(r, "regroup: waited " + std::to_string(kPlayerHoldCapMs / 60000) + " min for " + why +
+                PausePlayerHold(r, "regroup: waited " + std::to_string(kPlayerHoldCapMs / 60000) + " min for " + why +
                     ": a resurrection or a corpse run, then .bot run resume");
                 return true;
             }
@@ -12500,7 +12577,7 @@ inline bool RegroupPlayerWait(Run& r, const Facts& f, std::uint32_t dt)
     if (r.playerGatherMs >= kPlayerGatherWaitMs)
     {
         r.playerGatherMs = 0;
-        Pause(r, "regroup: waited " + std::to_string(kPlayerGatherWaitMs / 1000) + " s for " + far->name + " (" +
+        PausePlayerHold(r, "regroup: waited " + std::to_string(kPlayerGatherWaitMs / 1000) + " s for " + far->name + " (" +
             Num(far->yd) + " yd from the lead bot): come to the party, then .bot run resume");
         return true;
     }
@@ -13685,7 +13762,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             if (r.playerHoldMs >= kPlayerHoldCapMs)
             {
                 r.playerHoldMs = 0;
-                Pause(r, "waited " + std::to_string(kPlayerHoldCapMs / 60000) + " min: " + playerHold +
+                PausePlayerHold(r, "waited " + std::to_string(kPlayerHoldCapMs / 60000) + " min: " + playerHold +
                     "; .bot run resume once the party is together");
                 return order;
             }
