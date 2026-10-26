@@ -16721,6 +16721,54 @@ static void TestHoldEngageLeavesCcMarkToItsCcBot()
     SyncCcWatch(hr);
     CHECK(HoldEngageTarget(hr, hf) == &hf.units[0]);
 }
+// Issue #1160: the CC bot gone from the members (dead: the glue lists living
+// bots only) before the sheep lands must not hold the mark off the fight for
+// the rest of the step: CheckCc drops the watch, the engage takes the mob.
+static void TestEngageTakesCcMarkOfAGoneCcBot()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {6206})};
+    Run r = Start(&plan);
+    r.ccHolds[90] = Run::CcHold{"Magey", "moon", CcFamily::Polymorph};
+    Run::CcWatch w;
+    w.guid = 90;
+    r.ccWatch = {w};
+    Facts g = CcWatchParty();
+    g.members = {Mem("Tanky", 0)}; // Magey not among the living members
+    g.units = {Unit(90, 6206, 5)};
+    g.partyAttackers = {Hitter(90, 6206, 5, true)};
+    CHECK(EngageTarget(r, g) == nullptr);
+    std::string order;
+    CHECK(!CheckCc(r, g, kTickMs, order) && order.empty());
+    CHECK(r.ccWatch.empty());
+    CHECK(EngageTarget(r, g) == &g.partyAttackers[0]);
+}
+
+// Issue #1160: the CC bot dead while its mark is watched: the guard picks the
+// mob up instead of leaving it to a dead bot for the rest of the step.
+static void TestGuardTakesCcMarkOfADeadCcBot()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {6206})};
+    Run r = Start(&plan);
+    r.ccHolds[90] = Run::CcHold{"Magey", "moon", CcFamily::Polymorph};
+    Run::CcWatch w;
+    w.guid = 90;
+    r.ccWatch = {w};
+    Facts g = CcWatchParty();
+    g.members = {Mem("Tanky", 0)}; // Magey dead: the glue lists living bots only
+    g.dead = 1;
+    g.alive = 4;
+    g.deadNames = {"Magey"};
+    g.units = {Unit(90, 6206, 5)};
+    g.partyAttackers = {Hitter(90, 6206, 5)};
+    CHECK(GuardPick(g, 0.0f, &r, &r) == nullptr);
+    std::string order;
+    CheckCc(r, g, kTickMs, order);
+    CHECK(r.ccWatch.empty());
+    CHECK(GuardPick(g, 0.0f, &r, &r) == &g.partyAttackers[0]);
+}
+
 
 static void TestCcLandingQueuesTheOrderDrop()
 {
@@ -21604,7 +21652,9 @@ int main()
     TestUnattackableUnitIsNeverPulledOrPickedUp();
     TestBotHeldByUnattackableDropsCombat();
     TestEngageOnArrivalLeavesCcMarkToItsCcBot();
+    TestEngageTakesCcMarkOfAGoneCcBot();
     TestGuardLeavesCcMarkToItsCcBot();
+    TestGuardTakesCcMarkOfADeadCcBot();
     TestHoldEngageLeavesCcMarkToItsCcBot();
     TestCcLandingQueuesTheOrderDrop();
     TestSapLandingQueuesTheOrderDrop();

@@ -6155,6 +6155,14 @@ inline bool CheckCc(Run& r, const Facts& f, std::uint32_t dt, std::string& order
                 if (m.inCombat)
                     w.waitMs += dt;
             }
+        // The crowd control's bot gone from the members (dead: the glue lists
+        // living bots only) before the aura landed: no sheep comes, so the
+        // mark is no longer the CC bot's to leave alone (CcOrderOut).
+        if (!botAlive)
+        {
+            r.ccWatch.erase(r.ccWatch.begin() + static_cast<std::ptrdiff_t>(i));
+            continue;
+        }
         if (spell->prePull)
         {
             r.note = "fighting: cc did not land on " + std::to_string(held->entry) + " (" + spell->spell + " before the pull)";
