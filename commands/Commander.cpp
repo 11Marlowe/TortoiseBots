@@ -63,6 +63,8 @@
 #include "../runtime/DungeonRunPolicy.h"
 #include "../runtime/SystemRunPolicy.h"
 #include "../runtime/RunItemNeedPolicy.h" // item-leg skip (spec C1/D): needs + ledger, namespace TortoiseBots::RunItemNeed
+#include "../runtime/RunItemNeedFacts.h" // the leg's need facts from the party's bags (item-leg skip review round 2)
+#include "../runtime/RunGivenItemRegistry.h" // the run's given item instances (item-leg skip review round 2)
 #include "../runtime/RunTrace.h"
 #include "../runtime/RunGroupIndex.h"
 #include "../runtime/PlayerLedPolicy.h"

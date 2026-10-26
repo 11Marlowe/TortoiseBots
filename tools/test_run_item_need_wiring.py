@@ -188,5 +188,13 @@ class GiveTickWiringTest(unittest.TestCase):
         self.assertNotIn("DungeonRuns().clear()", rest)
 
 
+
+class IncludesWiringTest(unittest.TestCase):
+    def test_glue_includes_the_headers_it_calls(self):
+        # The VM build of round 2 failed on these missing includes; the standalone tests compile the headers alone.
+        for header in ("RunItemNeedPolicy.h", "RunItemNeedFacts.h", "RunGivenItemRegistry.h"):
+            self.assertIn('#include "../runtime/%s"' % header, COMMANDS)
+
+
 if __name__ == "__main__":
     unittest.main()
