@@ -1376,6 +1376,7 @@ struct Run
         std::uint32_t waitMs = 0;
     };
     std::vector<CcWatch> ccWatch;
+    std::vector<std::uint64_t> ccLandedDrop; // the glue drops every bot's order on these (CC landed this tick)
     bool ccSapFailed = false; // a Sap did not land this step: no other Sap in it
     bool ccRegather = false;  // a Sap wait ended: gather (the rogue is by its mob) before the pull
     // The raid icons the run's cc orders set, icon slot -> the unit (for the
@@ -2099,6 +2100,7 @@ inline void ResetStep(Run& r)
     r.ccWaitMs = 0;
     r.ccHolds.clear();
     r.ccWatch.clear();
+    r.ccLandedDrop.clear();
     r.ccSapFailed = false;
     r.ccRegather = false;
     r.sapWalkDue.clear();
@@ -6023,6 +6025,8 @@ inline bool CheckCc(Run& r, const Facts& f, std::uint32_t dt, std::string& order
         {
             if (held && spell)
                 r.note = "fighting: " + std::to_string(held->entry) + " is " + spell->held;
+            if (held && held->polymorphed && spell)
+                r.ccLandedDrop.push_back(w.guid);
             r.ccWatch.erase(r.ccWatch.begin() + static_cast<std::ptrdiff_t>(i));
             continue;
         }
@@ -6113,6 +6117,7 @@ inline bool SapWait(Run& r, const Facts& f, std::uint32_t dt, std::string& order
         if (unit && unit->polymorphed)
         {
             r.note = std::to_string(unit->entry) + " is " + spell->held + ": the pull goes";
+            r.ccLandedDrop.push_back(guid);
             continue;
         }
         // Off: stop the rogue before anything else goes out.
@@ -10940,6 +10945,16 @@ inline bool GuardUnitCapped(const Run& r, std::uint64_t guid)
     auto const it = r.guardUnitOrders.find(guid);
     return it != r.guardUnitOrders.end() && it->second >= kGuardOrdersPerUnit;
 }
+// The run's crowd control on this unit is ordered and not yet landed or given
+// up on (Run::ccWatch).
+inline bool CcOrderOut(const Run& r, std::uint64_t guid)
+{
+    for (const Run::CcWatch& w : r.ccWatch)
+        if (w.guid == guid)
+            return true;
+    return false;
+}
+
 
 // A caster hitting the party from its own camp (UnitFact::castingAtRange, campIdle) that the tank would have to walk to
 // (kGuardNoWalkYd): the guard leaves it to the DPS (kGuardCampYd).
@@ -10948,7 +10963,7 @@ inline bool GuardLeavesCampAlone(const UnitFact& u)
     return u.castingAtRange && u.campIdle > 0 && u.distLead > kGuardNoWalkYd;
 }
 
-inline const UnitFact* GuardPick(const Facts& f, float holdRadius, const Run* capped = nullptr)
+inline const UnitFact* GuardPick(const Facts& f, float holdRadius, const Run* capped = nullptr, const Run* ccRun = nullptr)
 {
     const UnitFact* best = nullptr;
     for (const UnitFact& u : f.partyAttackers)
@@ -10956,6 +10971,8 @@ inline const UnitFact* GuardPick(const Facts& f, float holdRadius, const Run* ca
         if (!u.hostile || !u.attackable || u.evading || u.polymorphed || !u.hitting || u.distLead > kGuardYd)
             continue;
         if (capped && GuardUnitCapped(*capped, u.guid))
+            continue;
+        if (ccRun && CcOrderOut(*ccRun, u.guid))
             continue;
         if (holdRadius <= 0.0f && GuardLeavesCampAlone(u))
             continue;
@@ -10999,7 +11016,7 @@ inline const UnitFact* GuardTarget(const Run& r, const Facts& f)
             r.focusUnstayed) ||
         f.carrier.empty() || InEvent(r))
         return nullptr;
-    return GuardPick(f, 0.0f, &r);
+    return GuardPick(f, 0.0f, &r, &r);
 }
 
 // The guard inside a hold (Uldaman Keepers, 19z12 attempt 1: the tank held
@@ -11016,7 +11033,7 @@ inline const UnitFact* HoldGuardTarget(const Run& r, const Facts& f)
     const PlanStep* s = InHoldArea(r, f);
     if (!s || !(f.leadStaying || r.guardOrders > 0 || r.holdUnstayed))
         return nullptr;
-    return GuardPick(f, s->radius);
+    return GuardPick(f, s->radius, nullptr, &r);
 }
 
 // The tank on "stay" on the hold spot does not fight at all: an attack
@@ -11054,6 +11071,8 @@ inline const UnitFact* HoldEngageTarget(const Run& r, const Facts& f)
     {
         if (!awake(u))
             continue;
+        if (CcOrderOut(r, u.guid))
+            continue;
         if (!f.leadStaying && (u.victimLead || u.guid == r.holdEngageGuid || (holding && !u.victimHealer)))
             continue;
         if (!best || rank(u) < rank(*best) || (rank(u) == rank(*best) && u.distLead < best->distLead))
@@ -11086,13 +11105,16 @@ inline const UnitFact* EngageTarget(const Run& r, const Facts& f)
             continue;
         if (GuardLeavesCampAlone(u))
             continue;
+        if (CcOrderOut(r, u.guid))
+            continue;
         if (!best || u.distLead < best->distLead)
             best = &u;
     }
     if (best)
         return best;
     if (f.leadHasAttacker && f.leadAttacker.hostile && f.leadAttacker.attackable && !f.leadAttacker.evading &&
-        !f.leadAttacker.polymorphed && !GuardUnitCapped(r, f.leadAttacker.guid))
+        !f.leadAttacker.polymorphed && !GuardUnitCapped(r, f.leadAttacker.guid) &&
+        !CcOrderOut(r, f.leadAttacker.guid))
         return &f.leadAttacker;
     return nullptr;
 }

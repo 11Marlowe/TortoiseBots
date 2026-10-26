@@ -8356,6 +8356,38 @@ void ReleaseRunHold(Player* commander, uint64 leadRaw, DungeonRunSlot& slot)
         FormUpOnLead(commander, lead, held, false);
 }
 
+// The run's crowd control landed on `guid`: no bot of the party keeps an order
+// on it, so the held-mark rule (InvalidTargetValue) takes the mob off every
+// bot's target.
+void DropOrdersOnHeldCc(std::vector<Player*> const& bots, uint64 guid)
+{
+    ObjectGuid const target(guid);
+    for (Player* bot : bots)
+    {
+        if (!bot)
+            continue;
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai || !ai->GetAiObjectContext())
+            continue;
+        ai::AiObjectContext* context = ai->GetAiObjectContext();
+        bool dropped = false;
+        if (ai::Value<ObjectGuid>* attack = context->GetValue<ObjectGuid>("attack target"))
+            if (attack->Get() == target)
+            {
+                attack->Set(ObjectGuid());
+                dropped = true;
+            }
+        if (ai::Value<ObjectGuid>* explicitAttack = context->GetValue<ObjectGuid>("explicit attack target"))
+            if (explicitAttack->Get() == target)
+            {
+                explicitAttack->Set(ObjectGuid());
+                dropped = true;
+            }
+        if (dropped)
+            context->GetValue<bool>("invalid target", "current target")->Reset();
+    }
+}
+
 // The tank's reach for a pull ends (DungeonRun::CheckReach): the pull is
 // closed the way its own timeout closes it (PullEndAction: the target is let
 // go, the party hold is released, the tank goes back to its movement mode) and
@@ -9046,6 +9078,15 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     {
         it->second.run.stopReachDue = false;
         StopLeadReach(commander, lead);
+    }
+    // The run's crowd control landed this tick (DungeonRun::CheckCc, SapWait):
+    // no bot keeps an order on those units, so the held-mark rule takes them
+    // off every bot's target.
+    if (!it->second.run.ccLandedDrop.empty())
+    {
+        for (uint64 guid : it->second.run.ccLandedDrop)
+            DropOrdersOnHeldCc(bots, guid);
+        it->second.run.ccLandedDrop.clear();
     }
 
     // The run's focus is over (DungeonRun::DropFocus): its skull comes off, only where it still is. An unresolved
