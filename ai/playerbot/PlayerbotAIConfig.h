@@ -564,7 +564,7 @@ public:
     // Onyxia phase 2 whelp duty for AoE ranged DPS and egg-cave avoidance (opt-in).
     bool onyxiaWhelpsAndEggs;
     bool dungeonTactics;
-    // `.bot run`: a bound party clears a dungeon plan by itself (opt-in).
+    // `.bot run`: the run leader (default on).
     bool dungeonSelfClear;
     // The run leader's time limit from `run start`, in minutes (0 = none; default 180 = 3 h).
     uint32 dungeonRunMaxMinutes;
@@ -593,6 +593,8 @@ public:
     float dungeonRunPlayerLedPullYd;
     // ... and how long the leading player may be out of the plan's dungeon before the run stops (minutes, default 10).
     uint32 dungeonRunPlayerLedAwayMinutes;
+    // Bot LFG dungeon groups (SystemRunPolicy.h; default on); dormant while dungeonSelfClear is off.
+    bool botLfgGroups;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
     bool avoidCreatureAuras;
     // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).

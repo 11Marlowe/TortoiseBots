@@ -44,7 +44,7 @@ class IslandEscapeWiringTest(unittest.TestCase):
     def test_issue_run_order_hands_the_escape_to_the_glue(self):
         f = body(COMMANDS, "bool IssueRunOrder(", "\n}\n")
         route = at(f, 'if (text.compare(0, 7, "escape ") == 0)\n        return RunIslandEscape(commander, text, answer);')
-        cmd = at(f, "HandleCommanderOrder(&handler, text.c_str());")
+        cmd = at(f, "HandleCommanderOrder(handler.get(), text.c_str());")
         self.assertLess(route, cmd)
 
     def test_order_text_matches_the_policy(self):

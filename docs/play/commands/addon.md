@@ -85,7 +85,7 @@ The module transmits structured protocol lines (prefixed with `TBM:`) to keep th
 | `TBM:BOTSTATE\|<bot>\|<fields>` | Emits bot movement mode and 9 behavior toggles. |
 | `TBM:CC_ASSIGN_BEGIN\|<n>` / `TBM:CC_ASSIGN_END` | Delimits active crowd control assignments. |
 | `TBM:CC_ASSIGN\|<bot>\|<mark>` | Emits a party bot's assigned CC raid mark. |
-| `TBM:CAPS\|<capabilities>` | Advertises server feature capabilities. Exact tokens: `pull-seconds,flee,inventory,behavior,claimed-roster`, plus `dungeon-run` while the dungeon run is enabled (`AiPlayerbot.DungeonSelfClear` and `AiPlayerbot.RemoteCommander`). |
+| `TBM:CAPS\|<capabilities>` | Advertises server feature capabilities. Exact tokens: `pull-seconds,flee,inventory,behavior,claimed-roster`, plus `dungeon-run` while the dungeon run is enabled (`AiPlayerbot.DungeonSelfClear = 1`). |
 | `TBM:ALTBOTS\|<names>` | Comma-separated list of owned characters active as autonomous alt-bots. |
 | `TBM:VERSION\|<version>` | Handshakes server module version (e.g. `2026-10-20-v1` or `dev`). |
 | `TBM:VIEW` | Real-time perception frame lines for Remote Commander. |

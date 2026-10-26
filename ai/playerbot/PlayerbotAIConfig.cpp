@@ -134,7 +134,7 @@ inline ParsedUrl parseUrl(const std::string& url) {
 
 void PlayerbotAIConfig::LoadDungeonRunKeys()
 {
-    dungeonSelfClear = config.GetBoolDefault("AiPlayerbot.DungeonSelfClear", false);
+    dungeonSelfClear = config.GetBoolDefault("AiPlayerbot.DungeonSelfClear", true);
     dungeonRunMaxMinutes = static_cast<uint32>(std::max(0, config.GetIntDefault("AiPlayerbot.DungeonRunMaxMinutes", 180)));
     dungeonRunAggroEstimate = config.GetBoolDefault("AiPlayerbot.DungeonRunAggroEstimate", false);
     dungeonRunAggroCeiling = static_cast<uint32>(std::max(1, config.GetIntDefault("AiPlayerbot.DungeonRunAggroCeiling", 6)));
@@ -149,6 +149,9 @@ void PlayerbotAIConfig::LoadDungeonRunKeys()
     dungeonRunPlayerLed = config.GetBoolDefault("AiPlayerbot.DungeonRunPlayerLed", false);
     dungeonRunPlayerLedPullYd = std::min(100.0f, std::max(5.0f, config.GetFloatDefault("AiPlayerbot.DungeonRunPlayerLedPullYd", 40.0f)));
     dungeonRunPlayerLedAwayMinutes = static_cast<uint32>(std::min(60, std::max(1, config.GetIntDefault("AiPlayerbot.DungeonRunPlayerLedAwayMinutes", 10))));
+    botLfgGroups = config.GetBoolDefault("AiPlayerbot.BotLfgGroups", true);
+    if (botLfgGroups && !dungeonSelfClear)
+        sLog.outString("TortoiseBots: AiPlayerbot.BotLfgGroups = 1 needs AiPlayerbot.DungeonSelfClear = 1: bot LFG groups stay dormant.");
 }
 
 bool PlayerbotAIConfig::ReloadDungeonRunKeys()
@@ -658,7 +661,7 @@ bool PlayerbotAIConfig::Initialize()
     ownedBotSummonCooldown = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.OwnedBotSummonCooldown", 300));
     if (ownedBotSummonCooldown > 3600)
         ownedBotSummonCooldown = 3600;
-    // Issue #884: remote commander (off by default).
+    // Remote commander: the outside commander protocol (off by default).
     remoteCommander = config.GetBoolDefault("AiPlayerbot.RemoteCommander", false);
     // Issue #884, phase 2: the commander's TBM:VIEW feed period (250..60000 ms).
     remoteCommanderViewMs = TortoiseBots::RemoteCommander::View::ClampIntervalMs(

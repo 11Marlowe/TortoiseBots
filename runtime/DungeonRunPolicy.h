@@ -3,7 +3,7 @@
 // The run leader (`.bot run`, docs/play/dungeon-run-leader.md): an opt-in
 // driver that walks a bound party through a dungeon plan
 // (ai/playerbot/DungeonPlanPolicy.h) by itself, behind
-// AiPlayerbot.DungeonSelfClear (default 0).
+// AiPlayerbot.DungeonSelfClear (default 1).
 //
 // It gives the party ONLY the remote commander's own orders (`cmd move`,
 // `move ... direct`, `pullback`, `rest`, `loot`, `open`, `use`, `ritual`, `gossip`), so every

@@ -31,7 +31,7 @@ class ReloadPlansWiring(unittest.TestCase):
         self.assertIn(hook, run)
         # before the in-game requirement and the DungeonSelfClear/RemoteCommander gate: a console GM may reload too
         self.assertLess(run.index(hook), run.index("Player* commander = Requester(handler);"))
-        self.assertLess(run.index(hook), run.index("sPlayerbotAIConfig.dungeonSelfClear"))
+        self.assertLess(run.index(hook), run.index("RemoteCommander::RunSurfaceOn("))
         self.assertIn("/ reloadplans (GameMaster)", run)
         # `.bot run` reaches HandleDungeonRun
         self.assertIn('{"run", HandleDungeonRun,', CMD)

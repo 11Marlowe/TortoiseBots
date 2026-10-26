@@ -27,7 +27,7 @@ It is **off by default**. A normal player's bots play exactly as before.
 The `boss tactics` strategy is added to a bot by the `enter boss tactics` trigger of the `dungeon` strategy (re-checked every 5 ticks, like the per-dungeon strategies) when all of these hold:
 
 1. the bot is on a map that has at least one row in `ai_boss_tactic`, and
-2. either `AiPlayerbot.DungeonTactics = 1` (the server owner opted in; default `0`), **or** the bot is in a group that a remote commander has bound (`.bot commander bind`, needs `AiPlayerbot.RemoteCommander = 1`; the commander runs).
+2. either `AiPlayerbot.DungeonTactics = 1` (the server owner opted in; default `0`), **or** the bot is in a bound group (`.bot commander bind`: a remote bind needs `AiPlayerbot.RemoteCommander = 1`, an `inparty` bind needs only `AiPlayerbot.DungeonSelfClear = 1`; the run leader needs only the run leader gate).
 
 When the bot leaves the map, or the key is switched off and the bot is no longer in a bound group, `leave boss tactics` removes it again. The gate is `BossTacticsWanted` in `ai/playerbot/BossTacticsPolicy.h`.
 
