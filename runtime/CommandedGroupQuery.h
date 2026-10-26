@@ -30,6 +30,8 @@ bool IsRunKillFirst(Player* bot, uint32_t entry);
 // the run. They fire for the bot like listed ones (BotAreaTriggers.cpp). One
 // lookup (no group: none). The pointer is read before any trigger script runs.
 std::vector<uint32_t> const* RunArmedAreaTriggers(Player* bot);
+// The plan map of the bot's running or paused run (HoldsItsDead), 0 = none. One lookup, world thread.
+uint32_t BoundRunPlanMap(Player* bot);
 // A bot fired an area trigger: the run that armed it disarms it for good.
 void NoteRunAreaTriggerFired(Player* bot, uint32_t id);
 

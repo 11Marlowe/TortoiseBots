@@ -27,6 +27,8 @@
 #include "playerbot/MagmaHazardPolicy.h"
 #include "playerbot/SwimPathPolicy.h"
 #include "playerbot/MoveFailNotePolicy.h"
+#include "playerbot/BoundRunMapGuard.h"
+#include "../../../../runtime/CommandedGroupQuery.h"
 #include "host/ModuleLog.h"
 #include "vmap/VMapFactory.h"
 #include "playerbot/BotActionLog.h"
@@ -1447,6 +1449,23 @@ MovementAction::SwimHandoffResult MovementAction::SwimHandoff(const WorldPositio
     if (!endPos.isValid())
     {
         lastMove.moveFailReason = MOVE_FAIL_INVALID_DEST;
+        return false;
+    }
+
+    // A bound run's bot never leaves the plan's map by its own move (pip S2
+    // Deadmines 2026-10-26: a player's ghost outside made the follow ping-pong
+    // through the portal). The cheap map compare comes first, so the run lookup
+    // runs only for a cross-map destination.
+    if (endPos.GetMapId() != bot->GetMapId() &&
+        ai::BoundRunRefusesMapChange(bot->GetMapId(), endPos.GetMapId(), TortoiseBots::BotCommands::BoundRunPlanMap(bot)))
+    {
+        // A walk already headed off the map (built before the run bound it) is dropped too.
+        if (!lastMove.lastPath.empty() && lastMove.lastPath.GetBack().GetMapId() != bot->GetMapId())
+        {
+            lastMove.clear();
+            ai->StopMoving();
+        }
+        lastMove.moveFailReason = MOVE_FAIL_BOUND_RUN_MAP;
         return false;
     }
 

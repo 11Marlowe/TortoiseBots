@@ -14523,6 +14523,144 @@ static void TestCeilingPauseResumesByItself()
     CHECK(!CeilingFightOverWhilePaused(u, false, kCeilingQuietMs * 2) && u.state == State::Running);
 }
 
+// pip S2 Deadmines 2026-10-26: the lead bot left map 36, the run paused on "the
+// lead bot is not on the plan's map", and nothing resumed it (> 2 min with the
+// lead back beside the player). The pause goes on by itself once the lead bot
+// is alive, in world, not teleporting and on the plan's map for
+// kLeadBackSettleMs, once per step; a player's pause never resumes by itself.
+static void TestLeadOffMapPauseResumesByItself()
+{
+    DungeonPlan plan;
+    PlanStep wait = Step(PlanStepKind::WaitObject, 1, 2, 3);
+    wait.entry = 124369;
+    wait.param = 1;
+    plan.steps = {wait, Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan);
+    PauseLeadOffMap(r, 36);
+    CHECK(r.state == State::Paused && r.leadOffMapPaused &&
+        r.note == "the lead bot is not on the plan's map (36)");
+    // Off the map (or not back long enough): still paused.
+    CHECK(!LeadBackWhilePaused(r, false, 10000) && r.state == State::Paused);
+    CHECK(!LeadBackWhilePaused(r, true, 3000) && r.state == State::Paused);
+    CHECK(!LeadBackWhilePaused(r, false, 1000) && r.state == State::Paused && r.leadBackMs == 0);
+    CHECK(!LeadBackWhilePaused(r, true, 4000) && r.state == State::Paused);
+    CHECK(!LeadBackWhilePaused(r, true, 1000) && r.state == State::Paused);
+    // Back past 5 s in a row: it goes on by itself, regrouping.
+    CHECK(LeadBackWhilePaused(r, true, 4000));
+    CHECK(r.state == State::Running && !r.leadOffMapPaused);
+    CHECK(r.note.find("the lead bot is back on the plan's map") != std::string::npos);
+    CHECK(r.regroup);
+    // A second off-map pause on the same step stays paused for good.
+    PauseLeadOffMap(r, 36);
+    CHECK(!LeadBackWhilePaused(r, true, 10000) && r.state == State::Paused);
+    // A player's pause never self-resumes, and clears the lead-back mark.
+    PausePlayer(r, "paused by .bot run pause");
+    CHECK(!r.leadOffMapPaused);
+    CHECK(!LeadBackWhilePaused(r, true, 10000) && r.state == State::Paused);
+    // ... and the guard holds on its own even if the mark were left set.
+    r.leadOffMapPaused = true;
+    CHECK(!LeadBackWhilePaused(r, true, 10000) && r.state == State::Paused);
+    // Any other pause after the lead-back one clears it.
+    Run o = Start(&plan);
+    PauseLeadOffMap(o, 36);
+    Pause(o, "the lead bot is not on the plan's map (70)");
+    CHECK(!o.leadOffMapPaused);
+    CHECK(!LeadBackWhilePaused(o, true, 10000) && o.state == State::Paused);
+    // A manual resume and a skip clear it as well.
+    Run m = Start(&plan);
+    PauseLeadOffMap(m, 36);
+    CHECK(Resume(m) && !m.leadOffMapPaused);
+    CHECK(!LeadBackWhilePaused(m, true, 10000));
+    Run k = Start(&plan);
+    PauseLeadOffMap(k, 36);
+    CHECK(Skip(k) && !k.leadOffMapPaused && k.step == 1);
+    // A running run is untouched.
+    Run u = Start(&plan);
+    CHECK(!LeadBackWhilePaused(u, true, 10000) && u.state == State::Running);
+}
+
+// O2 (owner decision 2026-10-26): the 5 min player-hold cap (kPlayerHoldCapMs)
+// also ended in a pause only a resume ended (run 1: the ghost was away 7.5
+// min). That pause resumes by itself once its cause is gone: the player alive
+// and back on the plan's map within kGatherYd. Same rules as the lead-back
+// pause: 5 s back in a row, once per step, never a player's own pause.
+static PlayerFact HoldPlayer(const std::string& name, bool alive, bool onMap, float yd)
+{
+    PlayerFact p;
+    p.name = name;
+    p.alive = alive;
+    p.onMap = onMap;
+    p.yd = yd;
+    return p;
+}
+
+static void TestPlayerHoldPauseResumesByItself()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(0, {1234}), Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan);
+    // A ghost out of the instance holds the pull; 5 min of it pauses.
+    Facts away;
+    away.players = {HoldPlayer("Pipwren", false, false, 1000.0f)};
+    away.players.front().ghost = true;
+    std::string const hold = PlayerHoldNote(r, away, *Current(r));
+    CHECK(!hold.empty());
+    PausePlayerHold(r, hold);
+    CHECK(r.state == State::Paused && r.playerHoldPaused &&
+        r.note.find("Pipwren is a ghost") != std::string::npos);
+    // Still away (or not back long enough): still paused.
+    CHECK(!PlayerHoldBackWhilePaused(r, away, 10000) && r.state == State::Paused);
+    Facts back = away;
+    back.players = {HoldPlayer("Pipwren", true, true, 10.0f)};
+    CHECK(!PlayerHoldBackWhilePaused(r, back, 3000) && r.state == State::Paused);
+    CHECK(!PlayerHoldBackWhilePaused(r, away, 1000) && r.state == State::Paused && r.playerHoldBackMs == 0);
+    CHECK(!PlayerHoldBackWhilePaused(r, back, 4000) && r.state == State::Paused);
+    CHECK(!PlayerHoldBackWhilePaused(r, back, 1000) && r.state == State::Paused);
+    // Back past 5 s in a row: it goes on by itself, regrouping.
+    CHECK(PlayerHoldBackWhilePaused(r, back, 4000));
+    CHECK(r.state == State::Running && !r.playerHoldPaused);
+    CHECK(r.note.find("the player is back with the party") != std::string::npos);
+    CHECK(r.regroup);
+    // A second player-hold pause on the same step stays paused for good.
+    PausePlayerHold(r, hold);
+    Facts g = away;
+    g.players = {HoldPlayer("Pipwren", true, true, 10.0f)};
+    CHECK(!PlayerHoldBackWhilePaused(r, g, 10000) && r.state == State::Paused);
+    // A player's pause never self-resumes, and clears the hold mark.
+    PausePlayer(r, "paused by .bot run pause");
+    CHECK(!r.playerHoldPaused);
+    CHECK(!PlayerHoldBackWhilePaused(r, g, 10000) && r.state == State::Paused);
+    // ... and the guard holds on its own even if the mark were left set.
+    r.playerHoldPaused = true;
+    CHECK(!PlayerHoldBackWhilePaused(r, g, 10000) && r.state == State::Paused);
+    // Any other pause after the hold one clears it.
+    Run o = Start(&plan);
+    PausePlayerHold(o, hold);
+    Pause(o, "other");
+    CHECK(!o.playerHoldPaused);
+    CHECK(!PlayerHoldBackWhilePaused(o, g, 10000) && o.state == State::Paused);
+    // A dead or far player is not "back".
+    Run d = Start(&plan);
+    PausePlayerHold(d, hold);
+    Facts dead;
+    dead.players = {HoldPlayer("Pipwren", false, true, 10.0f)};
+    Facts far;
+    far.players = {HoldPlayer("Pipwren", true, true, 1000.0f)};
+    CHECK(!PlayerHoldBackWhilePaused(d, dead, 10000) && d.state == State::Paused);
+    CHECK(!PlayerHoldBackWhilePaused(d, far, 10000) && d.state == State::Paused);
+    // A manual resume and a skip clear it as well.
+    Run m = Start(&plan);
+    PausePlayerHold(m, hold);
+    CHECK(Resume(m) && !m.playerHoldPaused);
+    CHECK(!PlayerHoldBackWhilePaused(m, g, 10000));
+    Run k = Start(&plan);
+    PausePlayerHold(k, hold);
+    CHECK(Skip(k) && !k.playerHoldPaused && k.step == 1);
+    // A running run is untouched.
+    Run u = Start(&plan);
+    CHECK(!PlayerHoldBackWhilePaused(u, g, 10000) && u.state == State::Running);
+}
+
 // Zul'Farrak r3-19z20 / r6-19z24 (PLAN-ZF-NOFIGHT): the island Shadowhunter 7246
 // (spawn 81610 at 1591.0 1047.7) stood 7.4 yd from step 64's move point and was
 // hop-pulled there; it drew no fight. Passed was cleared every step, so r3 pulled
@@ -20980,6 +21118,8 @@ int main()
     TestSignBFromTheMainMeshIsBounded();
     TestWalkBackResendBound();
     TestCeilingPauseResumesByItself();
+    TestLeadOffMapPauseResumesByItself();
+    TestPlayerHoldPauseResumesByItself();
     TestUnattackableOnlyFightIsNoFight();
     TestUnattackableUnitIsNeverPulledOrPickedUp();
     TestBotHeldByUnattackableDropsCombat();

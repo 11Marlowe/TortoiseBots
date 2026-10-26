@@ -8478,7 +8478,38 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                         slot.run.note.c_str());
                     SendRunLine(commander, slot, false);
                 }
+    }
+    // A pause for the lead bot off the plan's map goes on by itself once it is back (DungeonRun::LeadBackWhilePaused).
+    if (slot.run.state == TortoiseBots::DungeonRun::State::Paused && slot.run.leadOffMapPaused && commander)
+    {
+        Player* lead = FindCharacter(binding->leadGuid);
+        bool const back = lead && lead->IsInWorld() && !lead->IsBeingTeleported() && lead->IsAlive() &&
+            lead->GetMapId() == slot.run.plan->map;
+        if (TortoiseBots::DungeonRun::LeadBackWhilePaused(slot.run, back, dt))
+        {
+            TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(), slot.run.note.c_str());
+            SendRunLine(commander, slot, false);
+        }
+    }
+    // A pause for a player hold (5 min cap, DungeonRun::PlayerHoldBackWhilePaused) goes on by itself once every
+    // player of the party is alive and back with it (O2).
+    if (slot.run.state == TortoiseBots::DungeonRun::State::Paused && slot.run.playerHoldPaused && commander)
+    {
+        Player* holdLead = FindCharacter(binding->leadGuid);
+        if (holdLead && holdLead->IsInWorld())
+        {
+            TortoiseBots::DungeonRun::Facts holdFacts;
+            std::vector<Player*> const holdBots = CommandedBots(holdLead->GetGroup(), holdLead);
+            ReadRunFacts(slot, holdLead, holdBots, holdFacts);
+            ReadRunPlayers(slot, commanderRaw, holdLead, holdLead->GetGroup(), holdBots, holdFacts);
+            TortoiseBots::DungeonRun::ApplyPlayerFacts(holdFacts);
+            if (TortoiseBots::DungeonRun::PlayerHoldBackWhilePaused(slot.run, holdFacts, dt))
+            {
+                TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(), slot.run.note.c_str());
+                SendRunLine(commander, slot, false);
             }
+        }
+    }
     if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)
     {
         // Paused for a lead bot in another part of the instance (DungeonRun::PauseOtherPart): the held bots stay
@@ -8502,8 +8533,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     bool const deadLeadAway = !lead->IsAlive();
     if (lead->GetMapId() != slot.run.plan->map && !deadLeadAway)
     {
-        TortoiseBots::DungeonRun::Pause(slot.run, "the lead bot is not on the plan's map (" +
-            std::to_string(slot.run.plan->map) + ")");
+        TortoiseBots::DungeonRun::PauseLeadOffMap(slot.run, slot.run.plan->map);
         ReleaseRunHold(commander, binding->leadGuid, slot);
         SendRunLine(commander, slot, false);
         return;
@@ -10314,6 +10344,12 @@ static bool const s_runReleaseHoldRegistered =
 std::vector<uint32_t> const* RunArmedAreaTriggers(Player* bot)
 {
     return TortoiseBots::DungeonRun::RunArmedTriggersOf(RunningRunOf(bot, true));
+}
+
+uint32_t BoundRunPlanMap(Player* bot)
+{
+    DungeonRunSlot const* slot = RunSlotOf(bot, true);
+    return slot && slot->run.plan ? slot->run.plan->map : 0;
 }
 
 void NoteRunAreaTriggerFired(Player* bot, uint32_t id)
