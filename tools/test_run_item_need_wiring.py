@@ -108,5 +108,48 @@ class GivenItemProvenanceWiringTest(unittest.TestCase):
         self.assertIn("TortoiseBots::RunGivenItems::Has(item->GetGUIDLow())", sell_one)
 
 
+
+class DoorAndLegFactsWiringTest(unittest.TestCase):
+    """Opus 1/2/3 + Codex 2: the glue hands the party's bags to FillLegNeedFacts (door holders, best player lockpick,
+    the door's bot carrier), reads the door near the lead bot (not found = not read), and runs DoorOpenWhilePaused on
+    a paused door hold; the resume goes through ResumeChecked (which refuses while the door is closed)."""
+
+    def read(self):
+        return body(COMMANDS, "void ReadRunNeedFacts(DungeonRunSlot const& slot, Player* lead, TortoiseBots::DungeonRun::Facts& f)\n{")
+
+    def test_bags_go_through_the_pure_fill(self):
+        read = self.read()
+        self.assertIn("RunItemNeed::LegNeedItems(slot.run)", read)
+        self.assertIn("RunItemNeed::FillLegNeedFacts(slot.run, RunItemNeedMembers(RunNeedParty(lead, items)), f)", read)
+        self.assertNotIn("legNeedHolders", read)  # holders are decided in the pure fill only
+        self.assertIn("ReadRunNeedFacts(slot, lead, f);", body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot,"))
+
+    def test_door_is_looked_for_near_the_lead_and_not_found_is_not_closed(self):
+        read = self.read()
+        self.assertIn("spec.hasPoint = false;", read)
+        self.assertNotIn("spec.point", read)
+        found = read.index("if (!go)\n        return; // not found")
+        self.assertLess(found, read.index("f.doorNeedRead = true;"))
+        self.assertIn("f.doorNeedX = go->GetPositionX();", read)
+
+    def test_party_reads_lockpicking_for_real_players(self):
+        party = body(COMMANDS, "std::vector<RunNeedMemberPlain> RunNeedParty(Player* lead,")
+        self.assertIn("entry.lockpick = member->GetSkillValue(SKILL_LOCKPICKING);", party)
+        self.assertIn("slots.insert(slots.begin(), slot);", party)  # the lead bot first
+
+    def test_paused_door_hold_reads_the_door_and_resumes_only_when_open(self):
+        tick = body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)")
+        block = body(tick, "slot.run.state == TortoiseBots::DungeonRun::State::Paused && slot.run.doorPaused && commander",
+                     "\n    }\n")
+        self.assertIn("ReadRunNeedFacts(slot, doorLead, doorFacts);", block)
+        self.assertIn("TortoiseBots::DungeonRun::DoorOpenWhilePaused(slot.run, doorFacts)", block)
+
+    def test_resume_goes_through_resume_checked(self):
+        run = body(COMMANDS, "bool HandleDungeonRun(ChatHandler* handler, char const* args)")
+        resume = body(run, 'else if (verb == "resume")', "\n    }\n")
+        self.assertIn("done = ResumeChecked(slot.run, spot, refusal);", resume)
+        self.assertNotIn("Resume(slot.run)", resume.replace("ResumeChecked(slot.run", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

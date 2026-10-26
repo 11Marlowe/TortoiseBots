@@ -719,10 +719,16 @@ struct Facts
     // current leg's Optional needs (the skip gate) and its Door needs (the
     // door hold: only a holder that is a real player opens the door).
     std::vector<std::pair<std::uint32_t, std::string>> legNeedHolders;
-    // ... the current leg's first door need: read (doorNeedRead), and its
-    // object gameobject's state (doorNeedState: 0 closed/other, 1 open).
+    // ... the current leg's first door need: its object gameobject found near
+    // the lead bot this tick (doorNeedRead; not found is NOT closed: nothing is
+    // decided and nothing held on it), its state (doorNeedState: 0 closed/other,
+    // 1 open) and its position (the hold fires only near it, DoorNear).
     bool doorNeedRead = false;
     std::uint32_t doorNeedState = 0;
+    float doorNeedX = 0.0f, doorNeedY = 0.0f, doorNeedZ = 0.0f;
+    // ... the first bot (the lead bot first) carrying that door's item: with
+    // DungeonRunBotKeysForPlayers = 1 it opens the door for the party (DoorKeyOpen).
+    std::string doorNeedCarrier;
     // ... the best real-player SKILL_LOCKPICKING of the party (0 none): a
     // rogue's Lockpicking that opens the door instead of the key.
     std::uint32_t doorNeedLockpick = 0;
@@ -1131,9 +1137,19 @@ struct Run
     std::set<std::uint8_t> legNeedDecided;
     // Optional legs skipped this run, in skip order (ResetStep keeps them).
     std::vector<std::uint8_t> skippedLegs;
-    // ... legs the door hold already paused for: a `.bot run resume` past the
-    // still-closed door counts as the player's answer (no re-hold).
-    std::set<std::uint8_t> doorNeedHeld;
+    // The door hold's pause (DoorNeedHold, DoorKeyOpen's last try): only the
+    // door read open ends it (DoorOpenWhilePaused, then the run goes on by
+    // itself); `.bot run resume` keeps it while the door reads closed
+    // (ResumeChecked); `.bot run skip` walks the party past it by hand (the leg
+    // is decided). Pause and Resume clear it.
+    bool doorPaused = false;
+    std::uint8_t doorPausedLeg = 0;
+    std::string doorPausedAsk; // the hold's ask (what opens the door), for the resume's refusal
+    // DoorKeyOpen: the leg whose door a carrier bot is opening (-1 none), the
+    // open orders sent for it and the time since the last one.
+    int doorOpenLeg = -1;
+    std::uint32_t doorOpenTries = 0;
+    std::uint32_t doorOpenMs = 0;
     // Windhorn Canyon r26 slot 5b step 68: pull steps whose pack was judged not reachable
     // from the floor the party stood on (DeferUnreachablePack) were deferred, not paused:
     // each is tried once more at the end of its leg (StepAfter), from where the party is then.
@@ -1980,6 +1996,7 @@ inline void Pause(Run& r, const std::string& why)
     r.leadBackMs = 0;
     r.playerHoldPaused = false; // PausePlayerHold sets it after
     r.playerHoldBackMs = 0;
+    r.doorPaused = false; // PauseDoor sets it after
     ClearRunBack(r); // a paused run leaves every bot to its own AI
     r.hold.clear();
     r.holdDue = false;
@@ -4006,6 +4023,7 @@ inline bool Resume(Run& r)
     r.leadOffMapPaused = false;
     r.playerHoldPaused = false;
     r.otherPartPaused = false;
+    r.doorPaused = false;
     r.fighting = false;
     r.autoRegroups = 0;
     r.otherPartRescues = 0; // a resume gives the lead bot in another part fresh rescue teleports
@@ -4058,6 +4076,15 @@ inline void RearmRescueAfterDeath(Run& r);
 inline bool ResumeChecked(Run& r, const LeadSpot& lead, std::string& refusal)
 {
     refusal.clear();
+    // The door hold (DoorNeedHold, lead decision 2026-10-26, review round 2): with a real player in the party only
+    // the door read open lets the bots on (DoorOpenWhilePaused); a resume while it reads closed keeps the hold.
+    if (r.state == State::Paused && r.doorPaused)
+    {
+        refusal = "the bots still hold at the closed door: " + r.doorPausedAsk +
+            ". The run goes on by itself once the door reads open; .bot run resume does not pass a closed door"
+            " (.bot run skip walks the party past it by hand)";
+        return false;
+    }
     if (r.state == State::Paused && r.otherPartPaused && lead.read && lead.alive && lead.onPlanMap)
     {
         float const planYd = PlanNearestYd(r, lead.x, lead.y, lead.z);
@@ -4091,6 +4118,11 @@ inline bool Skip(Run& r)
     if (r.state == State::Done || !s)
         return false;
     bool const wasPaused = r.state == State::Paused;
+    // A skip from the door hold walks the party past the still-closed door by
+    // hand: the leg's door is decided (no hold on it again this run).
+    if (wasPaused && r.doorPaused)
+        r.legNeedDecided.insert(r.doorPausedLeg);
+    r.doorPaused = false;
     if (r.pendingMissing)
         r.missing.insert(r.pendingMissing);
     if (s->kind == PlanStepKind::Open)
@@ -4339,94 +4371,195 @@ inline std::string SkippedLegsReport(const Run& r)
     return std::string("optional leg") + (r.skippedLegs.size() == 1 ? " skipped: " : "s skipped: ") + out;
 }
 
-// Spec item-leg-skip C2b: a key-door leg with a real player in the party (and
-// DungeonRunBotKeysForPlayers = 0): decided once a run, on the first tick out
-// of combat at one of its steps before the party crosses the door. While the
-// leg's first door need reads closed and no qualified holder exists (a real
-// player carrying the item, or pick > 0 and the best real-player lockpick >=
-// pick, or the item made earlier by a loot/use_item step before the leg's
-// first step), the run holds (a resumable PausePlayer-equivalent pause) with
-// the ask note; bots never walk through. Qualified/open -> decide the leg and
-// walk on. A `.bot run resume` past a still-closed door counts as the
-// player's answer (doorNeedHeld: no re-hold on the same leg). True: the run
-// held at the door this tick.
-inline bool DoorNeedHold(Run& r, const Facts& f)
+// Spec item-leg-skip C2b/C2c (review round 2: Codex 2, Opus 3/6): the key doors of a leg with a real player in the
+// party. The leg's first Door need row names the door object; the glue looks for it near the lead bot each tick
+// (Facts::doorNeedRead/State/X/Y/Z): a door not found is not known closed (nothing held, nothing decided); a door
+// found open decides the leg. The bots stop only NEAR the door (DoorNear: the current step's point or the lead bot
+// within kDoorNearYd of it), so a long leg walks up to its door first.
+
+// The hold stops the party this near the door (yd): the step about to cross it, or the lead bot beside it.
+constexpr float kDoorNearYd = 25.0f;
+// DoorKeyOpen: the wait for the door to read open after an open order, and the orders before the hold takes over.
+constexpr std::uint32_t kDoorOpenWaitMs = 20000;
+constexpr std::uint32_t kDoorOpenTries = 3;
+
+// The current leg's first Door need row (nullptr none).
+inline const ai::PlanLegNeed* LegDoorNeed(const Run& r)
 {
     const PlanStep* s = Current(r);
-    if (!s || !r.plan || f.anyInCombat)
-        return false;
-    if (f.players.empty() || f.botKeysForPlayers)
-        return false;
-    if (r.legNeedDecided.count(s->leg) || r.doorNeedHeld.count(s->leg))
-        return false;
-    const ai::PlanLegNeed* door = nullptr;
+    if (!s || !r.plan)
+        return nullptr;
     for (const ai::PlanLegNeed& need : r.plan->needs)
         if (need.leg == s->leg && need.mode == ai::LegNeedMode::Door)
-        {
-            door = &need;
-            break;
-        }
-    if (!door)
+            return &need;
+    return nullptr;
+}
+
+inline bool DoorNear(const Run& r, const Facts& f)
+{
+    const PlanStep* s = Current(r);
+    if (!s || !f.doorNeedRead)
         return false;
-    if (!f.doorNeedRead || f.doorNeedState == 1)
-    {
-        r.legNeedDecided.insert(s->leg);
-        return false;
-    }
-    // Qualified: a real player carries it (bot bags do not open doors), a
-    // rogue's lockpick, or the run makes it itself before the leg.
-    bool playerCarries = false;
+    return ai::PlanDistance(s->x, s->y, s->z, f.doorNeedX, f.doorNeedY, f.doorNeedZ) <= kDoorNearYd ||
+        ai::PlanDistance(f.leadX, f.leadY, f.leadZ, f.doorNeedX, f.doorNeedY, f.doorNeedZ) <= kDoorNearYd;
+}
+
+// A qualified opener in the party: a real player carries the key (FillLegNeedFacts names a player holder first), a
+// real player's Lockpicking reaches the lock's pick, or the run makes the key itself before the leg.
+inline bool DoorQualified(const Run& r, const Facts& f, const ai::PlanLegNeed& door)
+{
     for (const auto& have : f.legNeedHolders)
-        if (have.first == door->item && !have.second.empty())
+        if (have.first == door.item && !have.second.empty())
         {
             for (const PlayerFact& p : f.players)
                 if (p.name == have.second)
-                {
-                    playerCarries = true;
-                    break;
-                }
+                    return true;
             break;
         }
-    bool const rogue = door->pick > 0 && f.doorNeedLockpick >= door->pick;
-    bool made = false;
+    if (door.pick > 0 && f.doorNeedLockpick >= door.pick)
+        return true;
     std::size_t first = r.plan->steps.size();
     for (std::size_t i = 0; i < r.plan->steps.size(); ++i)
-        if (r.plan->steps[i].leg == s->leg)
+        if (r.plan->steps[i].leg == door.leg)
         {
             first = i;
             break;
         }
-    for (std::size_t j = 0; j < first && j < r.plan->steps.size(); ++j)
+    for (std::size_t j = 0; j < first; ++j)
     {
         const PlanStep& m = r.plan->steps[j];
-        if ((m.kind == PlanStepKind::Loot && m.item == door->item) ||
-            (m.kind == PlanStepKind::UseItem && m.item == door->item))
-        {
-            made = true;
-            break;
-        }
+        if ((m.kind == PlanStepKind::Loot || m.kind == PlanStepKind::UseItem) && m.item == door.item)
+            return true;
     }
-    if (playerCarries || rogue || made)
+    return false;
+}
+
+// What opens the door, for the notes: "Shadowforge Key (item 11000) or Lockpicking 250".
+inline std::string DoorOpener(const ai::PlanLegNeed& door)
+{
+    std::string const item = door.name.empty() ? "item " + std::to_string(door.item)
+                                               : door.name + " (item " + std::to_string(door.item) + ")";
+    return item + (door.pick > 0 ? " or Lockpicking " + std::to_string(door.pick) : std::string());
+}
+
+// The hold's pause: only the door read open ends it (DoorOpenWhilePaused).
+inline void PauseDoor(Run& r, std::uint8_t leg, const std::string& ask, const std::string& note)
+{
+    Pause(r, note);
+    r.doorPaused = true;
+    r.doorPausedLeg = leg;
+    r.doorPausedAsk = ask;
+}
+
+// The hold (DungeonRunBotKeysForPlayers = 0, or no bot carries the key): a real player in the party, the leg's door
+// found closed and near, nobody qualified: the run pauses with the ask note; the bots stand before the door. True:
+// the run held at the door this tick.
+inline bool DoorNeedHold(Run& r, const Facts& f)
+{
+    const PlanStep* s = Current(r);
+    if (!s || !r.plan || f.anyInCombat || f.players.empty() || !f.legNeedRead)
+        return false;
+    if (r.legNeedDecided.count(s->leg))
+        return false;
+    const ai::PlanLegNeed* door = LegDoorNeed(r);
+    if (!door)
+        return false;
+    if (DoorQualified(r, f, *door))
+    {
+        r.legNeedDecided.insert(s->leg); // the player opens it himself
+        return false;
+    }
+    if (f.botKeysForPlayers && !f.doorNeedCarrier.empty())
+        return false; // a bot opens it (DoorKeyOpen)
+    if (!f.doorNeedRead)
+        return false; // not found near the lead bot: not known closed
+    if (f.doorNeedState == 1)
     {
         r.legNeedDecided.insert(s->leg);
         return false;
     }
-    std::string const legText = NeedLegLabel(*r.plan, s->leg);
-    std::string const itemName = door->name.empty() ? "item " + std::to_string(door->item)
-                                                   : door->name + " (item " + std::to_string(door->item) + ")";
-    std::string const pickText = door->pick > 0 ? " or Lockpicking " + std::to_string(door->pick) : "";
+    if (!DoorNear(r, f))
+        return false;
     bool anyoneCarries = false;
     for (const auto& have : f.legNeedHolders)
         if (have.first == door->item && !have.second.empty())
-        {
             anyoneCarries = true;
-            break;
-        }
-    std::string const howText =
-        !door->how.empty() && !anyoneCarries ? " Get it: " + door->how + "." : "";
-    PausePlayer(r, "door to leg " + legText + ": the way is locked (object " + std::to_string(door->object) +
-        "): open it with " + itemName + pickText + ", then .bot run resume" + howText);
-    r.doorNeedHeld.insert(s->leg);
+    std::string const ask = "open it with " + DoorOpener(*door);
+    std::string const howText = !door->how.empty() && !anyoneCarries ? " Get it: " + door->how + "." : "";
+    PauseDoor(r, s->leg, ask,
+        "door to leg " + NeedLegLabel(*r.plan, s->leg) + ": the way is locked (object " + std::to_string(door->object) +
+            "): " + ask + "; the bots wait before it and go on by themselves once it reads open (.bot run resume does "
+            "not pass a closed door)." + howText);
+    return true;
+}
+
+// DungeonRunBotKeysForPlayers = 1 with a real player (rule 5): the bot carrying the key opens the leg's door near it
+// with the `open` order (the lock's key in its bags), up to kDoorOpenTries orders kDoorOpenWaitMs apart; the door read
+// open decides the leg; the last try failing pauses as the hold does. The party stands meanwhile. True: this tick is
+// the door's (order holds the open order, or nothing while it waits).
+inline bool DoorKeyOpen(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
+{
+    const PlanStep* s = Current(r);
+    if (!s || !r.plan || f.anyInCombat || f.players.empty() || !f.botKeysForPlayers || f.doorNeedCarrier.empty())
+        return false;
+    if (r.legNeedDecided.count(s->leg))
+        return false;
+    const ai::PlanLegNeed* door = LegDoorNeed(r);
+    if (!door || !f.doorNeedRead)
+        return false;
+    if (f.doorNeedState == 1)
+    {
+        r.legNeedDecided.insert(s->leg);
+        r.doorOpenLeg = -1;
+        return false;
+    }
+    if (!DoorNear(r, f))
+        return false;
+    std::string const legText = NeedLegLabel(*r.plan, s->leg);
+    if (r.doorOpenLeg != static_cast<int>(s->leg))
+    {
+        r.doorOpenLeg = s->leg;
+        r.doorOpenTries = 0;
+        r.doorOpenMs = 0;
+    }
+    else
+        r.doorOpenMs += dt;
+    if (r.doorOpenTries > 0 && r.doorOpenMs < kDoorOpenWaitMs)
+    {
+        r.note = "door to leg " + legText + ": waiting for " + f.doorNeedCarrier + " to open it";
+        return true;
+    }
+    if (r.doorOpenTries >= kDoorOpenTries)
+    {
+        std::string const ask = "open it with " + DoorOpener(*door);
+        PauseDoor(r, s->leg, ask,
+            "door to leg " + legText + ": " + f.doorNeedCarrier + " could not open it (object " +
+                std::to_string(door->object) + ") in " + std::to_string(kDoorOpenTries) + " tries: " + ask +
+                "; the bots wait before it and go on by themselves once it reads open (.bot run resume does not "
+                "pass a closed door).");
+        return true;
+    }
+    ++r.doorOpenTries;
+    r.doorOpenMs = 0;
+    order = "open " + EntryArg(door->object, f.doorNeedX, f.doorNeedY, f.doorNeedZ) + " " + f.doorNeedCarrier;
+    r.note = "door to leg " + legText + ": " + f.doorNeedCarrier + " opens it with " +
+        (door->name.empty() ? "item " + std::to_string(door->item) : door->name) + " for the party (" +
+        std::to_string(r.doorOpenTries) + " of " + std::to_string(kDoorOpenTries) + ")";
+    return true;
+}
+
+// The door hold's pause ends by itself the tick the glue reads the door open (it reads the door while paused too);
+// the run resumes with a resume's regroup. True when it resumed.
+inline bool DoorOpenWhilePaused(Run& r, const Facts& f)
+{
+    if (r.state != State::Paused || !r.doorPaused || !f.doorNeedRead || f.doorNeedState != 1)
+        return false;
+    std::uint8_t const leg = r.doorPausedLeg;
+    r.legNeedDecided.insert(leg);
+    if (!Resume(r))
+        return false;
+    r.note = "door to leg " + (r.plan ? NeedLegLabel(*r.plan, leg) : std::to_string(leg)) +
+        " reads open: going on by itself (regrouping)";
     return true;
 }
 
@@ -13303,6 +13436,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     // skip, a key door's hold) before the step runs its rules. The hold fires
     // on the leg's FIRST step, before any move of that leg is ordered.
     if (LegNeedGate(r, f))
+        return order;
+    if (DoorKeyOpen(r, f, dt, order))
         return order;
     if (DoorNeedHold(r, f))
         return order;

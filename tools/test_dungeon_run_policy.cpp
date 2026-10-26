@@ -5384,7 +5384,7 @@ static void TestSkippedLegNotReplayed()
 }
 
 // A door leg: plan with leg 1 = [move, pull], needs = {1, 11000, Door, pick
-// 250, object 170560, how ...}.
+// 250, object 170560, how ...}; the door stands at x 55, 5 yd past the move's point.
 static DungeonPlan DoorPlan()
 {
     DungeonPlan plan;
@@ -5410,6 +5410,7 @@ static DungeonPlan DoorPlan()
     return plan;
 }
 
+// The door found near the lead bot (doorNeedRead) at x 55, closed or open.
 static Facts DoorFacts(const std::string& player, bool closed, bool botKeys = false)
 {
     Facts f = Party(0);
@@ -5419,13 +5420,23 @@ static Facts DoorFacts(const std::string& player, bool closed, bool botKeys = fa
     f.players.push_back(p);
     f.doorNeedRead = true;
     f.doorNeedState = closed ? 0 : 1;
+    f.doorNeedX = 55.0f;
     f.doorNeedLockpick = 0;
     f.legNeedHolders = {{11000, ""}};
     f.botKeysForPlayers = botKeys;
     return f;
 }
 
-// Spec C2b/F10b: closed door, player present -> Paused with the ask note, no
+// One tick as the glue runs it (TickDungeonRun): a paused door hold reads the door first (DoorOpenWhilePaused), then
+// the run's Tick.
+static std::string GlueDoorTick(Run& r, const Facts& f, std::uint32_t dt = kTickMs)
+{
+    if (r.state == State::Paused && r.doorPaused)
+        DoorOpenWhilePaused(r, f);
+    return Tick(r, f, dt);
+}
+
+// Spec C2b/F10b: closed door near, player present -> Paused with the ask note, no
 // order; bot-only (no players) -> no hold.
 static void TestDoorHoldAsksPlayerToOpen()
 {
@@ -5433,20 +5444,21 @@ static void TestDoorHoldAsksPlayerToOpen()
     Run r = Start(&plan);
     Facts f = DoorFacts("Hypeer", true);
     CHECK(Tick(r, f).empty());
-    CHECK(r.state == State::Paused);
-    CHECK(r.note.find("door to leg arena: the way is locked (object 170560): open it with Shadowforge Key (item 11000) or Lockpicking 250, then .bot run resume") != std::string::npos);
-    CHECK(r.note.find("Dark Iron Legacy quest") != std::string::npos);
+    CHECK(r.state == State::Paused && r.doorPaused && r.doorPausedLeg == 1);
+    CHECK(r.note.find("door to leg arena: the way is locked (object 170560): open it with Shadowforge Key (item 11000) or Lockpicking 250; the bots wait before it and go on by themselves once it reads open (.bot run resume does not pass a closed door).") != std::string::npos);
+    CHECK(r.note.find("Get it: Dark Iron Legacy quest") != std::string::npos);
     Run b = Start(&plan);
     Facts g = Party(0);
     g.legNeedRead = true;
     g.doorNeedRead = true;
     g.doorNeedState = 0;
+    g.doorNeedX = 55.0f;
     CHECK(Tick(b, g) == "move 50.0 0.0 0.0");
     CHECK(b.state == State::Running);
 }
 
 // Spec C2b/F10c: open door / player carries / lockpick 250 -> no hold, leg
-// decided; a resume past a still-closed door counts as the answer.
+// decided; 249 -> holds.
 static void TestDoorHoldOpensAndResumes()
 {
     DungeonPlan plan = DoorPlan();
@@ -5457,36 +5469,157 @@ static void TestDoorHoldOpensAndResumes()
     Facts cf = DoorFacts("Hypeer", true);
     cf.legNeedHolders = {{11000, "Hypeer"}};
     CHECK(Tick(carried, cf) == "move 50.0 0.0 0.0");
+    CHECK(carried.legNeedDecided.count(1) == 1);
     Run rogue = Start(&plan);
     Facts rf = DoorFacts("Roguey", true);
     rf.doorNeedLockpick = 250;
     CHECK(Tick(rogue, rf) == "move 50.0 0.0 0.0");
-    // A resume past the still-closed door is the answer: no re-hold.
-    Run held = Start(&plan);
-    CHECK(Tick(held, DoorFacts("Hypeer", true)).empty());
-    CHECK(held.state == State::Paused);
-    CHECK(Resume(held));
-    Facts after = DoorFacts("Hypeer", true);
-    CHECK(Tick(held, after) == "move 50.0 0.0 0.0");
-    CHECK(Tick(held, after) == "move 50.0 0.0 0.0" || held.step == 0);
+    Run short1 = Start(&plan);
+    Facts sf = DoorFacts("Roguey", true);
+    sf.doorNeedLockpick = 249;
+    CHECK(Tick(short1, sf).empty());
+    CHECK(short1.state == State::Paused && short1.doorPaused);
 }
 
-// Spec C2c/F10d + F10e: flag on -> no hold with a player; flag off -> holds.
+// Review round 2 Codex 2 (lead decision): with a real player and the flag off the hold ends ONLY when the door reads
+// open: closed -> held; `.bot run resume` (ResumeChecked, the glue's resume) -> refused, still held; ticks while closed
+// -> still held, no order; the door reads open -> the run goes on by itself and walks the leg.
+static void TestDoorHoldReleasesOnlyWhenOpen()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts closed = DoorFacts("Hypeer", true);
+    CHECK(GlueDoorTick(r, closed).empty());
+    CHECK(r.state == State::Paused && r.doorPaused);
+    LeadSpot spot;
+    spot.read = true;
+    spot.alive = true;
+    spot.onPlanMap = true;
+    std::string refusal;
+    CHECK(!ResumeChecked(r, spot, refusal));
+    CHECK(r.state == State::Paused && r.doorPaused);
+    CHECK(refusal.find("still hold at the closed door: open it with Shadowforge Key (item 11000) or Lockpicking 250") != std::string::npos);
+    CHECK(refusal.find(".bot run resume does not pass a closed door") != std::string::npos);
+    for (int i = 0; i < 5; ++i)
+    {
+        CHECK(GlueDoorTick(r, closed).empty());
+        CHECK(r.state == State::Paused && r.doorPaused);
+    }
+    CHECK(r.legNeedDecided.count(1) == 0);
+    Facts open = DoorFacts("Hypeer", false);
+    CHECK(DoorOpenWhilePaused(r, open)); // the glue's paused-branch call (tools/test_run_item_need_wiring.py)
+    CHECK(r.state == State::Running && !r.doorPaused);
+    CHECK(r.legNeedDecided.count(1) == 1);
+    CHECK(r.note == "door to leg arena reads open: going on by itself (regrouping)");
+    // The run walks the leg (after the resume's regroup), never held at this door again even if it reads closed.
+    bool moved = false;
+    for (int i = 0; i < 30 && !moved; ++i)
+    {
+        std::string const order = GlueDoorTick(r, closed);
+        CHECK(r.state == State::Running);
+        moved = order == "move 50.0 0.0 0.0";
+    }
+    CHECK(moved);
+}
+
+// Review round 2 Opus 3: a door not found near the lead bot is not closed (no hold, nothing decided); the hold fires
+// once the closed door is found near the step about to cross it or near the lead bot.
+static void TestDoorNotFoundIsNotClosed()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts f = DoorFacts("Hypeer", true);
+    f.doorNeedRead = false;
+    CHECK(Tick(r, f) == "move 50.0 0.0 0.0");
+    CHECK(r.state == State::Running && r.legNeedDecided.count(1) == 0);
+    f.doorNeedRead = true;
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.doorPaused);
+}
+
+static void TestDoorHoldOnlyNearTheDoor()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts f = DoorFacts("Hypeer", true);
+    f.doorNeedX = 500.0f; // found, closed, far from the step's point and the lead bot
+    CHECK(Tick(r, f) == "move 50.0 0.0 0.0");
+    CHECK(r.state == State::Running && r.legNeedDecided.count(1) == 0);
+    f.leadX = 480.0f; // the lead bot beside it
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.doorPaused);
+}
+
+// Spec C2c/F10d + review round 2 Opus 6: flag on with a player and a bot carrying the key: the carrier bot opens the
+// door (the `open` order on the door object), no hold; the door reads open -> the leg walks on.
 static void TestBotKeysFlagOpensDoor()
 {
     DungeonPlan plan = DoorPlan();
     Run r = Start(&plan);
-    CHECK(Tick(r, DoorFacts("Hypeer", true, true)) == "move 50.0 0.0 0.0");
-    CHECK(r.state == State::Running);
+    Facts f = DoorFacts("Hypeer", true, true);
+    f.doorNeedCarrier = "Tanky";
+    CHECK(Tick(r, f) == "open entry:170560@55.0,0.0,0.0 Tanky");
+    CHECK(r.state == State::Running && !r.doorPaused);
+    CHECK(r.note.find("Tanky opens it with Shadowforge Key for the party (1 of 3)") != std::string::npos);
+    CHECK(Tick(r, f).empty()); // waits for the door
+    CHECK(r.note.find("waiting for Tanky to open it") != std::string::npos);
+    Facts open = DoorFacts("Hypeer", false, true);
+    open.doorNeedCarrier = "Tanky";
+    CHECK(Tick(r, open) == "move 50.0 0.0 0.0");
+    CHECK(r.legNeedDecided.count(1) == 1);
+}
+
+// ... the door never opens: an order every kDoorOpenWaitMs, three in all, then the hold (the player is asked), which
+// ends when the door reads open.
+static void TestBotKeysFlagDoorThatNeverOpensHolds()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts f = DoorFacts("Hypeer", true, true);
+    f.doorNeedCarrier = "Tanky";
+    int orders = 0;
+    for (int i = 0; i < 100 && r.state == State::Running; ++i)
+        if (Tick(r, f, 5000).rfind("open entry:170560", 0) == 0)
+            ++orders;
+    CHECK(orders == 3);
+    CHECK(r.state == State::Paused && r.doorPaused);
+    CHECK(r.note.find("Tanky could not open it (object 170560) in 3 tries") != std::string::npos);
+    Facts open = DoorFacts("Hypeer", false, true);
+    open.doorNeedCarrier = "Tanky";
+    GlueDoorTick(r, open);
+    CHECK(r.state == State::Running && r.legNeedDecided.count(1) == 1);
+}
+
+// Flag on but no bot carries the key (the give found no bag space): the hold asks the player.
+static void TestBotKeysFlagWithoutCarrierHolds()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    CHECK(Tick(r, DoorFacts("Hypeer", true, true)).empty());
+    CHECK(r.state == State::Paused && r.doorPaused);
 }
 
 static void TestDoorHoldFlagOffHolds()
 {
     DungeonPlan plan = DoorPlan();
     Run r = Start(&plan);
-    CHECK(Tick(r, DoorFacts("Hypeer", true, false)).empty());
+    Facts f = DoorFacts("Hypeer", true, false);
+    f.doorNeedCarrier = "Tanky"; // a bot carries it, the flag is off: bots never open doors for players
+    CHECK(Tick(r, f).empty());
     CHECK(r.state == State::Paused);
     CHECK(r.note.find("door to leg arena") != std::string::npos);
+}
+
+// `.bot run skip` from the door hold walks the party past the closed door by hand: the leg is decided.
+static void TestSkipPastClosedDoorDecidesLeg()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts f = DoorFacts("Hypeer", true);
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.doorPaused);
+    CHECK(Skip(r));
+    CHECK(r.state == State::Running && !r.doorPaused && r.legNeedDecided.count(1) == 1);
 }
 
 // Spec C3/F11: f.itemPlayer set -> the use_on pause ends with the trade line.
@@ -21906,6 +22039,12 @@ int main()
     TestDoorHoldAsksPlayerToOpen();
     TestDoorHoldOpensAndResumes();
     TestBotKeysFlagOpensDoor();
+    TestDoorHoldReleasesOnlyWhenOpen();
+    TestDoorNotFoundIsNotClosed();
+    TestDoorHoldOnlyNearTheDoor();
+    TestBotKeysFlagDoorThatNeverOpensHolds();
+    TestBotKeysFlagWithoutCarrierHolds();
+    TestSkipPastClosedDoorDecidesLeg();
     TestDoorHoldFlagOffHolds();
     TestUseOnPausesNamingPlayerCarrier();
     TestUseOnWithoutTheItemPauses();

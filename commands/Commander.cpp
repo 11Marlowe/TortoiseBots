@@ -583,7 +583,14 @@ std::vector<RunNeedMemberPlain> RunNeedParty(Player* lead, const std::vector<uin
         out.push_back(self);
         return out;
     }
+    // The lead bot first (the order FillLegNeedFacts and CheckStart read holders and give orders in), then the rest.
+    std::vector<Group::MemberSlot> slots;
     for (Group::MemberSlot const& slot : group->GetMemberSlots())
+        if (slot.guid == lead->GetObjectGuid())
+            slots.insert(slots.begin(), slot);
+        else
+            slots.push_back(slot);
+    for (Group::MemberSlot const& slot : slots)
     {
         uint64 const raw = slot.guid.GetRawValue();
         bool const isBot = BotManager::Instance().IsBot(slot.guid);
@@ -7805,8 +7812,7 @@ std::vector<TortoiseBots::DungeonRun::DoorFact> const& InstanceDoors(uint32 mapI
 }
 // Item-leg skip (spec D8): the current leg's Optional holders + first Door
 // need's object state, defined after ReadRunFacts (it needs FindEntryTarget).
-static void ReadRunNeedFacts(DungeonRunSlot const& slot, Player* lead, Group* group,
-    TortoiseBots::DungeonRun::Facts& f);
+static void ReadRunNeedFacts(DungeonRunSlot const& slot, Player* lead, TortoiseBots::DungeonRun::Facts& f);
 
 void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
     TortoiseBots::DungeonRun::Facts& f)
@@ -8501,74 +8507,38 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         f.goodSpotCut = GoodSpotCutOff(lead, slot.run);
     ReadTimeSinkWays(slot, lead, f);
     ReadPullStand(slot, lead, f);
-    ReadRunNeedFacts(slot, lead, lead->GetGroup(), f);
+    ReadRunNeedFacts(slot, lead, f);
 }
-// Item-leg skip: the current leg's Optional holders + the first Door
-// need's object state, read every tick.
-void ReadRunNeedFacts(DungeonRunSlot const& slot, Player* lead, Group* group,
-    TortoiseBots::DungeonRun::Facts& f)
+// Item-leg skip (spec C2/C2b/C2c, review round 2 Opus 1/2/3): the current leg's need facts, read every tick: the
+// party's bags for the leg's Optional and Door items and the real players' Lockpicking (RunItemNeed::FillLegNeedFacts
+// decides holders, the best lockpick and the door's bot carrier), and the leg's first door object NEAR THE LEAD BOT
+// (FindEntryTarget within ReactDistance): not found leaves doorNeedRead false (not known closed); found gives its
+// state and position (the hold fires only near it, DungeonRun::DoorNear).
+void ReadRunNeedFacts(DungeonRunSlot const& slot, Player* lead, TortoiseBots::DungeonRun::Facts& f)
 {
+    f.botKeysForPlayers = sPlayerbotAIConfig.dungeonRunBotKeysForPlayers; // live reload every tick (rule 5)
     if (!slot.run.plan || !lead)
         return;
-    ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(slot.run);
-    if (!step)
+    std::vector<uint32_t> const items = TortoiseBots::RunItemNeed::LegNeedItems(slot.run);
+    if (items.empty())
         return;
-    // Optional holders of the CURRENT leg only, while its leg is undecided.
-    if (!f.legNeedRead)
-    {
-        std::vector<std::pair<uint32_t, std::string>> holders;
-        for (ai::PlanLegNeed const* need : slot.run.plan->NeedsOfLeg(step->leg))
-        {
-            if (!need || need->mode != ai::LegNeedMode::Optional || need->item == 0)
-                continue;
-            std::string holder; // bots first, then players, dead ones too
-            if (group)
-            {
-                for (int pass = 0; pass < 2 && holder.empty(); ++pass)
-                    for (Group::MemberSlot const& entry : group->GetMemberSlots())
-                    {
-                        bool const isBot = BotManager::Instance().IsBot(entry.guid);
-                        if ((pass == 0) != isBot)
-                            continue;
-                        Player* member = ObjectAccessor::FindPlayer(entry.guid);
-                        if (member && member->HasItemCount(need->item, 1, false))
-                        {
-                            holder = member->GetName();
-                            break;
-                        }
-                    }
-            }
-            holders.push_back({need->item, holder});
-        }
-        f.legNeedHolders = holders;
-        f.legNeedRead = true;
-    }
-    // First Door need of the CURRENT leg: the row's `object` gameobject state
-    // (open = done, as the hold-on-object logic reads it).
-    if (!f.doorNeedRead)
-    {
-        for (ai::PlanLegNeed const* need : slot.run.plan->NeedsOfLeg(step->leg))
-        {
-            if (!need || need->mode != ai::LegNeedMode::Door || need->object == 0)
-                continue;
-            RemoteCommander::TargetSpec spec;
-            spec.entry = need->object;
-            spec.hasPoint = true;
-            spec.point.x = step->x;
-            spec.point.y = step->y;
-            spec.point.z = step->z;
-            uint64 const guid = FindEntryTarget(lead, spec, false);
-            ObjectGuid const objectGuid(guid);
-            GameObject* go = guid && objectGuid.IsGameObject() && lead->GetMap()
-                ? lead->GetMap()->GetGameObject(objectGuid)
-                : nullptr;
-            // 0 closed/other, 1 open (GO_STATE_ACTIVE).
-            f.doorNeedState = (go && go->GetGoState() == GO_STATE_ACTIVE) ? 1 : 0;
-            f.doorNeedRead = true;
-            break; // the leg's first door need only (C2b)
-        }
-    }
-    f.botKeysForPlayers = sPlayerbotAIConfig.dungeonRunBotKeysForPlayers; // live reload every tick (rule 5)
+    TortoiseBots::RunItemNeed::FillLegNeedFacts(slot.run, RunItemNeedMembers(RunNeedParty(lead, items)), f);
+    ai::PlanLegNeed const* door = TortoiseBots::DungeonRun::LegDoorNeed(slot.run);
+    if (!door || !door->object || !lead->IsInWorld() || !lead->GetMap())
+        return;
+    RemoteCommander::TargetSpec spec;
+    spec.entry = door->object;
+    spec.hasPoint = false; // around the lead bot
+    uint64 const guid = FindEntryTarget(lead, spec, false);
+    ObjectGuid const objectGuid(guid);
+    GameObject* go = guid && objectGuid.IsGameObject() ? lead->GetMap()->GetGameObject(objectGuid) : nullptr;
+    if (!go)
+        return; // not found: not known closed
+    f.doorNeedRead = true;
+    f.doorNeedState = go->GetGoState() == GO_STATE_ACTIVE ? 1 : 0; // 1 open
+    f.doorNeedX = go->GetPositionX();
+    f.doorNeedY = go->GetPositionY();
+    f.doorNeedZ = go->GetPositionZ();
 }
 
 // The run's hold (DungeonRun::LeadRevivedAway): the living party stays where
@@ -9241,6 +9211,20 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                             SendRunLine(commander, slot, false);
                         }
                     }
+    // The door hold's pause (item-leg skip, review round 2 Codex 2) ends by itself only once the door reads open
+    // (DungeonRun::DoorOpenWhilePaused); `.bot run resume` keeps it while closed (DungeonRun::ResumeChecked).
+    if (slot.run.state == TortoiseBots::DungeonRun::State::Paused && slot.run.doorPaused && commander)
+        if (Player* doorLead = FindCharacter(binding->leadGuid))
+            if (doorLead->IsInWorld() && doorLead->GetMapId() == slot.run.plan->map)
+            {
+                TortoiseBots::DungeonRun::Facts doorFacts;
+                ReadRunNeedFacts(slot, doorLead, doorFacts);
+                if (TortoiseBots::DungeonRun::DoorOpenWhilePaused(slot.run, doorFacts))
+                {
+                    TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(), slot.run.note.c_str());
+                    SendRunLine(commander, slot, false);
+                }
+            }
     // A pause from the fight ceiling goes on by itself once no living bot and
     // no pet of the party is in combat (DungeonRun::CeilingFightOverWhilePaused).
     if (slot.run.state == TortoiseBots::DungeonRun::State::Paused && slot.run.ceilingPaused && commander)
@@ -10682,7 +10666,7 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
         done = ResumeChecked(slot.run, spot, refusal);
         if (!refusal.empty())
         {
-            SendActionError(handler, intent, "lead-other-part", refusal.c_str());
+            SendActionError(handler, intent, slot.run.doorPaused ? "state" : "lead-other-part", refusal.c_str());
             SendRunLine(commander, slot, true); // still paused, with its note
             return true;
         }
