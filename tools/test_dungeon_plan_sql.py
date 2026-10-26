@@ -612,13 +612,13 @@ class DungeonPlanSql(unittest.TestCase):
 
 
     def test_deadmines_pack_fixes(self):
-        # 20261025002800 (turtle-agent 9000012, Deadmines: the laboratory and Jared Voss added after mine_a) re-exports the whole plan of
+        # 20261025002800 (turtle-agent 456efc5, Deadmines: the laboratory and Jared Voss added after mine_a) re-exports the whole plan of
         # 20261022200000 (turtle-agent 16efe83, r12-19z29 / r14-19z32: the Engineers and Craftsmen in the cc lists, the Sneed patroller's group
         # first, the Harvester room's golem split off, the Gilnid ramp pulled from the spiral and the floor ring camp by camp) with two new legs
         # after leg 0 and the Voss boss row. The old legs 2-15 are legs 4-17 now; every pin below fails when its rows are cut.
         name, text = newest_plan_text("deadmines")
         self.assertEqual(name, "20261025002800_world.sql")
-        self.assertIn("('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 9000012 dungeons/deadmines.json',", text)
+        self.assertIn("('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 456efc5 dungeons/deadmines.json',", text)
         rows = [r for r in self.step_rows(text) if r["plan"] == "deadmines"]
         self.assertEqual(len(rows), 251)
         self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (5, 8, 9, 10)}, {5: 11, 8: 11, 9: 41, 10: 8})

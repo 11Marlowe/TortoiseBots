@@ -1,8 +1,8 @@
 -- Deadmines (map 36): the whole plan again, with the laboratory and Jared Voss (61961, Turtle custom) added
 -- after mine_a. This file replaces the rows of 20261022200000_world.sql (that file stays as applied). Exported
--- from turtle-agent prep/dm-jared 9000012 (dungeons/deadmines.json: origin/fix/deadmines-packs 16efe83 plus the
+-- from turtle-agent prep/dm-jared 456efc5 (dungeons/deadmines.json: origin/fix/deadmines-packs 16efe83 plus the
 -- lab_tunnel and laboratory legs) with the options of 20261022200000:
---   turtle-agent plan-export --mmaps <map 36 mmaps> --allow-draft --approach-hops --rev 9000012 --stamp 20261025002800 deadmines
+--   turtle-agent plan-export --mmaps <map 36 mmaps> --allow-draft --approach-hops --rev 456efc5 --stamp 20261025002800 deadmines
 -- NO PLAN ROW IS HAND-SET (the exporter writes cc_priority, cc_always and kill_first from the plan). The
 -- ai_dungeon_boss seed at the end is hand-written: the exporter does not write that table.
 -- 18 legs, 251 steps, 270 rows (20261022200000: 210 steps, 227 rows). The 43 new rows are the 2 leg rows and 41 steps:
@@ -64,7 +64,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'deadmines';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'deadmines';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'deadmines';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 9000012 dungeons/deadmines.json', 'plan v1, draft (not mapped, not live-checked)');
+('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 456efc5 dungeons/deadmines.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('deadmines', 0, 'mine_a', ''),
 ('deadmines', 1, 'lab_tunnel', ''),
