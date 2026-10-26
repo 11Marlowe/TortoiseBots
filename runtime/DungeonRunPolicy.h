@@ -82,6 +82,7 @@ constexpr std::uint32_t kTickMs = 1000;           // the glue ticks every run th
 constexpr float kTestSpeedMax = 3.0f;
 constexpr std::uint32_t kSpeedSettleMs = 2000; // the walking rule holds this long without a break before the rate goes up
 constexpr std::uint32_t kWipeDead = 3;            // this many dead bots stop the step for a regroup
+constexpr std::uint32_t kWipeWindowMs = 90000; // every bot dead within this long is a wipe, a self-revived lead bot or not (RFC 2026-10-20 run 2b)
 // Real players in the bound party (2026-10-23, `.bot commander bind ... inparty`; Facts::players):
 constexpr float kPlayerPullYd = 60.0f;              // no pull or boss while a player is farther than this from the lead bot
 constexpr std::uint32_t kPlayerGatherWaitMs = 60000; // a regroup waits this long for a living player to come within kGatherYd
@@ -1660,6 +1661,12 @@ struct Run
     bool wiped = false;
     std::uint32_t nearWipes = 0; // kWipeDead or more dead with someone alive, counted once each time
     bool nearWiped = false;
+    std::uint32_t leadDeaths = 0;   // the lead bot's deaths (a living to dead edge of Facts::leadAlive), run-wide
+    bool leadDown = false;          // ... the lead bot was dead on the last running tick
+    bool windowWiped = false;       // a window wipe was counted; re-armed once fewer than kWipeDead are dead
+    std::uint64_t lastWipeMs = 0;   // runMs of the last counted wipe (either kind)
+    std::unordered_map<std::string, std::uint64_t> diedAtMs; // each bot's last living to dead edge (runMs)
+    std::unordered_set<std::string> deadNow;                  // Facts::deadNames on the last running tick
     bool eventRetry = false;     // an event failed this run: a ritual sent now is its retry
     std::unordered_set<std::size_t> eventRearmed; // start steps re-armed by a wipe regroup (once each)
     // Guarding the party from a stand point (GuardTarget): the time the party
@@ -2162,6 +2169,14 @@ inline std::string WipeCounts(const Run& r)
     return out;
 }
 
+// "N lead death(s)", or "" for none.
+inline std::string LeadDeathCount(const Run& r)
+{
+    if (!r.leadDeaths)
+        return std::string();
+    return std::to_string(r.leadDeaths) + (r.leadDeaths == 1 ? " lead death" : " lead deaths");
+}
+
 // The deferred pulls the run left alive (Run::deferGivenUp: not reachable from the floor
 // the party took, skipped at the end of their leg, on a failed retry or at a stop), for the
 // run's end: "" when there are none.
@@ -2218,7 +2233,10 @@ inline std::string UnclearedBosses(const Run& r)
 
 inline std::string DoneNote(const Run& r)
 {
-    std::string const counts = WipeCounts(r);
+    std::string counts = WipeCounts(r);
+    std::string const lead = LeadDeathCount(r);
+    if (!lead.empty())
+        counts += (counts.empty() ? "" : ", ") + lead;
     std::string const deferred = DeferredReport(r);
     std::string all = counts.empty() ? deferred : deferred.empty() ? counts : counts + "; " + deferred;
     std::string const speed = SpeedLabel(r);
@@ -12562,6 +12580,69 @@ inline void EndRetreat(Run& r)
     r.retreatDone = false;
 }
 
+// Whether every bot of the party died within kWipeWindowMs (Run::diedAtMs), each death after the last counted wipe, with
+// no living real player: the collapse the one-tick rule misses when the lead bot revives between the deaths. The party's
+// bots are Facts::members (the living, the lead bot too) and Facts::deadNames; their names must cover Facts::total (a
+// policy test that sets only counts never fires it).
+inline bool WindowWipe(const Run& r, const Facts& f)
+{
+    if (f.total < 2)
+        return false;
+    for (const PlayerFact& p : f.players)
+        if (p.alive)
+            return false;
+    std::unordered_set<std::string> names(f.deadNames.begin(), f.deadNames.end());
+    for (const MemberFact& m : f.members)
+        if (!m.name.empty())
+            names.insert(m.name);
+    if (names.size() < f.total)
+        return false;
+    for (const std::string& n : names)
+    {
+        auto it = r.diedAtMs.find(n);
+        if (it == r.diedAtMs.end() || it->second <= r.lastWipeMs || r.runMs - it->second > kWipeWindowMs)
+            return false;
+    }
+    return true;
+}
+
+// The run's wipe, near-wipe and lead-death counts for the report, once per running tick (TickBody).
+inline void NoteWipes(Run& r, const Facts& f)
+{
+    for (const std::string& n : f.deadNames)
+        if (!r.deadNow.count(n))
+            r.diedAtMs[n] = r.runMs;
+    r.deadNow = std::unordered_set<std::string>(f.deadNames.begin(), f.deadNames.end());
+    if (!f.leadAlive && !r.leadDown)
+        ++r.leadDeaths;
+    r.leadDown = !f.leadAlive;
+    // A wipe (the whole party dead: every bot and every real player) counts once, however long it lasts.
+    bool const partyWiped = PartyAllDead(f);
+    bool const windowWipe = !partyWiped && WindowWipe(r, f);
+    if ((partyWiped && !r.wiped && !r.windowWiped) || (windowWipe && !r.windowWiped && !r.wiped))
+    {
+        ++r.wipes;
+        r.lastWipeMs = r.runMs;
+    }
+    r.wiped = partyWiped;
+    if (windowWipe)
+        r.windowWiped = true;
+    else if (PartyDead(f) < kWipeDead)
+        r.windowWiped = false;
+    // A near wipe (kWipeDead or more dead, the players counted, someone still alive) counts once
+    // too; one that ends in a wipe counts as both.
+    std::uint32_t const partyDead = PartyDead(f);
+    bool const nearWipe = partyDead >= kWipeDead && !partyWiped;
+    // The latch holds until fewer than kWipeDead are dead: a near wipe that
+    // turns into a wipe, and the revive one by one after it, is one event.
+    if (nearWipe && !r.nearWiped)
+        ++r.nearWipes;
+    if (nearWipe)
+        r.nearWiped = true;
+    else if (partyDead < kWipeDead)
+        r.nearWiped = false;
+}
+
 inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines)
 {
     std::string order;
@@ -12633,25 +12714,10 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         }
     }
 
-    // A wipe (the whole party dead: every bot and every real player) counts once, however long it lasts.
-    // allDead below is the bots' (the regroup's trigger: a dead player cannot be revived by the run).
+    NoteWipes(r, f);
+    // A wipe also ends the run's own fight below (the bots' all-dead: a dead player cannot be revived by the run).
     bool const allDead = f.total > 0 && f.alive == 0;
-    bool const partyWiped = PartyAllDead(f);
-    if (partyWiped && !r.wiped)
-        ++r.wipes;
-    r.wiped = partyWiped;
-    // A near wipe (kWipeDead or more dead, the players counted, someone still alive) counts once
-    // too; one that ends in a wipe counts as both.
     std::uint32_t const partyDead = PartyDead(f);
-    bool const nearWipe = partyDead >= kWipeDead && !partyWiped;
-    // The latch holds until fewer than kWipeDead are dead: a near wipe that
-    // turns into a wipe, and the revive one by one after it, is one event.
-    if (nearWipe && !r.nearWiped)
-        ++r.nearWipes;
-    if (nearWipe)
-        r.nearWiped = true;
-    else if (partyDead < kWipeDead)
-        r.nearWiped = false;
 
     // A party member coming back with attackers runs on to the party; the run
     // waits for it where it stands (RunBack): no regroup or step order, but

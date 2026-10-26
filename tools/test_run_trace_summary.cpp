@@ -317,6 +317,50 @@ static void TestWipes()
     CHECK(e.WipeCount() == 1);
 }
 
+// RFC 2026-10-20 run 2b's collapse (Part A test 1): all five dead within 63 s at 999-1062 s,
+// the first one alive again at 1062 s, so the one-frame rule never fires. Fails before the fix:
+// no window, no "window":true.
+static void TestSummaryCountsAWindowWipe()
+{
+    RunDigest d;
+    d.NoteDungeon(209);
+    std::vector<MemberState> const members = {
+        Member(true, 999000, 10, 10, "tank"), // the lead: dead at 999 s, alive again
+        Member(false, 1007000, 20, 20, "heal"),
+        Member(false, 1034000, 30, 30, "dps"),
+        Member(false, 1035000, 40, 40, "dps"),
+        Member(false, 1062000, 50, 50, "dps"),
+    };
+    CHECK(d.NoteFrame(1062000, members));
+    CHECK(d.WipeCount() == 1);
+    CHECK(Has(d.Render(Final()), "\"window\":true"));
+}
+
+// The window wipe above, then everyone dead at once at 1065 s: still one wipe, not two.
+// Fails before the fix (no windowWiped_ latch: the all-dead branch counts again).
+static void TestSummaryWindowWipeThenAllDeadIsOne()
+{
+    RunDigest d;
+    d.NoteDungeon(209);
+    std::vector<MemberState> const spread = {
+        Member(true, 999000, 10, 10, "tank"),
+        Member(false, 1007000, 20, 20, "heal"),
+        Member(false, 1034000, 30, 30, "dps"),
+        Member(false, 1035000, 40, 40, "dps"),
+        Member(false, 1062000, 50, 50, "dps"),
+    };
+    CHECK(d.NoteFrame(1062000, spread));
+    std::vector<MemberState> const allDead = {
+        Member(false, 999000, 10, 10, "tank"),
+        Member(false, 1007000, 20, 20, "heal"),
+        Member(false, 1034000, 30, 30, "dps"),
+        Member(false, 1035000, 40, 40, "dps"),
+        Member(false, 1062000, 50, 50, "dps"),
+    };
+    CHECK(!d.NoteFrame(1065000, allDead));
+    CHECK(d.WipeCount() == 1);
+}
+
 static void TestPlanBossEntries()
 {
     ai::DungeonPlan plan;
@@ -453,6 +497,8 @@ int main()
     TestOpenWorldHasNoOutcome();
     TestDeaths();
     TestWipes();
+    TestSummaryCountsAWindowWipe();
+    TestSummaryWindowWipeThenAllDeadIsOne();
     TestPlanBossEntries();
     TestEndedInWipe();
     TestRunLeaderStep();

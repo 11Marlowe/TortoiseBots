@@ -6002,7 +6002,7 @@ static void TestThreeDeadRegroupAfterTheFight()
     r.wipes = 2;
     f.leadX = 40;
     Tick(r, f);
-    CHECK(r.state == State::Done && r.note == "plan done (2 wipes, 1 near wipe)");
+    CHECK(r.state == State::Done && r.note == "plan done (2 wipes, 1 near wipe, 1 lead death)");
 }
 
 // Issue #999 (third observe run, step 35): the healer stood 82 yd behind and

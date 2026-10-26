@@ -39,6 +39,9 @@ constexpr size_t kMaxDriverLen = 96;
 // A party needs this many bots in scope for "everyone is dead" to be a wipe
 // (one traced bot dying is a death, not a wipe).
 constexpr size_t kWipeMinBots = 2;
+// Every traced bot dead within this long is a wipe, though never all at once
+// (the run leader's self-revived lead bot: RFC 2026-10-20 run 2b).
+constexpr uint32_t kWipeWindowMs = 90000;
 
 // ---------------------------------------------------------------------------
 // Mode: who drives the run. Ordered by how much we know, so a later, stronger
@@ -135,6 +138,7 @@ struct Spot
     uint32_t dead = 0; // wipes: how many bots were dead
     std::string leg;        // the run leader's plan step when it happened ("" = no run leader)
     std::string pullGroup;  // ... the step's sequence number within the leg
+    bool window = false;  // a wipe spread over kWipeWindowMs, never all dead at once
 };
 
 // A traced bot, for the summary's party list.
@@ -387,34 +391,88 @@ public:
         if (!allDead)
         {
             if (!members.empty())
+            {
                 wipeActive_ = false;
+                // A spread collapse (RFC 2026-10-20 run 2b): every traced bot died within kWipeWindowMs,
+                // each death after the last counted wipe, though never all in one frame. Counts once;
+                // re-armed once fewer than 3 members are dead.
+                std::uint32_t dead = 0;
+                for (MemberState const& m : members)
+                    dead += m.alive ? 0u : 1u;
+                if (dead < 3)
+                    windowWiped_ = false;
+                if (members.size() >= kWipeMinBots && !windowWiped_ && !wipeActive_)
+                {
+                    bool spread = true;
+                    for (MemberState const& m : members)
+                        if (m.lastDeath.tMs <= lastWipeMs_ || m.lastDeath.tMs == 0 ||
+                            tMs - m.lastDeath.tMs > kWipeWindowMs)
+                        {
+                            spread = false;
+                            break;
+                        }
+                    if (spread)
+                    {
+                        windowWiped_ = true;
+                        lastWipeMs_ = tMs;
+                        Spot s;
+                        s.tMs = tMs;
+                        s.map = members[0].lastDeath.map;
+                        MemberState const* first = &members[0];
+                        for (MemberState const& m : members)
+                        {
+                            if (m.lastDeath.tMs < first->lastDeath.tMs)
+                                first = &m;
+                            s.x += m.lastDeath.x;
+                            s.y += m.lastDeath.y;
+                            s.z += m.lastDeath.z;
+                        }
+                        float const n = static_cast<float>(members.size());
+                        s.x /= n;
+                        s.y /= n;
+                        s.z /= n;
+                        s.dead = static_cast<uint32_t>(members.size());
+                        s.role = first->lastDeath.role;
+                        s.window = true;
+                        Stamp(s);
+                        if (wipes_.size() < kMaxSpots)
+                            wipes_.push_back(std::move(s));
+                        return true;
+                    }
+                }
+            }
             return false;
         }
         if (wipeActive_)
             return false;
         wipeActive_ = true;
-        Spot s;
-        s.tMs = tMs;
-        s.map = members[0].lastDeath.map;
-        MemberState const* first = &members[0];
-        for (MemberState const& m : members)
+        lastWipeMs_ = tMs;
+        if (!windowWiped_)
         {
-            if (m.lastDeath.tMs < first->lastDeath.tMs)
-                first = &m;
-            s.x += m.lastDeath.x;
-            s.y += m.lastDeath.y;
-            s.z += m.lastDeath.z;
+            Spot s;
+            s.tMs = tMs;
+            s.map = members[0].lastDeath.map;
+            MemberState const* first = &members[0];
+            for (MemberState const& m : members)
+            {
+                if (m.lastDeath.tMs < first->lastDeath.tMs)
+                    first = &m;
+                s.x += m.lastDeath.x;
+                s.y += m.lastDeath.y;
+                s.z += m.lastDeath.z;
+            }
+            float const n = static_cast<float>(members.size());
+            s.x /= n;
+            s.y /= n;
+            s.z /= n;
+            s.dead = static_cast<uint32_t>(members.size());
+            s.role = first->lastDeath.role;  // the first to fall (the dashboard colours a wipe by it)
+            Stamp(s);
+            if (wipes_.size() < kMaxSpots)
+                wipes_.push_back(std::move(s));
+            return true;
         }
-        float const n = static_cast<float>(members.size());
-        s.x /= n;
-        s.y /= n;
-        s.z /= n;
-        s.dead = static_cast<uint32_t>(members.size());
-        s.role = first->lastDeath.role;  // the first to fall (the dashboard colours a wipe by it)
-        Stamp(s);
-        if (wipes_.size() < kMaxSpots)
-            wipes_.push_back(std::move(s));
-        return true;
+        return false;
     }
 
     // The whole party is dead right now.
@@ -558,6 +616,8 @@ private:
                 if (!s.role.empty())
                     out += ",\"role\":\"" + JsonEscape(s.role) + "\"";
                 out += ",\"dead\":" + std::to_string(s.dead);
+                if (s.window)
+                    out += ",\"window\":true";
             }
             out += '}';
         }
@@ -579,6 +639,8 @@ private:
     std::vector<Spot> deaths_;
     std::vector<PartyEntry> party_;
     bool wipeActive_ = false;
+    uint32_t lastWipeMs_ = 0;
+    bool windowWiped_ = false;
     bool hasStep_ = false;
     uint32_t leg_ = 0, seq_ = 0;
     bool hasFurthest_ = false;
