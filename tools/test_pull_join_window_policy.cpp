@@ -542,6 +542,21 @@ int main()
     }
     std::cout << "  [PASS] fight_start_min_zero_releases_at_once_when_held\n";
 
+    // chain_run_leader_onto_fight_start_takes_the_latest_kind
+    {
+        // A run-leader pull chained onto a fight-start hold with no Clear
+        // between: the latest Start wins, so the logged kind is "pull"
+        // (lead-keyed, not fight-start) and the clock restarts unlanded.
+        ai::PullJoinWindow w;
+        w.Start(100, 1, 3, true, 0, true);
+        CHECK(w.fightStart && w.leadKeyed);
+        w.Restamp(101, true);
+        CHECK(w.landed);
+        w.Start(102, 1, 3, true, 5);
+        CHECK(!w.fightStart && w.leadKeyed && !w.landed && w.minSeconds == 5);
+    }
+    std::cout << "  [PASS] chain_run_leader_onto_fight_start_takes_the_latest_kind\n";
+
     std::cout << "All TortoiseBots pull join window policy tests passed.\n";
     return 0;
 }

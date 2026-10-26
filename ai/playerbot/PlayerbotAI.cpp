@@ -3391,7 +3391,7 @@ void PlayerbotAI::ResetStrategies(bool autoLoad)
     // pull's delay in "wait for attack time". End it first: the player's
     // delay comes back and the anchor goes (PullJoinWindowPolicy.h).
     if (HasPullWindow())
-        EndPullWindow();
+        EndPullWindow("reset");
 
     for (uint8 i = 0; i < (uint8)BotState::BOT_STATE_ALL; i++)
     {
@@ -4324,15 +4324,28 @@ void PlayerbotAI::SyncPullWindow(BotState type)
     // (an attack or flee order, a player's `co -wait for attack` or toggle),
     // the hold is over. The player's delay goes back as the window ends.
     if (!HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT))
-        EndPullWindow();
+        EndPullWindow("order");
 }
 
-void PlayerbotAI::EndPullWindow()
+void PlayerbotAI::EndPullWindow(const char* reason)
 {
+    bool const running = pullWindow_.Running();
     ai::PullJoinWindow const window = pullWindow_;
     // Cleared first, so the removals below are not read as someone else's
     // change to the strategy (SyncPullWindow).
     pullWindow_.Clear();
+    // The single release line: only a running window logs, exactly once, and
+    // the stored reason dies with it so two consecutive windows never share
+    // one. The trigger names the rule (tank-first/hit/tank-low/tank-dead/
+    // cap/expired); direct callers name the path (order/reset/reload).
+    if (running && bot)
+    {
+        std::string const stored = PullReleaseReason();
+        std::string const logged = reason && *reason ? reason : (stored.empty() ? "order" : stored);
+        sLog.outBasic("[BOT] pull-release %s reason=%s kind=%s elapsed=%u", bot->GetName(), logged.c_str(),
+            window.fightStart ? "fight-start" : (window.leadKeyed ? "pull" : "chat"), window.start ? uint32(time(0) - window.start) : 0);
+    }
+    SetPullReleaseReason(nullptr);
 
     for (uint8 i = 0; i < (uint8)BotState::BOT_STATE_ALL; i++)
     {

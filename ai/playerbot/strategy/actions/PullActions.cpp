@@ -754,11 +754,12 @@ bool ReleasePullHoldAction::Execute(Event& event)
     // Ending the pull's window is the release: dropping its own "wait for
     // attack" frees the anchor hold (marker + the stay it owns) with it
     // (PlayerbotAI::ChangeStrategy), and a "wait for attack" the player set
-    // stays while only the anchor goes.
-    std::string const reason = ai->PullReleaseReason().empty() ? "order" : ai->PullReleaseReason();
-    sLog.outBasic("[BOT] pull-release %s reason=%s kind=%s elapsed=%u", bot->GetName(), reason.c_str(),
-        ai->PullWindowFightStart() ? "fight-start" : (ai->PullWindowLeadKeyed() ? "pull" : "chat"), ai->PullWindowElapsed());
-    ai->SetPullReleaseReason(nullptr);
-    ai->EndPullWindow();
+    // stays while only the anchor goes. The release line and the reason
+    // clear live in EndPullWindow (the single release point), so the direct
+    // callers (strategy orders, resets, preset reloads) log and clear too;
+    // the trigger's stored reason (or "order" when empty) travels as the
+    // explicit reason here.
+    std::string const reason = ai->PullReleaseReason();
+    ai->EndPullWindow(reason.empty() ? "order" : reason.c_str());
     return true;
 }
