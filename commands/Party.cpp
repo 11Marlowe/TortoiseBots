@@ -1297,6 +1297,19 @@ void SendBotStateLine(ChatHandler* handler, Player* bot)
     for (BehaviorToggle const& toggle : BehaviorToggles)
         fields += std::string(",") + toggle.key + "=" + (IsBehaviorOn(ai, toggle) ? "on" : "off");
     fields += std::string(",sap=") + (ai->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT) ? "off" : "on");
+    // The spec strategies the bot fights with, joined by '+', so the addon's
+    // role buttons show the real spec (a hire's too) instead of a guess.
+    static char const* const SpecStrategies[] = {
+        "tank feral", "dps feral", "balance", "restoration", "protection", "holy", "retribution", "arms", "fury",
+        "beast mastery", "marksmanship", "survival", "combat", "assassination", "subtlety", "shadow", "discipline",
+        "offdps", "elemental", "enhancement", "frost", "fire", "arcane", "affliction", "demonology", "destruction",
+    };
+    std::string specs;
+    for (char const* strategy : SpecStrategies)
+        if (ai->HasStrategy(strategy, BotState::BOT_STATE_COMBAT))
+            specs += (specs.empty() ? "" : "+") + std::string(strategy);
+    if (!specs.empty())
+        fields += ",specs=" + specs;
     handler->PSendSysMessage("TBM:BOTSTATE|%s|%s", ProtocolSafe(bot->GetName()).c_str(), fields.c_str());
 }
 
