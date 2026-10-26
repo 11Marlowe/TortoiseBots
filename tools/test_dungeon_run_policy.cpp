@@ -5508,6 +5508,7 @@ static void TestDoorHoldReleasesOnlyWhenOpen()
     CHECK(r.legNeedDecided.count(1) == 0);
     Facts open = DoorFacts("Hypeer", false);
     CHECK(DoorOpenWhilePaused(r, open)); // the glue's paused-branch call (tools/test_run_item_need_wiring.py)
+    CHECK(r.state == State::Running && !r.doorPaused);
     CHECK(r.legNeedDecided.count(1) == 1);
     CHECK(r.note == "door to leg arena reads open: going on by itself (regrouping)");
     // The run walks the leg (after the resume's regroup), never held at this door again even if it reads closed.
