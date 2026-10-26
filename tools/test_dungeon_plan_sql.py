@@ -2831,7 +2831,30 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["black_morass"])
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
-        # 20261024154200 (turtle-agent 600ea009, 2026-10-24, after live run r35 slot7b, the best run so far: 6 of 7 bosses,
+        # 20261025002500 (turtle-agent 470f316, 2026-10-25, after live run r39 slotD: 'no firing stand found' at steps 10 and 25
+        # x5 (packs 4511/4512 of the Roogug leg: 43 min, 14 deaths) and at step 315 (rotthorn: 2 of the 3 wipes and the only
+        # pause), and 'pack skipped, not cleared: 1 units out of reach after 3 pulls that killed nothing' for the pair above the
+        # step-315 pack): the floors, not the ranges. The leg-0 lower pocket (z 62-65) is under the upper walkway and its only
+        # walkable route is the 262-yd ramp (2016 1554 -> 2049.6 1549.1 -> 2058.85 1576.5); the tank at 2016.6 1659.3 82.7 got
+        # no stand for the 4511 at 2065.89 1633.15 64.3 (the path drops below the 6-yd stand ledge cut; its nearest in-sight
+        # point is 53.8 yd away) and body-pulled 100+ yd through 4435/4436/4514. The four pocket packs now get one 4-point walk
+        # down (pull group 6 approach) and are pulled in the order the party meets them at the ramp foot (4514, the pair, 4511,
+        # 4541): each next pack is in sight from the one before (16.5 -> 8.9 -> 9.5 -> 5.8 yd). The [4512 4511] pair at 2069.06
+        # 1701.43 57.604 (step 25) has a 182.9-yd server route from the party that loops east through the Ramtusk leg's packs, so
+        # it moved to charlga_pit (its floor) and is pulled 17.7 yd from the stand 2050.06 1710.43 59.58. The five rotthorn pit
+        # packs (4514 2080.08 1784.59 54.77, 4511 2046.61 1765.31 59.46, the pair at 2034.15/2033.7 1758-1762, 4514 2032.57
+        # 1727.98 60.63, 4514 2044.24 1709.91 59.72) are 20-23 yd below the spiral: the server path from the spiral corner
+        # 2102.67 1728 78.19 to the 4511 is the 454.3-yd incomplete one ending 23 yd above it, and only the pit stand 2095 1845
+        # 50.8 reaches it. They moved to charlga_pit after its 11 groups, each with a stand 17.5-24.4 yd away on the pit floor
+        # (2094.36 1794.12, 2065.61 1779.31, 2053.15 1774.91, 2039.57 1750.98, 2036.24 1732.91, and the leg-0 pair's 2050.06
+        # 1710.43). NOT changed: steps 82-84's room (the 4532/4518/4532 at 2138.38 1630.94, 2128-2133 1613-1620, 2146.03 1614.74)
+        # is a navmesh island (the corridor 2110 1600 82.1 reaches 2116.53 1613.07 82.69; 2116.53 -> 2124 1614 is type 0x8 and a
+        # 32-yd grid finds 0 stand points within 24.5 yd a complete server path reaches). The live run cleared them by reach pulls
+        # (30 s, 2 min, 1 min, no deaths). 9 legs, 819 steps, 122 pulls (31 + 20 + 8 + 14 + 12 + 10 + 6 + 17 + 4), no row
+        # hand-set. Server-exact plan-check: ok, 279 points, 69 hop notices, 6 warnings. The 'pulls move nobody' replay refuses
+        # no new row: leg 0's one refusal (the 4440 pull from the cut end 2176 1557.3) and leg 4's 65 (its pre-existing cut walk,
+        # same coordinates) are 20261024154200's, and legs 7-8 refuse 0; the six moved pulls are type 0x1 from their stands.
+        # before it: 20261024154200 (turtle-agent 600ea009, 2026-10-24, after live run r35 slot7b, the best run so far: 6 of 7 bosses,
         # stopped at step 655): 20261024040000's plan again, except the charlga leg, split in three, and the rotthorn leg.
         # r35's step 655 was the first pit stand (2095 1845 50.8): the whole party walked from the den floor (2157 1941 z65) up
         # the z76 dead-end ledge over the pit, 28.1 yd from and 25 yd above the stand ("no stand-in on dry ground within 25 yd",
@@ -2875,11 +2898,11 @@ class DungeonPlanSql(unittest.TestCase):
         # packs that stand with a boss are that boss row's entries, not pulls; Halmgar 4842 and the Blind Hunter 4425 are pull
         # members.
         name, text = newest_plan_text("razorfen_kraul")
-        self.assertEqual(name, "20261024154200_world.sql")
-        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent 600ea009 dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025002500_world.sql")
+        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent 470f316 dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "razorfen_kraul")), 9)
         rows = [r for r in self.step_rows(text) if r["plan"] == "razorfen_kraul"]
-        self.assertEqual(len(rows), 759)
+        self.assertEqual(len(rows), 819)
         # The opening stand is the lower-floor pocket 1994 1615 (the old 1987.53 1600.03 has the upper walkway overhead); the five
         # corridor groups all have radius 10 (group 0 was 25 and owned the next group's Quilguards; group 5's default was 19.3), and
         # seq 5 is the explicit corridor regroup move before pull group 4 (r19-19z37: the two ranged bots climbed the west ramp while
@@ -2893,20 +2916,22 @@ class DungeonPlanSql(unittest.TestCase):
         # The two stands (r20-19z39: pulls 39 and 42 walked the long way; r22 slot5: the room's 2180 1604 was refused): 2110 1600 82.1
         # before the 4532 pull and the same 2110 1600 82.1 before the 4440 pull, whose radius is the explicit 10.
         stands = [(r["x"], r["y"], r["z"], r["comment"]) for r in leg_steps(rows, 0)
-                  if r["kind"] == "move" and r["comment"] in ("pull group 21 approach", "pull group 24 approach")]
-        self.assertEqual(stands, [("2110", "1600", "82.1", "pull group 21 approach"),
-                                  ("2110", "1600", "82.1", "pull group 24 approach")])
+                  if r["kind"] == "move" and r["comment"] in ("pull group 20 approach", "pull group 23 approach")]
+        self.assertEqual(stands, [("2110", "1600", "82.1", "pull group 20 approach"),
+                                  ("2110", "1600", "82.1", "pull group 23 approach")])
         self.assertEqual([r["radius"] for r in leg_steps(rows, 0) if r["kind"] == "pull" and r["entries"] == "4440"], ["10"])
         # Step 20 (r23 slot8 paused once, "the lead bot is stuck 28.6 yd from 2048.0 1578.7 64.6"): the r24 slot8 run showed the
         # approach moves that replaced the corner led the party onto the navmesh island at 2076.5 1601.5 66.0, so the corner is back:
         # pull 17's hop from pull group 16 is the run-3 cut, 2048.0 1578.7 64.6 first (one resume there is accepted).
-        self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg_steps(rows, 0) if r["comment"] == "approach path"][:3],
+        paths0 = [(r["x"], r["y"], r["z"]) for r in leg_steps(rows, 0) if r["comment"] == "approach path"]
+        cut17 = paths0.index(("2047.9999", "1578.6666", "64.60514"))
+        self.assertEqual(paths0[cut17:cut17 + 3],
                          [("2047.9999", "1578.6666", "64.60514"),
                           ("2050.1333", "1581.8666", "64.50514"),
                           ("2061.3333", "1623.2", "64.28699")])
         self.assertFalse([r for r in leg_steps(rows, 0) if r["comment"] == "pull group 17 approach"],
                          "pull 17's approach points are reverted")
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(9)], [32, 20, 8, 14, 17, 10, 6, 11, 4])
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(9)], [31, 20, 8, 14, 12, 10, 6, 17, 4])
         # Step 289 (r23 slot8: `cmd move 2140.0 1724.5 53.0 refused: unreachable`): the last lower-floor pull's hop to pull group 13
         # is anchored on the lead's floor, 2129.3 1716 80.9, and its cut walks the upper floor only.
         ramtusk = leg_steps(rows, 3)
@@ -2920,12 +2945,12 @@ class DungeonPlanSql(unittest.TestCase):
         # "no walkable path"): the cut into rotthorn's spiral descent starts on the ramp the party walked, four approach moves to
         # pull group 14; the old lip corners 1995.7333 1802.1333 and 1994.6665 1802.6666 are gone.
         rotthorn = leg_steps(rows, 4)
-        after13 = next(i for i, r in enumerate(rotthorn) if r["comment"] == "pull group 13") + 1
+        after13 = next(i for i, r in enumerate(rotthorn) if r["comment"] == "pull group 8") + 1
         self.assertEqual([(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in rotthorn[after13:after13 + 4]],
-                         [("move", "1989.7", "1801.5", "77.78", "pull group 14 approach"),
-                          ("move", "1983.1", "1800", "76.2", "pull group 14 approach"),
-                          ("move", "1976.4", "1798.4", "74.69", "pull group 14 approach"),
-                          ("move", "1970.9", "1797.1", "73.09", "pull group 14 approach")])
+                         [("move", "1989.7", "1801.5", "77.78", "pull group 9 approach"),
+                          ("move", "1983.1", "1800", "76.2", "pull group 9 approach"),
+                          ("move", "1976.4", "1798.4", "74.69", "pull group 9 approach"),
+                          ("move", "1970.9", "1797.1", "73.09", "pull group 9 approach")])
         self.assertFalse([r for r in rotthorn if r["x"] in ("1995.7333", "1994.6665")], "the plateau-lip corners are back")
         # Step 612 (r26 slot8 run 6: "the point of step 612 refused (unreachable)", then "no walkable path toward the pack at 2077.0
         # 1981.5": the walk back ended on the z 99-134 ledges over the den): the leg's 'to' is the den entry on the route, and the
@@ -2969,9 +2994,24 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(len([r for r in pit if r["comment"] == "via"]), 31)
         stands6 = [(r["x"], r["y"], r["z"], r["comment"]) for r in pit if r["comment"].endswith(" approach")]
         self.assertEqual(stands6, [("2100", "1855", "49.7", "pull group 1 approach"),
-                                   ("2120", "1840", "48.8", "pull group 2 approach")])
-        self.assertTrue(all(float(r["z"]) < 55 for r in pit if r["comment"].endswith(" approach")),
-                        "a pit stand sits on a ledge")
+                                   ("2120", "1840", "48.8", "pull group 2 approach"),
+                                   ("2094.36", "1794.12", "51.52", "pull group 11 approach"),
+                                   ("2065.61", "1779.31", "57.78", "pull group 12 approach"),
+                                   ("2053.15", "1774.91", "59.18", "pull group 13 approach"),
+                                   ("2039.57", "1750.98", "60.36", "pull group 14 approach"),
+                                   ("2036.24", "1732.91", "60.75", "pull group 15 approach"),
+                                   ("2050.06", "1710.43", "59.58", "pull group 16 approach")])
+        # pf-rfk-stands: the six packs that used to be pulled from the spiral/walkway above now stand on the pit floor, each with
+        # its stand 15-24.5 yd from the pack it pulls (the stand is the row before the pull row).
+        for i, r in enumerate(pit):
+            if r["comment"] in ("pull group 11 approach", "pull group 12 approach", "pull group 13 approach",
+                                "pull group 14 approach", "pull group 15 approach", "pull group 16 approach"):
+                pull = pit[i + 1]
+                self.assertEqual(pull["kind"], "pull", r["comment"])
+                d = ((float(r["x"]) - float(pull["x"])) ** 2 + (float(r["y"]) - float(pull["y"])) ** 2 +
+                     (float(r["z"]) - float(pull["z"])) ** 2) ** 0.5
+                self.assertTrue(15.0 <= d <= 24.5, "%s: %.2f yd from its pack, want 15-24.5" % (r["comment"], d))
+                self.assertTrue(50.0 <= float(r["z"]) <= 61.0, "%s: z %s is not the pit floor" % (r["comment"], r["z"]))
         up = leg_steps(rows, 8)
         self.assertEqual([(r["x"], r["y"], r["z"], r["comment"]) for r in up if r["comment"] == "to"],
                          [("2093.1", "1767.5", "79.8", "to")])
