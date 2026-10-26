@@ -23,6 +23,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PULL_TRIGGERS = (ROOT / "ai/playerbot/strategy/triggers/PullTriggers.cpp").read_text()
 COMMANDS = (ROOT / "commands/BotCommandContext.cpp").read_text()
 PULL_ACTIONS = (ROOT / "ai/playerbot/strategy/actions/PullActions.cpp").read_text()
+STATE_ACTIONS = (ROOT / "ai/playerbot/strategy/actions/BotStateActions.cpp").read_text()
+PLAYERBOT_AI_CPP = (ROOT / "ai/playerbot/PlayerbotAI.cpp").read_text()
+PLAYERBOT_AI_H = (ROOT / "ai/playerbot/PlayerbotAI.h").read_text()
 
 
 def body(text, start, end="\n}\n"):
@@ -34,8 +37,8 @@ class PullLeadReleaseWiring(unittest.TestCase):
     def test_hold_expiry_checks_the_tank_lead(self):
         fn = body(PULL_TRIGGERS, "bool PullHoldExpiredTrigger::IsActive()")
         self.assertIn("PullWindowLeadKeyed()", fn)
-        self.assertIn("ai::PullLeadReleases(", fn)
-        self.assertLess(fn.index("PullWindowExpired("), fn.index("PullLeadReleases("))
+        self.assertIn("ai::PullLeadReleaseReason(", fn)
+        self.assertLess(fn.index("PullWindowExpired("), fn.index("PullLeadReleaseReason("))
         # The timer expiry is the ceiling (release at once), not a gate: a
         # lead-keyed window asks the lead rule while it still runs, so the
         # early release (pack on the tank at the join delay) and the held-bot
@@ -45,7 +48,7 @@ class PullLeadReleaseWiring(unittest.TestCase):
         lead = fn.index("if (!ai->PullWindowLeadKeyed())")
         self.assertIn("return false;", fn[lead:fn.index(";", lead) + 30])
         self.assertLess(expiry, lead)
-        self.assertLess(lead, fn.index("ai::PullLeadReleases("))
+        self.assertLess(lead, fn.index("ai::PullLeadReleaseReason("))
 
     def test_run_leader_party_hold_is_lead_keyed(self):
         fn = body(COMMANDS, "void PausePartyDpsForPull(")
@@ -130,6 +133,37 @@ class BotOnlyRunHoldWiring(unittest.TestCase):
         run = fn.index("IsInRunningDungeonRun(bot)")
         window = fn.index("HasPullWindow()")
         self.assertLess(run, window)
+
+class FightStartHoldWiring(unittest.TestCase):
+    def test_combat_entry_opens_the_fight_start_hold(self):
+        fn = body(STATE_ACTIONS, "bool SetCombatStateAction::Execute(Event& event)")
+        self.assertIn("StartFightStartHold()", fn)
+        self.assertIn("OnCombatStarted()", fn)
+        self.assertIn("if (!ai->IsStateActive(BotState::BOT_STATE_COMBAT))", fn)
+        self.assertLess(fn.index("StartFightStartHold()"), fn.index("OnCombatStarted()"))
+
+    def test_own_attack_never_opens_a_hold(self):
+        fn = body(PLAYERBOT_AI_CPP, "void PlayerbotAI::OnCombatStarted()")
+        self.assertNotIn("StartFightStartHold", fn)
+
+    def test_fight_start_hold_builds_the_gate_and_lands_at_once(self):
+        fn = body(PLAYERBOT_AI_CPP, "void PlayerbotAI::StartFightStartHold()")
+        self.assertIn("ai::FightStartHoldOpens(", fn)
+        self.assertIn("kFightStartHoldSeconds", fn)
+        self.assertIn("RestampPullWindow(true)", fn)
+
+    def test_pack_counts_mobs_beside_the_held_bot(self):
+        fn = body(PULL_TRIGGERS, "bool PullHoldExpiredTrigger::IsActive()")
+        self.assertIn("bot->IsWithinDistInMap(unit, ai::kPullLeadPackYd)", fn)
+        self.assertIn("PullLeadReleaseReason(", fn)
+        self.assertLess(fn.index("PullWindowExpired("), fn.index("PullLeadReleaseReason("))
+
+    def test_release_logs_its_reason(self):
+        fn = body(PULL_ACTIONS, "bool ReleasePullHoldAction::Execute(Event& event)")
+        self.assertIn("pull-release", fn)
+        self.assertIn("reason=", fn)
+        self.assertLess(fn.index("pull-release"), fn.index("EndPullWindow()"))
+
 
 if __name__ == "__main__":
     unittest.main()

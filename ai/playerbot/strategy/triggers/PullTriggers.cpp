@@ -185,7 +185,10 @@ bool PullHoldExpiredTrigger::IsActive()
     // (pack on the tank at the join delay) and the held-bot rescue (a held
     // bot is hit -> release at once) fire before the cap.
     if (ai->PullWindowExpired(AI_VALUE(uint8, "wait for attack time")))
+    {
+        ai->SetPullReleaseReason("expired");
         return true;
+    }
     if (!ai->PullWindowLeadKeyed())
         return false;
     // A run leader's lead-keyed pull: the held DPS open once every mob near
@@ -219,7 +222,7 @@ bool PullHoldExpiredTrigger::IsActive()
             continue;
         if (unit->GetVictim() == bot)
             facts.botIsVictim = true;
-        if (!unit->IsInCombat() || !tank || !tank->IsWithinDistInMap(unit, ai::kPullLeadPackYd))
+        if (!unit->IsInCombat() || !tank || !(tank->IsWithinDistInMap(unit, ai::kPullLeadPackYd) || bot->IsWithinDistInMap(unit, ai::kPullLeadPackYd)))
             continue;
         if (ai::FindNonCcTargetStrategy::IsCrowdControlled(ai, unit))
             continue;
@@ -227,7 +230,10 @@ bool PullHoldExpiredTrigger::IsActive()
         if (unit->GetVictim() == tank)
             ++facts.packOnTank;
     }
-    return ai::PullLeadReleases(facts);
+    const char* reason = ai::PullLeadReleaseReason(facts);
+    if (reason != nullptr)
+        ai->SetPullReleaseReason(reason);
+    return reason != nullptr;
 }
 
 bool PullAnchorDoneTrigger::IsActive()

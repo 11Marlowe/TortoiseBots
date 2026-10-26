@@ -8,6 +8,8 @@ using namespace ai;
 bool SetCombatStateAction::Execute(Event& event)
 {
     SetDuration(sPlayerbotAIConfig.reactDelay);
+    if (!ai->IsStateActive(BotState::BOT_STATE_COMBAT))
+        ai->StartFightStartHold();
     ai->OnCombatStarted();
     return true;
 }

@@ -1235,6 +1235,46 @@ void PlayerbotAI::OnCombatStarted()
         }
     }
 }
+void PlayerbotAI::StartFightStartHold()
+{
+    if (!bot || !aiObjectContext || HasPullWindow())
+        return;
+    ai::FightStartHoldFacts facts;
+    facts.runningRun = TortoiseBots::BotCommands::IsInRunningDungeonRun(bot);
+    facts.realPlayerMaster = HasRealPlayerMaster();
+    facts.pullWindow = HasPullWindow();
+    facts.isTank = IsTank(bot, true);
+    facts.isHealer = IsHeal(bot, true);
+    for (Player* member : LiveGroupMembers(bot->GetGroup()))
+    {
+        if (!member || member == bot || !member->IsAlive() || !member->IsInWorld() || member->GetMapId() != bot->GetMapId())
+            continue;
+        if (IsTank(member, true))
+        {
+            facts.tankInGroup = true;
+            break;
+        }
+    }
+    for (Unit* attacker : bot->GetAttackers())
+    {
+        if (!attacker || !attacker->IsAlive())
+            continue;
+        if (attacker->GetVictim() == bot)
+        {
+            facts.botIsVictim = true;
+            break;
+        }
+    }
+    Unit* ccMark = nullptr;
+    if (auto* ccValue = aiObjectContext->GetValue<Unit*>("rti cc target"))
+        ccMark = ccValue->Get();
+    facts.ccMark = ccMark != nullptr;
+    if (ai::FightStartHoldOpens(facts))
+    {
+        StartPullWindow(ai::kFightStartHoldSeconds, true, 0, true);
+        RestampPullWindow(true);
+    }
+}
 
 void PlayerbotAI::OnCombatEnded()
 {
@@ -4232,7 +4272,7 @@ void PlayerbotAI::ReleasePullHold()
     }
 }
 
-void PlayerbotAI::StartPullWindow(uint8 windowSeconds, bool leadKeyed, uint8 minSeconds)
+void PlayerbotAI::StartPullWindow(uint8 windowSeconds, bool leadKeyed, uint8 minSeconds, bool fightStart)
 {
     if (!aiObjectContext)
         return;
@@ -4255,7 +4295,7 @@ void PlayerbotAI::StartPullWindow(uint8 windowSeconds, bool leadKeyed, uint8 min
     }
 
     waitTime->Set(windowSeconds);
-    pullWindow_.Start(time(0), added, previousSeconds, leadKeyed, minSeconds);
+    pullWindow_.Start(time(0), added, previousSeconds, leadKeyed, minSeconds, fightStart);
 }
 
 void PlayerbotAI::SetPlayerWaitForAttackTime(uint8 seconds)
