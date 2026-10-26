@@ -62,6 +62,7 @@
 #include "../runtime/CommanderTelemetry.h"
 #include "../runtime/DungeonRunPolicy.h"
 #include "../runtime/SystemRunPolicy.h"
+#include "../runtime/RunItemNeedPolicy.h" // item-leg skip (spec C1/D): needs + ledger, namespace TortoiseBots::RunItemNeed
 #include "../runtime/RunTrace.h"
 #include "../runtime/RunGroupIndex.h"
 #include "../runtime/PlayerLedPolicy.h"
@@ -540,18 +541,10 @@ Player* FindOnlineByName(std::string name)
     return player;
 }
 // ---------------------------------------------------------------------------
-// Item-leg skip glue (spec D). runtime/RunItemNeedPolicy.h (SliceRunPolicy)
-// owns Member / GiveOrder / StartVerdict (CheckStart, BotOnly); the ledger
-// mirror structs live in BotCommandHandlers.h so that header never includes
-// the policy header. __has_include detects the sibling header: landed -> the
-// CheckStart call sites compile; not yet -> the flag-off no-op paths compile.
+// Item-leg skip glue (spec D). runtime/RunItemNeedPolicy.h owns Member / GiveOrder /
+// StartVerdict (CheckStart, BotOnly); the ledger mirror structs live in
+// BotCommandHandlers.h so that header never includes the policy header.
 // ---------------------------------------------------------------------------
-#if defined(__has_include)
-#if __has_include("../runtime/RunItemNeedPolicy.h")
-#include "../runtime/RunItemNeedPolicy.h"
-#define RUN_ITEM_NEED_POLICY_READY 1
-#endif
-#endif
 std::vector<RunNeedMemberPlain> RunNeedParty(Player* lead, const std::vector<uint32_t>& items)
 {
     std::vector<RunNeedMemberPlain> out;
@@ -704,8 +697,7 @@ void EraseRunSlot(uint64_t commanderRaw)
     TakeRunItems(it->second, 0);
     DungeonRuns().erase(it);
 }
-#ifdef RUN_ITEM_NEED_POLICY_READY
-// The policy header's Member from the header mirror (same fields, same order).
+// The policy header's Member from the plain mirror (same fields, same order).
 static std::vector<TortoiseBots::RunItemNeed::Member> RunItemNeedMembers(
     const std::vector<RunNeedMemberPlain>& plain)
 {
@@ -722,7 +714,6 @@ static std::vector<TortoiseBots::RunItemNeed::Member> RunItemNeedMembers(
     }
     return out;
 }
-#endif
 // The crash ledger's login cleanup (spec D7): rows for this bot while no live
 // run slot holds a `given` record for it -> destroy to count, delete rows.
 // World thread only.
@@ -8448,14 +8439,11 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     ReadPullStand(slot, lead, f);
     ReadRunNeedFacts(slot, lead, lead->GetGroup(), f);
 }
-// Item-leg skip (spec D8): the current leg's Optional holders + the first Door
-// need's object state, read every tick the policy Facts support it. Until
-// SliceRunPolicy's Facts fields land, this is a no-op: the fallback branch
-// keeps the names referenced so the wiring is visible.
+// Item-leg skip: the current leg's Optional holders + the first Door
+// need's object state, read every tick.
 void ReadRunNeedFacts(DungeonRunSlot const& slot, Player* lead, Group* group,
     TortoiseBots::DungeonRun::Facts& f)
 {
-#if defined(RUN_ITEM_NEED_POLICY_READY)
     if (!slot.run.plan || !lead)
         return;
     ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(slot.run);
@@ -8517,12 +8505,6 @@ void ReadRunNeedFacts(DungeonRunSlot const& slot, Player* lead, Group* group,
         }
     }
     f.botKeysForPlayers = sPlayerbotAIConfig.dungeonRunBotKeysForPlayers; // live reload every tick (rule 5)
-#else
-    (void)slot;
-    (void)lead;
-    (void)group;
-    (void)f;
-#endif
 }
 
 // The run's hold (DungeonRun::LeadRevivedAway): the living party stays where
@@ -9127,16 +9109,10 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         }
     }
     // Item-leg skip (spec D5): the given-item ledger, every run kind, at the
-    // same place as the system run's L6 block. runtime/RunItemNeedPolicy.h
-    // (SliceRunPolicy) owns CheckStart/BotOnly; the call sites below match
-    // the spec signatures (autodetected at the top of this file).
+    // same place as the system run's L6 block.
     {
         Player* tickLead = FindCharacter(binding->leadGuid);
-#if defined(RUN_ITEM_NEED_POLICY_READY)
         bool const botKeys = sPlayerbotAIConfig.dungeonRunBotKeysForPlayers;
-#else
-        bool const botKeys = false; // policy header not landed yet: flag-off behavior (holds, warns).
-#endif
         bool const realPlayer = RunGroupHasRealPlayer(tickLead);
         if (slot.giveRun && realPlayer && !botKeys && !slot.given.empty())
             TakeRunItems(slot, 0); // a real player joined: the bots carry nothing (rule 4)
@@ -9153,7 +9129,6 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                         needItems.push_back(needRow.item);
             std::sort(needItems.begin(), needItems.end());
             needItems.erase(std::unique(needItems.begin(), needItems.end()), needItems.end());
-#if defined(RUN_ITEM_NEED_POLICY_READY)
             std::vector<RunNeedMemberPlain> const needParty = RunNeedParty(tickLead, needItems);
             TortoiseBots::RunItemNeed::StartVerdict const needVerdict = TortoiseBots::RunItemNeed::CheckStart(
                 *slot.run.plan, slot.run.step, RunItemNeedMembers(needParty),
@@ -9162,9 +9137,6 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             for (TortoiseBots::RunItemNeed::GiveOrder const& order : needVerdict.give)
                 give.push_back({order.bot, order.item});
             GiveRunItems(slot, tickLead, give);
-#else
-            (void)needItems;
-#endif
         }
         if (!binding->system && slot.giveRun && realPlayer && !botKeys &&
             slot.run.state == TortoiseBots::DungeonRun::State::Running)
@@ -9172,7 +9144,6 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             // Non-system runs take the items at once too (above); when the
             // rest of the plan still needs keys the run pauses with the start
             // warning prefixed (system runs: the existing L6 pause).
-#if defined(RUN_ITEM_NEED_POLICY_READY)
             std::vector<uint32_t> needItems;
             if (slot.run.plan)
                 for (ai::PlanLegNeed const& needRow : slot.run.plan->needs)
@@ -9185,7 +9156,6 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                 *slot.run.plan, slot.run.step, RunItemNeedMembers(needParty), false, false);
             if (!needVerdict.warn.empty())
                 TortoiseBots::DungeonRun::PausePlayer(slot.run, "a real player joined: " + needVerdict.warn);
-#endif
         }
         if (slot.run.state == TortoiseBots::DungeonRun::State::Done && !slot.given.empty())
             TakeRunItems(slot, 0); // done: nothing given stays in a bot's bags
@@ -10530,9 +10500,6 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
         }
         // Item-leg skip (spec D3): the needed-items check before the slot exists. Bot-only + giveOn 0 + a blocking
         // need nobody carries refuses the start; with a real player the run starts and the warning rides the note.
-        // runtime/RunItemNeedPolicy.h (SliceRunPolicy) owns CheckStart/BotOnly; this call site matches the spec
-        // signatures (CheckStart(plan, fromStep, party, giveOn, botKeysForPlayers)), autodetected by __has_include
-        // at the top of this file (RUN_ITEM_NEED_POLICY_READY).
         std::string startNeedWarn; // the CheckStart warning, carried on the start note
         std::vector<RunGiveOrderPlain> startGive; // the CheckStart give orders, given after the slot exists
         bool startGiveRun = false; // stored.giveRun: giveOn && (BotOnly || botKeys)
@@ -10545,7 +10512,6 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
             std::sort(needItems.begin(), needItems.end());
             needItems.erase(std::unique(needItems.begin(), needItems.end()), needItems.end());
             std::vector<RunNeedMemberPlain> const needParty = RunNeedParty(lead, needItems);
-#if defined(RUN_ITEM_NEED_POLICY_READY)
             TortoiseBots::RunItemNeed::StartVerdict const needVerdict = TortoiseBots::RunItemNeed::CheckStart(*plan,
                 startStep, RunItemNeedMembers(needParty),
                 sPlayerbotAIConfig.dungeonRunGiveItems, sPlayerbotAIConfig.dungeonRunBotKeysForPlayers);
@@ -10560,9 +10526,6 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
             startGiveRun = sPlayerbotAIConfig.dungeonRunGiveItems &&
                 (TortoiseBots::RunItemNeed::BotOnly(RunItemNeedMembers(needParty)) ||
                     sPlayerbotAIConfig.dungeonRunBotKeysForPlayers);
-#else
-            (void)needParty;
-#endif
         }
         DungeonRunSlot slot;
         slot.run = Start(plan, startStep);
@@ -10573,7 +10536,7 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
             slot.playerLed.tank = lead->GetName();
         DungeonRunSlot& stored = DungeonRuns()[commanderRaw] = slot;
         RebuildRunGroups(); // one index rebuild per start (BotAreaTriggerWiringTest pins this adjacency)
-        // Item-leg skip (spec D3): give after the slot exists; the warning rides the start note.
+        // Item-leg skip: give after the slot exists; the warning rides the start note.
         stored.giveRun = startGiveRun;
         GiveRunItems(stored, lead, startGive);
         if (!startNeedWarn.empty())
