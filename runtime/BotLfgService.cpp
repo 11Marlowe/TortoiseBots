@@ -93,6 +93,7 @@ void BotLfgService::Initialize()
     if (m_initialized)
         return;
     m_initialized = true;
+    m_shutDown = false;
     uint32 n = LoadPlans();
     TB_LOG_BASIC("TortoiseBots: bot LFG: %u dungeon plans can form groups (%s)", n, Enabled() ? "on" : "off");
 }
@@ -106,6 +107,11 @@ bool BotLfgService::Enabled() const
 uint32 BotLfgService::LoadPlans()
 {
     m_plans.clear();
+    if (!sPlayerbotAIConfig.botLfgGroups || !ai::GetDungeonPlans().Sealed())
+    {
+        TB_LOG_BASIC("TortoiseBots: bot LFG: plans not read (needs AiPlayerbot.BotLfgGroups = 1 and the dungeon plans)");
+        return 0;
+    }
     std::unique_ptr<QueryResult> rows(
         WorldDatabase.Query("SELECT `plan`, `lft_code`, `teams` FROM `ai_bot_lfg_plan` ORDER BY `plan`"));
     if (!rows)
@@ -278,6 +284,8 @@ bool BotLfgService::ReadyForRole(Player* bot, BotLfg::Role role) const
 
 void BotLfgService::End(BotLfgGroup& group, BotLfgLifecycle::EndReason reason, bool release)
 {
+    release = release || RealPlayerInGroup(group);
+    group.missingSinceMs.clear();
     for (BotLfgMember const& member : group.members)
     {
         Player* bot = ObjectAccessor::FindPlayer(member.guid);
@@ -335,8 +343,8 @@ bool BotLfgService::TryForm(PlanRow const* only, uint8 onlyTeam, bool gm, std::s
                     option.playerInBand = true;
             std::string key = row.plan + ":" + std::to_string(team);
             auto found = m_lastFormedMs.find(key);
-            option.everFormed = found != m_lastFormedMs.end();
-            option.sinceFormedMs = option.everFormed ? m_nowMs - found->second : 0;
+            option.everFormed = found != m_lastFormedMs.end() && found->second.formed;
+            option.sinceFormedMs = option.everFormed ? m_nowMs - found->second.atMs : 0;
             options.push_back(option);
             rows.push_back(&row);
             lists.push_back(std::move(c));
@@ -491,7 +499,7 @@ bool BotLfgService::TryForm(PlanRow const* only, uint8 onlyTeam, bool gm, std::s
     g.groupId = grp->GetId();
     m_groups.push_back(g);
     ++m_formedCount;
-    m_lastFormedMs[key] = m_nowMs | 1;
+    m_lastFormedMs[key] = FormStamp{m_nowMs, true};
     BotLfgGroup& stored = m_groups.back();
     std::string roster = "formed: leader " + std::string(leader->GetName()) + " (" +
         BotLfg::RoleName(comp.picks[size_t(leaderAt)].role) + ")";
@@ -608,7 +616,8 @@ bool BotLfgService::EndNow(uint32 id, std::string& code, std::string& message)
     End(*found, BotLfgLifecycle::EndReason::GmDisband, RealPlayerInGroup(*found));
     code = "ok";
     message = "group " + std::to_string(found->id);
-    return true;
+    m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(),
+        [](BotLfgGroup const& g) { return g.state == BotLfgLifecycle::State::Ended; }), m_groups.end());
 }
 
 void BotLfgService::Transition(BotLfgGroup& group, BotLfgLifecycle::State to)
@@ -616,6 +625,40 @@ void BotLfgService::Transition(BotLfgGroup& group, BotLfgLifecycle::State to)
     group.state = to;
     group.stateSinceMs = m_nowMs;
     Log(group, std::string("now ") + BotLfgLifecycle::StateName(to));
+}
+
+bool BotLfgService::TrackOutOfWorld(BotLfgGroup& group, ObjectGuid guid, Player* bot)
+{
+    uint64 raw = guid.GetRawValue();
+    if (bot && bot->IsInWorld())
+    {
+        group.missingSinceMs.erase(raw);
+        return false;
+    }
+    auto seen = group.missingSinceMs.find(raw);
+    if (seen == group.missingSinceMs.end())
+        group.missingSinceMs.emplace(raw, m_nowMs);
+    return BotLfgLifecycle::MissingGraceExpired(group.missingSinceMs[raw], m_nowMs);
+}
+
+bool BotLfgService::MemberMissing(BotLfgGroup& group, Player* bot, ObjectGuid guid, Group* grp)
+{
+    if (bot && bot->IsInWorld() && grp && bot->GetGroup() == grp &&
+        BotActivityLeaseManager::Instance().GetActivity(guid.GetCounter()) == BotActivity::Dungeon)
+        return false;
+    if (bot && bot->IsInWorld())
+        return true;
+    return TrackOutOfWorld(group, guid, bot);
+}
+
+bool BotLfgService::LeaderMissing(BotLfgGroup& group, Player* leader, Group* grp, bool ours)
+{
+    if (!leader)
+        return TrackOutOfWorld(group, group.leader, leader);
+    if (BotActivityLeaseManager::Instance().GetActivity(leader->GetGUIDLow()) != BotActivity::Dungeon || !ours ||
+        !grp->IsLeader(group.leader))
+        return true;
+    return TrackOutOfWorld(group, group.leader, leader);
 }
 
 void BotLfgService::TickGroups(bool enabled)
@@ -636,18 +679,14 @@ void BotLfgService::TickGroups(bool enabled)
         uint64 key = BotCommands::GroupBindingKey(group.groupId);
         facts.boundByOther = ours && key && key != group.bindingKey;
         facts.realPlayerInGroup = RealPlayerInGroup(group);
-        facts.leaderLost = !leader || !leader->IsInWorld() || !ours || !grp->IsLeader(group.leader) ||
-            BotActivityLeaseManager::Instance().GetActivity(leader->GetGUIDLow()) != BotActivity::Dungeon;
+        facts.leaderLost = LeaderMissing(group, leader, grp, ours);
         BotLfg::Role lostRole = BotLfg::Role::None;
         ObjectGuid lostGuid;
         for (BotLfgMember const& member : group.members)
         {
             if (member.guid == group.leader)
                 continue;
-            Player* bot = ObjectAccessor::FindPlayer(member.guid);
-            bool missing = !bot || !bot->IsInWorld() || !grp || bot->GetGroup() != grp ||
-                BotActivityLeaseManager::Instance().GetActivity(member.guid.GetCounter()) != BotActivity::Dungeon;
-            if (!missing)
+            if (!MemberMissing(group, ObjectAccessor::FindPlayer(member.guid), member.guid, grp))
                 continue;
             ++facts.lostMembers;
             if (facts.lostMembers == 1)
@@ -778,11 +817,10 @@ void BotLfgService::TickGroups(bool enabled)
 
 bool BotLfgService::RealPlayerInGroup(BotLfgGroup const& group) const
 {
-    Player* leader = ObjectAccessor::FindPlayer(group.leader);
-    if (!leader)
+    if (group.groupId == 0)
         return false;
-    Group* grp = leader->GetGroup();
-    if (!grp || grp->GetId() != group.groupId)
+    Group* grp = sObjectMgr.GetGroupById(group.groupId);
+    if (!grp)
         return false;
     for (Group::MemberSlot const& slot : grp->GetMemberSlots())
         if (!BotManager::Instance().IsBot(slot.guid))
@@ -825,6 +863,9 @@ void BotLfgService::Update(uint32 diff)
 
 void BotLfgService::Shutdown()
 {
+    if (m_shutDown)
+        return;
+    m_shutDown = true;
     for (BotLfgGroup& g : m_groups)
     {
         if (g.state == BotLfgLifecycle::State::Ended)

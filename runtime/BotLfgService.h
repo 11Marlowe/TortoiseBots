@@ -41,10 +41,13 @@ struct BotLfgGroup
     BotLfg::Role openRole = BotLfg::Role::None;
     BotLfgLifecycle::State state = BotLfgLifecycle::State::Forming;
     uint32 stateSinceMs = 0;
+    std::unordered_map<uint64, uint32> missingSinceMs;
     BotLfgLifecycle::FillKind filledBy = BotLfgLifecycle::FillKind::None;
     ObjectGuid player;
     uint64 bindingKey = 0;
     bool forceFill = false;
+    bool everFormed = false;
+    uint32 formedAtMs = 0;
 };
 
 class BotLfgService
@@ -96,14 +99,23 @@ private:
     bool AddMember(BotLfgGroup& group, Player* leader, Player* bot, BotLfg::Role role);
     void Transition(BotLfgGroup& group, BotLfgLifecycle::State to);
     void End(BotLfgGroup& group, BotLfgLifecycle::EndReason reason, bool release);
+    bool TrackOutOfWorld(BotLfgGroup& group, ObjectGuid guid, Player* bot);
+    bool MemberMissing(BotLfgGroup& group, Player* bot, ObjectGuid guid, Group* grp);
+    bool LeaderMissing(BotLfgGroup& group, Player* leader, Group* grp, bool ours);
     void TickGroups(bool enabled);
     bool RealPlayerInGroup(BotLfgGroup const& group) const;
     void Log(BotLfgGroup const& group, std::string const& text) const;
     bool m_initialized = false;
+    bool m_shutDown = false;
     uint32 m_elapsedMs = 0, m_nowMs = 0, m_sinceFormMs = BotLfg::kFormIntervalMs, m_formedCount = 0, m_nextId = 1;
     std::vector<PlanRow> m_plans;
     std::vector<BotLfgGroup> m_groups;
-    std::unordered_map<std::string, uint32> m_lastFormedMs;
+    struct FormStamp
+    {
+        uint32 atMs = 0;
+        bool formed = false;
+    };
+    std::unordered_map<std::string, FormStamp> m_lastFormedMs;
 };
 
 } // namespace TortoiseBots

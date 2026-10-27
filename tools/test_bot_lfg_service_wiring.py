@@ -67,21 +67,53 @@ class BotLfgServiceWiringTest(unittest.TestCase):
 
     def test_end_releases_or_disbands(self):
         fn = body(SVC, "void BotLfgService::End(", "\n}\n")
-        for snippet in ("if (!release)", "RemoveMember(", "Release(", "BotActivity::Dungeon",
-                        "ClearForcedRole("):
+        for snippet in ("release = release || RealPlayerInGroup(group);", "if (!release)", "RemoveMember(",
+                        "Release(", "BotActivity::Dungeon", "ClearForcedRole("):
             self.assertIn(snippet, fn)
+        self.assertLess(fn.index("release = release || RealPlayerInGroup(group);"), fn.index("RemoveMember("))
         self.assertLess(fn.index("if (!release)"), fn.index("RemoveMember("))
 
-    def test_update_ticks_then_forms(self):
-        fn = body(SVC, "void BotLfgService::Update(", "\n}\n")
-        for snippet in ("BotLfg::TargetGroups(", "BotLfg::FormDue(",
-                        "sPlayerbotAIConfig.botLfgOnlyWithPlayersOnline", "TickGroups("):
-            self.assertIn(snippet, fn)
-        self.assertLess(fn.index("TickGroups("), fn.index("BotLfg::FormDue("))
+    def test_real_player_lookup_by_group_id(self):
+        fn = body(SVC, "bool BotLfgService::RealPlayerInGroup(", "\n}\n")
+        self.assertIn("sObjectMgr.GetGroupById(group.groupId)", fn)
+        self.assertNotIn("FindPlayer(group.leader)", fn)
 
-    def test_shutdown(self):
+    def test_end_now_erases_at_once(self):
+        fn = body(SVC, "bool BotLfgService::EndNow(", "\n}\n")
+        self.assertIn("m_groups.erase(std::remove_if(", fn)
+
+    def test_form_stamp_has_no_bit_trick(self):
+        self.assertNotIn("m_nowMs | 1", SVC)
+        fn = body(SVC, "bool BotLfgService::TryForm(", "\n}\n")
+        self.assertIn("FormStamp{m_nowMs, true}", fn)
+        self.assertIn("found->second.formed", SVC)
+        self.assertIn("m_nowMs - found->second.atMs", SVC)
+
+    def test_missing_grace(self):
+        tick = body(SVC, "void BotLfgService::TickGroups(bool enabled)", "\n}\n")
+        for snippet in ("LeaderMissing(group, leader, grp, ours)", "MemberMissing(group,"):
+            self.assertIn(snippet, tick)
+        self.assertNotIn("facts.leaderLost = !leader || !leader->IsInWorld()", tick)
+        track = body(SVC, "bool BotLfgService::TrackOutOfWorld(", "\n}\n")
+        self.assertIn("BotLfgLifecycle::MissingGraceExpired(", track)
+        self.assertIn("group.missingSinceMs.erase(raw)", track)
+
+    def test_load_plans_skips_when_off(self):
+        fn = body(SVC, "uint32 BotLfgService::LoadPlans()", "\n}\n")
+        self.assertIn("!sPlayerbotAIConfig.botLfgGroups", fn)
+        self.assertIn("!ai::GetDungeonPlans().Sealed()", fn)
+
+    def test_shutdown_first_and_idempotent(self):
         fn = body(SVC, "void BotLfgService::Shutdown()", "\n}\n")
         self.assertIn("BotLfgLifecycle::EndReason::Shutdown", fn)
+        self.assertIn("if (m_shutDown)", fn)
+        host = strip_comments((ROOT / "host/BotHostAdapter.cpp").read_text())
+        shutdown = body(host, "void BotHostAdapter::OnShutdown()", "\n}\n")
+        self.assertLess(shutdown.index("BotLfgService::Instance().Shutdown();"),
+                        shutdown.index("BotCommandQueue::Instance().Clear();"))
+        self.assertLess(shutdown.index("BotLfgService::Instance().Shutdown();"),
+                        shutdown.index("BotManager::Instance().Shutdown();"))
+
 
     def test_commander_exports(self):
         anchor = CMD.index("bool JoinLeadGroup(")
