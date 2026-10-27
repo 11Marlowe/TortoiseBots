@@ -484,6 +484,7 @@ public:
             if (got <= 0)
                 return false;
             offset -= static_cast<uint64_t>(got);
+            consumed_ += static_cast<uint64_t>(got);
         }
         return true;
     }
@@ -644,10 +645,13 @@ bool HandleLootLog(ChatHandler* handler, char const* args)
             if (rows.size() >= ai::LootHistoryPolicy::kLootHistoryMaxRows || after - resume >= scanCap)
             {
                 capped = true;
-                ai::LootHistoryCursor next;
-                next.piece = (piece == livePath) ? std::string() : filename;
-                next.offset = after;
-                nextCursor = ai::LootHistoryPolicy::EncodeLootCursor(next);
+                if (piece != livePath)
+                {
+                    ai::LootHistoryCursor next;
+                    next.piece = filename;
+                    next.offset = after;
+                    nextCursor = ai::LootHistoryPolicy::EncodeLootCursor(next);
+                }
                 break;
             }
         }
