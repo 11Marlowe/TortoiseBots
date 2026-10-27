@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "../../policy/loot/SkinningLootPolicy.h"
 #include "../../policy/loot/LootWindowPolicy.h"
+#include "../../policy/loot/LootHistoryPolicy.h"
 #include "LootAction.h"
 #include "playerbot/CastKeepsRunningPolicy.h"
 
@@ -489,6 +490,30 @@ static void DescribeLootSource(PlayerbotAI* ai, ObjectGuid guid, uint32 gatherSk
         name = goInfo->name;
 }
 
+// Live copy of a stored item row for the owner's addon: the same TBM:LOOT line
+// the .bot lootlog reply sends, pushed as the bot loots. Only bots in the
+// owner's party, since that is who the addon shows them to.
+static void NotifyOwnerOfLoot(PlayerbotAI* ai, Player* bot, std::string item, uint32 itemId,
+    std::string const& sourceType, std::string source, uint32 quality)
+{
+    Player* owner = ai->GetMaster();
+    if (!owner || !owner->GetGroup() || owner->GetGroup() != bot->GetGroup())
+        return;
+
+    std::string timestamp = sPlayerbotAIConfig.GetTimestampStr() + "+00";
+    std::string botName = bot->GetName();
+    std::string qualityText = std::to_string(quality);
+    std::string head = "TBM:LOOT|" + timestamp + "|" + botName + "|StoreLootAction|" + std::to_string(itemId) + "|";
+    size_t fixedBytes = head.size() + 1 + sourceType.size() + 1 + 1 + qualityText.size();
+    ai::LootHistoryPolicy::FitLootWireLine(item, source, fixedBytes);
+    for (std::string* field : { &item, &source })
+        for (char& character : *field)
+            if (character == '|' || character == '\r' || character == '\n')
+                character = ' ';
+
+    PlayerbotChatHandler(owner).sysmessage(head + item + "|" + sourceType + "|" + source + "|" + qualityText);
+}
+
 bool StoreLootAction::Execute(Event& event)
 {
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
@@ -703,6 +728,7 @@ bool StoreLootAction::Execute(Event& event)
 
         sPlayerbotAIConfig.logEvent(ai, "StoreLootAction", proto->Name1, std::to_string(proto->ItemId),
             lootSourceType, lootSourceName, std::to_string(proto->Quality));
+        NotifyOwnerOfLoot(ai, bot, proto->Name1, proto->ItemId, lootSourceType, lootSourceName, proto->Quality);
 
         if (gatherSkill != SKILL_NONE)
             sPlayerbotAIConfig.logEvent(ai, "GatherLoot", std::to_string(gatherSkill), std::to_string(proto->ItemId));
