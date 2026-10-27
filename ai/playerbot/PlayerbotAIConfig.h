@@ -936,7 +936,8 @@ public:
     void logf(std::string fileName, const char* format, ...);
 #endif
 
-    void logEvent(PlayerbotAI* ai, std::string eventName, std::string info1 = "", std::string info2 = "");
+    void logEvent(PlayerbotAI* ai, std::string eventName, std::string info1 = "", std::string info2 = "",
+        std::string info3 = "", std::string info4 = "", std::string info5 = "");
     void logEvent(PlayerbotAI* ai, std::string eventName, ObjectGuid guid, std::string info2);
 
     bool CanLogAction(PlayerbotAI* ai, std::string actionName, bool isExecute, std::string lastActionName);
