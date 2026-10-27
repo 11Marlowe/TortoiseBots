@@ -47,6 +47,11 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/SurvivePolicy.h"
+#include "playerbot/policy/loot/LootHistoryPolicy.h"
+#include "playerbot/LogFileRotation.h"
+#include <zlib.h>
+#include <filesystem>
+#include <fstream>
 #include "runtime/OwnedBotQolPolicy.h"
 #include "../runtime/RemoteCommanderPolicy.h"
 #include "../ai/playerbot/AiFactory.h"
@@ -440,6 +445,232 @@ bool HandleItem(ChatHandler* handler, char const* args)
         return true;
     }
     SendActionAck(handler, intent, scope, 1, std::to_string(itemId));
+    return true;
+}
+
+namespace {
+// One open event-log piece: plain text stays a stream, packed pieces inflate
+// through zlib. The stream only ever reads forward from a cursor offset.
+class LootPieceLines
+{
+public:
+    explicit LootPieceLines(std::string const& path) : gz_(path.size() >= 3 &&
+        path.compare(path.size() - 3, 3, ".gz") == 0)
+    {
+        if (gz_)
+            file_ = gzopen(path.c_str(), "rb");
+        else
+            plain_.open(path, std::ios::in | std::ios::binary);
+    }
+    ~LootPieceLines()
+    {
+        if (gz_)
+        {
+            if (file_)
+                gzclose(file_);
+        }
+    }
+    bool IsOpen() const { return gz_ ? file_ != nullptr : plain_.is_open(); }
+    // Discards the first offset bytes of uncompressed text. False when the
+    // piece ends first (a cursor past EOF after a rewrite): the caller then
+    // treats the whole piece as consumed.
+    bool Skip(uint64_t offset)
+    {
+        char discard[8 * 1024];
+        while (offset > 0)
+        {
+            size_t want = offset > sizeof(discard) ? sizeof(discard) : static_cast<size_t>(offset);
+            long got = Read(discard, want);
+            if (got <= 0)
+                return false;
+            offset -= static_cast<uint64_t>(got);
+            consumed_ += static_cast<uint64_t>(got);
+        }
+        return true;
+    }
+    // Next line without its newline, and the uncompressed offset right past
+    // it. False at EOF or on a read error.
+    bool Next(std::string& line, uint64_t& after)
+    {
+        line.clear();
+        char c;
+        bool any = false;
+        for (;;)
+        {
+            long got = Read(&c, 1);
+            if (got <= 0)
+                break;
+            any = true;
+            ++consumed_;
+            if (c == '\n')
+                break;
+            if (c != '\r')
+                line += c;
+        }
+        after = consumed_;
+        return any;
+    }
+private:
+    long Read(char* buffer, size_t want)
+    {
+        if (gz_)
+            return file_ ? gzread(file_, buffer, static_cast<unsigned>(want)) : -1;
+        if (!plain_.is_open())
+            return -1;
+        plain_.read(buffer, static_cast<std::streamsize>(want));
+        return static_cast<long>(plain_.gcount());
+    }
+    bool gz_ = false;
+    gzFile file_ = nullptr;
+    std::ifstream plain_;
+    uint64_t consumed_ = 0;
+};
+// Order pieces oldest first by filename: close-time stamps sort
+// lexicographically, and the live file (no stamp) reads last.
+bool LootPieceOlder(std::string const& a, std::string const& b)
+{
+    return a < b;
+}
+} // namespace
+
+// .bot lootlog [cursor] - the last day of loot rows for the requester's
+// controllable party bots (owned alts and hired companions), newest first.
+// TBM:LOOT_BEGIN|<n>|<nextCursor>, one TBM:LOOT row per message, then
+// TBM:LOOT_END|<nextCursor>. A cursor into a pruned piece answers expired.
+bool HandleLootLog(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        SendActionError(handler, "lootlog", "no-bot", "You must be in-game.");
+        return true;
+    }
+    std::string cursorText = Trim(args ? args : "");
+    ai::LootHistoryCursor cursor;
+    if (!ai::LootHistoryPolicy::DecodeLootCursor(cursorText, cursor))
+    {
+        SendActionError(handler, "lootlog", "invalid", "Usage: .bot lootlog [cursor]");
+        return true;
+    }
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope = ResolveDynamicScope(context);
+    std::set<std::string> names;
+    for (Player* bot : scope)
+        if (bot)
+            names.insert(bot->GetName());
+    if (names.empty())
+    {
+        SendActionError(handler, "lootlog", "no-bot", "No live owned party bots are controllable.");
+        return true;
+    }
+    std::string const livePath = sPlayerbotAIConfig.logsDirPath() + "bot_events.csv";
+    std::vector<std::string> plain, compressed;
+    ai::LogFileRotation::Pieces(livePath, plain, compressed);
+    std::vector<std::string> pieces = compressed;
+    pieces.insert(pieces.end(), plain.begin(), plain.end());
+    std::sort(pieces.begin(), pieces.end(), LootPieceOlder);
+    std::error_code liveError;
+    bool const liveReadable = std::filesystem::exists(livePath, liveError) && !liveError;
+    if (liveReadable)
+        pieces.push_back(livePath);
+    time_t const now = time(nullptr);
+    time_t const cutoff = now - ai::LootHistoryPolicy::kLootHistoryWindowSeconds;
+    std::vector<std::string> candidates;
+    for (std::string const& piece : pieces)
+    {
+        if (piece == livePath)
+        {
+            candidates.push_back(piece);
+            continue;
+        }
+        std::error_code mtimeError;
+        auto mtime = std::filesystem::last_write_time(piece, mtimeError);
+        if (mtimeError)
+            continue;
+        auto age = std::filesystem::file_time_type::clock::now() - mtime;
+        if (age > std::chrono::hours(24))
+            continue;
+        candidates.push_back(piece);
+    }
+    if (!cursor.piece.empty())
+    {
+        bool found = false;
+        for (std::string const& piece : candidates)
+            if (std::filesystem::path(piece).filename().string() == cursor.piece)
+                found = true;
+        if (!found)
+        {
+            handler->PSendSysMessage("TBM:LOOT_BEGIN|0|expired");
+            handler->PSendSysMessage("TBM:LOOT_END|expired");
+            return true;
+        }
+    }
+    std::vector<ai::LootHistoryRow> rows;
+    std::string nextCursor;
+    bool capped = false;
+    bool resumeArmed = !cursor.piece.empty();
+    // Cap the uncompressed scan per reply: 24 h at 500 bots is ~100 MB, and
+    // this runs on the world thread. Past the cap the reply ends with the
+    // offset reached, so the addon pages through dense windows.
+    uint64_t const scanCap = 4ull * 1024ull * 1024ull;
+    for (auto it = candidates.rbegin(); it != candidates.rend() && !capped; ++it)
+    {
+        std::string const& piece = *it;
+        std::string const filename = std::filesystem::path(piece).filename().string();
+        if (resumeArmed && filename != cursor.piece)
+            continue;
+        LootPieceLines lines(piece);
+        if (!lines.IsOpen())
+        {
+            resumeArmed = false;
+            continue;
+        }
+        uint64_t resume = (resumeArmed && filename == cursor.piece) ? cursor.offset : 0;
+        resumeArmed = false;
+        if (resume > 0 && !lines.Skip(resume))
+            continue;
+        std::string line;
+        uint64_t after = resume;
+        while (lines.Next(line, after))
+        {
+            ai::LootHistoryRow row;
+            if (!ai::LootHistoryPolicy::ParseLootHistoryRow(line, row))
+                continue;
+            if (names.find(row.bot) == names.end())
+                continue;
+            time_t when = ai::LootHistoryPolicy::ParseLootTimestamp(row.timestamp);
+            if (when == 0 || when < cutoff)
+                continue;
+            rows.push_back(row);
+            if (rows.size() >= ai::LootHistoryPolicy::kLootHistoryMaxRows || after - resume >= scanCap)
+            {
+                capped = true;
+                if (piece != livePath)
+                {
+                    ai::LootHistoryCursor next;
+                    next.piece = filename;
+                    next.offset = after;
+                    nextCursor = ai::LootHistoryPolicy::EncodeLootCursor(next);
+                }
+                break;
+            }
+        }
+    }
+    handler->PSendSysMessage("TBM:LOOT_BEGIN|%u|%s", static_cast<uint32>(rows.size()), nextCursor.c_str());
+    for (ai::LootHistoryRow const& row : rows)
+    {
+        std::string item = ProtocolSafe(row.info1);
+        std::string source = ProtocolSafe(row.info4);
+        std::string fixed = "TBM:LOOT|" + ProtocolSafe(row.timestamp) + "|" + ProtocolSafe(row.bot) + "|" +
+            ProtocolSafe(row.event) + "|" + ProtocolSafe(row.info2) + "||" + ProtocolSafe(row.info3) + "||" +
+            ProtocolSafe(row.info5);
+        ai::LootHistoryPolicy::FitLootWireLine(item, source, fixed.size());
+        handler->PSendSysMessage("TBM:LOOT|%s|%s|%s|%s|%s|%s|%s|%s",
+            ProtocolSafe(row.timestamp).c_str(), ProtocolSafe(row.bot).c_str(),
+            ProtocolSafe(row.event).c_str(), ProtocolSafe(row.info2).c_str(), item.c_str(),
+            ProtocolSafe(row.info3).c_str(), source.c_str(), ProtocolSafe(row.info5).c_str());
+    }
+    handler->PSendSysMessage("TBM:LOOT_END|%s", nextCursor.c_str());
     return true;
 }
 
