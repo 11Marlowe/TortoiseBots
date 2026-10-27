@@ -100,7 +100,7 @@ void BotLfgService::Initialize()
 
 bool BotLfgService::Enabled() const
 {
-    return sPlayerbotAIConfig.enabled &&
+    return sPlayerbotAIConfig.enabled && sPlayerbotAIConfig.botLfgGroups &&
         RemoteCommander::BindingKindEnabled(RemoteCommander::BindingKind::System, BotCommands::CurrentCommanderGates());
 }
 
@@ -618,8 +618,8 @@ bool BotLfgService::EndNow(uint32 id, std::string& code, std::string& message)
     message = "group " + std::to_string(found->id);
     m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(),
         [](BotLfgGroup const& g) { return g.state == BotLfgLifecycle::State::Ended; }), m_groups.end());
+    return true;
 }
-
 void BotLfgService::Transition(BotLfgGroup& group, BotLfgLifecycle::State to)
 {
     group.state = to;
@@ -844,6 +844,9 @@ void BotLfgService::Update(uint32 diff)
     m_sinceFormMs += m_elapsedMs;
     m_elapsedMs = 0;
     bool const enabled = Enabled();
+    if (enabled && !m_wasEnabled && m_plans.empty())
+        LoadPlans();
+    m_wasEnabled = enabled;
     TickGroups(enabled);
     m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(),
         [](BotLfgGroup const& g) { return g.state == BotLfgLifecycle::State::Ended; }), m_groups.end());

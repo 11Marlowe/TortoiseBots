@@ -41,6 +41,7 @@ class BotLfgServiceWiringTest(unittest.TestCase):
             "BotCommands::CurrentCommanderGates())",
             fn)
         self.assertIn("sPlayerbotAIConfig.enabled", fn)
+        self.assertIn("sPlayerbotAIConfig.botLfgGroups", fn)
 
     def test_load_plans(self):
         fn = body(SVC, "uint32 BotLfgService::LoadPlans()", "\n}\n")
@@ -103,6 +104,12 @@ class BotLfgServiceWiringTest(unittest.TestCase):
         self.assertIn("!sPlayerbotAIConfig.botLfgGroups", fn)
         self.assertIn("!ai::GetDungeonPlans().Sealed()", fn)
 
+    def test_update_loads_plans_on_switch_on(self):
+        fn = body(SVC, "void BotLfgService::Update(uint32 diff)", "\n}\n")
+        self.assertIn("m_wasEnabled", fn)
+        self.assertIn("LoadPlans();", fn)
+        self.assertLess(fn.index("m_wasEnabled = enabled;"), fn.index("TickGroups(enabled);"))
+
     def test_shutdown_first_and_idempotent(self):
         fn = body(SVC, "void BotLfgService::Shutdown()", "\n}\n")
         self.assertIn("BotLfgLifecycle::EndReason::Shutdown", fn)
@@ -154,6 +161,11 @@ class BotLfgLifecycleWiringTest(unittest.TestCase):
         fn = body(SVC, "bool BotLfgService::EndNow(", "\n}\n")
         for snippet in ("BotLfgLifecycle::EndReason::GmDisband", "RealPlayerInGroup("):
             self.assertIn(snippet, fn)
+
+    def test_end_now_returns_true_and_repeats_no_group(self):
+        fn = body(SVC, "bool BotLfgService::EndNow(", "\n}\n")
+        self.assertIn("return true;", fn)
+        self.assertIn('"no-group"', fn)
 
     def test_fill_now_marks_force_fill(self):
         fn = body(SVC, "bool BotLfgService::FillNow(", "\n}\n")
