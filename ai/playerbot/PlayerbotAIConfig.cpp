@@ -1694,7 +1694,8 @@ void PlayerbotAIConfig::logf(std::string fileName, const char* format, ...)
     fflush(stdout);
 }
 
-void PlayerbotAIConfig::logEvent(PlayerbotAI* ai, std::string eventName, std::string info1, std::string info2)
+void PlayerbotAIConfig::logEvent(PlayerbotAI* ai, std::string eventName, std::string info1, std::string info2,
+    std::string info3, std::string info4, std::string info5)
 {
     if (hasLog("bot_events.csv"))
     {
@@ -1715,6 +1716,12 @@ void PlayerbotAIConfig::logEvent(PlayerbotAI* ai, std::string eventName, std::st
 
         out << "\"" << info1 << "\",";
         out << "\"" << info2 << "\"";
+        if (!info3.empty() || !info4.empty() || !info5.empty())
+        {
+            out << ",\"" << info3 << "\",";
+            out << "\"" << info4 << "\",";
+            out << "\"" << info5 << "\"";
+        }
 
         log("bot_events.csv", out.str().c_str());
     }
