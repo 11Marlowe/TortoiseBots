@@ -603,8 +603,16 @@ public:
     bool dungeonRunBotKeysForPlayers;
     // ... and how long the leading player may be out of the plan's dungeon before the run stops (minutes, default 10).
     uint32 dungeonRunPlayerLedAwayMinutes;
-    // Bot LFG dungeon groups (SystemRunPolicy.h; default on); dormant while dungeonSelfClear is off.
+    // Bot LFG dungeon groups (runtime/BotLfgService.cpp; default off); dormant while dungeonSelfClear is off.
     bool botLfgGroups;
+    // The wait for a player in minutes.
+    uint32 botLfgFillAfterMinutes;
+    // Groups per 100 bots online.
+    uint32 botLfgGroupsPer100Bots;
+    // The most groups at once.
+    uint32 botLfgMaxGroups;
+    // Groups form only while a real player is online.
+    bool botLfgOnlyWithPlayersOnline;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
     bool avoidCreatureAuras;
     // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).
