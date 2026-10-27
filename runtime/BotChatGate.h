@@ -71,6 +71,39 @@ inline bool ParseChannelChatLine(uint8_t const* data, size_t size, ChannelChatLi
     line.textLength = textEnd ? static_cast<size_t>(static_cast<uint8_t const*>(textEnd) - (data + pos)) : size - pos;
     return true;
 }
+// The fields of an SMSG_MESSAGECHAT CHAT_MSG_WHISPER body the inbox needs,
+// read the way ChatHandler::BuildChatPacket writes them (type, language,
+// sender guid, text length, text); the trailing chat tag is not read.
+struct WhisperChatLine
+{
+    uint32_t language = 0;
+    uint64_t sender = 0;
+    char const* text = nullptr;
+    size_t textLength = 0;
+};
+
+// `data` / `size`: the whole SMSG_MESSAGECHAT body of a whisper (type,
+// language, sender guid, text length, text, chat tag), as
+// ChatHandler::BuildChatPacket writes it. False when the body is too short
+// to hold them.
+inline bool ParseWhisperChatLine(uint8_t const* data, size_t size, WhisperChatLine& line)
+{
+    if (!data || size < 1 + 4 + 8 + 4)
+        return false;
+    uint32_t language = 0;
+    for (int i = 3; i >= 0; --i) // little-endian, as ByteBuffer writes it
+        language = (language << 8) | data[1 + static_cast<size_t>(i)];
+    line.language = language;
+    uint64_t sender = 0;
+    for (int i = 7; i >= 0; --i) // little-endian, as ByteBuffer writes it
+        sender = (sender << 8) | data[5 + static_cast<size_t>(i)];
+    line.sender = sender;
+    size_t const pos = 1 + 4 + 8 + 4; // type, language, sender, text length
+    line.text = reinterpret_cast<char const*>(data + pos);
+    void const* textEnd = std::memchr(data + pos, 0, size - pos);
+    line.textLength = textEnd ? static_cast<size_t>(static_cast<uint8_t const*>(textEnd) - (data + pos)) : size - pos;
+    return true;
+}
 
 // True when the bot's AI would ignore this channel line at its Trade gate, so
 // the hook need not copy it. `isTradeChannel(name, length)` is only asked when the
