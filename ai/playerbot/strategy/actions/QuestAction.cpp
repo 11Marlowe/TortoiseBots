@@ -279,6 +279,8 @@ bool QuestAction::AcceptQuest(Player* requester, Quest const* quest, uint64 ques
             // Objective-less quests complete on accept, as in the core handler.
             if (bot->CanCompleteQuest(questId))
                 bot->CompleteQuest(questId);
+            if (quest->GetSrcSpell() > 0)
+                bot->CastSpell(bot, quest->GetSrcSpell(), true);
         }
         else if (bot->GetQuestStatus(questId) == QUEST_STATUS_NONE && IsNearGroupedMaster())
         {
@@ -294,6 +296,8 @@ bool QuestAction::AcceptQuest(Player* requester, Quest const* quest, uint64 ques
                 // Objective-less quests complete on accept, as in the core handler.
                 if (bot->CanCompleteQuest(questId))
                     bot->CompleteQuest(questId);
+                if (quest->GetSrcSpell() > 0)
+                    bot->CastSpell(bot, quest->GetSrcSpell(), true);
             }
         }
 
