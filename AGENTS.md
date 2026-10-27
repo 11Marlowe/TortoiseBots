@@ -27,6 +27,13 @@ It is a hobby project built for its owner and interested players: pragmatic, sma
 | Doc structure | `docs/manifest.yaml`, `docs/README.md` | `python3 tools/verify_okf.py` |
 | Observability daemon (`tools/observability`, `runtime/ObservabilityEmitter.*`) | [`tools/observability/README.md`](tools/observability/README.md) | see that file |
 
+## Reading large files
+
+Some files are too big to read whole. Search them first and read only the part you need (`grep -n` for a heading, then `offset`/`limit`):
+
+- `docs/reference/hire-gear.md` (generated, about 360 KB) and `docs/play/dungeon-run-leader.md` (about 260 KB).
+- `docs/developers/data/capabilities.tsv` (about 48 KB) is a data table: query it, do not read it as prose.
+
 ## Architecture invariants
 
 Full rules and rationale: [`docs/developers/architecture.md`](docs/developers/architecture.md). The ones you will hit:
@@ -38,7 +45,7 @@ Full rules and rationale: [`docs/developers/architecture.md`](docs/developers/ar
 
 ## Donors and references
 
-Read-only local checkouts live in `../playerbots-references/` (`mod-playerbots`, `shyalya-tortoise-wow`, `spp-classics-cmangos`). **Harvest behaviour, not architecture**: understand the donor behaviour, reimplement it inside the module, test it, record provenance. Never vendor a donor tree or expand host coupling to ease a port.
+No donor checkouts are kept locally any more; look donor code up online (mod-playerbots, shyalya-tortoise-wow, spp-classics-cmangos). **Harvest behaviour, not architecture**: understand the donor behaviour, reimplement it inside the module, test it, record provenance. Never vendor a donor tree or expand host coupling to ease a port.
 
 Lookup order: gameplay/class AI/CC/movement → mod-playerbots, then shyalya-tortoise-wow for 1.18.1 specifics; sessions/lifecycle → the current core; Turtle spells/talents/items → core data (DBCs in `../tortoise-docker-penqle/data/dbc`, world DB).
 
