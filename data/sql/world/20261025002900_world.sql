@@ -1,0 +1,340 @@
+-- Zul'Farrak (map 209): the whole plan again, now WITH the gahzrilla leg (leg 9), replacing the rows of
+-- 20261022210000_world.sql (that file stays as applied). 18 legs, 247 steps.
+--
+-- PORTED, NOT RE-INVENTED. The leg and its rows are the export of turtle-agent a93caba's dungeons/zulfarrak.json with
+-- `turtle-agent plan-export --drop-companions-loot --carrier-chests --with-optional gahzrilla --mmaps <map 209 mmaps>
+-- --rev a93caba --stamp 20261022210000 zulfarrak`, kept in the tree as tools/optional-plans/zulfarrak-gahzrilla.sql
+-- since 2026-10-21; that file is the source of every row below. The same plan data on prep/zf-gahz (051848d) adds the
+-- boss's interruptible casts as `boss.tactics` (no step row) and two `approach` stands (two `move` rows, in the rows
+-- below); the optional file carries them too, so the step rows are identical. The leg was left out of 20261022210000
+-- because no player or unattended run has the Mallet of Zul'Farrak (9240) and every run would pause at the gong; it is
+-- in the shipped plan now because the audit (EVERY-BOSS-2026-10-26, Zul'Farrak) counts Gahz'rilla 7273 and the leg
+-- was played live (zf-r5, 2026-10-16, server 19z10: Mallet by give_items, `cmd use 9240 ...
+-- entry:141832@1650.9,1171.9,10.9`, Gahz'rilla seen 12 s later, dead 116 s after that). THE MALLET IS STILL THE OPERATOR'S: no bot can obtain it in a run (only item 9241 from Qiaga the
+-- Keeper in The Hinterlands makes it, map 0), so before `.bot run start zulfarrak` a GM must `.additem 9240` on the
+-- lead bot (or the carrier). Without it the run leader pauses at the `use_on` naming item 9240; `.bot run skip` passes
+-- the rest of the leg and the plan goes on to the courtyard. A second ring of the gong summons a NEW Gahz'rilla that
+-- the instance kills at once (instance_zulfarrak.cpp OnCreatureCreate), leaving an invisible corpse at the pit: the
+-- use_on is once a run (DungeonRunPolicy.h UseOnStep).
+--
+-- SETUP: AiPlayerbot.BotGossipNpcs lists 7604 (Sergeant Bly) and 7607 (Weegli Blastfuse); AiPlayerbot.BotAreaTriggers
+-- need not list 962 (the move row names it and the run arms it). The Mallet 9240 is the GM `.additem` above.
+
+-- WHAT THE LEG DOES: the move to the gong stand 1652.84 1168.99 10.67, the eight pool-ring pulls (the packs on and
+-- near Gahz'rilla's walk-out), the `use_on` of gong 141832 (1650.9 1171.9 10.9) with item 9240, then the boss row 7273
+-- at 1702.58 1224.19 8.88 (where event 2489's six MOVE_TOs leave him; event 2488 summons him at 1664.65 1187.67
+-- -2.88755 after 2 s). Groups 0-2 are pulled from the gong stand (32-44 yd); two approach stands keep the east ring
+-- inside the run leader's 50 yd (it sees 60): 1640 1205 9.2 before group 3 (19 yd from it) and 1682 1226 9.2 before
+-- group 4 (17 yd from group 4, 20-33 yd from groups 5-7). Every move hop and every pull's reach was checked with
+-- `turtle-agent path-check` on the server-exact map-209 mmaps; the pulls themselves move nobody. The walk back is the
+-- three `path`/`stand` moves. The legs after the leg are numbered one higher than in 20261022210000 (courtyard 10 ...
+-- ukorz 17); the area trigger 962 row moved to leg 11 seq 101 and is named in `entry` again below (the UPDATE of
+-- 20261024000000 targets leg 10, the old numbering).
+--
+-- BOSS ROWS: ai_dungeon_boss already lists (209, 7273) from 20261021114931 (Gahz'rilla has no creature spawn row:
+-- creature_template 7273, level 46, faction 107, rank 3, EventAI, flags_extra 2097152). This file keeps its own row
+-- idempotent. ai_boss_tactic gains the two casts core data makes interruptible: Freeze Solid 11836 and Icicle 11131
+-- (spell_template interruptFlags 15; Gahz'rilla Slam 11902 is instant, interruptFlags 0, so no row). creature_spells
+-- 72730 lists all three; EventAI 20901 only casts 33007 (the walk-out event 2489).
+--
+-- Dungeon plans for the run leader (.bot run), exported by turtle-agent (plan-export). Plan format v1; the mapping is
+-- docs/guides/dungeon-run-leader.md ("From plan v1 to rows"). The plan file in turtle-agent is the single source: edit
+-- it there and export again, never these rows by hand. The plan row carries the unit lists cc_priority, cc_always and
+-- kill_first (columns from 20261015200000_world.sql). Never edit this file once applied; export a new one.
+--
+-- Idempotent: each plan's rows are deleted, then inserted; the two boss-tactic rows are deleted by (map, boss) first.
+-- The tables come from 20261014150000_world.sql and 20261014120000_world.sql.
+
+-- zulfarrak: map 209, 18 legs, 247 steps
+DELETE FROM `ai_dungeon_step` WHERE `plan` = 'zulfarrak';
+DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'zulfarrak';
+DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'zulfarrak';
+INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
+('zulfarrak', 209, '7246,5648', '7246', '7785,8179,5650,7247,7608,7606,7605', 'turtle-agent 051848d dungeons/zulfarrak.json', 'plan v1, live-checked');
+INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
+('zulfarrak', 0, 'antusul_a', ''),
+('zulfarrak', 1, 'antusul_a2', ''),
+('zulfarrak', 2, 'antusul_a3', ''),
+('zulfarrak', 3, 'antusul', ''),
+('zulfarrak', 4, 'antusul_c', ''),
+('zulfarrak', 5, 'antusul_b', ''),
+('zulfarrak', 6, 'theka', ''),
+('zulfarrak', 7, 'velratha', 'leave (not read by the run leader yet): 7246 spawn 81610 at 1591 1047.7: lone Shadowhunter on a navmesh island (3 x 3 yd, no path leaves it): never pull, fight or walk up to it; a fight takes the tank onto the island (zf-r6-19z24)'),
+('zulfarrak', 8, 'velratha_b', ''),
+('zulfarrak', 9, 'gahzrilla', ''),
+('zulfarrak', 10, 'courtyard', ''),
+('zulfarrak', 11, 'zumrah', ''),
+('zulfarrak', 12, 'stairs', ''),
+('zulfarrak', 13, 'stairs_top', ''),
+('zulfarrak', 14, 'stairs_base', ''),
+('zulfarrak', 15, 'weegli_door', ''),
+('zulfarrak', 16, 'bly', ''),
+('zulfarrak', 17, 'ukorz', '');
+INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, `z`, `radius`, `item`, `param`, `flags`, `timeout_s`, `entries`, `comment`) VALUES
+('zulfarrak', 0, 0, 'move', 0, 1252.3, 836.4, 9.1, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 0, 1, 'pull', 0, 1263.13, 842.53, 9.13, 15, 0, 0, 0, 0, '5649,5648', 'pull group 0'),
+('zulfarrak', 0, 2, 'pull', 0, 1295.37, 810.53, 11.3, 30, 0, 0, 0, 0, '5649,5648,5650', 'pull group 1'),
+('zulfarrak', 1, 0, 'move', 0, 1289.9, 816.1, 9.4, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 1, 1, 'move', 0, 1297.1, 827.9, 9.3, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 1, 2, 'pull', 0, 1324.33, 839.5, 10, 30, 0, 0, 0, 0, '5649,5648,5650', 'pull group 0'),
+('zulfarrak', 1, 3, 'pull', 0, 1361.35, 818.6, 9, 15, 0, 0, 0, 0, '5649', 'pull group 1'),
+('zulfarrak', 1, 4, 'pull', 0, 1406.5, 813.05, 8.9, 60, 0, 0, 0, 0, '5649', 'pull group 2'),
+('zulfarrak', 1, 5, 'pull', 0, 1428.1, 796.63, 11.47, 15, 0, 0, 0, 0, '5648', 'pull group 3'),
+('zulfarrak', 2, 0, 'move', 0, 1420.7, 801.1, 11, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 2, 1, 'move', 0, 1433.9, 804.7, 10.3, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 2, 2, 'move', 0, 1442.5, 804.7, 12.7, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 2, 3, 'move', 0, 1450.1, 805.9, 12.9, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 2, 4, 'move', 0, 1460.5, 808.5, 10.8, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 2, 5, 'pull', 0, 1465.17, 833.57, 10.06, 15, 0, 0, 0, 0, '5648', 'pull group 0'),
+('zulfarrak', 2, 6, 'pull', 0, 1491.13, 824.87, 9.07, 30, 0, 0, 0, 0, '5650,5649', 'pull group 1'),
+('zulfarrak', 2, 7, 'pull', 0, 1506.75, 838.5, 9.45, 15, 0, 0, 0, 0, '5648', 'pull group 2'),
+('zulfarrak', 3, 0, 'move', 0, 1506, 844.9, 10.2, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 3, 1, 'move', 0, 1520, 840, 9.5, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 3, 2, 'move', 0, 1535, 834, 9, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 3, 3, 'pull', 0, 1530.05, 823.93, 9.07, 30, 0, 0, 0, 0, '5649,5648', 'pull group 0'),
+('zulfarrak', 3, 4, 'pull', 0, 1545.6, 837.05, 8.9, 30, 0, 0, 0, 0, '5649,5648', 'pull group 1'),
+('zulfarrak', 3, 5, 'pull', 0, 1583.83, 850.53, 10.3, 15, 0, 0, 0, 0, '5650,5648', 'pull group 2'),
+('zulfarrak', 3, 6, 'pull', 0, 1615.6, 894.19, 9.38, 12, 0, 0, 0, 0, '5650,5648,5649', 'pull group 3'),
+('zulfarrak', 3, 7, 'pull', 0, 1633.3, 868.3, 10.5, 15, 0, 0, 0, 0, '5650', 'pull group 4'),
+('zulfarrak', 3, 8, 'move', 0, 1620, 880, 8.97, 0, 0, 0, 0, 0, '', 'pull group 5 approach'),
+('zulfarrak', 3, 9, 'pull', 0, 1643.65, 904, 9.4, 10, 0, 0, 0, 0, '5648,7247', 'pull group 5'),
+('zulfarrak', 3, 10, 'move', 0, 1630, 878, 8.93, 0, 0, 0, 0, 0, '', 'pull group 6 approach'),
+('zulfarrak', 3, 11, 'pull', 0, 1666.77, 903.85, 8.97, 15, 0, 0, 0, 0, '5648,5650', 'pull group 6'),
+('zulfarrak', 3, 12, 'pull', 0, 1660.45, 937.2, 9.15, 15, 0, 0, 0, 0, '7246,5648,5649', 'pull group 7'),
+('zulfarrak', 4, 0, 'move', 0, 1642.0176, 890.733, 10.403578, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 4, 1, 'move', 0, 1633, 868, 10.5, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 4, 2, 'pull', 0, 1685.03, 876.3, 9, 20, 0, 0, 0, 0, '5649,5648', 'pull group 0'),
+('zulfarrak', 4, 3, 'pull', 0, 1713.7, 784.1, 17.3, 15, 0, 0, 0, 0, '5649', 'pull group 1'),
+('zulfarrak', 4, 4, 'pull', 0, 1776.9, 813.7, 23.2, 15, 0, 0, 0, 0, '5650', 'pull group 2'),
+('zulfarrak', 5, 0, 'move', 0, 1769.03, 802.98, 24.04, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 5, 1, 'move', 0, 1787.8, 790.6, 17.7, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 5, 2, 'pull', 0, 1793.5, 753.4, 14.3, 50, 0, 0, 0, 0, '5649', 'pull group 0'),
+('zulfarrak', 5, 3, 'pull', 0, 1756.28, 724.41, 19.44, 10, 0, 0, 0, 0, '5650,7246', 'pull group 1'),
+('zulfarrak', 5, 4, 'pull', 0, 1802.2, 738.7, 14.5, 30, 0, 0, 0, 0, '8095', 'pull group 2'),
+('zulfarrak', 5, 5, 'boss', 8127, 1815.8, 670.4, 15, 0, 0, 0, 0, 0, '', 'boss'),
+('zulfarrak', 6, 0, 'move', 0, 1812, 700, 15, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 6, 1, 'move', 0, 1812, 716, 15, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 6, 2, 'move', 0, 1804, 753.8666, 17.225752, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 6, 3, 'move', 0, 1804, 762.66656, 17.625753, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 6, 4, 'move', 0, 1807.2, 798.5, 13.9, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 6, 5, 'pull', 0, 1767.15, 853.55, 8.9, 30, 0, 0, 0, 0, '5649,7247', 'pull group 0'),
+('zulfarrak', 6, 6, 'boss', 7272, 1778, 859.7, 8.9, 0, 0, 0, 0, 0, '', 'boss'),
+('zulfarrak', 7, 0, 'move', 0, 1742.3999, 834.66656, 9.125752, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 7, 1, 'move', 0, 1704, 813.5999, 8.925753, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 7, 2, 'move', 0, 1698.9333, 810.9332, 8.925753, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 7, 3, 'move', 0, 1691.4667, 809.33325, 9.425753, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 7, 4, 'move', 0, 1682.4, 807.9999, 8.925753, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 7, 5, 'move', 0, 1676.5333, 818.13324, 8.925753, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 7, 6, 'move', 0, 1674.9333, 821.5999, 9.025752, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 7, 7, 'move', 0, 1676.1, 833.5, 9.5, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 7, 8, 'move', 0, 1678.48, 856.47, 8.95, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 7, 9, 'move', 0, 1668.92, 872.47, 11.57, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 7, 10, 'move', 0, 1658.35, 878.91, 13.06, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 7, 11, 'pull', 0, 1643.65, 904, 9.4, 15, 0, 0, 0, 0, '5648,7247', 'pull group 0'),
+('zulfarrak', 7, 12, 'pull', 0, 1605.77, 973.07, 9.13, 15, 0, 0, 0, 0, '5649', 'pull group 1'),
+('zulfarrak', 7, 13, 'pull', 0, 1589.4, 985.4, 9.2, 30, 0, 0, 0, 0, '5648', 'pull group 2'),
+('zulfarrak', 7, 14, 'pull', 0, 1585.1, 1035.5, 9, 30, 0, 0, 0, 0, '5649', 'pull group 3'),
+('zulfarrak', 7, 15, 'move', 0, 1594, 1011, 10.9, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
+('zulfarrak', 7, 16, 'move', 0, 1598, 1028, 9.6, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
+('zulfarrak', 7, 17, 'move', 0, 1606, 1040, 10.3, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
+('zulfarrak', 7, 18, 'pull', 0, 1583, 1086.76, 8.98, 30, 0, 0, 0, 0, '5650,7246,8095,5649', 'pull group 4'),
+('zulfarrak', 7, 19, 'move', 0, 1588, 1080, 9.1, 0, 0, 0, 0, 0, '', 'pull group 5 approach'),
+('zulfarrak', 7, 20, 'move', 0, 1584, 1088, 9.1, 0, 0, 0, 0, 0, '', 'pull group 5 approach'),
+('zulfarrak', 7, 21, 'pull', 0, 1606.7, 1107.4, 9, 15, 0, 0, 0, 0, '7246,5650', 'pull group 5'),
+('zulfarrak', 8, 0, 'move', 0, 1633.6, 1130.7, 9.9, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 8, 1, 'pull', 0, 1639.44, 1106.82, 9.04, 15, 0, 0, 0, 0, '5649,5650,7246', 'pull group 0'),
+('zulfarrak', 8, 2, 'pull', 0, 1649.33, 1157, 9.03, 30, 0, 0, 0, 0, '5649', 'pull group 1'),
+('zulfarrak', 8, 3, 'pull', 0, 1715.48, 1186.18, 10.02, 15, 0, 0, 0, 0, '5649,5650,7246', 'pull group 2'),
+('zulfarrak', 8, 4, 'boss', 7795, 1650.4, 1161.4, 9.9, 0, 0, 0, 0, 0, '', 'boss'),
+('zulfarrak', 9, 0, 'move', 0, 1652.84, 1168.99, 10.67, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 9, 1, 'pull', 0, 1622.59, 1193.87, 9.21, 15, 0, 0, 0, 0, '5649,5650', 'pull group 0'),
+('zulfarrak', 9, 2, 'pull', 0, 1643.59, 1200.11, 9.05, 15, 0, 0, 0, 0, '5650', 'pull group 1'),
+('zulfarrak', 9, 3, 'pull', 0, 1651.91, 1213.23, 9.32, 30, 0, 0, 0, 0, '7246,8095', 'pull group 2'),
+('zulfarrak', 9, 4, 'move', 0, 1640.0, 1205.0, 9.2, 0, 0, 0, 0, 0, '', 'pull group 3 approach'),
+('zulfarrak', 9, 5, 'pull', 0, 1652.06, 1219.91, 9.67, 15, 0, 0, 0, 0, '5649', 'pull group 3'),
+('zulfarrak', 9, 6, 'move', 0, 1682.0, 1226.0, 9.2, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
+('zulfarrak', 9, 7, 'pull', 0, 1666.97, 1233.6, 9.41, 15, 0, 0, 0, 0, '5649', 'pull group 4'),
+('zulfarrak', 9, 8, 'pull', 0, 1699.81, 1233.84, 8.96, 15, 0, 0, 0, 0, '5649', 'pull group 5'),
+('zulfarrak', 9, 9, 'pull', 0, 1706.76, 1248.03, 9.88, 15, 0, 0, 0, 0, '5650,7246', 'pull group 6'),
+('zulfarrak', 9, 10, 'pull', 0, 1714.38, 1218.58, 8.96, 15, 0, 0, 0, 0, '5649', 'pull group 7'),
+('zulfarrak', 9, 11, 'move', 0, 1677.0326, 1185.3494, 10.152066, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 9, 12, 'move', 0, 1658.1333, 1168.5333, 10.633366, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 9, 13, 'move', 0, 1652.84, 1168.99, 10.67, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 9, 14, 'use_on', 141832, 1650.9, 1171.9, 10.9, 0, 9240, 0, 0, 0, '', 'use Mallet of Zul''Farrak (item 9240) on object 141832'),
+('zulfarrak', 9, 15, 'boss', 7273, 1702.58, 1224.19, 8.88, 0, 0, 0, 0, 0, '', 'boss'),
+('zulfarrak', 10, 0, 'move', 0, 1699.7333, 1175.4667, 9.033365, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 10, 1, 'move', 0, 1700.2666, 1170.9333, 9.233365, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 10, 2, 'move', 0, 1706.6666, 1165.0668, 9.433366, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 10, 3, 'move', 0, 1724.2666, 1149.3334, 9.033365, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 10, 4, 'move', 0, 1728, 1148.2667, 9.233365, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 10, 5, 'move', 0, 1732.2666, 1147.4667, 9.033365, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 10, 6, 'move', 0, 1780, 1146.9333, 9.233365, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 10, 7, 'move', 0, 1786.6666, 1149.8667, 9.033365, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 10, 8, 'move', 0, 1822, 1177, 9.1, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 10, 9, 'pull', 0, 1835.45, 1180.78, 9, 30, 0, 0, 0, 0, '7247,5649', 'pull group 0'),
+('zulfarrak', 10, 10, 'pull', 0, 1863.11, 1199.95, 9, 15, 0, 0, 0, 0, '5650', 'pull group 1'),
+('zulfarrak', 10, 11, 'pull', 0, 1878.71, 1159.65, 9.6, 15, 0, 0, 0, 0, '7246', 'pull group 2'),
+('zulfarrak', 10, 12, 'pull', 0, 1903.9, 1147.69, 9.18, 15, 0, 0, 0, 0, '5649,5650', 'pull group 3'),
+('zulfarrak', 10, 13, 'pull', 0, 1870.34, 1116.77, 10.05, 30, 0, 0, 0, 0, '7246,8095,5650', 'pull group 4'),
+('zulfarrak', 10, 14, 'pull', 0, 1916.44, 1197.43, 9, 15, 0, 0, 0, 0, '5650,7246', 'pull group 5'),
+('zulfarrak', 10, 15, 'pull', 0, 1894.79, 1216.11, 9.07, 15, 0, 0, 0, 0, '7247,7246,5649', 'pull group 6'),
+('zulfarrak', 11, 0, 'move', 0, 1892.3, 1198.4, 8.9, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 11, 1, 'move', 0, 1892.2666, 1196.5333, 8.933366, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 11, 2, 'move', 0, 1891.4666, 1192.2667, 8.933366, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 11, 3, 'move', 0, 1880.292, 1143.5625, 10.672804, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 11, 4, 'move', 0, 1877.3333, 1130.6667, 11.133366, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 11, 5, 'move', 0, 1864.2609, 1082.4279, 9.6781845, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 11, 6, 'move', 0, 1858.3999, 1060.7998, 9.025752, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 11, 7, 'move', 0, 1859, 1058, 9.3, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 11, 8, 'move', 0, 1858.7, 1057.3, 9.3, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 9, 'loot', 128403, 1858.7, 1053.75, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 10, 'pull', 0, 1858.7, 1053.75, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 11, 'move', 0, 1860.8, 1054, 9.6, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 12, 'loot', 128403, 1862.12, 1050.76, 9.1, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 13, 'pull', 0, 1862.12, 1050.76, 9.1, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 14, 'move', 0, 1868.6, 1049.2, 9.6, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 15, 'loot', 128403, 1871.08, 1046.76, 9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 16, 'pull', 0, 1871.08, 1046.76, 9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 17, 'move', 0, 1873.4, 1046.7, 9.5, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 18, 'loot', 128403, 1875.85, 1044.26, 9.1, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 19, 'pull', 0, 1875.85, 1044.26, 9.1, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 20, 'move', 0, 1879, 1043.9, 9.3, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 21, 'loot', 128403, 1881.46, 1041.43, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 22, 'pull', 0, 1881.46, 1041.43, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 23, 'move', 0, 1880.7, 1037.9, 9, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 24, 'loot', 128403, 1881.99, 1034.68, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 25, 'pull', 0, 1881.99, 1034.68, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 26, 'move', 0, 1884.9, 1037, 9, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 27, 'loot', 128403, 1888.36, 1037, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 28, 'pull', 0, 1888.36, 1037, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 29, 'move', 0, 1871, 1040.5, 9, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 30, 'loot', 128403, 1867.74, 1041.84, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 31, 'pull', 0, 1867.74, 1041.84, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 32, 'move', 0, 1849.2, 1045.9, 9, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 33, 'loot', 128403, 1845.96, 1047.25, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 34, 'pull', 0, 1845.96, 1047.25, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 35, 'move', 0, 1844.6, 1045.5, 9.1, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 36, 'loot', 128403, 1841.08, 1045.54, 9.2, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 37, 'pull', 0, 1841.08, 1045.54, 9.2, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 38, 'move', 0, 1844.5, 1044.4, 9.2, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 39, 'loot', 128403, 1843.19, 1041.16, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 40, 'pull', 0, 1843.19, 1041.16, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 41, 'move', 0, 1841.7, 1039.4, 9.5, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 42, 'loot', 128403, 1839.18, 1036.88, 9.4, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 43, 'pull', 0, 1839.18, 1036.88, 9.4, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 44, 'move', 0, 1835.2, 1034.9, 9.7, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 45, 'loot', 128403, 1832.72, 1032.39, 9.5, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 46, 'pull', 0, 1832.72, 1032.39, 9.5, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 47, 'move', 0, 1839.3, 1030.2, 9.3, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 48, 'loot', 128403, 1841.82, 1027.76, 9.2, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 49, 'pull', 0, 1841.82, 1027.76, 9.2, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 50, 'move', 0, 1839.4, 1027, 9.5, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 51, 'loot', 128403, 1839.42, 1023.49, 9.6, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 52, 'pull', 0, 1839.42, 1023.49, 9.6, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 53, 'move', 0, 1842.3, 1025.5, 9.5, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 54, 'loot', 128403, 1845.54, 1024.12, 9.1, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 55, 'pull', 0, 1845.54, 1024.12, 9.1, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 56, 'move', 0, 1848.9, 1024.8, 9.2, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 57, 'loot', 128403, 1852.41, 1024.78, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 58, 'pull', 0, 1852.41, 1024.78, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 59, 'move', 0, 1858.6, 1021.9, 8.9, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 60, 'loot', 128403, 1861.12, 1019.39, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 61, 'pull', 0, 1861.12, 1019.39, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 62, 'move', 0, 1862.6, 1015, 8.9, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 63, 'loot', 128403, 1865.03, 1012.49, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 64, 'pull', 0, 1865.03, 1012.49, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 65, 'move', 0, 1864.9, 1011.6, 8.9, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 66, 'loot', 128403, 1866.24, 1008.4, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 67, 'pull', 0, 1866.24, 1008.4, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 68, 'move', 0, 1868.1, 1009.7, 8.9, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 69, 'loot', 128403, 1871.3, 1008.32, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 70, 'pull', 0, 1871.3, 1008.32, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 71, 'move', 0, 1873.2, 997.5, 8.9, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 72, 'loot', 128403, 1871.86, 994.26, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 73, 'pull', 0, 1871.86, 994.26, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 74, 'move', 0, 1886.9, 991.1, 8.9, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 75, 'loot', 128403, 1890.12, 989.76, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 76, 'pull', 0, 1890.12, 989.76, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 77, 'move', 0, 1893.1, 980.2, 9.2, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 78, 'loot', 128403, 1894.39, 977.01, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 79, 'pull', 0, 1894.39, 977.01, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 80, 'move', 0, 1888.8, 970.4, 9.1, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 81, 'loot', 128403, 1887.46, 967.14, 9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 82, 'pull', 0, 1887.46, 967.14, 9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 83, 'move', 0, 1885.9, 970.5, 9.1, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 84, 'loot', 128403, 1882.7, 971.83, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 85, 'pull', 0, 1882.7, 971.83, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 86, 'move', 0, 1882.4, 972.2, 9.2, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 87, 'loot', 128403, 1879.89, 974.65, 8.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 88, 'pull', 0, 1879.89, 974.65, 8.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 89, 'move', 0, 1879.9, 972.2, 9.6, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 90, 'loot', 128403, 1876.44, 972.21, 9.9, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 91, 'pull', 0, 1876.44, 972.21, 9.9, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 92, 'move', 0, 1889.6, 1006.37, 9.4, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 93, 'loot', 128403, 1892.57, 1006.37, 9.1, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 94, 'pull', 0, 1892.57, 1006.37, 9.1, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 95, 'move', 0, 1888.6, 1023.06, 9.7, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 96, 'loot', 128403, 1891.6, 1023.06, 9.4, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 97, 'pull', 0, 1891.6, 1023.06, 9.4, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 98, 'move', 0, 1884.9, 1029.08, 9.4, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 11, 99, 'loot', 128403, 1887.94, 1029.08, 9.1, 0, 0, 0, 256, 0, '', 'loot'),
+('zulfarrak', 11, 100, 'pull', 0, 1887.94, 1029.08, 9.1, 15, 0, 0, 0, 0, '7286,7276', 'sweep: what the chest raised'),
+('zulfarrak', 11, 101, 'move', 0, 1903, 1014, 11.8, 0, 0, 0, 0, 0, '', 'area trigger 962: the bot walks into the zone; needs AiPlayerbot.BotAreaTriggers = 962 (TortoiseBots #1002); expect unit 7271 hostile'),
+('zulfarrak', 11, 102, 'boss', 7271, 1912.2, 1016.1, 11.6, 0, 0, 0, 0, 0, '', 'boss'),
+('zulfarrak', 12, 0, 'move', 0, 1898.6666, 1018.6665, 12.125752, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 12, 1, 'move', 0, 1897.3333, 1018.93317, 11.625752, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 12, 2, 'move', 0, 1862.621, 1054.8591, 9.532091, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 12, 3, 'move', 0, 1859.2, 1058.3998, 9.325752, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 12, 4, 'move', 0, 1858.3999, 1060.7998, 9.025752, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 12, 5, 'move', 0, 1871.4723, 1109.0387, 10.480933, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 12, 6, 'move', 0, 1877.3333, 1130.6667, 11.133366, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 12, 7, 'move', 0, 1888.5078, 1179.371, 9.393928, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 12, 8, 'move', 0, 1891.4666, 1192.2667, 8.933366, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 12, 9, 'move', 0, 1892.2666, 1196.5333, 8.933366, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 12, 10, 'move', 0, 1892.3, 1198.4, 8.9, 0, 0, 0, 0, 0, '', 'via'),
+('zulfarrak', 12, 11, 'move', 0, 1889.0942, 1244.127, 28.90261, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 12, 12, 'move', 0, 1887, 1274, 42, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 12, 13, 'boss', 7274, 1886.8, 1286.8, 44.2, 0, 0, 0, 0, 0, '', 'boss'),
+('zulfarrak', 12, 14, 'loot', 7274, 1886.8, 1286.8, 44.2, 0, 8444, 0, 0, 0, '', 'boss loot: Executioner''s Key (item 8444)'),
+('zulfarrak', 12, 15, 'move', 0, 1886.9, 1295.4, 48.3, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 12, 16, 'open', 141073, 1886.9, 1298.9, 48.2, 0, 8444, 0, 0, 0, '', 'open (Executioner''s Key (item 8444))'),
+('zulfarrak', 12, 17, 'hold', 1, 1887, 1274, 42, 30, 0, 3, 8, 90, '7787,7788,7789,8876,8877', 'wait hold: the event''s mobs are fought on the spot until instance data 1 reads 3 (a script value, not an encounter state)'),
+('zulfarrak', 13, 0, 'hold', 1, 1887, 1274, 42, 30, 0, 7, 8, 600, '7787,7788,7789,8876,8877', 'wait hold: the event''s mobs are fought on the spot until instance data 1 reads 7 (a script value, not an encounter state)'),
+('zulfarrak', 14, 0, 'move', 0, 1885, 1232, 12.6, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 14, 1, 'boss', 7275, 1889.23, 1207.72, 8.87, 0, 0, 0, 0, 0, '7796', 'boss'),
+('zulfarrak', 14, 2, 'wait_clear', 0, 1886, 1215, 9, 35, 0, 0, 0, 180, '', 'wait until no hostile: Nekrum and Sezz''ziz are dead but a Sandfury troll of wave 3 still lives at the foot of the stairs: the event (Bly''s menu, Weegli''s door) ends only when every unit of wave 3 is dead.'),
+('zulfarrak', 15, 0, 'move', 0, 1884, 1212, 9, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 15, 1, 'hold', 1, 1877.5, 1199.6, 8.9, 30, 0, 8, 8, 600, '7787,7788,7789,8876,8877', 'wait hold: the event''s mobs are fought on the spot until instance data 1 reads 8 (a script value, not an encounter state)'),
+('zulfarrak', 15, 2, 'gossip', 7607, 1877.52, 1199.63, 8.87, 0, 0, 1, 0, 0, '', 'talk to 7607, menu index 0 (cmd gossip option 1): Weegli''s menu has no option to blow up the door: the event is not over (PYRAMID_KILLED_ALL_TROLLS), or he is dead.'),
+('zulfarrak', 15, 3, 'wait_object', 146084, 1854.5, 1142.9, 16.1, 0, 0, 2, 0, 60, '', 'wait for object 146084 active_alt: The End Door (146084) is not open (state active_alt) 60 s after Weegli Blastfuse''s gossip: he opens it only if he reaches it alive and unhurt.'),
+('zulfarrak', 16, 0, 'move', 0, 1884, 1212, 9, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 16, 1, 'gossip', 7604, 1883.82, 1200.83, 8.87, 0, 0, 1, 512, 0, '', 'talk to 7604, menu index 0 (cmd gossip option 1): Sergeant Bly''s menu has no option to fight: the event is not over (PYRAMID_KILLED_ALL_TROLLS), or he is dead.'),
+('zulfarrak', 16, 2, 'hold', 0, 1884, 1212, 9, 25, 0, 0, 0, 300, '7604,7608,7606,7605', 'boss hold: fought on the spot until every unit of it is dead (7604 counts while still friendly)'),
+('zulfarrak', 17, 0, 'move', 0, 1875.2, 1197.0667, 8.933366, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 17, 1, 'move', 0, 1856.4, 1152.6, 14.4, 0, 0, 0, 0, 0, '', 'to'),
+('zulfarrak', 17, 2, 'pull', 0, 1824.05, 1118.7, 27.25, 15, 0, 0, 0, 0, '7246', 'pull group 0'),
+('zulfarrak', 17, 3, 'pull', 0, 1769, 1043.2, 50.6, 15, 0, 0, 0, 0, '8120', 'pull group 1'),
+('zulfarrak', 17, 4, 'pull', 0, 1765.4, 1019.1, 53.65, 15, 0, 0, 0, 0, '7268', 'pull group 2'),
+('zulfarrak', 17, 5, 'pull', 0, 1744.9, 1066.6, 51.2, 15, 0, 0, 0, 0, '8120', 'pull group 3'),
+('zulfarrak', 17, 6, 'pull', 0, 1721.8, 1057.5, 53.8, 15, 0, 0, 0, 0, '7268', 'pull group 4'),
+('zulfarrak', 17, 7, 'boss', 7267, 1727.5, 1017.4, 54.9, 0, 0, 0, 0, 0, '7797', 'boss');
+
+-- Hand-set: the owner's cc_priority of 2026-10-15, as applied by 20261015200200_world.sql (the exporter does not write it).
+UPDATE `ai_dungeon_plan` SET `cc_priority` = '7246,7247,5648' WHERE `plan` = 'zulfarrak';
+-- The area trigger 962 row (at_zumrah) moved from leg 10 to leg 11 with the gahzrilla leg: name it in `entry` and
+-- replace the old allowlist comment (as 20261024000000 did for the 17-leg numbering). The move row above carries
+-- entry 0 because the exporter does not write it; this UPDATE sorts after the INSERT.
+UPDATE `ai_dungeon_step` SET `entry` = 962,
+`comment` = 'area trigger 962: the bot walks into the zone; the step names it in entry, so the run arms it from here until it fired once (no AiPlayerbot.BotAreaTriggers needed, TortoiseBots #1002); expect unit 7271 hostile'
+WHERE `plan` = 'zulfarrak' AND `leg` = 11 AND `seq` = 101 AND `kind` = 'move';
+
+-- Gahz'rilla 7273 (map 209): the boss table row (already seeded by 20261021114931; kept idempotent here) and his two
+-- interruptible casts from creature_spells 72730 / spell_template (interruptFlags 15). Slam 11902 is instant.
+DELETE FROM `ai_dungeon_boss` WHERE `map` IN (209) AND `entry` IN (7273);
+REPLACE INTO `ai_dungeon_boss` (`map`, `entry`, `name`) VALUES
+(209, 7273, 'Gahz''rilla');
+
+DELETE FROM `ai_boss_tactic` WHERE `map` = 209 AND `boss_entry` = 7273;
+INSERT INTO `ai_boss_tactic` (`map`, `boss_entry`, `kind`, `target_entry`, `spell_id`, `priority`, `param`, `comment`) VALUES
+(209, 7273, 'interrupt', 0, 11836, 0, 0, 'Gahz''rilla: Freeze Solid (creature_spells 72730, interruptFlags 15)'),
+(209, 7273, 'interrupt', 0, 11131, 0, 0, 'Gahz''rilla: Icicle (creature_spells 72730, interruptFlags 15)');

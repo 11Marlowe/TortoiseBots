@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-
+class Group;
 class ChatHandler;
 class Player;
 
@@ -20,6 +20,15 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args);
 bool HandleTrace(ChatHandler* handler, char const* args);
 bool HandleDungeonRun(ChatHandler* handler, char const* args);
 uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::string& code, std::string& message);
+// Item-leg skip glue (spec D): the crash ledger's login cleanup, called from
+// host/BotPlayerAdapter.cpp (OnLogin) and host/BotHostAdapter.cpp (first world
+// tick). The rest of the glue (party read, give/take, erase) is file-local to
+// commands/Commander.cpp. The header never includes the policy header.
+// The crash ledger's login cleanup (BotPlayerAdapter::OnLogin): destroy to the
+// recorded count and delete the rows for bots whose given items have no live
+// run slot. World thread only.
+void CleanupRunGivenItems(Player* player);
+void CleanupRunGivenItemsTick();
 bool HandleAdd(ChatHandler* handler, char const* args);
 bool HandleRemove(ChatHandler* handler, char const* args);
 bool HandleLogout(ChatHandler* handler, char const* args);

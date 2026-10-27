@@ -25,7 +25,9 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.BotLfgGroups`](#aiplayerbotbotlfggroups) | `0` | The server's own bot LFG dungeon groups clear a dungeon with the run leader (needs `AiPlayerbot.DungeonSelfClear`). |
 | [`AiPlayerbot.DungeonRunAggroCeiling`](#aiplayerbotdungeonrunaggroceiling) | `6` | Joiners above which the run leader rests the party before a pull (needs the estimate on). |
 | [`AiPlayerbot.DungeonRunAggroEstimate`](#aiplayerbotdungeonrunaggroestimate) | `0` | The run leader estimates how many creatures a pull brings and rests first when it is many. |
+| [`AiPlayerbot.DungeonRunBotKeysForPlayers`](#aiplayerbotdungeonrunbotkeysforplayers) | `0` | `1`: the bots carry the dungeon keys and open the doors for a party with real players too; `0`: players bring their own key, and the bots stop at the door and ask. |
 | [`AiPlayerbot.DungeonRunFightForward`](#aiplayerbotdungeonrunfightforward) | `1` | After a won fight the next pack within 30 yd is pulled from where the tank stands when the way there is direct and clear. |
+| [`AiPlayerbot.DungeonRunGiveItems`](#aiplayerbotdungeonrungiveitems) | `1` | A bot-only run gives the bots the keys and items its dungeon needs and takes them back when the run ends; `0` gives nothing. |
 | [`AiPlayerbot.DungeonRunLightRest`](#aiplayerbotdungeonrunlightrest) | `1` | Before a small pull the party rests to light lines (60/35/25 to 75/60/45); before a boss, an event or a big pull the full ones. |
 | [`AiPlayerbot.DungeonRunLootFfa`](#aiplayerbotdungeonrunlootffa) | `0` | A run leader loot step whose item is another member's under the group loot rules sets free-for-all for the carrier's loot, then puts the method back. |
 | [`AiPlayerbot.DungeonRunMaxMinutes`](#aiplayerbotdungeonrunmaxminutes) | `180` | Time limit of a run leader run (`0` = none). |
@@ -131,6 +133,17 @@ Lets the run leader (`.bot run`) estimate how many creatures a pull would bring 
 
 </details>
 
+### `AiPlayerbot.DungeonRunBotKeysForPlayers`
+Whether the bots carry the dungeon keys for a party that has real players in it.
+**Default:** `0` · **Values:** `0` players bring their own key, `1` the bots carry the keys and open the doors · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+<details>
+<summary>How it works in detail</summary>
+
+**Keys with players:** only read while `AiPlayerbot.DungeonSelfClear = 1`. With `0` (the default) a run with a real player in the party gives the bots no keys. The start warns once, naming each key and where to get it. At a locked door the bots stop before it and ask the player to open it with the key or Lockpicking; they go on by themselves once the door reads open, and `.bot run resume` works once it is open. With `1` the bots carry the keys and open the doors for the players, as in a bot-only run. See [Dungeon Run Leader](../../play/dungeon-run-leader.md#keys-and-doors).
+
+</details>
+
 ### `AiPlayerbot.DungeonRunFightForward`
 Whether the run leader pulls the next pack close by from where the tank stands after a won fight.
 **Default:** `1` · **Values:** `0` the plan's rows as before, `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
@@ -139,6 +152,17 @@ Whether the run leader pulls the next pack close by from where the tank stands a
 <summary>How it works in detail</summary>
 
 **Fight forward:** only read while `AiPlayerbot.DungeonSelfClear = 1`, and only with `AiPlayerbot.DungeonRunWalkBackAfterWonFight = 0`. Added 2026-10-23 (1,909 pulls of that day walked 28.2 yd each back to the plan's stand and forward again). After a `pull` or `boss` step whose pack the party fought and cleared, when at most 4 plain `move` rows of the same leg lead to a `pull` of the party's team within 30 yd of the tank (8 yd up or down), not an ambush and not left uncleared, with no deferred pull pending and no other live plan pack on the straight line, the run asks the server for the way first: the tank's navmesh path to the pack had to reach it (it may end at most 10 yd short of the point and 6 yd above or below it) and be at most 1.3 times the straight line, the tank had to see the pack's point, no living hostile creature other than the pack's own could stand within its aggro radius plus 5 yd of that path, and none within 15 yd of a move row left out. Then the rows were left out and the pull went out from where the tank stood. The pull's own rules stayed: its gather, the firing stand, crowd control and the aggro estimate. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
+
+</details>
+
+### `AiPlayerbot.DungeonRunGiveItems`
+Whether a bot-only run gives the bots the dungeon keys and items it needs.
+**Default:** `1` · **Values:** `0` off, `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+<details>
+<summary>How it works in detail</summary>
+
+**Giving run items:** only read while `AiPlayerbot.DungeonSelfClear = 1`. At the start of a run with no real player in the party, every bot gets each item the plan needs and does not carry (the Mallet of Zul'Farrak, the keys of the locked doors). The items are soulbound, so they cannot be traded, mailed or sold. The run takes them back when it ends or stops, when it is erased, when a bot leaves the party, and when a real player joins. The exact item instances are recorded in the characters database (`ai_run_given_item`), so a crash does not leave them with the bots. A bot's own copy is never taken. With `0` nothing is given, and a bot-only run pauses at a locked door until `.bot run skip` passes it. See [Dungeon Run Leader](../../play/dungeon-run-leader.md#keys-and-doors).
 
 </details>
 

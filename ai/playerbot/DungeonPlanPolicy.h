@@ -215,6 +215,63 @@ namespace ai
         return PlanStepKindName(step.kind);
     }
 
+    // A leg need row (ai_dungeon_leg_need): what a run needs for one leg of a plan.
+    // mode: 1 optional (the leg is skipped when nobody carries the item),
+    // 2 door (a key door into the leg the bots hold at with a player present),
+    // 3 blocking (an item the run must use). pick: the Lockpicking skill that
+    // opens the door instead (door only, 0 none, at most 300). object: the key
+    // door's gameobject entry (door only). name/how: the item's name, and where
+    // a player gets a door key (short, for the notes).
+    enum class LegNeedMode : std::uint8_t
+    {
+        None = 0,
+        Optional = 1,
+        Door = 2,
+        Blocking = 3,
+    };
+
+    struct PlanLegNeed
+    {
+        std::uint8_t leg = 0;
+        std::uint32_t item = 0;
+        LegNeedMode mode = LegNeedMode::None;
+        std::uint16_t pick = 0;
+        std::uint32_t object = 0;
+        std::string name;
+        std::string how;
+    };
+
+    // Why a leg need row was refused (the loader counts them).
+    enum class PlanNeedRefusal : std::uint8_t
+    {
+        None = 0,
+        Sealed,
+        UnknownPlan,
+        NoSuchLeg,
+        MissingItem,
+        BadMode,
+        BadPick,
+        BadObject,
+        Duplicate,
+    };
+
+    inline const char* PlanNeedRefusalName(PlanNeedRefusal refusal)
+    {
+        switch (refusal)
+        {
+            case PlanNeedRefusal::None: return "none";
+            case PlanNeedRefusal::Sealed: return "Sealed";
+            case PlanNeedRefusal::UnknownPlan: return "UnknownPlan";
+            case PlanNeedRefusal::NoSuchLeg: return "NoSuchLeg";
+            case PlanNeedRefusal::MissingItem: return "MissingItem";
+            case PlanNeedRefusal::BadMode: return "BadMode";
+            case PlanNeedRefusal::BadPick: return "BadPick";
+            case PlanNeedRefusal::BadObject: return "BadObject";
+            case PlanNeedRefusal::Duplicate: return "Duplicate";
+        }
+        return "unknown";
+    }
+
     struct PlanLeg
     {
         std::uint8_t leg = 0;
@@ -226,6 +283,7 @@ namespace ai
         std::string name;
         std::uint32_t map = 0;
         std::vector<PlanLeg> legs;
+        std::vector<PlanLegNeed> needs;  // (leg, item) order after the seal
         std::vector<PlanStep> steps;  // (leg, seq) order after the seal
         // Plan-wide unit lists (ai_dungeon_plan columns, plan v1's fields of the
         // same names; creature entries, best first):
@@ -264,7 +322,6 @@ namespace ai
                     return static_cast<int>(i);
             return -1;
         }
-
         // The leg's name, or "" when it has no ai_dungeon_leg row.
         const std::string& LegName(std::uint8_t leg) const
         {
@@ -273,6 +330,16 @@ namespace ai
                 if (l.leg == leg)
                     return l.name;
             return none;
+        }
+
+        // The leg's needs, in (leg, item) order. Empty before the seal.
+        std::vector<const PlanLegNeed*> NeedsOfLeg(std::uint8_t leg) const
+        {
+            std::vector<const PlanLegNeed*> out;
+            for (const PlanLegNeed& need : needs)
+                if (need.leg == leg)
+                    out.push_back(&need);
+            return out;
         }
     };
 
@@ -543,6 +610,42 @@ namespace ai
             return PlanStepRefusal::None;
         }
 
+         // Loading only (the loader reads needs after steps): one ai_dungeon_leg_need row.
+        // At most one row per (plan, leg, item); Door rows carry the key door
+        // (pick at most 300, object required), other modes carry neither.
+        PlanNeedRefusal AddLegNeed(const std::string& planName, PlanLegNeed need)
+        {
+            if (Sealed())
+                return PlanNeedRefusal::Sealed;
+            auto it = plans_.find(planName);
+            if (it == plans_.end())
+                return PlanNeedRefusal::UnknownPlan;
+            if (need.item == 0)
+                return PlanNeedRefusal::MissingItem;
+            if (need.mode != LegNeedMode::Optional && need.mode != LegNeedMode::Door &&
+                need.mode != LegNeedMode::Blocking)
+                return PlanNeedRefusal::BadMode;
+            if ((need.pick > 0 && need.mode != LegNeedMode::Door) || need.pick > 300)
+                return PlanNeedRefusal::BadPick;
+            if ((need.object > 0 && need.mode != LegNeedMode::Door) ||
+                (need.mode == LegNeedMode::Door && need.object == 0))
+                return PlanNeedRefusal::BadObject;
+            bool legSeen = false;
+            for (const PlanStep& step : it->second.steps)
+                if (step.leg == need.leg)
+                {
+                    legSeen = true;
+                    break;
+                }
+            if (!legSeen)
+                return PlanNeedRefusal::NoSuchLeg;
+            for (const PlanLegNeed& have : it->second.needs)
+                if (have.leg == need.leg && have.item == need.item)
+                    return PlanNeedRefusal::Duplicate;
+            it->second.needs.push_back(std::move(need));
+            return PlanNeedRefusal::None;
+        }
+
         // Loading only (before the seal; `tactics` sealed): each boss step gets the subjects of the tactic rows keyed on
         // (the plan's map, the step's boss entry or one of its entries), once each (PlanStep::tacticEntries). Returns the
         // entries joined; nothing after the seal or with an unsealed tactic table.
@@ -594,6 +697,11 @@ namespace ai
                 });
                 std::sort(entry.second.legs.begin(), entry.second.legs.end(),
                     [](const PlanLeg& a, const PlanLeg& b) { return a.leg < b.leg; });
+                std::sort(entry.second.needs.begin(), entry.second.needs.end(),
+                    [](const PlanLegNeed& a, const PlanLegNeed& b)
+                    {
+                        return a.leg != b.leg ? a.leg < b.leg : a.item < b.item;
+                    });
                 for (const PlanStep& step : steps)
                     if (step.kind == PlanStepKind::Boss && step.entry)
                         bossEntries_.insert(BossKey(entry.second.map, step.entry));
