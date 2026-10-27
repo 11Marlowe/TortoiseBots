@@ -15,12 +15,27 @@ namespace TortoiseBots
 
 namespace
 {
-// Null AI the hidden recruiters run on: the same no-op core vendors idle on.
+// AI the recruiters run on while hiring is off: invisible from spawn and
+// gone after the first update, without a corpse. The delay is one year, the
+// same "never" the core battlegrounds use; a restart with hiring on brings
+// the NPCs back.
+constexpr uint32 kHiddenRecruiterRespawnSecs = 31536000;
+
 class HiddenRecruiterAI : public CreatureAI
 {
 public:
     explicit HiddenRecruiterAI(Creature* creature) : CreatureAI(creature) {}
-    void UpdateAI(uint32 const /*diff*/) override {}
+    void UpdateAI(uint32 const /*diff*/) override
+    {
+        if (!m_despawned)
+        {
+            m_despawned = true;
+            m_creature->ForcedDespawn();
+        }
+    }
+
+private:
+    bool m_despawned = false;
 };
 
 } // namespace
@@ -57,8 +72,7 @@ CreatureAI* HireRecruiterAdapter::GetAI(Creature* creature) const
     if (!creature || sPlayerbotAIConfig.hireEnabled)
         return nullptr;
     creature->SetVisibility(VISIBILITY_OFF);
-    creature->RemoveFromWorld();
-    creature->SetRespawnTime(0);
+    creature->SetRespawnDelay(kHiddenRecruiterRespawnSecs);
     return new HiddenRecruiterAI(creature);
 }
 
