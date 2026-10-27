@@ -301,6 +301,18 @@ Zum'rah's 31 Shallow Graves (128403, the `zumrah` leg of `20261021115557_world.s
 
 `frostmane_hollow` (`20261022210030_world.sql`, map 822, 4 legs, 413 steps, 418 rows, 4 bosses; the first rows of a draft plan, never run: Turtle WoW's custom dungeon of patch 1.18.1, level band 13-18, entrance at map 0 -5020.44 -1449.43 500.08; Ubukaz, Kan'za, Tan'sha and Hailar the Frigid; no event, door or gossip step, so every leg is moves, pulls and one boss; its unit lists are cc_priority 63137,63139, no cc_always and kill_first 63136,63132,36519,82; the `ai_dungeon_boss` rows of map 822 are in the same file). The core links Hailar to his five Ritualists (36519), Kan'za to two Snowcallers and Tan'sha to Handler Oboka: those units are their boss rows' `entries` (killed first), not pulls. 15 spawns patrol loops of 96-370 yd, which the rows do not carry (see that migration's header).
 
+### Keys and doors
+
+Some dungeon doors are locked. The plan lists each one with the key that opens it and, where it applies, the Lockpicking skill that opens it instead (`ai_dungeon_leg_need`). Who has to bring the key depends on who is in the party:
+
+- **Bot-only run** (no real player): with `AiPlayerbot.DungeonRunGiveItems = 1` (default) every bot gets the keys at the start and gives them back when the run ends. You do nothing.
+- **Run with you in the party** (default `AiPlayerbot.DungeonRunBotKeysForPlayers = 0`): bring the key yourself, or have a character whose Lockpicking reaches the value named. The start warns once, naming the key and the Lockpicking value, plus where to get the key when no bot carries it. At a locked door the bots stop and wait about 25 yd before it. Open it with the key or by picking the lock. The run goes on by itself once the door reads open; `.bot run resume` also works then. `.bot run skip` walks the party past a closed door by hand.
+- **`AiPlayerbot.DungeonRunBotKeysForPlayers = 1`**: the bots carry the keys and open the doors for you, so you need no key of your own.
+
+An optional leg whose item nobody carries (Zul'Farrak's Gahz'rilla leg without the Mallet of Zul'Farrak) is skipped with a note.
+
+The bots do not send you a chat message about a door. The wait shows as the run's note: on the `TBM:RUN` status line, in the run window of the addon, and in `.bot run status`. The text names the door and the key, for example `door to leg 1: the way is locked (object 170560): open it with Shadowforge Key (item 11000) or Lockpicking 250; the bots wait before it and go on by themselves once it reads open`.
+
 ### Player-led runs
 
 Owner decision 2026-10-23 (the hybrid mode, in force since 2026-10-25): a real player leads his own party and walks wherever he wants; the run leader follows where he stands and does the pulls, raid marks, crowd control, boss tactics, rests and revives. It never teleports or summons a player. On by default through the run leader: `AiPlayerbot.DungeonRunPlayerLed = 1` on top of `AiPlayerbot.DungeonSelfClear = 1` ([settings](../server/settings/dungeons-raids.md#aiplayerbotdungeonrunplayerled)). Built in slices from 2026-10-24 on (design: S1-S9); what each slice did:
