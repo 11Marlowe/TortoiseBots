@@ -81,25 +81,93 @@ static void TestOffer()
     CHECK(!inbox.Offer(42, p.data(), p.size(), kWhisper, kAddon));
 }
 
+static void TestCoalesce()
+{
+    BotLfgWhisperInbox inbox;
+    inbox.PublishLeaders({42, 43});
+    std::vector<uint8_t> first = Packet(kWhisper, kUniversal, 77, "hi");
+    std::vector<uint8_t> second = Packet(kWhisper, kUniversal, 77, "inv");
+    CHECK(inbox.Offer(42, first.data(), first.size(), kWhisper, kAddon));
+    CHECK(inbox.Offer(42, second.data(), second.size(), kWhisper, kAddon));
+    CHECK(inbox.Offer(43, first.data(), first.size(), kWhisper, kAddon));
+    std::vector<LfgWhisper> got = inbox.Drain();
+    CHECK(got.size() == 2);
+    CHECK(got[0].leader == 42 && got[0].sender == 77 && got[0].text == "inv");
+    CHECK(got[1].leader == 43 && got[1].sender == 77 && got[1].text == "hi");
+}
+
+static void TestSenderCap()
+{
+    BotLfgWhisperInbox inbox;
+    inbox.PublishLeaders({42, 43, 44, 45, 46});
+    uint64_t leaders[] = {42, 43, 44, 45};
+    for (uint64_t leader : leaders)
+    {
+        std::vector<uint8_t> p = Packet(kWhisper, kUniversal, 77, "inv");
+        CHECK(inbox.Offer(leader, p.data(), p.size(), kWhisper, kAddon));
+    }
+    std::vector<uint8_t> fifth = Packet(kWhisper, kUniversal, 77, "inv");
+    CHECK(!inbox.Offer(46, fifth.data(), fifth.size(), kWhisper, kAddon));
+    CHECK(inbox.Drain().size() == BotLfgWhisperInbox::kMaxQueuedPerSender);
+    std::vector<uint8_t> other = Packet(kWhisper, kUniversal, 78, "inv");
+    CHECK(inbox.Offer(46, other.data(), other.size(), kWhisper, kAddon));
+    CHECK(inbox.Drain().size() == 1);
+}
+
 static void TestCap()
 {
     BotLfgWhisperInbox inbox;
     inbox.PublishLeaders({42});
-    std::vector<uint8_t> p = Packet(kWhisper, kUniversal, 77, "inv");
-    for (size_t i = 0; i < BotLfgWhisperInbox::kMaxQueued + 1; ++i)
-        CHECK(inbox.Offer(42, p.data(), p.size(), kWhisper, kAddon));   // over the cap still consumed
+    for (size_t i = 0; i < BotLfgWhisperInbox::kMaxQueued; ++i)
+    {
+        std::vector<uint8_t> q = Packet(kWhisper, kUniversal, 1000 + i, "inv");
+        CHECK(inbox.Offer(42, q.data(), q.size(), kWhisper, kAddon));
+    }
+    std::vector<uint8_t> full = Packet(kWhisper, kUniversal, 78, "inv");
+    CHECK(inbox.Offer(42, full.data(), full.size(), kWhisper, kAddon));
+    for (size_t i = 0; i < BotLfgWhisperInbox::kMaxQueued; ++i)
+    {
+        std::vector<uint8_t> q = Packet(kWhisper, kUniversal, 1000 + i, "inv");
+        CHECK(inbox.Offer(42, q.data(), q.size(), kWhisper, kAddon));
+    }
     CHECK(inbox.Drain().size() == BotLfgWhisperInbox::kMaxQueued);
     CHECK(inbox.TakeDropped() == 1 && inbox.TakeDropped() == 0);
+}
+
+static void TestFloodLeavesRoom()
+{
+    BotLfgWhisperInbox inbox;
+    inbox.PublishLeaders({42, 43});
+    for (int i = 0; i < 200; ++i)
+    {
+        std::vector<uint8_t> p = Packet(kWhisper, kUniversal, 77, "inv " + std::to_string(i));
+        CHECK(inbox.Offer(42, p.data(), p.size(), kWhisper, kAddon));
+    }
+    std::vector<uint8_t> other42 = Packet(kWhisper, kUniversal, 78, "inv");
+    std::vector<uint8_t> other43 = Packet(kWhisper, kUniversal, 78, "inv");
+    CHECK(inbox.Offer(42, other42.data(), other42.size(), kWhisper, kAddon));
+    CHECK(inbox.Offer(43, other43.data(), other43.size(), kWhisper, kAddon));
+    std::vector<LfgWhisper> got = inbox.Drain();
+    CHECK(got.size() == 3);
+    CHECK(got[0].leader == 42 && got[0].sender == 77 && got[0].text == "inv 199");
+    CHECK(got[1].leader == 42 && got[1].sender == 78 && got[1].text == "inv");
+    CHECK(got[2].leader == 43 && got[2].sender == 78 && got[2].text == "inv");
 }
 
 static void TestThreads()
 {
     BotLfgWhisperInbox inbox;
     inbox.PublishLeaders({42});
-    std::vector<uint8_t> p = Packet(kWhisper, kUniversal, 77, "inv");
     std::atomic<bool> go{false};
-    auto produce = [&]() { while (!go) {} for (int i = 0; i < 1000; ++i) inbox.Offer(42, p.data(), p.size(), kWhisper, kAddon); };
-    std::thread a(produce), b(produce);
+    auto produce = [&](uint64_t base) {
+        while (!go) {}
+        for (int i = 0; i < 1000; ++i)
+        {
+            std::vector<uint8_t> p = Packet(kWhisper, kUniversal, base + uint64_t(i), "inv");
+            inbox.Offer(42, p.data(), p.size(), kWhisper, kAddon);
+        }
+    };
+    std::thread a(produce, 1000), b(produce, 1000000);
     go = true;
     size_t drained = 0;
     for (int i = 0; i < 2000; ++i) drained += inbox.Drain().size();
@@ -112,7 +180,10 @@ int main()
 {
     TestParse();
     TestOffer();
+    TestCoalesce();
+    TestSenderCap();
     TestCap();
+    TestFloodLeavesRoom();
     TestThreads();
     std::printf("bot lfg whisper inbox: %d checks passed\n", checks);
     return 0;
