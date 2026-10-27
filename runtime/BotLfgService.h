@@ -108,6 +108,7 @@ private:
     bool m_initialized = false;
     bool m_shutDown = false;
     bool m_wasEnabled = false;
+    uint32 m_elapsedMs = 0, m_nowMs = 0, m_sinceFormMs = BotLfg::kFormIntervalMs, m_formedCount = 0, m_nextId = 1;
     std::vector<PlanRow> m_plans;
     std::vector<BotLfgGroup> m_groups;
     struct FormStamp
