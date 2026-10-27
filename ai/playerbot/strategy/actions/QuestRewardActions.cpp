@@ -1,11 +1,16 @@
 
 #include "QuestRewardActions.h"
 #include "playerbot/strategy/values/QuestValues.h"
+#include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/policy/hire/HireQuestPolicy.h"
 
 using namespace ai;
 
 bool QuestRewardAction::Execute(Event& event)
 {
+    if (!TortoiseBots::HireMayDoQuests(TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid())))
+        return false;
+
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
     if (event.GetParam() == "auto") {
         SET_AI_VALUE(uint8, "quest reward", static_cast<uint8>(QuestRewardOptionType::QUEST_REWARD_OPTION_AUTO));

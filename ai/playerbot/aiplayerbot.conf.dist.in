@@ -383,6 +383,10 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # warns once, entering dismisses them, hiring is refused while queued or
 # inside). 1 = today's behaviour (hires may go to battlegrounds).
 #AiPlayerbot.HireAllowPvP = 0
+# HireLoot: 1 = hired companions loot corpses and roll on group loot (today's
+# behaviour). 0 = a hire never loots: it passes on every roll and leaves every
+# corpse alone. Hires never quest, whatever this is set to.
+#AiPlayerbot.HireLoot = 1
 # ShamanTankEnabled: 1 = the experimental 7.3 shaman tank build (Enhancement
 # (Tank)) is offered at recruiters and by `.bot hire`, and random pool shamans
 # may roll it. 0 = withheld everywhere. Shamans already on the build keep it.

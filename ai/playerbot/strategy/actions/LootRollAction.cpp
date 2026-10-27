@@ -6,6 +6,7 @@
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/strategy/values/LootValues.h"
 #include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/policy/hire/HireLootPolicy.h"
 #include "../../../../runtime/AltBotService.h"
 #include "../../../../runtime/AltBotPolicy.h"
 #include "Group/Group.h"
@@ -634,6 +635,13 @@ bool RollAction::RollWithEtiquette(ObjectGuid lootGuid, uint32 slot, ObjectGuid 
     ItemQualifier itemQualifier = GetRollItem(lootGuid, slot);
     if (!itemQualifier.GetId())
         return false;
+
+    if (!TortoiseBots::HireMayLoot(TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()),
+            sPlayerbotAIConfig.hireLoot))
+    {
+        LogLootRoll(ai, itemQualifier, ROLL_PASS, "because hired companion loot is off.");
+        return RollOnItemInSlot(ROLL_PASS, lootGuid, slot);
+    }
 
     std::string reason;
     RollVote vote = CalculateRollVote(itemQualifier, nullptr, &reason, false);

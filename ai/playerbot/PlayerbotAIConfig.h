@@ -402,6 +402,9 @@ public:
     // entry dismisses them, and hiring is refused while queued or inside.
     // Set for today's behaviour (hires may go to battlegrounds).
     bool hireAllowPvP = false;
+    // Hired companions loot and roll by default. Unset: a hire never opens a
+    // corpse and passes on every roll (pool bots and alts are unaffected).
+    bool hireLoot = true;
     // Issue #1125: the experimental 7.3 shaman tank build. 0 withholds it from
     // the recruiter spec menu, `.bot hire`, raid hire and the random pool roll.
     bool shamanTankEnabled = true;
