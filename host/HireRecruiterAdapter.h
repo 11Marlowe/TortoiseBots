@@ -24,6 +24,9 @@ public:
     // bosses). Fires for every quest taken at these NPCs; non-unlock
     // quests are ignored.
     bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest) override;
+    // Hides the recruiters while hiring is off: the NPCs get no AI and are
+    // removed from the world, so they never show, at any grid load or respawn.
+    CreatureAI* GetAI(Creature* creature) const override;
 };
 
 } // namespace TortoiseBots
