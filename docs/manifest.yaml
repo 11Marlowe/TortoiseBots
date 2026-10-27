@@ -241,7 +241,7 @@ nodes:
   - id: developers-donor-hierarchy
     path: developers/donor-hierarchy.md
     category: developers
-    summary: Evidence priority and architectural guidelines when referencing shyalya-tortoise-wow, mod-playerbots, and upstream core.
+    summary: Evidence priority and architectural guidelines when referencing mod-playerbots and upstream core.
   - id: developers-host-api
     path: developers/host-api.md
     category: developers
