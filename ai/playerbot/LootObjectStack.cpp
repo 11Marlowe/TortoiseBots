@@ -6,6 +6,8 @@
 #include "playerbot/policy/quest/QuestLogPolicy.h"
 #include "../../runtime/policy/provision/GatherToolPolicy.h"
 #include "../../runtime/CommandedGroupQuery.h"
+#include "../../runtime/HireLifecycle.h"
+#include "../../runtime/policy/hire/HireLootPolicy.h"
 #include "../../runtime/RemoteCommanderTasks.h"
 
 using namespace ai;
@@ -561,6 +563,10 @@ bool LootObjectStack::TakePlayerOrder(ObjectGuid guid)
 
 bool LootObjectStack::Add(ObjectGuid guid)
 {
+    if (!TortoiseBots::HireMayLoot(TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()),
+            sPlayerbotAIConfig.hireLoot))
+        return false;
+
     // A corpse we repeatedly failed to reach stays out of the stack until the
     // failure memory ages out, even if a later "add all loot" sweep re-adds it.
     if (IsAbandoned(guid))

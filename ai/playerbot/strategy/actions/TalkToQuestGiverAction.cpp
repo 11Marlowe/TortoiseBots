@@ -23,10 +23,7 @@ bool TalkToQuestGiverAction::ProcessQuest(Player* requester, Quest const* quest,
     if (questGiver && (questGiver->GetEntry() == 81030 || questGiver->GetEntry() == 62609))
         return false;
 
-    // A hired companion never talks to a <Mercenary Hire> recruiter, even on
-    // an explicit order. Pool bots and owned alts are untouched.
-    if (questGiver && TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
-        TortoiseBots::IsHireQuestRecruiterEntry(questGiver->GetEntry()))
+    if (!TortoiseBots::HireMayDoQuests(TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid())))
         return false;
 
     bool isCompleted = false;

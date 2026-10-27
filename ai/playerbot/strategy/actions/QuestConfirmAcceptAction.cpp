@@ -8,9 +8,14 @@
 
 #include "QuestConfirmAcceptAction.h"
 #include "WorldPacket.h"
+#include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/policy/hire/HireQuestPolicy.h"
 
 bool QuestConfirmAcceptAction::Execute(Event& event)
 {
+    if (!TortoiseBots::HireMayDoQuests(TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid())))
+        return false;
+
     WorldPacket packet(event.GetPacket());
     uint32 questId;
     packet >> questId;

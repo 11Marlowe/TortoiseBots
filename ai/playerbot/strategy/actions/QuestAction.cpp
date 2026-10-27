@@ -14,12 +14,7 @@ bool QuestAction::Execute(Event& event)
 
     Player* master = GetMaster();
 
-    // A hired companion never works a quest menu on its own: the hire
-    // follows its master instead of questing. Explicit player orders
-    // (whispered commands, quest-share popups, travel-board hand-ins) carry
-    // an event owner and still run; owned alts are untouched (not hires).
-    bool const isHire = TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
-    if (!TortoiseBots::HireMayTalkToQuestGiver(isHire, event.GetOwner() != nullptr))
+    if (!TortoiseBots::HireMayDoQuests(TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid())))
         return false;
 
     if (!guid)

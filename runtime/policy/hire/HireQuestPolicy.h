@@ -42,16 +42,13 @@ inline bool HireSkipsAutonomyStrategies(bool isHired)
     return isHired;
 }
 
-// Quest talk: a hire never processes a quest menu on its own - neither the
-// gossip-hello / use-game-object / complete-quest triggers nor the nearby
-// NPC service verbs. Explicit player orders (accept-quest-share popups, the
-// `.bot quest` / talk chat orders) still run: those arrive with a requester
-// or an explicit order flag.
-inline bool HireMayTalkToQuestGiver(bool isHired, bool explicitOrder)
+// Quests: a hire never accepts, talks about, completes or shares a quest,
+// not even on an explicit player order. Hires are ethereal, so questing
+// gains nothing that survives the session. Pool bots and owned alts keep
+// questing.
+inline bool HireMayDoQuests(bool isHired)
 {
-    if (!isHired)
-        return true;
-    return explicitOrder;
+    return !isHired;
 }
 
 // Quest travel: a hire never requests or picks quest destinations. Its

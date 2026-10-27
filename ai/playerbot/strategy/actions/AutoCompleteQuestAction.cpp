@@ -1,10 +1,15 @@
 #include "playerbot/playerbot.h"
 #include "AutoCompleteQuestAction.h"
+#include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/policy/hire/HireQuestPolicy.h"
 
 using namespace ai;
 
 bool AutoCompleteQuestAction::Execute(Event& event)
 {
+    if (!TortoiseBots::HireMayDoQuests(TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid())))
+        return false;
+
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
 
     // Static list of quest IDs to auto-complete
