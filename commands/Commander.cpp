@@ -9375,6 +9375,11 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     std::string const order = slot.playerLed.on
         ? TortoiseBots::PlayerLed::Tick(slot.run, slot.playerLed, facts, anchor, dt)
         : TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
+    // The lead bot says what the run needs on /s (a door's key, a skipped leg's item), once per event.
+    if (std::string const say = TortoiseBots::DungeonRun::TakeSay(slot.run); !say.empty())
+        if (Player* sayLead = FindCharacter(binding->leadGuid))
+            if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(sayLead))
+                ai->Say(say, true);
     // The test speed (`.bot run start ... speed=`): the party's rate for this tick, before the tick's order goes out,
     // so a walk launches at it and a pull at 1.0 (DungeonRun::SpeedRateNow; a 1.0 run touches nothing). A tick that
     // advanced onto a pull or boss step never starts fast: f.seen was read on the step before, for a pack the party
