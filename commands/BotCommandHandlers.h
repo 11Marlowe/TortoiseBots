@@ -20,6 +20,10 @@ bool HandleCommanderOrder(ChatHandler* handler, char const* args);
 bool HandleTrace(ChatHandler* handler, char const* args);
 bool HandleDungeonRun(ChatHandler* handler, char const* args);
 uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::string& code, std::string& message);
+bool IsLfgWorldBot(Player* bot);                       // IsWorldBot(bot)
+bool JoinBotToLeadGroup(Player* lead, Player* member); // JoinLeadGroup(lead, member)
+bool IsBotBound(Player* bot);                          // bot && CommanderBindings().FindByBot(raw) != nullptr
+uint64 GroupBindingKey(uint32 groupId);                // the binding's commanderGuid, or 0
 // Item-leg skip glue (spec D): the crash ledger's login cleanup, called from
 // host/BotPlayerAdapter.cpp (OnLogin) and host/BotHostAdapter.cpp (first world
 // tick). The rest of the glue (party read, give/take, erase) is file-local to

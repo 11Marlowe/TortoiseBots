@@ -1929,6 +1929,18 @@ TortoiseBots::SystemRun::Member SystemMember(Player* bot, bool inOtherGroup)
 
 } // namespace
 
+// Bot LFG group glue (runtime/BotLfgService.cpp): the service decides, these
+// four read the live binding and group state it needs.
+bool IsLfgWorldBot(Player* bot) { return IsWorldBot(bot); }
+bool JoinBotToLeadGroup(Player* lead, Player* member) { return JoinLeadGroup(lead, member); }
+bool IsBotBound(Player* bot) { return bot && CommanderBindings().FindByBot(bot->GetObjectGuid().GetRawValue()) != nullptr; }
+uint64 GroupBindingKey(uint32 groupId)
+{
+    RemoteCommander::Binding const* binding = CommanderBindings().FindByGroup(groupId);
+    return binding ? binding->commanderGuid : 0;
+}
+
+
 // A server-owned binding of a bot-only party (SystemRunPolicy.h): the lead bot
 // is its own commander key. The key (or 0 with code/message set).
 uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::string& code, std::string& message)
@@ -2091,7 +2103,6 @@ uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::s
     message.clear();
     return raw;
 }
-
 // Item-leg skip cross-TU forwarders (spec D7): the Impl definitions above are
 // file-local; host/BotPlayerAdapter.cpp and host/BotHostAdapter.cpp call these.
 void CleanupRunGivenItems(Player* player) { CleanupRunGivenItemsImpl(player); }

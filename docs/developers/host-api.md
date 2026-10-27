@@ -685,6 +685,18 @@ combat specs). No teleport or summon
 exists on either path: after the group forms the party walks (follow) to the
 portal, so `.bot summon` stragglers first.
 
+## 16b. Bot LFG groups (optional, default-off)
+
+`BotLfgService` (`runtime/BotLfgService.{h,cpp}`, ticked by
+`host/BotLfgAdapter.cpp`) forms bot-only LFG groups from the proven plans of
+the `ai_bot_lfg_plan` world table. Scans eligible world bots through
+`BotLfg::CheckCandidate` (idle world bot, ungrouped, unbound, off LFT/BG,
+off instance maps, level 10+), composes tank/healer/damage with
+`BotLfg::ComposeWithOpen` (one role left open for a player), and ends every
+group either released (a real player in it or a commander's binding on it)
+or disbanded. A formed group holds the `Dungeon` activity lease on each
+member before inviting, so random-bot services leave the crew alone.
+
 ## 17. AH market population (optional, default-off)
 
 `AhMarketService` uses only the native auction transaction path: real bot
