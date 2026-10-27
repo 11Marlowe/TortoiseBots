@@ -871,10 +871,14 @@ AiPlayerbot.DungeonTactics = 0
 # 1 - the run leader is on (Default)
 AiPlayerbot.DungeonSelfClear = 1
 
-# Bot LFG dungeon groups: world bots of a dungeon's level band form a group and
-# clear the dungeon with the run leader. So far only the server's own run of a
-# bot-only party exists (a GameMaster starts one with `.bot run system start
-# <plan>`, the lead bot targeted); forming the groups is not built yet.
+# Bot LFG dungeon groups: online, idle world bots of one faction and of a proven
+# dungeon's level band (table ai_bot_lfg_plan; the band is the LFT addon's) form a
+# group of four, tank, healer and damage, with one role left open for a player.
+# When no player joins within AiPlayerbot.BotLfgFillAfterMinutes, a bot of the open
+# role joins. Getting the group to the dungeon is not built yet, so a full group
+# breaks up again after two minutes. A GameMaster watches and drives them with
+# `.bot run lfg list | form [plan] | fill <id> | disband <id>`; `.bot run system`
+# runs a bot-only party through a dungeon by hand.
 # Needs AiPlayerbot.DungeonSelfClear = 1 (with it off the server log says the
 # feature stays dormant). Does not need AiPlayerbot.RemoteCommander.
 # `.reload config` reads this key again.

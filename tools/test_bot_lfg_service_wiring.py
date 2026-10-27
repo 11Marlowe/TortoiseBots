@@ -131,3 +131,22 @@ class BotLfgLifecycleWiringTest(unittest.TestCase):
         fn = body(CMD, "static bool HandleReloadPlans(", "\n}\n")
         self.assertIn("BotLfgService::Instance().LoadPlans()", fn)
         self.assertLess(fn.index("report.outcome.swapped"), fn.index("BotLfgService::Instance().LoadPlans()"))
+
+class BotLfgCommandWiringTest(unittest.TestCase):
+    def test_dungeon_run_dispatches_lfg(self):
+        fn = body(strip_comments(CMD), "bool HandleDungeonRun(", "\n}\n")
+        needle = 'if (verb == "lfg")\n        return HandleBotLfgRun(handler, rawArg, intent);'
+        self.assertIn(needle, fn)
+        self.assertLess(fn.index(needle), fn.index('if (verb != "start"'))
+
+    def test_bot_lfg_run_handler(self):
+        fn = body(strip_comments(CMD), "static bool HandleBotLfgRun(", "\n}\n")
+        self.assertLess(fn.index("IsBotAdministrator("), fn.index("BotLfgService::Instance().Enabled()"))
+        self.assertLess(fn.index("BotLfgService::Instance().Enabled()"), fn.index("BotLfgLifecycle::ParseArgs("))
+        for snippet in ("IsGmCliHandler(handler)", "FormNow(", "FillNow(", "EndNow(",
+                        'SendActionAck(handler, intent, "groups"'):
+            self.assertIn(snippet, fn)
+
+    def test_template_mentions_commands(self):
+        tpl = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
+        self.assertNotIn("forming the groups is not built yet", tpl)

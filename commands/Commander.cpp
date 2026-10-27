@@ -10363,7 +10363,75 @@ static bool HandleSystemRun(ChatHandler* handler, std::string const& args, std::
     return true;
 }
 
-// .bot run start [plan] [player [tank <Bot>]] | pause | resume | skip | stop | status | mode | list | reloadplans (GameMaster)
+// `.bot run lfg list | form [plan] [alliance|horde] | fill <id> | disband <id>` (GameMaster): watches and drives
+// the bot LFG groups. Every reply goes to the GM; no ServerLogChatHandler is needed.
+static bool HandleBotLfgRun(ChatHandler* handler, std::string const& args, std::string const& intent)
+{
+    using TortoiseBots::BotLfgService;
+    Player* requester = Requester(handler);
+    if (requester ? !IsBotAdministrator(requester) : !IsGmCliHandler(handler))
+    {
+        SendActionError(handler, intent, "forbidden", "Only a GameMaster may drive bot LFG groups.");
+        return true;
+    }
+    if (!BotLfgService::Instance().Enabled())
+    {
+        SendActionError(handler, intent, "disabled",
+            "Bot LFG groups are off (AiPlayerbot.DungeonSelfClear = 1 and AiPlayerbot.BotLfgGroups = 1 turn them on).");
+        return true;
+    }
+    TortoiseBots::BotLfgLifecycle::Args a = TortoiseBots::BotLfgLifecycle::ParseArgs(args);
+    if (a.verb == TortoiseBots::BotLfgLifecycle::Verb::Invalid)
+    {
+        SendActionError(handler, intent, "invalid",
+            "Usage: .bot run lfg list / form [plan] [alliance|horde] / fill <id> / disband <id>");
+        return true;
+    }
+    BotLfgService& svc = BotLfgService::Instance();
+    if (a.verb == TortoiseBots::BotLfgLifecycle::Verb::List)
+    {
+        std::vector<TortoiseBots::BotLfgGroup const*> groups = svc.Groups();
+        for (TortoiseBots::BotLfgGroup const* g : groups)
+        {
+            std::string leader = "?";
+            if (Player* lead = ObjectAccessor::FindPlayer(g->leader))
+                leader = lead->GetName();
+            std::string members;
+            for (size_t i = 0; i < g->members.size(); ++i)
+            {
+                Player* bot = ObjectAccessor::FindPlayer(g->members[i].guid);
+                if (i > 0)
+                    members += ",";
+                members += (bot ? bot->GetName() : std::string("?")) + "(" +
+                    TortoiseBots::BotLfg::RoleName(g->members[i].role) + "," +
+                    std::to_string(bot ? bot->GetLevel() : 0) + ")";
+            }
+            handler->PSendSysMessage("#%u %s %s %s %us open:%s leader:%s members:%s", g->id, g->plan.c_str(),
+                TortoiseBots::BotLfg::TeamName(g->team), TortoiseBots::BotLfgLifecycle::StateName(g->state),
+                (svc.NowMs() - g->stateSinceMs) / 1000, TortoiseBots::BotLfg::RoleName(g->openRole),
+                leader.c_str(), members.c_str());
+        }
+        SendActionAck(handler, intent, "groups", uint32(groups.size()));
+        return true;
+    }
+    std::string code, message;
+    bool ok = false;
+    if (a.verb == TortoiseBots::BotLfgLifecycle::Verb::Form)
+        ok = svc.FormNow(a.plan, a.team, code, message);
+    else if (a.verb == TortoiseBots::BotLfgLifecycle::Verb::Fill)
+        ok = svc.FillNow(a.id, code, message);
+    else
+        ok = svc.EndNow(a.id, code, message);
+    if (!ok)
+    {
+        SendActionError(handler, intent, code.c_str(), message.c_str());
+        return true;
+    }
+    handler->PSendSysMessage("%s", message.c_str());
+    SendActionAck(handler, intent, "group", 1);
+    return true;
+}
+
 bool HandleDungeonRun(ChatHandler* handler, char const* args)
 {
     using namespace TortoiseBots::DungeonRun;
@@ -10382,6 +10450,8 @@ bool HandleDungeonRun(ChatHandler* handler, char const* args)
     // Before the in-game and run-leader checks: a GameMaster reloads from the console too, with the run leader off.
     if (verb == "reloadplans")
         return HandleReloadPlans(handler, intent);
+    if (verb == "lfg")
+        return HandleBotLfgRun(handler, rawArg, intent);
     if (verb == "system")
         return HandleSystemRun(handler, rawArg, intent);
 
