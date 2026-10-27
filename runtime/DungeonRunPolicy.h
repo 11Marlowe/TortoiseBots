@@ -688,6 +688,7 @@ struct PlayerFact
     bool onMap = true;           // in the world on the plan's map (in the instance)
     bool online = true;          // ... logged in (a member who logged out stays in the group's slots: onMap false)
     bool inCombat = false;       // a living player in a fight: the party is in it too (ApplyPlayerFacts)
+    bool gm = false;             // a GameMaster account (IsBotAdministrator): the core keeps his hp at 1, he does not die
     float yd = 0.0f;             // from the lead bot (1000 off its map)
     std::uint32_t healthPct = 100;
 };
@@ -3816,6 +3817,31 @@ inline SpeedArgs TakeSpeed(const std::string& arg)
     return out;
 }
 
+// Who may walk a run at test speed (`speed=` above 1.0): a player-led run never, a party with a real player never,
+// then a GameMaster only, in that order, so the refusal names the reason that holds for anyone first (pip S3
+// 2026-10-26: a rank-0 player's player-led start heard `forbidden`). realPlayer: the first real player of the lead
+// bot's group by name ("" for none). Empty code: allowed.
+struct SpeedRefusal
+{
+    std::string code;
+    std::string text;
+};
+
+inline SpeedRefusal CheckTestSpeed(float rate, bool playerLed, const std::string& realPlayer, bool gameMaster)
+{
+    if (rate <= 1.0f)
+        return {};
+    if (playerLed)
+        return {"real-player", "speed= is for bot-only test runs: a player-led run walks at normal speed."};
+    if (!realPlayer.empty())
+        return {"real-player", "speed= is for bot-only test runs: " + realPlayer +
+            " is a real player in the party; a run with a player in it walks at normal speed."};
+    if (!gameMaster)
+        return {"forbidden", "Only a GameMaster may start a test-speed run (speed=); without speed= the run walks at "
+            "normal speed."};
+    return {};
+}
+
 enum class FromResult : std::uint8_t
 {
     Ok,
@@ -4284,10 +4310,11 @@ inline void PausePlayer(Run& r, const std::string& why)
 // A player's order the run goes on through (turtle-agent #270): `cmd summon <bot>` brings that bot to the lead bot, the
 // run's own straggler summon (the summon point is the lead bot: CommanderSummon; a bot in combat is refused), so the run
 // is not paused for it (RFC 2026-10-20 run 2b: the observer's regroup summons were the run's only manual resume). Every
-// other order still pauses.
+// other order still pauses. `cmd revive <bot>` and `cmd revive party` (pip S5 2026-10-26: the run's own pause notes ask
+// the commander for them, and all three pauses of the run were his revive) are the run's own regroup revive too.
 inline bool PlayerOrderKeepsRun(const std::string& order)
 {
-    return order == "cmd summon";
+    return order == "cmd summon" || order == "cmd revive";
 }
 
 
@@ -12947,9 +12974,30 @@ inline bool PartyAllDead(const Facts& f)
     return true;
 }
 
+// pip S5 (2026-10-26): every bot dead and a GameMaster commander still fighting at the hp clamp (his hp stays at 1,
+// mobs pinned on him): his fight never ended, the wipe's regroup never revived the bots and the run noted
+// "3 dead: fighting on, a regroup follows" until its regroups ran out. With every bot dead and only GameMasters
+// fighting, their fight is not the party's: the regroup revives the bots (`revive party`). A real player (not a
+// GameMaster) in a fight still holds it, as does any bot alive.
+inline bool OnlyGmFightOverDeadBots(const Facts& f)
+{
+    if (f.total == 0 || f.alive > 0)
+        return false;
+    bool gmFight = false;
+    for (const PlayerFact& p : f.players)
+        if (p.alive && p.inCombat)
+        {
+            if (!p.gm)
+                return false;
+            gmFight = true;
+        }
+    return gmFight;
+}
+
 // The players as party members in the facts the run judges (the glue calls it after reading them): a living player's
 // health counts for the rest gate (his mana does not: a player drinks on his own), and a living player in a fight
-// puts the party in it (no walk, gather, regroup or revive while he fights; review round 1).
+// puts the party in it (no walk, gather, regroup or revive while he fights; review round 1), except a GameMaster's
+// fight once every bot is dead (OnlyGmFightOverDeadBots).
 inline void ApplyPlayerFacts(Facts& f)
 {
     for (const PlayerFact& p : f.players)
@@ -12959,8 +13007,12 @@ inline void ApplyPlayerFacts(Facts& f)
             if (p.inCombat)
                 f.anyInCombat = true;
         }
+    if (OnlyGmFightOverDeadBots(f))
+    {
+        f.anyInCombat = false; // the glue set it from the players' fight too (ReadRunPlayers)
+        f.staleCombat = false;
+    }
 }
-
 
 // Why the run holds the step for a real player, or "" (2026-10-23). Out of combat, outside an event, before an order
 // of the step goes out (Begin, Gather, Walk; never mid-pull, mid-task, in a rest or a wait):
