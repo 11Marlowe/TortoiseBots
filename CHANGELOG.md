@@ -38,6 +38,7 @@
 - New: with `AiPlayerbot.BotLfgGroups = 1`, world bots form dungeon groups of four that wait for a player, then take a fifth bot; GameMasters watch them with `.bot run lfg list`.
 - Fixed the run leader sending the tank at a mob its own crowd control was about to take, and bots keeping that sheep as their target after it landed: the guard and the engage on arrival leave an ordered-but-unlanded CC mark to its CC bot, and every bot's order on a landed one is dropped.
 - New: bots interrupt the Wailing Caverns lords, Mutanus, Grimlok and Captain Greenskin.
+- Fixed: a hired mercenary in your party now accepts the LFT dungeon offer, so the group forms (#1284).
 
 ## v1.8.0 (2026-10-22)
 
