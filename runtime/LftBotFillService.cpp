@@ -72,6 +72,7 @@ LftLevelRange const* FindDungeonLevelRange(std::string const& raw)
 
     return range;
 }
+}
 
 
 LftBotFillService& LftBotFillService::Instance()
