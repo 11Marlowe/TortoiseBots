@@ -72,6 +72,28 @@ LftLevelRange const* FindDungeonLevelRange(std::string const& raw)
 
     return range;
 }
+
+LFTManager::QueuedInfo const* FindQueued(std::vector<LFTManager::QueuedInfo> const& queued, ObjectGuid const& guid)
+{
+    for (LFTManager::QueuedInfo const& info : queued)
+        if (info.guid == guid)
+            return &info;
+    return nullptr;
+}
+
+// Same offer, as far as the module API can tell (see LftQueuedTogether): both
+// in an offer, in one group, and queued in one block.
+bool InSameOffer(Player* bot, Player* anchor, std::vector<LFTManager::QueuedInfo> const& queued)
+{
+    if (!sLFTMgr.IsInOffer(bot->GetObjectGuid()) || !sLFTMgr.IsInOffer(anchor->GetObjectGuid()))
+        return false;
+    Group* group = bot->GetGroup();
+    LFTManager::QueuedInfo const* a = FindQueued(queued, bot->GetObjectGuid());
+    LFTManager::QueuedInfo const* b = FindQueued(queued, anchor->GetObjectGuid());
+    return LftQueuedTogether(group && group == anchor->GetGroup(), a && b,
+        a ? a->joinTime : 0, b ? b->joinTime : 0,
+        a ? a->instances : std::vector<std::string>(), b ? b->instances : std::vector<std::string>());
+}
 }
 
 
@@ -490,6 +512,9 @@ void LftBotFillService::AcceptPartyBotOffers()
     // No queued-snapshot scan: only bots already in an offer are visited, via
     // the in-memory managed-bot list (GetAllBots filters in world + Headless).
     std::vector<Player*> bots = BotManager::Instance().GetAllBots();
+    // Queue snapshot for the hires' same-offer check, taken once, only if needed.
+    std::vector<LFTManager::QueuedInfo> queued;
+    bool haveQueued = false;
     for (Player* bot : bots)
     {
         if (!bot)
@@ -501,8 +526,9 @@ void LftBotFillService::AcceptPartyBotOffers()
         // character that is its hirer's companion (#1284).
         if (m_pending.find(guidLow) != m_pending.end())
             continue;
-        if (!LftPartyBotMayAccept(BotManager::Instance().IsRandomBot(guid),
-                HireLifecycle::Instance().IsHired(guid)))
+        bool const randomPool = BotManager::Instance().IsRandomBot(guid);
+        bool const hired = HireLifecycle::Instance().IsHired(guid);
+        if (!LftPartyBotMayAccept(randomPool, hired))
             continue;
         if (!sLFTMgr.IsInOffer(guid))
             continue;
@@ -510,20 +536,36 @@ void LftBotFillService::AcceptPartyBotOffers()
         if (!ai || !ai->HasActivePlayerMaster())
             continue;
         // The human must be part of this run: master or group leader, live,
-        // real (network transport), in the same offer.
+        // real (network transport), in an offer. A hire also needs that human
+        // to be its own hirer, in the same offer (LftPartyOfferMayAccept).
+        ObjectGuid const hireMaster = hired ? HireLifecycle::Instance().GetMaster(guid) : ObjectGuid();
+        Player* candidates[2] = { ai->GetLiveMaster(), nullptr };
+        if (Group* group = bot->GetGroup())
+            candidates[1] = sObjectMgr.GetPlayer(group->GetLeaderGuid());
         Player* anchor = nullptr;
-        if (Player* master = ai->GetLiveMaster())
-            if (master->IsInWorld() && master->GetSession() &&
-                master->GetSession()->HasNetworkTransport() &&
-                sLFTMgr.IsInOffer(master->GetObjectGuid()))
-                anchor = master;
-        if (!anchor)
-            if (Group* group = bot->GetGroup())
-                if (Player* leader = sObjectMgr.GetPlayer(group->GetLeaderGuid()))
-                    if (leader != bot && leader->IsInWorld() && leader->GetSession() &&
-                        leader->GetSession()->HasNetworkTransport() &&
-                        sLFTMgr.IsInOffer(leader->GetObjectGuid()))
-                        anchor = leader;
+        for (Player* candidate : candidates)
+        {
+            if (!candidate || candidate == bot || !candidate->IsInWorld() || !candidate->GetSession() ||
+                !candidate->GetSession()->HasNetworkTransport() ||
+                !sLFTMgr.IsInOffer(candidate->GetObjectGuid()))
+                continue;
+            bool const anchorIsHireMaster = !hireMaster.IsEmpty() && candidate->GetObjectGuid() == hireMaster;
+            bool sameOffer = false;
+            if (hired)
+            {
+                if (!haveQueued)
+                {
+                    queued = sLFTMgr.GetQueuedPlayers();
+                    haveQueued = true;
+                }
+                sameOffer = InSameOffer(bot, candidate, queued);
+            }
+            if (LftPartyOfferMayAccept(randomPool, hired, anchorIsHireMaster, sameOffer))
+            {
+                anchor = candidate;
+                break;
+            }
+        }
         if (!anchor)
             continue;
         // World-thread only generic core API (PR #416). Reuses native offer accept.
