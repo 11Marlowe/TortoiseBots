@@ -94,5 +94,40 @@ class BotLfgServiceWiringTest(unittest.TestCase):
             self.assertIn(snippet, tail, snippet)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class BotLfgLifecycleWiringTest(unittest.TestCase):
+    def test_tick_groups_drives_lifecycle(self):
+        fn = body(SVC, "void BotLfgService::TickGroups(bool enabled)", "\n}\n")
+        self.assertIn("BotLfgLifecycle::DecideStep(facts)", fn)
+        self.assertLess(fn.index("facts.realPlayerInGroup = RealPlayerInGroup(group);"),
+                        fn.index("BotLfgLifecycle::DecideStep(facts)"))
+        self.assertLess(fn.index("BotCommands::GroupBindingKey(group.groupId)"),
+                        fn.index("BotLfgLifecycle::DecideStep(facts)"))
+        self.assertLess(fn.index("BotLfgLifecycle::FillDue("),
+                        fn.index("BotLfgLifecycle::DecideStep(facts)"))
+        for snippet in ("case BotLfgLifecycle::Step::FillWithBot:",
+                        "case BotLfgLifecycle::Step::Replace:",
+                        "case BotLfgLifecycle::Step::ToReady:",
+                        "case BotLfgLifecycle::Step::End:",
+                        "End(group, decision.reason, decision.release);"):
+            self.assertIn(snippet, fn)
+        self.assertIn("sPlayerbotAIConfig.botLfgFillAfterMinutes * 60000", fn)
+
+    def test_add_member_takes_lease_before_invite(self):
+        fn = body(SVC, "bool BotLfgService::AddMember(", "\n}\n")
+        for snippet in ("TryAcquire(", "BotCommands::JoinBotToLeadGroup(", "ApplyForcedRole("):
+            self.assertIn(snippet, fn)
+        self.assertLess(fn.index("TryAcquire("), fn.index("JoinBotToLeadGroup("))
+
+    def test_end_now_gm_disband(self):
+        fn = body(SVC, "bool BotLfgService::EndNow(", "\n}\n")
+        for snippet in ("BotLfgLifecycle::EndReason::GmDisband", "RealPlayerInGroup("):
+            self.assertIn(snippet, fn)
+
+    def test_fill_now_marks_force_fill(self):
+        fn = body(SVC, "bool BotLfgService::FillNow(", "\n}\n")
+        self.assertIn("forceFill = true", fn)
+
+    def test_reload_plans_reports_bot_lfg(self):
+        fn = body(CMD, "static bool HandleReloadPlans(", "\n}\n")
+        self.assertIn("BotLfgService::Instance().LoadPlans()", fn)
+        self.assertLess(fn.index("report.outcome.swapped"), fn.index("BotLfgService::Instance().LoadPlans()"))

@@ -5,6 +5,7 @@
 #include "BotCommandContext.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../runtime/BotManager.h"
+#include "../runtime/BotLfgService.h"
 #include "../runtime/BotActivityLease.h"
 #include "../runtime/RunReleaseHold.h"
 #include "../runtime/HireLifecycle.h"
@@ -10122,6 +10123,8 @@ static bool HandleReloadPlans(ChatHandler* handler, std::string const& intent)
     if (!inUse.empty())
         handler->PSendSysMessage("%u runs keep the plan they started with (%u old plan sets kept); a new .bot run start takes "
             "the new plan", uint32(inUse.size()), uint32(report.outcome.keptOld));
+    handler->PSendSysMessage("Bot LFG: %u dungeon plans can form groups",
+        TortoiseBots::BotLfgService::Instance().LoadPlans());
     SendActionAck(handler, intent, "plans", uint32(plans.PlanCount()));
     return true;
 }
