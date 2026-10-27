@@ -109,6 +109,8 @@ Lists the server's player-facing switches: dungeon runs, player-led runs, the re
 
 Prints one `Server features: ...` line and a `TBM:FEATURE|<key>|<value>|<label>` line per switch (`on`, `off` or a number). The addon's Info window reads them. Available to all players.
 
+`.bot features all <text>` searches every setting in the server's bot config file whose name holds `<text>` (at least two letters, any case) and lists it with its value: a `Config: N keys match` line, then `TBM:CONFIG_BEGIN|<matches>`, one `TBM:CONFIG|<key>|<value>` per setting (the `AiPlayerbot.` prefix left out; at most 200) and `TBM:CONFIG_END|<shown>|<matches>`. Values of API keys, passwords, tokens and secrets read `***`. Players use it to tell a server owner what their server has set.
+
 ### `.bot help`
 
 Prints the module version header to chat.

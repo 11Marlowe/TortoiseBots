@@ -941,6 +941,10 @@ public:
 
     bool CanLogAction(PlayerbotAI* ai, std::string actionName, bool isExecute, std::string lastActionName);
 
+    // The keys set in the bot config file whose name holds `filter` (any
+    // case), with their values; secrets (API keys, passwords) read "***".
+    std::vector<std::pair<std::string, std::string>> FindConfigEntries(std::string const& filter);
+
 private:
     void LoadTalentSpecs();
     void LoadLLMDefaultPrompts(const std::string& fileName);
