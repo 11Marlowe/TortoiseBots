@@ -276,6 +276,9 @@ bool QuestAction::AcceptQuest(Player* requester, Quest const* quest, uint64 ques
         {
             Object* pObject = bot->GetObjectByTypeMask((ObjectGuid)questGiver, TYPEMASK_CREATURE_GAMEOBJECT_PLAYER_OR_ITEM);
             bot->AddQuest(quest, pObject);
+            // Objective-less quests complete on accept, as in the core handler.
+            if (bot->CanCompleteQuest(questId))
+                bot->CompleteQuest(questId);
         }
         else if (bot->GetQuestStatus(questId) == QUEST_STATUS_NONE && IsNearGroupedMaster())
         {
@@ -286,7 +289,12 @@ bool QuestAction::AcceptQuest(Player* requester, Quest const* quest, uint64 ques
             // object givers only; the bot must be eligible.
             Object* pObject = bot->GetObjectByTypeMask((ObjectGuid)questGiver, TYPEMASK_CREATURE_OR_GAMEOBJECT);
             if (pObject && bot->CanTakeQuest(quest, false) && bot->CanAddQuest(quest, false))
+            {
                 bot->AddQuest(quest, pObject);
+                // Objective-less quests complete on accept, as in the core handler.
+                if (bot->CanCompleteQuest(questId))
+                    bot->CompleteQuest(questId);
+            }
         }
 
         if (bot->GetQuestStatus(questId) != QUEST_STATUS_NONE && bot->GetQuestStatus(questId) != QUEST_STATUS_AVAILABLE)
