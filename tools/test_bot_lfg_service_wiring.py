@@ -175,6 +175,7 @@ class BotLfgLifecycleWiringTest(unittest.TestCase):
         self.assertIn("TickGroup(*found, Enabled())", fn)
         self.assertLess(fn.index("forceFill = true"), fn.index("TickGroup(*found, Enabled())"))
         self.assertIn("BotLfgLifecycle::FillNowAnswer(", fn)
+        self.assertIn("filledBy", fn)
         self.assertNotIn("filled on the next tick", fn)
         self.assertIn("std::remove_if", fn)
 

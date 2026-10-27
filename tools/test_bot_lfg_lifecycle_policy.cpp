@@ -118,11 +118,12 @@ static void TestTexts()
 
 static void TestFillNowAnswer()
 {
-    CHECK(FillNowAnswer(State::Ready, "Jubuwaeg", "tank") == "filled by a bot: Jubuwaeg (tank)");
-    CHECK(FillNowAnswer(State::Waiting, "", "tank").find("no free tank bot") == 0);
-    CHECK(FillNowAnswer(State::Waiting, "", "tank").find("next tick") == std::string::npos);
-    CHECK(FillNowAnswer(State::Ended, "", "tank").find("ended") != std::string::npos);
-    CHECK(FillNowAnswer(State::Ready, "", "tank").find("no free") == 0);
+    CHECK(FillNowAnswer(State::Ready, FillKind::Bot, "Jubuwaeg", "", "tank") == "filled by a bot: Jubuwaeg (tank)");
+    CHECK(FillNowAnswer(State::Ready, FillKind::Player, "", "Mira", "tank") ==
+        "a player already took the open slot: Mira");
+    CHECK(FillNowAnswer(State::Waiting, FillKind::None, "", "", "tank").find("no free tank bot") == 0);
+    CHECK(FillNowAnswer(State::Waiting, FillKind::None, "", "", "tank").find("next tick") == std::string::npos);
+    CHECK(FillNowAnswer(State::Ended, FillKind::None, "", "", "tank").find("ended") != std::string::npos);
 }
 
 static void TestParseArgs()

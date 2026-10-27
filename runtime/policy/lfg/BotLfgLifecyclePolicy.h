@@ -74,14 +74,17 @@ constexpr uint32_t kTickMs = 5000;
 constexpr uint32_t kFillRetryMs = 300000;
 constexpr uint32_t kReadyHoldMs = 120000;
 
-// The GM `fill` answer after the immediate try: the bot's name when the
-// group took one, else why it waits (the service retries every tick).
-inline std::string FillNowAnswer(State after, std::string const& filledName, std::string const& role)
+// The GM `fill` answer after the immediate try: who took the open slot
+// (a bot or a player), else why it waits (the service retries every tick).
+inline std::string FillNowAnswer(State after, FillKind filledBy, std::string const& botName,
+    std::string const& playerName, std::string const& role)
 {
-    if (after == State::Ready && !filledName.empty())
-        return "filled by a bot: " + filledName + " (" + role + ")";
     if (after == State::Ended)
         return "the group ended while filling (see the log line)";
+    if (after == State::Ready && (filledBy == FillKind::Player || !playerName.empty()))
+        return "a player already took the open slot: " + playerName;
+    if (after == State::Ready)
+        return "filled by a bot: " + botName + " (" + role + ")";
     return "no free " + role + " bot in the band right now (in combat, flying, dead or busy); "
         "the service tries again every 5 s";
 }

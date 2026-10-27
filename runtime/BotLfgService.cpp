@@ -599,12 +599,35 @@ bool BotLfgService::FillNow(uint32 id, std::string& code, std::string& message)
     BotLfg::Role const role = found->openRole;
     size_t const before = found->members.size();
     TickGroup(*found, Enabled());
-    std::string name;
-    if (found->state == BotLfgLifecycle::State::Ready && found->members.size() > before)
+    std::string botName;
+    if (found->filledBy == BotLfgLifecycle::FillKind::Bot && found->members.size() > before)
         if (Player* bot = ObjectAccessor::FindPlayer(found->members.back().guid))
-            name = bot->GetName();
+            botName = bot->GetName();
+    std::string playerName;
+    if (found->filledBy == BotLfgLifecycle::FillKind::Player)
+    {
+        if (Player* joined = ObjectAccessor::FindPlayer(found->player))
+            playerName = joined->GetName();
+        else if (Player* leader = ObjectAccessor::FindPlayer(found->leader))
+        {
+            if (Group* grp = leader->GetGroup())
+            {
+                for (Group::MemberSlot const& slot : grp->GetMemberSlots())
+                {
+                    if (BotManager::Instance().IsBot(slot.guid))
+                        continue;
+                    if (Player* player = ObjectAccessor::FindPlayer(slot.guid))
+                    {
+                        playerName = player->GetName();
+                        break;
+                    }
+                }
+            }
+        }
+    }
     code = "ok";
-    message = BotLfgLifecycle::FillNowAnswer(found->state, name, BotLfg::RoleName(role));
+    message = BotLfgLifecycle::FillNowAnswer(found->state, found->filledBy, botName, playerName,
+        BotLfg::RoleName(role));
     if (found->state == BotLfgLifecycle::State::Ended)
         m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(),
             [](BotLfgGroup const& g) { return g.state == BotLfgLifecycle::State::Ended; }), m_groups.end());
