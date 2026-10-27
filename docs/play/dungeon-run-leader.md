@@ -311,7 +311,7 @@ Some dungeon doors are locked. The plan lists each one with the key that opens i
 
 An optional leg whose item nobody carries (Zul'Farrak's Gahz'rilla leg without the Mallet of Zul'Farrak) is skipped with a note.
 
-The bots do not send you a chat message about a door. The wait shows as the run's note: on the `TBM:RUN` status line, in the run window of the addon, and in `.bot run status`. The text names the door and the key, for example `door to leg 1: the way is locked (object 170560): open it with Shadowforge Key (item 11000) or Lockpicking 250; the bots wait before it and go on by themselves once it reads open`.
+The lead bot says on `/s` what the run needs: at a locked door it asks for the key (`Does anyone have Shadowforge Key to open the door? Or Lockpicking 250?`), once per hold; an optional leg that is skipped names its item (`Does anyone have ...? Without it we skip ...`). Only players close enough to hear `/s` see it. The wait also shows as the run's note: on the `TBM:RUN` status line, in the run window of the addon, and in `.bot run status`. The text names the door and the key, for example `door to leg 1: the way is locked (object 170560): open it with Shadowforge Key (item 11000) or Lockpicking 250; the bots wait before it and go on by themselves once it reads open`.
 
 ### Player-led runs
 

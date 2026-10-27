@@ -1145,6 +1145,7 @@ struct Run
     bool doorPaused = false;
     std::uint8_t doorPausedLeg = 0;
     std::string doorPausedAsk; // the hold's ask (what opens the door), for the resume's refusal
+    std::string say;           // what the bots say on /s this tick (TakeSay); "" none
     // DoorKeyOpen: the leg whose door a carrier bot is opening (-1 none), the
     // open orders sent for it and the time since the last one.
     int doorOpenLeg = -1;
@@ -4370,6 +4371,8 @@ inline bool LegNeedGate(Run& r, const Facts& f)
         if (r.plan->steps[i].leg == s->leg)
             last = i;
     r.step = last;
+    r.say = "Does anyone have " + (skipName.empty() ? "item " + std::to_string(skipItem) : skipName) +
+        "? Without it we skip " + legText + ".";
     NextStep(r, "leg " + legText + " skipped: it needs item " + std::to_string(skipItem) +
         (skipName.empty() ? std::string() : " (" + skipName + ")") +
         " and nobody in the party carries it (an optional leg; the run goes on with the next leg)");
@@ -4476,6 +4479,14 @@ inline void PauseDoor(Run& r, std::uint8_t leg, const std::string& ask, const st
     r.doorPausedAsk = ask;
 }
 
+// The line the bots say on /s this tick, taken once: the glue sends it.
+inline std::string TakeSay(Run& r)
+{
+    std::string say;
+    say.swap(r.say);
+    return say;
+}
+
 // The hold (DungeonRunBotKeysForPlayers = 0, or no bot carries the key): a real player in the party, the leg's door
 // found closed and near, nobody qualified: the run pauses with the ask note; the bots stand before the door. True:
 // the run held at the door this tick.
@@ -4511,6 +4522,9 @@ inline bool DoorNeedHold(Run& r, const Facts& f)
             anyoneCarries = true;
     std::string const ask = "open it with " + DoorOpener(*door);
     std::string const howText = !door->how.empty() && !anyoneCarries ? " Get it: " + door->how + "." : "";
+    if (!(r.doorPaused && r.doorPausedAsk == ask)) // once per pause, not every tick of the hold
+        r.say = "Does anyone have " + (door->name.empty() ? "the key" : door->name) + " to open the door?" +
+            (door->pick > 0 ? " Or Lockpicking " + std::to_string(door->pick) + "?" : "");
     PauseDoor(r, s->leg, ask,
         "door to leg " + NeedLegLabel(*r.plan, s->leg) + ": the way is locked (object " + std::to_string(door->object) +
             "): " + ask + "; the bots wait before it and go on by themselves once it reads open (.bot run resume does "
