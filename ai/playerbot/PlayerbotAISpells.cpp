@@ -708,11 +708,15 @@ bool PlayerbotAI::CheckCanCastSpell(uint32 spellid, Unit* target, uint8 effectMa
         // the trigger falls through to instant casts instead of firing the
         // doomed cast. Same cast-time shape as CastSpell below; a spline
         // still in flight counts as moving (GO-overload clause).
+        // Only real motion counts here, not isMoving(): a chase keeps its
+        // "moving" unit state while the bot stands at its spot, and this
+        // refusal comes before CastSpell's StopMoving that would end the
+        // chase, so a Balance druid chasing a pet-tanked mob never cast Wrath.
         {
             uint32 castTime = GetSpellCastTime(spellInfo, bot);
             bool spellNeedsStandStill = castTime > 0 ||
                 (IsChanneledSpell(spellInfo) && GetSpellDuration(spellInfo) > 0);
-            if (ai::CastStartBlockedByMove(sServerFacade.isMoving(bot),
+            if (ai::CastStartBlockedByMove(bot->m_movementInfo.HasMovementFlag(MOVEFLAG_MASK_MOVING),
                 !bot->movespline->Finalized(), spellNeedsStandStill))
             {
                 if (checkResult)
