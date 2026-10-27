@@ -116,6 +116,15 @@ static void TestTexts()
     CHECK(LogLine(3, "deadmines", "alliance", "formed") == "TortoiseBots: bot LFG group 3 (deadmines, alliance): formed");
 }
 
+static void TestFillNowAnswer()
+{
+    CHECK(FillNowAnswer(State::Ready, "Jubuwaeg", "tank") == "filled by a bot: Jubuwaeg (tank)");
+    CHECK(FillNowAnswer(State::Waiting, "", "tank").find("no free tank bot") == 0);
+    CHECK(FillNowAnswer(State::Waiting, "", "tank").find("next tick") == std::string::npos);
+    CHECK(FillNowAnswer(State::Ended, "", "tank").find("ended") != std::string::npos);
+    CHECK(FillNowAnswer(State::Ready, "", "tank").find("no free") == 0);
+}
+
 static void TestParseArgs()
 {
     CHECK(ParseArgs("list").verb == Verb::List && ParseArgs("LIST").verb == Verb::List);
@@ -145,6 +154,7 @@ int main()
     TestEndReleasesWithPlayer();
     TestDecideStepOrder();
     TestTexts();
+    TestFillNowAnswer();
     TestParseArgs();
     std::printf("bot lfg lifecycle policy: %d checks passed\n", checks);
     return 0;

@@ -103,6 +103,7 @@ private:
     bool MemberMissing(BotLfgGroup& group, Player* bot, ObjectGuid guid, Group* grp);
     bool LeaderMissing(BotLfgGroup& group, Player* leader, Group* grp, bool ours);
     void TickGroups(bool enabled);
+    void TickGroup(BotLfgGroup& group, bool enabled);
     bool RealPlayerInGroup(BotLfgGroup const& group) const;
     void Log(BotLfgGroup const& group, std::string const& text) const;
     bool m_initialized = false;

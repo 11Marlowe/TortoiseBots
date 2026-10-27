@@ -74,6 +74,18 @@ constexpr uint32_t kTickMs = 5000;
 constexpr uint32_t kFillRetryMs = 300000;
 constexpr uint32_t kReadyHoldMs = 120000;
 
+// The GM `fill` answer after the immediate try: the bot's name when the
+// group took one, else why it waits (the service retries every tick).
+inline std::string FillNowAnswer(State after, std::string const& filledName, std::string const& role)
+{
+    if (after == State::Ready && !filledName.empty())
+        return "filled by a bot: " + filledName + " (" + role + ")";
+    if (after == State::Ended)
+        return "the group ended while filling (see the log line)";
+    return "no free " + role + " bot in the band right now (in combat, flying, dead or busy); "
+        "the service tries again every 5 s";
+}
+
 // A member out of the world keeps its slot while it may be travelling
 // between maps: lost only after missing continuously for this long.
 constexpr uint32_t kMissingGraceMs = 30000;

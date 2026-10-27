@@ -91,7 +91,7 @@ class BotLfgServiceWiringTest(unittest.TestCase):
         self.assertIn("m_nowMs - found->second.atMs", SVC)
 
     def test_missing_grace(self):
-        tick = body(SVC, "void BotLfgService::TickGroups(bool enabled)", "\n}\n")
+        tick = body(SVC, "void BotLfgService::TickGroup(BotLfgGroup& group, bool enabled)", "\n}\n")
         for snippet in ("LeaderMissing(group, leader, grp, ours)", "MemberMissing(group,"):
             self.assertIn(snippet, tick)
         self.assertNotIn("facts.leaderLost = !leader || !leader->IsInWorld()", tick)
@@ -135,7 +135,7 @@ class BotLfgServiceWiringTest(unittest.TestCase):
 
 class BotLfgLifecycleWiringTest(unittest.TestCase):
     def test_tick_groups_drives_lifecycle(self):
-        fn = body(SVC, "void BotLfgService::TickGroups(bool enabled)", "\n}\n")
+        fn = body(SVC, "void BotLfgService::TickGroup(BotLfgGroup& group, bool enabled)", "\n}\n")
         self.assertIn("BotLfgLifecycle::DecideStep(facts)", fn)
         self.assertLess(fn.index("facts.realPlayerInGroup = RealPlayerInGroup(group);"),
                         fn.index("BotLfgLifecycle::DecideStep(facts)"))
@@ -150,6 +150,8 @@ class BotLfgLifecycleWiringTest(unittest.TestCase):
                         "End(group, decision.reason, decision.release);"):
             self.assertIn(snippet, fn)
         self.assertIn("sPlayerbotAIConfig.botLfgFillAfterMinutes * 60000", fn)
+        tick = body(SVC, "void BotLfgService::TickGroups(bool enabled)", "\n}\n")
+        self.assertIn("TickGroup(group, enabled)", tick)
 
     def test_add_member_takes_lease_before_invite(self):
         fn = body(SVC, "bool BotLfgService::AddMember(", "\n}\n")
@@ -170,6 +172,11 @@ class BotLfgLifecycleWiringTest(unittest.TestCase):
     def test_fill_now_marks_force_fill(self):
         fn = body(SVC, "bool BotLfgService::FillNow(", "\n}\n")
         self.assertIn("forceFill = true", fn)
+        self.assertIn("TickGroup(*found, Enabled())", fn)
+        self.assertLess(fn.index("forceFill = true"), fn.index("TickGroup(*found, Enabled())"))
+        self.assertIn("BotLfgLifecycle::FillNowAnswer(", fn)
+        self.assertNotIn("filled on the next tick", fn)
+        self.assertIn("std::remove_if", fn)
 
     def test_reload_plans_reports_bot_lfg(self):
         fn = body(CMD, "static bool HandleReloadPlans(", "\n}\n")

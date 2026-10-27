@@ -596,8 +596,18 @@ bool BotLfgService::FillNow(uint32 id, std::string& code, std::string& message)
         return false;
     }
     found->forceFill = true;
+    BotLfg::Role const role = found->openRole;
+    size_t const before = found->members.size();
+    TickGroup(*found, Enabled());
+    std::string name;
+    if (found->state == BotLfgLifecycle::State::Ready && found->members.size() > before)
+        if (Player* bot = ObjectAccessor::FindPlayer(found->members.back().guid))
+            name = bot->GetName();
     code = "ok";
-    message = "the open slot is filled on the next tick";
+    message = BotLfgLifecycle::FillNowAnswer(found->state, name, BotLfg::RoleName(role));
+    if (found->state == BotLfgLifecycle::State::Ended)
+        m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(),
+            [](BotLfgGroup const& g) { return g.state == BotLfgLifecycle::State::Ended; }), m_groups.end());
     return true;
 }
 
@@ -664,154 +674,158 @@ bool BotLfgService::LeaderMissing(BotLfgGroup& group, Player* leader, Group* grp
 void BotLfgService::TickGroups(bool enabled)
 {
     for (BotLfgGroup& group : m_groups)
+        if (group.state != BotLfgLifecycle::State::Ended)
+            TickGroup(group, enabled);
+}
+
+void BotLfgService::TickGroup(BotLfgGroup& group, bool enabled)
+{
+    if (group.state == BotLfgLifecycle::State::Ended)
+        return;
+    Player* leader = ObjectAccessor::FindPlayer(group.leader);
+    Group* grp = leader ? leader->GetGroup() : nullptr;
+    bool const ours = grp && grp->GetId() == group.groupId;
+    BotLfgLifecycle::Facts facts;
+    facts.state = group.state;
+    facts.elapsedMs = m_nowMs - group.stateSinceMs;
+    facts.fillAfterMs = sPlayerbotAIConfig.botLfgFillAfterMinutes * 60000;
+    facts.forceFill = group.forceFill;
+    facts.enabled = enabled;
+    uint64 key = BotCommands::GroupBindingKey(group.groupId);
+    facts.boundByOther = ours && key && key != group.bindingKey;
+    facts.realPlayerInGroup = RealPlayerInGroup(group);
+    facts.leaderLost = LeaderMissing(group, leader, grp, ours);
+    BotLfg::Role lostRole = BotLfg::Role::None;
+    ObjectGuid lostGuid;
+    for (BotLfgMember const& member : group.members)
     {
-        if (group.state == BotLfgLifecycle::State::Ended)
+        if (member.guid == group.leader)
             continue;
-        Player* leader = ObjectAccessor::FindPlayer(group.leader);
-        Group* grp = leader ? leader->GetGroup() : nullptr;
-        bool const ours = grp && grp->GetId() == group.groupId;
-        BotLfgLifecycle::Facts facts;
-        facts.state = group.state;
-        facts.elapsedMs = m_nowMs - group.stateSinceMs;
-        facts.fillAfterMs = sPlayerbotAIConfig.botLfgFillAfterMinutes * 60000;
-        facts.forceFill = group.forceFill;
-        facts.enabled = enabled;
-        uint64 key = BotCommands::GroupBindingKey(group.groupId);
-        facts.boundByOther = ours && key && key != group.bindingKey;
-        facts.realPlayerInGroup = RealPlayerInGroup(group);
-        facts.leaderLost = LeaderMissing(group, leader, grp, ours);
-        BotLfg::Role lostRole = BotLfg::Role::None;
-        ObjectGuid lostGuid;
-        for (BotLfgMember const& member : group.members)
+        if (!MemberMissing(group, ObjectAccessor::FindPlayer(member.guid), member.guid, grp))
+            continue;
+        ++facts.lostMembers;
+        if (facts.lostMembers == 1)
         {
-            if (member.guid == group.leader)
-                continue;
-            if (!MemberMissing(group, ObjectAccessor::FindPlayer(member.guid), member.guid, grp))
-                continue;
-            ++facts.lostMembers;
-            if (facts.lostMembers == 1)
+            lostRole = member.role;
+            lostGuid = member.guid;
+        }
+    }
+    uint32 nearMap = group.mapId;
+    float nearX = 0.0f, nearY = 0.0f;
+    bool nearKnown = false;
+    if (leader && leader->IsInWorld())
+    {
+        nearMap = leader->GetMapId();
+        nearX = leader->GetPositionX();
+        nearY = leader->GetPositionY();
+        nearKnown = true;
+    }
+    std::vector<Scanned> scanned;
+    std::unordered_map<uint64, Player*> byGuid;
+    Player* fillBot = nullptr;
+    Player* replaceBot = nullptr;
+    bool fillDue = BotLfgLifecycle::FillDue(group.state, facts.elapsedMs, facts.fillAfterMs, group.forceFill);
+    if (facts.lostMembers > 0 && !facts.leaderLost)
+    {
+        scanned = ScanCandidates();
+        for (Scanned const& s : scanned)
+            byGuid[s.guid] = s.bot;
+        std::vector<BotLfg::Candidate> c = CandidatesFor(scanned, group.team, group.minLevel, group.maxLevel,
+            nearMap, nearX, nearY, nearKnown);
+        std::vector<bool> taken(c.size(), false);
+        int at = BotLfg::PickForRole(c, lostRole, taken);
+        if (at >= 0)
+        {
+            auto found = byGuid.find(c[size_t(at)].guid);
+            if (found != byGuid.end())
+                replaceBot = found->second;
+            facts.replacementFound = replaceBot != nullptr;
+        }
+    }
+    else if (!facts.leaderLost && fillDue && facts.lostMembers == 0)
+    {
+        scanned = ScanCandidates();
+        for (Scanned const& s : scanned)
+            byGuid[s.guid] = s.bot;
+        std::vector<BotLfg::Candidate> c = CandidatesFor(scanned, group.team, group.minLevel, group.maxLevel,
+            nearMap, nearX, nearY, nearKnown);
+        std::vector<bool> taken(c.size(), false);
+        int at = BotLfg::PickForRole(c, group.openRole, taken);
+        if (at >= 0)
+        {
+            auto found = byGuid.find(c[size_t(at)].guid);
+            if (found != byGuid.end())
+                fillBot = found->second;
+            facts.fillCandidateFound = fillBot != nullptr;
+        }
+    }
+    BotLfgLifecycle::Decision decision = BotLfgLifecycle::DecideStep(facts);
+    switch (decision.step)
+    {
+        case BotLfgLifecycle::Step::ToWaiting:
+            Transition(group, BotLfgLifecycle::State::Waiting);
+            break;
+        case BotLfgLifecycle::Step::ToReady:
+        {
+            group.filledBy = BotLfgLifecycle::FillKind::Player;
+            for (Group::MemberSlot const& slot : grp->GetMemberSlots())
             {
-                lostRole = member.role;
-                lostGuid = member.guid;
-            }
-        }
-        uint32 nearMap = group.mapId;
-        float nearX = 0.0f, nearY = 0.0f;
-        bool nearKnown = false;
-        if (leader && leader->IsInWorld())
-        {
-            nearMap = leader->GetMapId();
-            nearX = leader->GetPositionX();
-            nearY = leader->GetPositionY();
-            nearKnown = true;
-        }
-        std::vector<Scanned> scanned;
-        std::unordered_map<uint64, Player*> byGuid;
-        Player* fillBot = nullptr;
-        Player* replaceBot = nullptr;
-        bool fillDue = BotLfgLifecycle::FillDue(group.state, facts.elapsedMs, facts.fillAfterMs, group.forceFill);
-        if (facts.lostMembers > 0 && !facts.leaderLost)
-        {
-            scanned = ScanCandidates();
-            for (Scanned const& s : scanned)
-                byGuid[s.guid] = s.bot;
-            std::vector<BotLfg::Candidate> c = CandidatesFor(scanned, group.team, group.minLevel, group.maxLevel,
-                nearMap, nearX, nearY, nearKnown);
-            std::vector<bool> taken(c.size(), false);
-            int at = BotLfg::PickForRole(c, lostRole, taken);
-            if (at >= 0)
-            {
-                auto found = byGuid.find(c[size_t(at)].guid);
-                if (found != byGuid.end())
-                    replaceBot = found->second;
-                facts.replacementFound = replaceBot != nullptr;
-            }
-        }
-        else if (!facts.leaderLost && fillDue && facts.lostMembers == 0)
-        {
-            scanned = ScanCandidates();
-            for (Scanned const& s : scanned)
-                byGuid[s.guid] = s.bot;
-            std::vector<BotLfg::Candidate> c = CandidatesFor(scanned, group.team, group.minLevel, group.maxLevel,
-                nearMap, nearX, nearY, nearKnown);
-            std::vector<bool> taken(c.size(), false);
-            int at = BotLfg::PickForRole(c, group.openRole, taken);
-            if (at >= 0)
-            {
-                auto found = byGuid.find(c[size_t(at)].guid);
-                if (found != byGuid.end())
-                    fillBot = found->second;
-                facts.fillCandidateFound = fillBot != nullptr;
-            }
-        }
-        BotLfgLifecycle::Decision decision = BotLfgLifecycle::DecideStep(facts);
-        switch (decision.step)
-        {
-            case BotLfgLifecycle::Step::ToWaiting:
-                Transition(group, BotLfgLifecycle::State::Waiting);
+                if (BotManager::Instance().IsBot(slot.guid))
+                    continue;
+                group.player = slot.guid;
                 break;
-            case BotLfgLifecycle::Step::ToReady:
+            }
+            if (Player* joined = ObjectAccessor::FindPlayer(group.player))
+                Log(group, std::string("a player joined: ") + joined->GetName());
+            else
+                Log(group, "a player joined");
+            Transition(group, BotLfgLifecycle::State::Ready);
+            break;
+        }
+        case BotLfgLifecycle::Step::FillWithBot:
+            if (fillBot && AddMember(group, leader, fillBot, group.openRole))
             {
-                group.filledBy = BotLfgLifecycle::FillKind::Player;
-                for (Group::MemberSlot const& slot : grp->GetMemberSlots())
+                group.filledBy = BotLfgLifecycle::FillKind::Bot;
+                group.forceFill = false;
+                if (group.openRole == BotLfg::Role::Tank)
                 {
-                    if (BotManager::Instance().IsBot(slot.guid))
-                        continue;
-                    group.player = slot.guid;
-                    break;
+                    grp->ChangeLeader(fillBot->GetObjectGuid());
+                    group.leader = fillBot->GetObjectGuid();
                 }
-                if (Player* joined = ObjectAccessor::FindPlayer(group.player))
-                    Log(group, std::string("a player joined: ") + joined->GetName());
-                else
-                    Log(group, "a player joined");
+                Log(group, std::string("filled by a bot: ") + fillBot->GetName() + " (" +
+                    BotLfg::RoleName(group.openRole) + ")");
                 Transition(group, BotLfgLifecycle::State::Ready);
-                break;
             }
-            case BotLfgLifecycle::Step::FillWithBot:
-                if (fillBot && AddMember(group, leader, fillBot, group.openRole))
-                {
-                    group.filledBy = BotLfgLifecycle::FillKind::Bot;
-                    group.forceFill = false;
-                    if (group.openRole == BotLfg::Role::Tank)
-                    {
-                        grp->ChangeLeader(fillBot->GetObjectGuid());
-                        group.leader = fillBot->GetObjectGuid();
-                    }
-                    Log(group, std::string("filled by a bot: ") + fillBot->GetName() + " (" +
-                        BotLfg::RoleName(group.openRole) + ")");
-                    Transition(group, BotLfgLifecycle::State::Ready);
-                }
-                else
-                    TB_LOG_DETAIL("TortoiseBots: bot LFG group %u: fill failed, staying waiting", group.id);
-                break;
-            case BotLfgLifecycle::Step::Replace:
+            else
+                TB_LOG_DETAIL("TortoiseBots: bot LFG group %u: fill failed, staying waiting", group.id);
+            break;
+        case BotLfgLifecycle::Step::Replace:
+        {
+            for (std::vector<BotLfgMember>::iterator it = group.members.begin(); it != group.members.end(); ++it)
             {
-                for (std::vector<BotLfgMember>::iterator it = group.members.begin(); it != group.members.end(); ++it)
-                {
-                    if (!(it->guid == lostGuid))
-                        continue;
-                    if (grp && grp->IsMember(it->guid))
-                        grp->RemoveMember(it->guid, 0);
-                    BotActivityLeaseManager::Instance().Release(it->guid.GetCounter(), BotActivity::Dungeon);
-                    if (it->forcedRole)
-                        LftBotFillService::Instance().ClearForcedRole(it->guid.GetCounter());
-                    group.members.erase(it);
-                    break;
-                }
-                if (replaceBot && AddMember(group, leader, replaceBot, lostRole))
-                    Log(group, std::string("replaced a member: ") + replaceBot->GetName() + " (" +
-                        BotLfg::RoleName(lostRole) + ")");
-                else
-                    End(group, BotLfgLifecycle::EndReason::MemberLost,
-                        BotLfgLifecycle::ReleaseOnEnd(facts.realPlayerInGroup, BotLfgLifecycle::EndReason::MemberLost));
+                if (!(it->guid == lostGuid))
+                    continue;
+                if (grp && grp->IsMember(it->guid))
+                    grp->RemoveMember(it->guid, 0);
+                BotActivityLeaseManager::Instance().Release(it->guid.GetCounter(), BotActivity::Dungeon);
+                if (it->forcedRole)
+                    LftBotFillService::Instance().ClearForcedRole(it->guid.GetCounter());
+                group.members.erase(it);
                 break;
             }
-            case BotLfgLifecycle::Step::End:
-                End(group, decision.reason, decision.release);
-                break;
-            case BotLfgLifecycle::Step::None:
-                break;
+            if (replaceBot && AddMember(group, leader, replaceBot, lostRole))
+                Log(group, std::string("replaced a member: ") + replaceBot->GetName() + " (" +
+                    BotLfg::RoleName(lostRole) + ")");
+            else
+                End(group, BotLfgLifecycle::EndReason::MemberLost,
+                    BotLfgLifecycle::ReleaseOnEnd(facts.realPlayerInGroup, BotLfgLifecycle::EndReason::MemberLost));
+            break;
         }
+        case BotLfgLifecycle::Step::End:
+            End(group, decision.reason, decision.release);
+            break;
+        case BotLfgLifecycle::Step::None:
+            break;
     }
 }
 
