@@ -368,7 +368,16 @@ RollVote RollAction::CalculateRollVote(ItemQualifier& itemQualifier, RollVote* f
     {
         Group* rollGroup = bot->GetGroup();
         if (rollGroup && !ai::LootMethodTakesRolls((int)rollGroup->GetLootMethod()))
+        {
+            std::string lootMethodReason = "because the group's loot method takes no rolls.";
+            if (finalVote)
+                *finalVote = ROLL_PASS;
+            if (reasonOut)
+                *reasonOut = lootMethodReason;
+            if (log)
+                LogLootRoll(ai, itemQualifier, ROLL_PASS, lootMethodReason);
             return ROLL_PASS;
+        }
 
         // Recipe gate: SKILL usage on a recipe is already the learned-state
         // verdict (ItemUsageValue: known recipes fall to KEEP/NONE, unknown
@@ -626,9 +635,8 @@ bool RollAction::RollWithEtiquette(ObjectGuid lootGuid, uint32 slot, ObjectGuid 
     if (!itemQualifier.GetId())
         return false;
 
-    RollVote vote;
     std::string reason;
-    CalculateRollVote(itemQualifier, &vote, &reason, false);
+    RollVote vote = CalculateRollVote(itemQualifier, nullptr, &reason, false);
 
     if (vote == ROLL_NEED)
     {
@@ -653,7 +661,7 @@ bool RollAction::RollWithEtiquette(ObjectGuid lootGuid, uint32 slot, ObjectGuid 
             if (AI_VALUE2(bool, "manual bool", "roll feedback"))
                 ai->TellPlayerNoFacing(ai->GetMaster(), "Rolling greed on " + ChatHelper::formatItem(itemQualifier) + " instead: a player in the group may need it.");
 
-            LogLootRoll(ai, itemQualifier, vote, "a player in the group may need it.");
+            LogLootRoll(ai, itemQualifier, vote, reason + " Stepped down to greed: a player in the group may need it.");
             return RollOnItemInSlot(vote, lootGuid, slot);
         }
     }
