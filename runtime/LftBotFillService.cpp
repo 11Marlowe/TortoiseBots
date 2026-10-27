@@ -1,10 +1,12 @@
 #include "LftBotFillService.h"
 #include "BotActivityLease.h"
 #include "runtime/policy/hire/LftCompPolicy.h"
+#include "runtime/policy/hire/LftPartyAcceptPolicy.h"
 #include "runtime/policy/hire/LftRoleKitPolicy.h"
 #include "runtime/policy/lfg/LftDungeonRangePolicy.h"
 
 #include "BotManager.h"
+#include "HireLifecycle.h"
 #include "PlayerbotAIStorage.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
@@ -465,7 +467,7 @@ void LftBotFillService::AcceptPendingOffers()
 void LftBotFillService::AcceptPartyBotOffers()
 {
     // Own-party acceptance: a real player queued LFT in a party with their own
-    // managed bots (alts/hires, non-random). The core auto-answers the
+    // managed bots (alts and hires). The core auto-answers the
     // rolecheck for them (rolecheck hook: forced role, then named combat
     // specs, then AiFactory spec/gear), but the formed offer
     // still needs every member to accept.
@@ -481,10 +483,12 @@ void LftBotFillService::AcceptPartyBotOffers()
         ObjectGuid guid = bot->GetObjectGuid();
         uint32 guidLow = guid.GetCounter();
         // Never touch fill-owned bots (they have their own acceptor above),
-        // nor random-pool bots (fill candidates, not party companions).
+        // nor random-pool bots (fill candidates, not party companions), except hires: a hire is a pool
+        // character that is its hirer's companion (#1284).
         if (m_pending.find(guidLow) != m_pending.end())
             continue;
-        if (BotManager::Instance().IsRandomBot(guid))
+        if (!LftPartyBotMayAccept(BotManager::Instance().IsRandomBot(guid),
+                HireLifecycle::Instance().IsHired(guid)))
             continue;
         if (!sLFTMgr.IsInOffer(guid))
             continue;

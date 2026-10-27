@@ -650,7 +650,7 @@ The service actually uses only `GetQueuedPlayers`, `QueuePlayer`, `LeaveQueue`,
 `IsQueued`, `IsInOffer`, and `AcceptOffer`; core retains all offer,
 acceptance, cancellation, and group-formation semantics. `AcceptOffer` is
 called only for module-owned Headless participants (fill-owned bots in
-`m_pending`, plus a human's own non-random party bots whose master/group
+`m_pending`, plus a human's own party bots (alts and hires, not other random-pool bots) whose master/group
 leader is a real player in the same offer); humans still accept
 through the native addon path.
 
@@ -676,7 +676,7 @@ pulled back out. A human queuing with their own party bots works with the
 switch on or off: the core auto-answers the rolecheck from the rolecheck hook
 (`BotPlayerAdapter::GetBotRoles` — explicit forced role first, then named
 combat specs, then `AiFactory` spec/gear fallback; ambient `tank assist` /
-`dps assist` ignored) and the service auto-accepts the offer for managed non-random bots whose master/group
+`dps assist` ignored) and the service auto-accepts the offer for a human's own party bots (alts and hires, not other random-pool bots) whose master/group
 leader is a real player in the same offer, on the existing update cadence —
 no per-bot-tick world scans, no fill leases or forced roles for party bots, and
 fill-owned entries are never touched by the party path. So the addon role/spec
