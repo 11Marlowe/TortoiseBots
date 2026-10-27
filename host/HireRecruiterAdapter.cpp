@@ -15,27 +15,30 @@ namespace TortoiseBots
 
 namespace
 {
-// AI the recruiters run on while hiring is off: invisible from spawn and
-// gone after the first update, without a corpse. The delay is one year, the
-// same "never" the core battlegrounds use; a restart with hiring on brings
-// the NPCs back.
+// Every recruiter runs this AI. Startup creatures are added before the bot
+// config is read, so GetAI cannot trust the hire flag. The first update, which
+// runs after startup, checks it once: with hiring off the recruiter is hidden
+// and removed without a corpse. A restart with hiring on brings them back.
 constexpr uint32 kHiddenRecruiterRespawnSecs = 31536000;
 
-class HiddenRecruiterAI : public CreatureAI
+class RecruiterAI : public CreatureAI
 {
 public:
-    explicit HiddenRecruiterAI(Creature* creature) : CreatureAI(creature) {}
+    explicit RecruiterAI(Creature* creature) : CreatureAI(creature) {}
     void UpdateAI(uint32 const /*diff*/) override
     {
-        if (!m_despawned)
-        {
-            m_despawned = true;
-            m_creature->ForcedDespawn();
-        }
+        if (m_checked)
+            return;
+        m_checked = true;
+        if (sPlayerbotAIConfig.hireEnabled)
+            return;
+        m_creature->SetVisibility(VISIBILITY_OFF);
+        m_creature->SetRespawnDelay(kHiddenRecruiterRespawnSecs);
+        m_creature->ForcedDespawn();
     }
 
 private:
-    bool m_despawned = false;
+    bool m_checked = false;
 };
 
 } // namespace
@@ -69,11 +72,9 @@ uint32 HireRecruiterAdapter::GetDialogStatus(Player* /*player*/, Creature* /*cre
 
 CreatureAI* HireRecruiterAdapter::GetAI(Creature* creature) const
 {
-    if (!creature || sPlayerbotAIConfig.hireEnabled)
+    if (!creature)
         return nullptr;
-    creature->SetVisibility(VISIBILITY_OFF);
-    creature->SetRespawnDelay(kHiddenRecruiterRespawnSecs);
-    return new HiddenRecruiterAI(creature);
+    return new RecruiterAI(creature);
 }
 
 } // namespace TortoiseBots
