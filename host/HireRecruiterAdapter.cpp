@@ -1,13 +1,29 @@
 // pi-lens-ignore-file: clang:pp_file_not_found,clang:unknown_typename,clang:use_of_undeclared_identifier,clang:unknown_type_name,clang:undeclared_var_use,clang:incomplete_member_access
 #include "HireRecruiterAdapter.h"
 #include "HireRecruiterScript.h"
+#include "../ai/playerbot/PlayerbotAIConfig.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "QuestDef.h"
-
+// pi-lens-ignore: clang:pp_file_not_found
+#include "Creature.h"
+// pi-lens-ignore: clang:pp_file_not_found
+#include "AI/CreatureAI.h"
 class Player;
-class Creature;
 
 namespace TortoiseBots
 {
+
+namespace
+{
+// Null AI the hidden recruiters run on: the same no-op core vendors idle on.
+class HiddenRecruiterAI : public CreatureAI
+{
+public:
+    explicit HiddenRecruiterAI(Creature* creature) : CreatureAI(creature) {}
+    void UpdateAI(uint32 const /*diff*/) override {}
+};
+
+} // namespace
 
 HireRecruiterAdapter::HireRecruiterAdapter() : CreatureScript("tortoise_mercenary_hire")
 {
@@ -34,6 +50,16 @@ bool HireRecruiterAdapter::OnQuestAccept(Player* player, Creature* creature, Que
 uint32 HireRecruiterAdapter::GetDialogStatus(Player* /*player*/, Creature* /*creature*/)
 {
     return DIALOG_STATUS_UNDEFINED;
+}
+
+CreatureAI* HireRecruiterAdapter::GetAI(Creature* creature) const
+{
+    if (!creature || sPlayerbotAIConfig.hireEnabled)
+        return nullptr;
+    creature->SetVisibility(VISIBILITY_OFF);
+    creature->RemoveFromWorld();
+    creature->SetRespawnTime(0);
+    return new HiddenRecruiterAI(creature);
 }
 
 } // namespace TortoiseBots
