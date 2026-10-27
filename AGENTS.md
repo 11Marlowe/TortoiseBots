@@ -8,7 +8,7 @@ It is a hobby project built for its owner and interested players: pragmatic, sma
 
 ## Product direction
 
-- **Gameplay/AI gold standard: mod-playerbots.** When behaviour can be better, port the modern mod-playerbots behaviour adapted to 1.12 rather than the older shyalya/cmangos lineage this module partly inherited.
+- **Gameplay/AI gold standard: mod-playerbots.** When behaviour can be better, port the modern mod-playerbots behaviour adapted to 1.12.
 - **Player-facing controls follow the owner's spec** in the issue for that command; the issue text is the contract for `.bot action` and the TBM addon.
 - **Player control first.** Explicit orders beat automation; a big new feature or system ships behind a toggle, off by default (fixes and smaller behaviour improvements need none).
 - **Bots are always alive.** Activity throttling (`DisableActivityPriorities = 0`, `botActiveAlone`) is an opt-in kept for other forks' users, not the direction.
@@ -45,9 +45,9 @@ Full rules and rationale: [`docs/developers/architecture.md`](docs/developers/ar
 
 ## Donors and references
 
-No donor checkouts are kept locally any more; look donor code up online (mod-playerbots, shyalya-tortoise-wow, spp-classics-cmangos). **Harvest behaviour, not architecture**: understand the donor behaviour, reimplement it inside the module, test it, record provenance. Never vendor a donor tree or expand host coupling to ease a port.
+No donor checkouts are kept locally any more; look mod-playerbots code up online. **Harvest behaviour, not architecture**: understand the donor behaviour, reimplement it inside the module, test it, record provenance. Never vendor a donor tree or expand host coupling to ease a port.
 
-Lookup order: gameplay/class AI/CC/movement → mod-playerbots, then shyalya-tortoise-wow for 1.18.1 specifics; sessions/lifecycle → the current core; Turtle spells/talents/items → core data (DBCs in `../tortoise-docker-penqle/data/dbc`, world DB).
+Lookup order: gameplay/class AI/CC/movement → mod-playerbots; sessions/lifecycle → the current core; Turtle spells/talents/items → core data (DBCs in `../tortoise-docker-penqle/data/dbc`, world DB).
 
 ## Working rules
 
