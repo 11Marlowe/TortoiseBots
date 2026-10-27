@@ -39,21 +39,10 @@ public:
     // Must not touch the lease map; the manager owns the transition.
     void OnLeaseEvicted(uint32_t guidLow);
 
-private:
-    LftBotFillService() = default;
-    ~LftBotFillService() = default;
-
-    bool IsEligibleCandidate(Player* bot) const;
     uint8 GetBotRoleMask(Player const* bot) const;
-    bool IsModuleOwnedHeadlessBot(Player const* bot) const;
-    void ReconcilePending(bool cancelAll, std::vector<std::string> const* activeInstances = nullptr);
-    void AcceptPendingOffers();
-    // Own-party offer acceptance (independent of the random-fill switch):
-    // auto-accept native offers for managed bots grouped with / mastered by a
-    // real player who shares the offer. Fill-owned bots (m_pending) are never
-    // touched here; solo managed bots never auto-accept.
-    void AcceptPartyBotOffers();
     void ClearForcedRole(uint32 guidLow);
+    // The forced role and the kit rebuild `.bot role` runs; 0 clears it.
+    void ApplyForcedRole(Player* bot, uint8 role);
     // Issue #189 Phase 4: natural-role eligibility (no borrowing by default)
     // plus best-shield-from-bags equip for shield-class tanks. Returns the
     // skip reason when the bot must not fill the role, empty when it may.
@@ -62,6 +51,20 @@ private:
     // Issue #966: role bits of the installed combat kit (named spec
     // strategies only, like BotPlayerAdapter::GetBotRoles); 0 = bare kit.
     uint8 GetCombatKitRoleMask(Player const* bot) const;
+
+private:
+    LftBotFillService() = default;
+    ~LftBotFillService() = default;
+
+    bool IsEligibleCandidate(Player* bot) const;
+    bool IsModuleOwnedHeadlessBot(Player const* bot) const;
+    void ReconcilePending(bool cancelAll, std::vector<std::string> const* activeInstances = nullptr);
+    void AcceptPendingOffers();
+    // Own-party offer acceptance (independent of the random-fill switch):
+    // auto-accept native offers for managed bots grouped with / mastered by a
+    // real player who shares the offer. Fill-owned bots (m_pending) are never
+    // touched here; solo managed bots never auto-accept.
+    void AcceptPartyBotOffers();
 
     bool m_initialized = false;
     uint32_t m_elapsedMs = 0;
