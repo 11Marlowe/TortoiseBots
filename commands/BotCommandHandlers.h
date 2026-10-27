@@ -58,6 +58,7 @@ bool HandleAutogear(ChatHandler* handler, char const* args);
 bool HandleHire(ChatHandler* handler, char const* args);
 bool HandlePool(ChatHandler* handler, char const* args);
 bool HandleLoot(ChatHandler* handler, char const* args);
+bool HandleLootLog(ChatHandler* handler, char const* args);
 bool HandleRepair(ChatHandler* handler, char const* args);
 bool HandleSell(ChatHandler* handler, char const* args);
 bool HandleRest(ChatHandler* handler, char const* args);
