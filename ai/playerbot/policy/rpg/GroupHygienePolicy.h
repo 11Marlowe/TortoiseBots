@@ -25,12 +25,20 @@ namespace ai
         return distance2d >= 2 * rpgDistance;
     }
 
-    // Issue #1014: a hired companion, or a bot in a group a commander has
-    // bound, never leaves its group on its own (the same guard the "master
-    // left the party" rule has). The hire ends through the hire lifecycle and
-    // the binding through its release, not through this roll.
-    inline bool FarAwayLeaveAllowed(bool hired, bool inCommandedGroup)
+    // Issue #1014: a hired companion, a bot in a group a commander has
+    // bound, or a bot of a dungeon crew (the Dungeon activity lease) never
+    // leaves its group on its own (the same guard the "master left the party"
+    // roll has). The hire ends through the hire lifecycle, the binding through
+    // its release, and the crew through its owner.
+    inline bool FarAwayLeaveAllowed(bool hired, bool inCommandedGroup, bool dungeonCrew)
     {
-        return !hired && !inCommandedGroup;
+        return !hired && !inCommandedGroup && !dungeonCrew;
+    }
+
+    // A crew's open slot belongs to the crew's owner, so a crew bot never
+    // invites a stranger or a guildmate on its own.
+    inline bool RandomGroupInviteAllowed(bool dungeonCrew)
+    {
+        return !dungeonCrew;
     }
 }

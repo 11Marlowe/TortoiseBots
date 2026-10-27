@@ -2,8 +2,9 @@
 
 // A dead bot's own auto release (ai/playerbot/strategy/actions/ReleaseSpiritAction.h,
 // AutoReleaseSpiritAction::isUseful) inside the module's two waits:
-// - a dungeon crew (the Dungeon activity lease) waits while a living group member of a
+// - a dungeon crew **inside an instance** waits while a living group member of a
 //   resurrecting class is on its map or the crew still fights; only a wipe releases;
+//   outside one the stock rules decide;
 // - a bot bound to an active dungeon run (a hired run bot on the PlayerMaster lease
 //   whose party a run leader is running or holds paused) waits at its body: the run's
 //   regroup releases it (a resurrection in the party, then `revive party`), or the
@@ -53,9 +54,10 @@ enum class AutoRelease : std::uint8_t
     Stock,   // not the module's call: the stock rules decide
 };
 
-inline AutoRelease Decide(BotActivity lease, bool heldByRun, bool crewHasLivingRezzer, bool crewInCombat)
+inline AutoRelease Decide(BotActivity lease, bool heldByRun, bool crewHasLivingRezzer, bool crewInCombat,
+    bool onInstanceMap)
 {
-    if (lease == BotActivity::Dungeon)
+    if (lease == BotActivity::Dungeon && onInstanceMap)
         return !crewHasLivingRezzer && !crewInCombat ? AutoRelease::Release : AutoRelease::Wait;
     if (lease == BotActivity::PlayerMaster && heldByRun)
         return AutoRelease::Wait;

@@ -148,7 +148,8 @@ namespace ai
             // below decide again (runtime/RunReleaseHold.h).
             TortoiseBots::RunReleaseHold::AutoRelease const verdict = TortoiseBots::RunReleaseHold::Decide(
                 TortoiseBots::BotActivityLeaseManager::Instance().GetActivity(bot->GetGUIDLow()),
-                TortoiseBots::RunReleaseHold::HeldByRun(bot), DungeonCrewHasLivingResurrecter(), DungeonCrewInCombat());
+                TortoiseBots::RunReleaseHold::HeldByRun(bot), DungeonCrewHasLivingResurrecter(), DungeonCrewInCombat(),
+                bot->GetMap() && bot->GetMap()->Instanceable());
             if (verdict == TortoiseBots::RunReleaseHold::AutoRelease::Wait)
                 return false;
             if (verdict == TortoiseBots::RunReleaseHold::AutoRelease::Release)
