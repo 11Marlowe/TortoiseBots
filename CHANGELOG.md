@@ -1,5 +1,44 @@
 # Changelog
 
+## v1.13.0 (2026-10-27)
+
+### Classes & Combat
+- Casters that walked into range could stop casting entirely; they now cast Wrath, Starfire, Regrowth and Healing Touch again. [#1282](https://github.com/Sagiroth/TortoiseBots/pull/1282)
+
+### Groups & Dungeons
+- Bots in a player's group now hold their attacks at the start of a fight so the player can pull first. [#1263](https://github.com/Sagiroth/TortoiseBots/pull/1263)
+- Razorfen Kraul no longer leaves packs behind near Ramtusk, Scholomance kills Marduk first, and Deadmines hall fights at the right distance. [#1263](https://github.com/Sagiroth/TortoiseBots/pull/1263)
+- In bot-only runs, bots receive the keys and items a dungeon needs, then hand them back when the run ends or a player joins. [#1265](https://github.com/Sagiroth/TortoiseBots/pull/1265)
+- Bots never take back a copy of a key or item they already owned themselves. [#1265](https://github.com/Sagiroth/TortoiseBots/pull/1265)
+- When a real player is in the group, the run waits at locked doors for the player instead of opening them. [#1265](https://github.com/Sagiroth/TortoiseBots/pull/1265)
+- The Gahz'rilla leg of Zul'Farrak runs now works. [#1265](https://github.com/Sagiroth/TortoiseBots/pull/1265)
+- At a locked door, the lead bot now asks in /s for the key and the Lockpicking skill needed, once per wait. [#1268](https://github.com/Sagiroth/TortoiseBots/pull/1268)
+- A skipped optional leg now names in chat the item the run was missing. [#1268](https://github.com/Sagiroth/TortoiseBots/pull/1268)
+- Reviving a bot no longer pauses the dungeon run. [#1280](https://github.com/Sagiroth/TortoiseBots/pull/1280)
+- When only game master accounts are still alive, the run now regroups and revives the party by itself. [#1280](https://github.com/Sagiroth/TortoiseBots/pull/1280)
+- Refusals when changing run speed now say clearly why they were refused. [#1280](https://github.com/Sagiroth/TortoiseBots/pull/1280)
+- World bots can now form dungeon groups that wait for a player, off by default; turn it on with the BotLfgGroups setting. [#1283](https://github.com/Sagiroth/TortoiseBots/pull/1283)
+- These bot groups currently end after two minutes, because travelling to the dungeon is not built yet. [#1283](https://github.com/Sagiroth/TortoiseBots/pull/1283)
+
+### Loot
+- A new HireLoot setting, on by default, can stop hired companions from looting corpses and rolling on items. [#1279](https://github.com/Sagiroth/TortoiseBots/pull/1279)
+- Your addon can now ask for the last 24 hours of loot picked up by your own alts and hired companions, 40 rows at a time. [#1275](https://github.com/Sagiroth/TortoiseBots/pull/1275)
+- Each item a bot loots now appears in your addon straight away instead of only after your next login. [#1278](https://github.com/Sagiroth/TortoiseBots/pull/1278)
+
+### Quests & Levelling
+- Bots can now turn in talk-to quests they pick up from follow distance, instead of carrying them forever. [#1272](https://github.com/Sagiroth/TortoiseBots/pull/1272)
+- Hired companions no longer take part in quests, including quest orders, since their progress was never kept. [#1279](https://github.com/Sagiroth/TortoiseBots/pull/1279)
+
+### World & Economy
+- Mercenary Hire recruiters are now gone from inns while hiring is turned off, including for game masters, and return when you turn hiring back on. [#1272](https://github.com/Sagiroth/TortoiseBots/pull/1272) [#1276](https://github.com/Sagiroth/TortoiseBots/pull/1276) [#1277](https://github.com/Sagiroth/TortoiseBots/pull/1277)
+
+### Behind the scenes
+- Loot and money log lines now record where they came from and item quality, so a loot history can be built from them. [#1274](https://github.com/Sagiroth/TortoiseBots/pull/1274)
+- Bot loot roll decisions are now written to the log for troubleshooting. [#1272](https://github.com/Sagiroth/TortoiseBots/pull/1272)
+- Docs refreshed: README updated, guidance added for reading large files, and stale references to removed donor code dropped. [#1259](https://github.com/Sagiroth/TortoiseBots/pull/1259) [#1273](https://github.com/Sagiroth/TortoiseBots/pull/1273)
+
+---
+
 ## v1.12.0 (2026-10-26)
 
 ### Dungeons
