@@ -274,7 +274,7 @@ bool RollAction::Execute(Event& event)
             doVote = CalculateRollVote(itemQualifier, nullptr, nullptr, true);
         else
         {
-            std::string orderReason = "ordered by " + (requester ? requester->GetName() : "?");
+            std::string orderReason = std::string("ordered by ") + (requester ? requester->GetName() : "?");
             if (!StoreLootAction::IsLootAllowed(itemQualifier, PlayerbotAIStorage::Instance().GetAI(bot)))
                 orderReason += " (can not be looted)";
             LogLootRoll(ai, itemQualifier, doVote, orderReason);
