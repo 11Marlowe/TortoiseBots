@@ -874,6 +874,7 @@ AiPlayerbot.DungeonSelfClear = 1
 # Bot LFG dungeon groups: online, idle world bots of one faction and of a proven
 # dungeon's level band (table ai_bot_lfg_plan; the band is the LFT addon's) form a
 # group of four, tank, healer and damage, with one role left open for a player.
+# While it waits it looks for that player in the LookingForGroup channel (AiPlayerbot.BotLfgChat).
 # When no player joins within AiPlayerbot.BotLfgFillAfterMinutes, a bot of the open
 # role joins. Getting the group to the dungeon is not built yet, so a full group
 # breaks up again after two minutes. A GameMaster watches and drives them with

@@ -10,6 +10,9 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CPP = (ROOT / "runtime/BotLfgService.cpp").read_text()
 CMD = (ROOT / "commands/Commander.cpp").read_text()
+TEMPLATE = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
+GUIDE = (ROOT / "docs/play/dungeon-run-leader.md").read_text()
+CHANGELOG = (ROOT / "CHANGELOG.md").read_text()
 
 
 def strip_comments(text):
@@ -121,3 +124,11 @@ class BotLfgWhisperWiringTest(unittest.TestCase):
     def test_invite_held_pins(self):
         fn = body(SVC, "bool BotLfgService::InviteHeld(", "\n}\n")
         self.assertIn("BotLfgAdvert::InvitePending(", fn)
+
+class BotLfgChatDocsTest(unittest.TestCase):
+    def test_part3_docs(self):
+        block = TEMPLATE[TEMPLATE.index("# Bot LFG dungeon groups:"):TEMPLATE.index("AiPlayerbot.BotLfgChat = 1")]
+        self.assertIn("AiPlayerbot.BotLfgChat", block)
+        self.assertIn("## Joining a bot LFG group", GUIDE)
+        unreleased = CHANGELOG[CHANGELOG.index("## Unreleased"):CHANGELOG.index("## v1.8.0")]
+        self.assertIn("AiPlayerbot.BotLfgChat", unreleased)
