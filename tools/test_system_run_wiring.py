@@ -110,6 +110,9 @@ class SystemBindingWiringTest(unittest.TestCase):
         self.assertIn("auto restoreLead = [&]", bind)
         self.assertLess(bind.index("auto restoreLead = [&]"), bind.index("restoreLead();"))
         self.assertIn("restoreLead();\n        restoreMoved();", bind)
+        self.assertNotIn("priorLeadGroup->", bind)
+        self.assertNotIn("Group* priorLeadGroup", bind)
+        self.assertIn("now->GetId() == priorLeadGroupId", bind)
 
     def test_trace_follows_the_anchor_binding(self):
         trace = body(COMMANDS, "static bool TraceContext(", "\n}\n")

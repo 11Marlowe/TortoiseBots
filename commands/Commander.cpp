@@ -2038,8 +2038,13 @@ uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::s
             return 0;
         }
     }
-    Group* priorLeadGroup = lead->GetGroup();
-    uint64 priorLeadLeader = priorLeadGroup ? priorLeadGroup->GetLeaderGuid().GetRawValue() : 0;
+    uint32 priorLeadGroupId = 0;
+    uint64 priorLeadLeader = 0;
+    if (Group* before = lead->GetGroup())
+    {
+        priorLeadGroupId = before->GetId();
+        priorLeadLeader = before->GetLeaderGuid().GetRawValue();
+    }
     // The lead's old leader goes back before the moved bots do: both failure
     // branches below run this first (a bot the rollback cannot restore — its
     // old group broke up, or it led its old group — ends ungrouped; see the
@@ -2047,7 +2052,7 @@ uint64 BindSystemParty(Player* lead, std::vector<Player*> const& joiners, std::s
     auto restoreLead = [&]
     {
         if (Group* now = lead->GetGroup())
-            if (priorLeadGroup && now->GetId() == priorLeadGroup->GetId() && priorLeadLeader &&
+            if (priorLeadGroupId && now->GetId() == priorLeadGroupId && priorLeadLeader &&
                 !now->IsLeader(ObjectGuid(priorLeadLeader)))
                 now->ChangeLeader(ObjectGuid(priorLeadLeader));
     };
