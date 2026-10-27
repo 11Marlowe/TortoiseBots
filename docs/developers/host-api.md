@@ -657,7 +657,7 @@ through the native addon path.
 Candidates are filtered in memory by team, hardcore state, group/live state,
 role, and the authoritative `Soromeister/LFT` v0.0.3.3 `LFT.allDungeons`
 dungeon `code`/`minLevel`/`maxLevel` range (exact code and normalized display-name
-aliases; see `runtime/LftBotFillService.cpp:FindDungeonLevelRange`).
+aliases; see `runtime/policy/lfg/LftDungeonRangePolicy.h:LftDungeonRangeTable`).
 Instance names are normalized through the small module alias table; unknown,
 corrupt, and absent (Tortoise-only/custom) ranges fail closed and are logged once. There is no average-human +/-5 approximation,
 role hook, private-map access, addon-string injection, or DB query per tick.
@@ -684,6 +684,18 @@ buttons drive the rolecheck (tank button via `.bot role`, the rest via named
 combat specs). No teleport or summon
 exists on either path: after the group forms the party walks (follow) to the
 portal, so `.bot summon` stragglers first.
+
+## 16b. Bot LFG groups (optional, default-off)
+
+`BotLfgService` (`runtime/BotLfgService.{h,cpp}`, ticked by
+`host/BotLfgAdapter.cpp`) forms bot-only LFG groups from the proven plans of
+the `ai_bot_lfg_plan` world table. Scans eligible world bots through
+`BotLfg::CheckCandidate` (idle world bot, ungrouped, unbound, off LFT/BG,
+off instance maps, level 10+), composes tank/healer/damage with
+`BotLfg::ComposeWithOpen` (one role left open for a player), and ends every
+group either released (a real player in it or a commander's binding on it)
+or disbanded. A formed group holds the `Dungeon` activity lease on each
+member before inviting, so random-bot services leave the crew alone.
 
 ## 17. AH market population (optional, default-off)
 

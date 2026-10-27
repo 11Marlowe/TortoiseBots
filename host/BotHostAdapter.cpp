@@ -10,6 +10,7 @@
 #include "../runtime/RandomBotService.h"
 #include "../runtime/AhMarketService.h"
 #include "../runtime/BattlegroundQueueService.h"
+#include "../runtime/BotLfgService.h"
 #include "../runtime/ObservabilityEmitter.h"
 #include "../runtime/RunTrace.h"
 #include "BotChatAdapter.h"
@@ -221,6 +222,7 @@ void BotHostAdapter::OnUpdate(uint32 diff)
 
 void BotHostAdapter::OnShutdown()
 {
+    BotLfgService::Instance().Shutdown();
     RunTraceService::Instance().Shutdown();
     ObservabilityEmitter::Instance().Shutdown();
     BattlegroundQueueService::Instance().Shutdown();
