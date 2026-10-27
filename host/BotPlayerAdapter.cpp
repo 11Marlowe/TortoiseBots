@@ -2,6 +2,7 @@
 
 #include "../behavior/PlayerConvenience.h"
 #include "../commands/BotCommands.h"
+#include "../commands/BotCommandHandlers.h"
 #include "../runtime/BotManager.h"
 #include "../runtime/HireLifecycle.h"
 #include "../runtime/AltBotService.h"
@@ -131,6 +132,10 @@ void BotPlayerAdapter::OnLogin(Player* player)
         }
     }
     BotManager::Instance().OnPlayerLogin(player);
+    // Item-leg skip (spec D7): a crash/restart mid-run leaves given items in
+    // bags with ledger rows; destroy to count and delete the rows when no live
+    // run slot holds them.
+    BotCommands::CleanupRunGivenItems(player);
 }
 
 void BotPlayerAdapter::OnMapChanged(Player* player)

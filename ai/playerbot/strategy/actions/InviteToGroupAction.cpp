@@ -2,11 +2,17 @@
 #include "playerbot/playerbot.h"
 #include "InviteToGroupAction.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/policy/rpg/GroupHygienePolicy.h"
 #include "playerbot/strategy/values/Formations.h"
+#include "../../../../runtime/BotActivityLease.h"
 #include "Guild/GuildMgr.h"
-
 namespace ai
 {
+    static bool IsDungeonCrew(Player* bot)
+    {
+        return bot && TortoiseBots::BotActivityLeaseManager::Instance().GetActivity(bot->GetGUIDLow()) ==
+            TortoiseBots::BotActivity::Dungeon;
+    }
     bool InviteToGroupAction::Invite(Player* inviter, Player* player)
     {
         if (!player)
@@ -404,6 +410,9 @@ namespace ai
         if (bot->InBattleGroundQueue())
             return false;
 
+        if (!ai::RandomGroupInviteAllowed(IsDungeonCrew(bot)))
+            return false;
+
         GrouperType grouperType = ai->GetGrouperType();
 
         if (grouperType == GrouperType::SOLO || grouperType == GrouperType::MEMBER)
@@ -429,6 +438,14 @@ namespace ai
            return false;
 
         return true;
+    }
+
+    // Guild grouping is governed by RandomBotGuildNearby, not
+    // RandomBotGroupNearby: pool guildmates group per the guild key.
+    bool InviteGuildToGroupAction::isUseful()
+    {
+        return bot->GetGuildId() && sPlayerbotAIConfig.randomBotGuildNearby &&
+            ai::RandomGroupInviteAllowed(IsDungeonCrew(bot));
     }
 
     std::vector<Player*> InviteGuildToGroupAction::getGuildMembers()

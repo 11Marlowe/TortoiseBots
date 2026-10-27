@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "../../policy/loot/SkinningLootPolicy.h"
 #include "../../policy/loot/LootWindowPolicy.h"
+#include "../../policy/loot/LootHistoryPolicy.h"
 #include "LootAction.h"
 #include "playerbot/CastKeepsRunningPolicy.h"
 
@@ -451,6 +452,68 @@ static uint32 GetNodeGatherSkill(GameObject* go)
     return SKILL_NONE;
 }
 
+// Where one loot window came from, for the history row: the corpse, chest or
+// gathering node name the addon shows. The object's live name wins (it carries
+// any rename), the template name is the fallback once the object is gone. A
+// skin keeps its corpse: the GatherLoot row already says it was skinned.
+static void DescribeLootSource(PlayerbotAI* ai, ObjectGuid guid, uint32 gatherSkill,
+    std::string& type, std::string& name)
+{
+    type = "other";
+    name.clear();
+
+    if (guid.IsCreature())
+    {
+        type = "corpse";
+        if (Creature* creature = ai->GetCreature(guid))
+            name = creature->GetName();
+        if (name.empty())
+            if (CreatureInfo const* info = sObjectMgr.GetCreatureTemplate(guid.GetEntry()))
+                name = info->name;
+        return;
+    }
+
+    GameObjectInfo const* goInfo = nullptr;
+    if (GameObject* go = ai->GetGameObject(guid))
+        goInfo = go->GetGOInfo();
+    if (!goInfo)
+        goInfo = sObjectMgr.GetGameObjectInfo(guid.GetEntry());
+
+    if (goInfo && goInfo->type == GAMEOBJECT_TYPE_CHEST)
+        type = "chest";
+    else if (gatherSkill != SKILL_NONE)
+        type = "gathering";
+    else if (guid.IsGameObject())
+        type = "object";
+
+    if (goInfo)
+        name = goInfo->name;
+}
+
+// Live copy of a stored item row for the owner's addon: the same TBM:LOOT line
+// the .bot lootlog reply sends, pushed as the bot loots. Only bots in the
+// owner's party, since that is who the addon shows them to.
+static void NotifyOwnerOfLoot(PlayerbotAI* ai, Player* bot, std::string item, uint32 itemId,
+    std::string const& sourceType, std::string source, uint32 quality)
+{
+    Player* owner = ai->GetMaster();
+    if (!owner || !owner->GetGroup() || owner->GetGroup() != bot->GetGroup())
+        return;
+
+    std::string timestamp = sPlayerbotAIConfig.GetTimestampStr() + "+00";
+    std::string botName = bot->GetName();
+    std::string qualityText = std::to_string(quality);
+    std::string head = "TBM:LOOT|" + timestamp + "|" + botName + "|StoreLootAction|" + std::to_string(itemId) + "|";
+    size_t fixedBytes = head.size() + 1 + sourceType.size() + 1 + 1 + qualityText.size();
+    ai::LootHistoryPolicy::FitLootWireLine(item, source, fixedBytes);
+    for (std::string* field : { &item, &source })
+        for (char& character : *field)
+            if (character == '|' || character == '\r' || character == '\n')
+                character = ' ';
+
+    PlayerbotChatHandler(owner).sysmessage(head + item + "|" + sourceType + "|" + source + "|" + qualityText);
+}
+
 bool StoreLootAction::Execute(Event& event)
 {
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
@@ -547,6 +610,10 @@ bool StoreLootAction::Execute(Event& event)
     uint32 orderedItem = 0;
     bool const commanderOrder = TortoiseBots::RemoteCommander::LootOrders().Watching(botRaw, guid.GetRawValue(), orderedItem);
 
+    std::string lootSourceType;
+    std::string lootSourceName;
+    DescribeLootSource(ai, guid, gatherSkill, lootSourceType, lootSourceName);
+
     // An order for one item leaves the money on the corpse.
     if (gold > 0 && !(commanderOrder && orderedItem))
     {
@@ -560,7 +627,8 @@ bool StoreLootAction::Execute(Event& event)
         // opened a corpse but took only money looked identical to one that never
         // opened it. Log the copper amount so bot_events.csv can correlate kills
         // with looting.
-        sPlayerbotAIConfig.logEvent(ai, "LootMoney", std::to_string(gold), std::to_string(guid.GetEntry()));
+        sPlayerbotAIConfig.logEvent(ai, "LootMoney", std::to_string(gold), std::to_string(guid.GetEntry()),
+            lootSourceType, lootSourceName);
     }
 
     for (uint8 i = 0; i < items; ++i)
@@ -658,7 +726,9 @@ bool StoreLootAction::Execute(Event& event)
             ai->TellPlayerNoFacing(requester, BOT_TEXT2("loot_command", args), PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
         }
 
-        sPlayerbotAIConfig.logEvent(ai, "StoreLootAction", proto->Name1, std::to_string(proto->ItemId));
+        sPlayerbotAIConfig.logEvent(ai, "StoreLootAction", proto->Name1, std::to_string(proto->ItemId),
+            lootSourceType, lootSourceName, std::to_string(proto->Quality));
+        NotifyOwnerOfLoot(ai, bot, proto->Name1, proto->ItemId, lootSourceType, lootSourceName, proto->Quality);
 
         if (gatherSkill != SKILL_NONE)
             sPlayerbotAIConfig.logEvent(ai, "GatherLoot", std::to_string(gatherSkill), std::to_string(proto->ItemId));

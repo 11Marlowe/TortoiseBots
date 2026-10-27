@@ -14,6 +14,7 @@
 #include "ReviveFromCorpseAction.h"
 #include "playerbot/TravelMgr.h"
 #include "playerbot/policy/travel/GraveyardTeleportPolicy.h"
+#include "playerbot/policy/rpg/GroupHygienePolicy.h"
 
 namespace ai
 {
@@ -148,7 +149,8 @@ namespace ai
             // below decide again (runtime/RunReleaseHold.h).
             TortoiseBots::RunReleaseHold::AutoRelease const verdict = TortoiseBots::RunReleaseHold::Decide(
                 TortoiseBots::BotActivityLeaseManager::Instance().GetActivity(bot->GetGUIDLow()),
-                TortoiseBots::RunReleaseHold::HeldByRun(bot), DungeonCrewHasLivingResurrecter(), DungeonCrewInCombat());
+                TortoiseBots::RunReleaseHold::HeldByRun(bot), DungeonCrewHasLivingResurrecter(), DungeonCrewInCombat(),
+                bot->GetMap() && bot->GetMap()->Instanceable());
             if (verdict == TortoiseBots::RunReleaseHold::AutoRelease::Wait)
                 return false;
             if (verdict == TortoiseBots::RunReleaseHold::AutoRelease::Release)
@@ -226,7 +228,9 @@ namespace ai
             }
 
 
-            if (!ai->HasRealPlayerMaster())
+            if (ai::RepopLeavesGroup(ai->HasRealPlayerMaster(),
+                    TortoiseBots::BotActivityLeaseManager::Instance().GetActivity(bot->GetGUIDLow()) ==
+                        TortoiseBots::BotActivity::Dungeon))
             {
                 if (Group* group = bot->GetGroup())
                 {

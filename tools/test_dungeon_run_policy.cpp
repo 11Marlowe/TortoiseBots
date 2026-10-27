@@ -5212,6 +5212,480 @@ static void TestUseOnNamesADeadHolder()
 }
 
 // No bot of the party carries the item: a pause that says so (the item is the operator's to give), no order.
+// Spec item-leg-skip C2/F7: an optional leg's first quiet tick with nobody
+// carrying the item skips the whole leg: r.step jumps to leg 10's first step,
+// skippedLegs == {9}, the note names the skip, no order goes out. Run to the
+// end: the done note lists the skip and names no skipped boss.
+static void TestOptionalLegSkippedWithoutItem()
+{
+    DungeonPlan plan;
+    plan.name = "zf";
+    ai::PlanLeg leg9;
+    leg9.leg = 9;
+    leg9.name = "gahzrilla";
+    plan.legs.push_back(leg9);
+    ai::PlanLeg leg10;
+    leg10.leg = 10;
+    leg10.name = "courtyard";
+    plan.legs.push_back(leg10);
+    PlanStep move = Step(PlanStepKind::Move, 0, 0, 0);
+    move.leg = 9;
+    PlanStep pull = PullStep(10, {7580});
+    pull.leg = 9;
+    PlanStep gong = GongRow();
+    gong.leg = 9;
+    PlanStep boss = Step(PlanStepKind::Boss, 20, 0, 0);
+    boss.leg = 9;
+    boss.entry = 7273;
+    boss.entries = {7273};
+    ai::NormalizePlanStep(boss);
+    PlanStep next = Step(PlanStepKind::Move, 100, 0, 0);
+    next.leg = 10;
+    plan.steps = {move, pull, gong, boss, next};
+    ai::PlanLegNeed need;
+    need.leg = 9;
+    need.item = 9240;
+    need.mode = ai::LegNeedMode::Optional;
+    need.name = "Mallet of Zul'Farrak";
+    plan.needs.push_back(need);
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.legNeedRead = true;
+    f.legNeedHolders = {{9240, ""}};
+    CHECK(Tick(r, f).empty());
+    CHECK(r.step == 4);
+    CHECK(r.skippedLegs.size() == 1 && r.skippedLegs[0] == 9);
+    CHECK(r.note.find("leg gahzrilla skipped: it needs item 9240 (Mallet of Zul'Farrak)") != std::string::npos);
+    CHECK(r.state == State::Running);
+    CHECK(r.notCleared.count(1) == 1 && r.notCleared.count(3) == 1);
+    CHECK(r.legNeedDecided.count(9) == 1);
+    // Run to the end: the last move point walks, the run finishes.
+    f.legNeedRead = false;
+    f.leadX = 99;
+    for (int i = 0; i < 400 && r.state == State::Running; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Done);
+    CHECK(r.note.find("optional leg skipped: gahzrilla (item 9240)") != std::string::npos);
+    CHECK(r.note.find("boss skipped, not seen killed") == std::string::npos);
+}
+
+// Spec C2/F8: a holder exists -> the leg runs; later ticks never re-decide.
+static void TestOptionalLegRunsWithCarrier()
+{
+    DungeonPlan plan;
+    plan.name = "zf";
+    ai::PlanLeg leg9;
+    leg9.leg = 9;
+    leg9.name = "gahzrilla";
+    plan.legs.push_back(leg9);
+    PlanStep move = Step(PlanStepKind::Move, 50, 0, 0);
+    move.leg = 9;
+    PlanStep rest = Step(PlanStepKind::Rest);
+    rest.leg = 9;
+    plan.steps = {move, rest};
+    ai::PlanLegNeed need;
+    need.leg = 9;
+    need.item = 9240;
+    need.mode = ai::LegNeedMode::Optional;
+    need.name = "Mallet of Zul'Farrak";
+    plan.needs.push_back(need);
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.legNeedRead = true;
+    f.legNeedHolders = {{9240, "Tanky"}};
+    CHECK(Tick(r, f) == "move 50.0 0.0 0.0");
+    CHECK(r.step == 0);
+    CHECK(r.legNeedDecided.count(9) == 1);
+    f.legNeedHolders = {{9240, ""}};
+    f.leadX = 48;
+    Tick(r, f);
+    CHECK(r.step == 1 && r.state == State::Running);
+}
+
+// Spec C2/F9: in combat -> not decided that tick; decided on the first quiet tick.
+static void TestOptionalLegWaitsOutCombat()
+{
+    DungeonPlan plan;
+    plan.name = "zf";
+    ai::PlanLeg leg9;
+    leg9.leg = 9;
+    leg9.name = "gahzrilla";
+    plan.legs.push_back(leg9);
+    PlanStep move = Step(PlanStepKind::Move, 50, 0, 0);
+    move.leg = 9;
+    PlanStep rest = Step(PlanStepKind::Rest);
+    rest.leg = 9;
+    plan.steps = {move, rest};
+    ai::PlanLegNeed need;
+    need.leg = 9;
+    need.item = 9240;
+    need.mode = ai::LegNeedMode::Optional;
+    plan.needs.push_back(need);
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.legNeedRead = true;
+    f.legNeedHolders = {{9240, ""}};
+    f.anyInCombat = true;
+    Tick(r, f);
+    CHECK(r.legNeedDecided.empty() && r.skippedLegs.empty());
+    f.anyInCombat = false;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.skippedLegs.size() == 1 && r.state == State::Done);
+    CHECK(r.note.find("optional leg skipped: gahzrilla (item 9240)") != std::string::npos);
+}
+
+// Spec C2/F10: after the skip a walk back from leg 10 never picks a leg-9
+// index, and ArmReachedTriggers arms no leg-9 trigger; the leg-9 pull is in notCleared.
+static void TestSkippedLegNotReplayed()
+{
+    DungeonPlan plan;
+    plan.name = "zf";
+    ai::PlanLeg leg9;
+    leg9.leg = 9;
+    leg9.name = "gahzrilla";
+    plan.legs.push_back(leg9);
+    PlanStep before = Step(PlanStepKind::Move, 0, 0, 0);
+    before.leg = 9;
+    before.entry = 777;
+    PlanStep pull = PullStep(10, {7580});
+    pull.leg = 9;
+    PlanStep gong = GongRow();
+    gong.leg = 9;
+    PlanStep after = Step(PlanStepKind::Move, 100, 0, 0);
+    after.leg = 10;
+    PlanStep far = Step(PlanStepKind::Move, 200, 0, 0);
+    far.leg = 10;
+    plan.steps = {before, pull, gong, after, far};
+    ai::PlanLegNeed need;
+    need.leg = 9;
+    need.item = 9240;
+    need.mode = ai::LegNeedMode::Optional;
+    plan.needs.push_back(need);
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.legNeedRead = true;
+    f.legNeedHolders = {{9240, ""}};
+    CHECK(Tick(r, f).empty());
+    CHECK(r.step == 3 && r.skippedLegs.size() == 1);
+    CHECK(r.notCleared.count(1) == 1);
+    // The second leg-10 point walks, the run stands past the skip.
+    f.leadX = 99;
+    Tick(r, f);
+    CHECK(r.step == 4 && r.state == State::Running);
+    // Replay points from leg 10 never touch leg 9 (the lead stands at a
+    // leg-10 point; the skipped leg-9 move is not a replay point).
+    CHECK(FirstReplayPoint(r) == 3);
+    f.leadX = 100;
+    CHECK(ReplayStartPoint(r, f) == 3);
+    r.triggerScan = 0;
+    r.armedTriggers.clear();
+    ArmReachedTriggers(r);
+    CHECK(r.armedTriggers.empty()); // leg-9 entry 777 not armed
+}
+
+// A door leg: plan with leg 1 = [move, pull], needs = {1, 11000, Door, pick
+// 250, object 170560, how ...}; the door stands at x 55, 5 yd past the move's point.
+static DungeonPlan DoorPlan()
+{
+    DungeonPlan plan;
+    plan.name = "brd";
+    ai::PlanLeg leg;
+    leg.leg = 1;
+    leg.name = "arena";
+    plan.legs.push_back(leg);
+    PlanStep move = Step(PlanStepKind::Move, 50, 0, 0);
+    move.leg = 1;
+    PlanStep pull = PullStep(60, {100});
+    pull.leg = 1;
+    plan.steps = {move, pull};
+    ai::PlanLegNeed door;
+    door.leg = 1;
+    door.item = 11000;
+    door.mode = ai::LegNeedMode::Door;
+    door.pick = 250;
+    door.object = 170560;
+    door.name = "Shadowforge Key";
+    door.how = "Dark Iron Legacy quest (Searing Gorge/BRD)";
+    plan.needs.push_back(door);
+    return plan;
+}
+
+// The door found near the lead bot (doorNeedRead) at x 55, closed or open.
+static Facts DoorFacts(const std::string& player, bool closed, bool botKeys = false)
+{
+    Facts f = Party(0);
+    f.legNeedRead = true;
+    PlayerFact p;
+    p.name = player;
+    f.players.push_back(p);
+    f.doorNeedRead = true;
+    f.doorNeedState = closed ? 0 : 1;
+    f.doorNeedX = 55.0f;
+    f.doorNeedLockpick = 0;
+    f.legNeedHolders = {{11000, ""}};
+    f.botKeysForPlayers = botKeys;
+    return f;
+}
+
+// One tick as the glue runs it (TickDungeonRun): a paused door hold reads the door first (DoorOpenWhilePaused), then
+// the run's Tick.
+static std::string GlueDoorTick(Run& r, const Facts& f, std::uint32_t dt = kTickMs)
+{
+    if (r.state == State::Paused && r.doorPaused)
+        DoorOpenWhilePaused(r, f);
+    return Tick(r, f, dt);
+}
+
+// Spec C2b/F10b: closed door near, player present -> Paused with the ask note, no
+// order; bot-only (no players) -> no hold.
+static void TestDoorHoldAsksPlayerToOpen()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts f = DoorFacts("Hypeer", true);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Paused && r.doorPaused && r.doorPausedLeg == 1);
+    CHECK(r.note.find("door to leg arena: the way is locked (object 170560): open it with Shadowforge Key (item 11000) or Lockpicking 250; the bots wait before it and go on by themselves once it reads open (.bot run resume does not pass a closed door).") != std::string::npos);
+    CHECK(r.note.find("Get it: Dark Iron Legacy quest") != std::string::npos);
+    Run b = Start(&plan);
+    Facts g = Party(0);
+    g.legNeedRead = true;
+    g.doorNeedRead = true;
+    g.doorNeedState = 0;
+    g.doorNeedX = 55.0f;
+    CHECK(Tick(b, g) == "move 50.0 0.0 0.0");
+    CHECK(b.state == State::Running);
+}
+
+// Spec C2b/F10c: open door / player carries / lockpick 250 -> no hold, leg
+// decided; 249 -> holds.
+static void TestDoorHoldOpensAndResumes()
+{
+    DungeonPlan plan = DoorPlan();
+    Run open = Start(&plan);
+    CHECK(Tick(open, DoorFacts("Hypeer", false)) == "move 50.0 0.0 0.0");
+    CHECK(open.legNeedDecided.count(1) == 1);
+    Run carried = Start(&plan);
+    Facts cf = DoorFacts("Hypeer", true);
+    cf.legNeedHolders = {{11000, "Hypeer"}};
+    CHECK(Tick(carried, cf) == "move 50.0 0.0 0.0");
+    CHECK(carried.legNeedDecided.count(1) == 1);
+    Run rogue = Start(&plan);
+    Facts rf = DoorFacts("Roguey", true);
+    rf.doorNeedLockpick = 250;
+    CHECK(Tick(rogue, rf) == "move 50.0 0.0 0.0");
+    Run short1 = Start(&plan);
+    Facts sf = DoorFacts("Roguey", true);
+    sf.doorNeedLockpick = 249;
+    CHECK(Tick(short1, sf).empty());
+    CHECK(short1.state == State::Paused && short1.doorPaused);
+}
+
+// Review round 2 Codex 2 (lead decision): with a real player and the flag off the hold ends ONLY when the door reads
+// open: closed -> held; `.bot run resume` (ResumeChecked, the glue's resume) -> refused, still held; ticks while closed
+// -> still held, no order; the door reads open -> the run goes on by itself and walks the leg.
+static void TestDoorHoldReleasesOnlyWhenOpen()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts closed = DoorFacts("Hypeer", true);
+    CHECK(GlueDoorTick(r, closed).empty());
+    CHECK(r.state == State::Paused && r.doorPaused);
+    LeadSpot spot;
+    spot.read = true;
+    spot.alive = true;
+    spot.onPlanMap = true;
+    std::string refusal;
+    CHECK(!ResumeChecked(r, spot, refusal, DoorRead::Closed));
+    CHECK(r.state == State::Paused && r.doorPaused);
+    CHECK(refusal.find("still hold at the closed door: open it with Shadowforge Key (item 11000) or Lockpicking 250") != std::string::npos);
+    CHECK(refusal.find(".bot run resume does not pass a closed door") != std::string::npos);
+    for (int i = 0; i < 5; ++i)
+    {
+        CHECK(GlueDoorTick(r, closed).empty());
+        CHECK(r.state == State::Paused && r.doorPaused);
+    }
+    CHECK(r.legNeedDecided.count(1) == 0);
+    Facts open = DoorFacts("Hypeer", false);
+    CHECK(DoorOpenWhilePaused(r, open)); // the glue's paused-branch call (tools/test_run_item_need_wiring.py)
+    CHECK(r.state == State::Running && !r.doorPaused);
+    CHECK(r.legNeedDecided.count(1) == 1);
+    CHECK(r.note == "door to leg arena reads open: going on by itself (regrouping)");
+    // The run walks the leg (after the resume's regroup), never held at this door again even if it reads closed.
+    bool moved = false;
+    for (int i = 0; i < 30 && !moved; ++i)
+    {
+        std::string const order = GlueDoorTick(r, closed);
+        CHECK(r.state == State::Running);
+        moved = order == "move 50.0 0.0 0.0";
+    }
+    CHECK(moved);
+}
+
+// Review round 2 Opus 3: a door not found near the lead bot is not closed (no hold, nothing decided); the hold fires
+// once the closed door is found near the step about to cross it or near the lead bot.
+static void TestDoorNotFoundIsNotClosed()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts f = DoorFacts("Hypeer", true);
+    f.doorNeedRead = false;
+    CHECK(Tick(r, f) == "move 50.0 0.0 0.0");
+    CHECK(r.state == State::Running && r.legNeedDecided.count(1) == 0);
+    f.doorNeedRead = true;
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.doorPaused);
+}
+
+// Review round 3 Opus fix 3: a resume while the door is out of the lead bot's
+// sight (the door object NOT FOUND) must not say 'closed': the hold stays, but
+// the refusal names the true cause.
+
+// il4a: a resume while the door hold waits and the door already reads open goes
+// on by itself (the tick's DoorOpenWhilePaused, with its note), not refused.
+static void TestDoorHoldResumeWhileOpen()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts closed = DoorFacts("Hypeer", true);
+    CHECK(GlueDoorTick(r, closed).empty());
+    CHECK(r.state == State::Paused && r.doorPaused);
+    LeadSpot spot;
+    spot.read = true;
+    spot.alive = true;
+    spot.onPlanMap = true;
+    std::string refusal;
+    CHECK(ResumeChecked(r, spot, refusal, DoorRead::Open));
+    CHECK(refusal.empty() && r.state == State::Running && !r.doorPaused);
+    CHECK(r.note == "door to leg arena reads open: going on by itself (regrouping)");
+    CHECK(r.legNeedDecided.count(1) == 1);
+}
+
+static void TestDoorHoldResumeOutOfSightNamesIt()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts closed = DoorFacts("Hypeer", true);
+    CHECK(GlueDoorTick(r, closed).empty());
+    CHECK(r.state == State::Paused && r.doorPaused);
+    LeadSpot spot;
+    spot.read = true;
+    spot.alive = true;
+    spot.onPlanMap = true;
+    std::string refusal;
+    CHECK(!ResumeChecked(r, spot, refusal, DoorRead::Closed));
+    CHECK(refusal.find("still hold at the closed door") != std::string::npos);
+    CHECK(!ResumeChecked(r, spot, refusal, DoorRead::Unread));
+    CHECK(refusal == "the door is out of sight of the lead bot: .bot run skip to go on, or bring the party to the door");
+    CHECK(r.state == State::Paused && r.doorPaused);
+}
+
+static void TestDoorHoldOnlyNearTheDoor()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts f = DoorFacts("Hypeer", true);
+    f.doorNeedX = 500.0f; // found, closed, far from the step's point and the lead bot
+    CHECK(Tick(r, f) == "move 50.0 0.0 0.0");
+    CHECK(r.state == State::Running && r.legNeedDecided.count(1) == 0);
+    f.leadX = 480.0f; // the lead bot beside it
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.doorPaused);
+}
+
+// Spec C2c/F10d + review round 2 Opus 6: flag on with a player and a bot carrying the key: the carrier bot opens the
+// door (the `open` order on the door object), no hold; the door reads open -> the leg walks on.
+static void TestBotKeysFlagOpensDoor()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts f = DoorFacts("Hypeer", true, true);
+    f.doorNeedCarrier = "Tanky";
+    CHECK(Tick(r, f) == "open entry:170560@55.0,0.0,0.0 Tanky");
+    CHECK(r.state == State::Running && !r.doorPaused);
+    CHECK(r.note.find("Tanky opens it with Shadowforge Key for the party (1 of 3)") != std::string::npos);
+    CHECK(Tick(r, f).empty()); // waits for the door
+    CHECK(r.note.find("waiting for Tanky to open it") != std::string::npos);
+    Facts open = DoorFacts("Hypeer", false, true);
+    open.doorNeedCarrier = "Tanky";
+    CHECK(Tick(r, open) == "move 50.0 0.0 0.0");
+    CHECK(r.legNeedDecided.count(1) == 1);
+}
+
+// ... the door never opens: an order every kDoorOpenWaitMs, three in all, then the hold (the player is asked), which
+// ends when the door reads open.
+static void TestBotKeysFlagDoorThatNeverOpensHolds()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts f = DoorFacts("Hypeer", true, true);
+    f.doorNeedCarrier = "Tanky";
+    int orders = 0;
+    for (int i = 0; i < 100 && r.state == State::Running; ++i)
+        if (Tick(r, f, 5000).rfind("open entry:170560", 0) == 0)
+            ++orders;
+    CHECK(orders == 3);
+    CHECK(r.state == State::Paused && r.doorPaused);
+    CHECK(r.note.find("Tanky could not open it (object 170560) in 3 tries") != std::string::npos);
+    Facts open = DoorFacts("Hypeer", false, true);
+    open.doorNeedCarrier = "Tanky";
+    GlueDoorTick(r, open);
+    CHECK(r.state == State::Running && r.legNeedDecided.count(1) == 1);
+}
+
+// Flag on but no bot carries the key (the give found no bag space): the hold asks the player.
+static void TestBotKeysFlagWithoutCarrierHolds()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    CHECK(Tick(r, DoorFacts("Hypeer", true, true)).empty());
+    CHECK(r.state == State::Paused && r.doorPaused);
+}
+
+static void TestDoorHoldFlagOffHolds()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts f = DoorFacts("Hypeer", true, false);
+    f.doorNeedCarrier = "Tanky"; // a bot carries it, the flag is off: bots never open doors for players
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Paused);
+    CHECK(r.note.find("door to leg arena") != std::string::npos);
+}
+
+// `.bot run skip` from the door hold walks the party past the closed door by hand: the leg is decided.
+static void TestSkipPastClosedDoorDecidesLeg()
+{
+    DungeonPlan plan = DoorPlan();
+    Run r = Start(&plan);
+    Facts f = DoorFacts("Hypeer", true);
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.doorPaused);
+    CHECK(Skip(r));
+    CHECK(r.state == State::Running && !r.doorPaused && r.legNeedDecided.count(1) == 1);
+}
+
+// Spec C3/F11: f.itemPlayer set -> the use_on pause ends with the trade line.
+static void TestUseOnPausesNamingPlayerCarrier()
+{
+    DungeonPlan plan;
+    plan.steps = {GongRow()};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = false;
+    f.itemPlayer = "Hypeer";
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Paused);
+    std::string const tail = "; Hypeer carries it: trade it to Tanky, then .bot run resume";
+    CHECK(r.note.size() >= tail.size() && r.note.compare(r.note.size() - tail.size(), tail.size(), tail) == 0);
+    // The existing no-carrier text stands without a player carrier (F12).
+    Run q = Start(&plan);
+    Facts g = Party(1650.9f);
+    g.carrierHasItem = false;
+    CHECK(Tick(q, g).empty());
+    CHECK(q.state == State::Paused && q.note.find("no bot of the party carries item 9240") != std::string::npos);
+}
+
 static void TestUseOnWithoutTheItemPauses()
 {
     DungeonPlan plan;
@@ -5885,9 +6359,10 @@ static void TestCommanderSummonKeepsTheRunGoing()
     CHECK(PauseForPlayer(r, "cmd move") && r.state == State::Paused && PausedByPlayer(r));
     CHECK(r.note == "player order (cmd move): .bot run resume to go on");
     CHECK(Resume(r));
-    CHECK(PauseForPlayer(r, "cmd revive") && r.state == State::Paused);
-    CHECK(Resume(r));
+    CHECK(!PauseForPlayer(r, "cmd revive") && r.state == State::Running);
+    CHECK(!PausedByPlayer(r));
     CHECK(PauseForPlayer(r, "chat 'summon' to Tanky") && r.state == State::Paused);
+    CHECK(!PlayerOrderKeepsRun("cmd revivex") && !PlayerOrderKeepsRun("chat 'revive' to Tanky"));
 }
 
 static void TestPlayerOrderAndRefusalPause()
@@ -19707,6 +20182,22 @@ static void TestTakeSpeedWords()
         CHECK(!TakeSpeed(bad).ok);
 }
 
+static void TestCheckTestSpeedOrder()
+{
+    CHECK(CheckTestSpeed(1.0f, true, "Pip", false).code.empty());
+    CHECK(CheckTestSpeed(2.0f, true, "", false).code == "real-player");
+    CHECK(CheckTestSpeed(2.0f, true, "", false).text ==
+        "speed= is for bot-only test runs: a player-led run walks at normal speed.");
+    CHECK(CheckTestSpeed(2.0f, false, "Pipwren", false).code == "real-player");
+    CHECK(CheckTestSpeed(2.0f, false, "Pipwren", false).text.find("Pipwren is a real player in the party") !=
+        std::string::npos);
+    CHECK(CheckTestSpeed(2.0f, false, "Pipwren", true).code == "real-player");
+    CHECK(CheckTestSpeed(2.0f, false, "", false).code == "forbidden");
+    CHECK(CheckTestSpeed(2.0f, false, "", false).text.find("without speed= the run walks at normal speed") !=
+        std::string::npos);
+    CHECK(CheckTestSpeed(3.0f, false, "", true).code.empty());
+}
+
 static void TestSpeedRisesOnlyAfterTheWalkSettles()
 {
     DungeonPlan plan;
@@ -21601,6 +22092,23 @@ int main()
     TestAllDeadEndIsForAUnitsHoldOnly();
     TestHoldUnitSeenDoesNotLeakAcrossSteps();
     TestUseOnOneTargetedOrderThenAck();
+    TestOptionalLegSkippedWithoutItem();
+    TestOptionalLegRunsWithCarrier();
+    TestOptionalLegWaitsOutCombat();
+    TestSkippedLegNotReplayed();
+    TestDoorHoldAsksPlayerToOpen();
+    TestDoorHoldOpensAndResumes();
+    TestBotKeysFlagOpensDoor();
+    TestDoorHoldReleasesOnlyWhenOpen();
+    TestDoorNotFoundIsNotClosed();
+    TestDoorHoldResumeWhileOpen();
+    TestDoorHoldResumeOutOfSightNamesIt();
+    TestDoorHoldOnlyNearTheDoor();
+    TestBotKeysFlagDoorThatNeverOpensHolds();
+    TestBotKeysFlagWithoutCarrierHolds();
+    TestSkipPastClosedDoorDecidesLeg();
+    TestDoorHoldFlagOffHolds();
+    TestUseOnPausesNamingPlayerCarrier();
     TestUseOnWithoutTheItemPauses();
     TestUseOnResendsOnceThenPauses();
     TestUseOnNoAnswerPauses();
@@ -21738,6 +22246,7 @@ int main()
     TestBotWalkLeavesTheStartOutOfThePackChecks();
     TestStragglerLadderKeepsItsRungWhenTheBotCycles();
     TestTakeSpeedWords();
+    TestCheckTestSpeedOrder();
     TestSpeedRisesOnlyAfterTheWalkSettles();
     TestSpeedWalkingRule();
     TestSpeedSettleNeedsAnUnbrokenWalk();

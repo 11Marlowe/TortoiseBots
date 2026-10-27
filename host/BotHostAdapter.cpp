@@ -10,6 +10,7 @@
 #include "../runtime/RandomBotService.h"
 #include "../runtime/AhMarketService.h"
 #include "../runtime/BattlegroundQueueService.h"
+#include "../runtime/BotLfgService.h"
 #include "../runtime/ObservabilityEmitter.h"
 #include "../runtime/RunTrace.h"
 #include "BotChatAdapter.h"
@@ -17,6 +18,7 @@
 #include "HireRecruiterScript.h"
 #include "../commands/BotCommandQueue.h"
 #include "../commands/BotCommands.h"
+#include "../commands/BotCommandHandlers.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "Config/Config.h"
 #include "ObjectMgr.h"
@@ -211,12 +213,16 @@ void BotHostAdapter::OnUpdate(uint32 diff)
     AhMarketService::Instance().Update(diff);
     BattlegroundQueueService::Instance().Update(diff);
     ObservabilityEmitter::Instance().Update(diff);
+    // Item-leg skip (spec D7): first world tick after startup: the crash
+    // ledger cleanup for bots already in the world.
+    BotCommands::CleanupRunGivenItemsTick();
     // Opt-in run trace (one atomic load per tick while no run is active).
     RunTraceService::Instance().Update(diff);
 }
 
 void BotHostAdapter::OnShutdown()
 {
+    BotLfgService::Instance().Shutdown();
     RunTraceService::Instance().Shutdown();
     ObservabilityEmitter::Instance().Shutdown();
     BattlegroundQueueService::Instance().Shutdown();

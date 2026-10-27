@@ -1,8 +1,12 @@
+-- SUPERSEDED 2026-10-26: the shipped plan data/sql/world/20261025002900_world.sql carries this gahzrilla leg now (ported
+-- row for row from this file). This file is kept as the export's provenance and is NOT applied; the shipped file's header
+-- says how the Mallet is given before a run.
+--
 -- OPT-IN, FOR TEST RUNS ONLY. NOT A MIGRATION: data/sql/world/ is applied automatically, this folder is not.
 -- Zul'Farrak (map 209) with the optional gahzrilla leg: the whole plan of data/sql/world/20261022210000_world.sql (Bly's gossip row with flag 512) plus Gahz'rilla.
 -- Exported from the same turtle-agent revision with the same options plus --with-optional gahzrilla:
 -- `turtle-agent plan-export --drop-companions-loot --carrier-chests --with-optional gahzrilla --mmaps <map 209 mmaps> --rev a93caba
--- --stamp 20261022210000 zulfarrak`. 18 legs, 245 steps, 264 rows. tools/test_dungeon_plan_sql.py checks that it differs from
+-- --stamp 20261022210000 zulfarrak`. 18 legs, 247 steps, 266 rows. tools/test_dungeon_plan_sql.py checks that it differs from
 -- that migration only by the gahzrilla leg's rows, the leg numbers after it, and the long-hop 'path' moves at the start of the
 -- courtyard leg (measured from Gahz'rilla's spot instead of velratha_b's).
 --
@@ -31,7 +35,7 @@
 --
 -- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
 
--- zulfarrak: map 209, 18 legs, 245 steps
+-- zulfarrak: map 209, 18 legs, 247 steps
 DELETE FROM `ai_dungeon_step` WHERE `plan` = 'zulfarrak';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'zulfarrak';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'zulfarrak';
@@ -136,16 +140,18 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('zulfarrak', 9, 1, 'pull', 0, 1622.59, 1193.87, 9.21, 15, 0, 0, 0, 0, '5649,5650', 'pull group 0'),
 ('zulfarrak', 9, 2, 'pull', 0, 1643.59, 1200.11, 9.05, 15, 0, 0, 0, 0, '5650', 'pull group 1'),
 ('zulfarrak', 9, 3, 'pull', 0, 1651.91, 1213.23, 9.32, 30, 0, 0, 0, 0, '7246,8095', 'pull group 2'),
-('zulfarrak', 9, 4, 'pull', 0, 1652.06, 1219.91, 9.67, 15, 0, 0, 0, 0, '5649', 'pull group 3'),
-('zulfarrak', 9, 5, 'pull', 0, 1666.97, 1233.6, 9.41, 15, 0, 0, 0, 0, '5649', 'pull group 4'),
-('zulfarrak', 9, 6, 'pull', 0, 1699.81, 1233.84, 8.96, 15, 0, 0, 0, 0, '5649', 'pull group 5'),
-('zulfarrak', 9, 7, 'pull', 0, 1706.76, 1248.03, 9.88, 15, 0, 0, 0, 0, '5650,7246', 'pull group 6'),
-('zulfarrak', 9, 8, 'pull', 0, 1714.38, 1218.58, 8.96, 15, 0, 0, 0, 0, '5649', 'pull group 7'),
-('zulfarrak', 9, 9, 'move', 0, 1677.0326, 1185.3494, 10.152066, 0, 0, 0, 0, 0, '', 'path'),
-('zulfarrak', 9, 10, 'move', 0, 1658.1333, 1168.5333, 10.633366, 0, 0, 0, 0, 0, '', 'path'),
-('zulfarrak', 9, 11, 'move', 0, 1652.84, 1168.99, 10.67, 0, 0, 0, 0, 0, '', 'stand'),
-('zulfarrak', 9, 12, 'use_on', 141832, 1650.9, 1171.9, 10.9, 0, 9240, 0, 0, 0, '', 'use Mallet of Zul''Farrak (item 9240) on object 141832'),
-('zulfarrak', 9, 13, 'boss', 7273, 1702.58, 1224.19, 8.88, 0, 0, 0, 0, 0, '', 'boss'),
+('zulfarrak', 9, 4, 'move', 0, 1640.0, 1205.0, 9.2, 0, 0, 0, 0, 0, '', 'pull group 3 approach'),
+('zulfarrak', 9, 5, 'pull', 0, 1652.06, 1219.91, 9.67, 15, 0, 0, 0, 0, '5649', 'pull group 3'),
+('zulfarrak', 9, 6, 'move', 0, 1682.0, 1226.0, 9.2, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
+('zulfarrak', 9, 7, 'pull', 0, 1666.97, 1233.6, 9.41, 15, 0, 0, 0, 0, '5649', 'pull group 4'),
+('zulfarrak', 9, 8, 'pull', 0, 1699.81, 1233.84, 8.96, 15, 0, 0, 0, 0, '5649', 'pull group 5'),
+('zulfarrak', 9, 9, 'pull', 0, 1706.76, 1248.03, 9.88, 15, 0, 0, 0, 0, '5650,7246', 'pull group 6'),
+('zulfarrak', 9, 10, 'pull', 0, 1714.38, 1218.58, 8.96, 15, 0, 0, 0, 0, '5649', 'pull group 7'),
+('zulfarrak', 9, 11, 'move', 0, 1677.0326, 1185.3494, 10.152066, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 9, 12, 'move', 0, 1658.1333, 1168.5333, 10.633366, 0, 0, 0, 0, 0, '', 'path'),
+('zulfarrak', 9, 13, 'move', 0, 1652.84, 1168.99, 10.67, 0, 0, 0, 0, 0, '', 'stand'),
+('zulfarrak', 9, 14, 'use_on', 141832, 1650.9, 1171.9, 10.9, 0, 9240, 0, 0, 0, '', 'use Mallet of Zul''Farrak (item 9240) on object 141832'),
+('zulfarrak', 9, 15, 'boss', 7273, 1702.58, 1224.19, 8.88, 0, 0, 0, 0, 0, '', 'boss'),
 ('zulfarrak', 10, 0, 'move', 0, 1699.7333, 1175.4667, 9.033365, 0, 0, 0, 0, 0, '', 'path'),
 ('zulfarrak', 10, 1, 'move', 0, 1700.2666, 1170.9333, 9.233365, 0, 0, 0, 0, 0, '', 'path'),
 ('zulfarrak', 10, 2, 'move', 0, 1706.6666, 1165.0668, 9.433366, 0, 0, 0, 0, 0, '', 'path'),

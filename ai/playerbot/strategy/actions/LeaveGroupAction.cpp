@@ -2,6 +2,7 @@
 #include "playerbot/policy/rpg/GroupHygienePolicy.h"
 #include "playerbot/playerbot.h"
 #include "../../runtime/PlayerbotAIStorage.h" // Headless storage shim
+#include "../../../../runtime/BotActivityLease.h"
 #include "../../../../runtime/HireLifecycle.h"
 #include "LeaveGroupAction.h"
 
@@ -70,7 +71,8 @@ namespace ai
         // own, whoever its master is at the moment.
         if (!ai::FarAwayLeaveAllowed(
                 TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()),
-                TortoiseBots::BotCommands::IsInCommandedGroup(bot)))
+                TortoiseBots::BotCommands::IsInCommandedGroup(bot),
+                TortoiseBots::BotActivityLeaseManager::Instance().GetActivity(bot->GetGUIDLow()) == TortoiseBots::BotActivity::Dungeon))
             return false;
 
         Player* groupMaster = ai->GetGroupMaster();

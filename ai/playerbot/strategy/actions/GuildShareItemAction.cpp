@@ -1,6 +1,7 @@
 #include "playerbot/playerbot.h"
 #include "GuildShareItemAction.h"
 #include "playerbot/ServerFacade.h"
+#include "../../../../runtime/RunGivenItemRegistry.h"
 
 using namespace ai;
 
@@ -33,6 +34,9 @@ bool GuildShareItemAction::Execute(Event& event)
     for (Item* item : items)
     {
         if (item->GetProto()->ItemId != itemId)
+            continue;
+        // A dungeon run's given item stays with its bot until the run takes it back.
+        if (TortoiseBots::RunGivenItems::Has(item->GetGUIDLow()))
             continue;
 
         uint32 stackCount = item->GetCount();

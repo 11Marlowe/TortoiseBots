@@ -654,8 +654,91 @@ static void TestPlainOpenUnchanged()
     CHECK(NormalizePlanStep(open) == PlanStepRefusal::None);
 }
 
+// Spec item-leg-skip B1/F13: ai_dungeon_leg_need rows through DungeonPlanTable::AddLegNeed.
+static void TestLegNeedRowsRefused()
+{
+    DungeonPlanTable table;
+    CHECK(table.AddPlan("bfd", 48));
+    PlanStep step = Step(1, 1, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    CHECK(table.AddStep("bfd", step) == PlanStepRefusal::None);
+
+    PlanLegNeed need;
+    need.item = 0; // MissingItem
+    CHECK(table.AddLegNeed("bfd", need) == PlanNeedRefusal::MissingItem);
+    need.leg = 1;
+    need.item = 11000;
+    need.mode = LegNeedMode::None; // BadMode 0
+    CHECK(table.AddLegNeed("bfd", need) == PlanNeedRefusal::BadMode);
+    need.mode = static_cast<LegNeedMode>(4); // BadMode 4
+    CHECK(table.AddLegNeed("bfd", need) == PlanNeedRefusal::BadMode);
+    need.mode = LegNeedMode::Optional;
+    need.pick = 50; // BadPick: pick on a non-door mode
+    CHECK(table.AddLegNeed("bfd", need) == PlanNeedRefusal::BadPick);
+    need.pick = 301; // BadPick over 300 even on a door
+    need.mode = LegNeedMode::Door;
+    CHECK(table.AddLegNeed("bfd", need) == PlanNeedRefusal::BadPick);
+    need.pick = 0;
+    need.object = 170560; // BadObject: object on a non-door mode
+    need.mode = LegNeedMode::Optional;
+    CHECK(table.AddLegNeed("bfd", need) == PlanNeedRefusal::BadObject);
+    need.mode = LegNeedMode::Door;
+    need.object = 0; // a door row needs its object
+    CHECK(table.AddLegNeed("bfd", need) == PlanNeedRefusal::BadObject);
+    PlanLegNeed unknown = need;
+    unknown.leg = 1;
+    unknown.object = 170560;
+    CHECK(table.AddLegNeed("nope", unknown) == PlanNeedRefusal::UnknownPlan);
+    need.leg = 7; // NoSuchLeg: no step with that leg
+    need.object = 170560;
+    CHECK(table.AddLegNeed("bfd", need) == PlanNeedRefusal::NoSuchLeg);
+    need.leg = 1;
+    need.object = 170560;
+    need.name = "Shadowforge Key";
+    need.how = "Dark Iron Legacy quest (Searing Gorge/BRD)";
+    CHECK(table.AddLegNeed("bfd", need) == PlanNeedRefusal::None);
+    CHECK(table.AddLegNeed("bfd", need) == PlanNeedRefusal::Duplicate);
+    table.Seal();
+    CHECK(table.AddLegNeed("bfd", need) == PlanNeedRefusal::Sealed);
+    const DungeonPlan* plan = table.Find("bfd");
+    CHECK(plan != nullptr);
+    std::vector<const PlanLegNeed*> ofLeg = plan->NeedsOfLeg(1);
+    CHECK(ofLeg.size() == 1 && ofLeg[0]->item == 11000 && ofLeg[0]->object == 170560);
+    CHECK(std::string(PlanNeedRefusalName(PlanNeedRefusal::BadObject)) == "BadObject");
+    CHECK(plan->NeedsOfLeg(2).empty());
+}
+
+// NeedsOfLeg returns the leg's needs sorted by (leg, item).
+static void TestNeedsOfLegSorted()
+{
+    DungeonPlanTable table;
+    CHECK(table.AddPlan("bfd", 48));
+    CHECK(table.AddStep("bfd", Step(1, 1, PlanStepKind::Move, 1.0f, 2.0f, 3.0f)) == PlanStepRefusal::None);
+    PlanLegNeed second;
+    second.leg = 1;
+    second.item = 12000;
+    second.mode = LegNeedMode::Optional;
+    CHECK(table.AddLegNeed("bfd", second) == PlanNeedRefusal::None);
+    PlanLegNeed first;
+    first.leg = 1;
+    first.item = 11000;
+    first.mode = LegNeedMode::Door;
+    first.pick = 250;
+    first.object = 170560;
+    first.name = "Shadowforge Key";
+    first.how = "Dark Iron Legacy quest (Searing Gorge/BRD)";
+    CHECK(table.AddLegNeed("bfd", first) == PlanNeedRefusal::None);
+    table.Seal();
+    const DungeonPlan* plan = table.Find("bfd");
+    CHECK(plan != nullptr);
+    std::vector<const PlanLegNeed*> ofLeg = plan->NeedsOfLeg(1);
+    CHECK(ofLeg.size() == 2);
+    CHECK(ofLeg[0]->item == 11000 && ofLeg[1]->item == 12000);
+}
+
 int main()
 {
+    TestLegNeedRowsRefused();
+    TestNeedsOfLegSorted();
     TestOpenProofRowParses();
     TestOpenProofIsNoPlainKind();
     TestOpenProofNormalize();

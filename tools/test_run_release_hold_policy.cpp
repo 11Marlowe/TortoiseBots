@@ -27,6 +27,14 @@ static bool FakeQuery(Player* bot)
     return s_answer;
 }
 
+static void TestCrewReleaseOutsideInstances()
+{
+    CHECK(Decide(BotActivity::Dungeon, false, true, false, false) == AutoRelease::Stock);
+    CHECK(Decide(BotActivity::Dungeon, false, false, true, false) == AutoRelease::Stock);
+    CHECK(Decide(BotActivity::Dungeon, false, true, false, true) == AutoRelease::Wait);
+    CHECK(Decide(BotActivity::PlayerMaster, true, false, false, false) == AutoRelease::Wait); // a bound run bot is unchanged
+}
+
 int main()
 {
     Player* const bot = reinterpret_cast<Player*>(0x1000); // never dereferenced
@@ -35,7 +43,7 @@ int main()
     CHECK(!HeldByRun(bot)); // the default, before anything registered
     Register(nullptr);
     CHECK(!HeldByRun(bot));
-    CHECK(Decide(BotActivity::PlayerMaster, HeldByRun(bot), false, false) == AutoRelease::Stock);
+    CHECK(Decide(BotActivity::PlayerMaster, HeldByRun(bot), false, false, false) == AutoRelease::Stock);
 
     // The run leader answers: held while its run is active, not after.
     Register(&FakeQuery);
@@ -48,25 +56,28 @@ int main()
 
     // A hired run bot (PlayerMaster lease) of an active run waits, fight or not, rezzer or not:
     // the run leader's regroup (a resurrection in the party, then `revive party`) releases it.
-    CHECK(Decide(BotActivity::PlayerMaster, true, false, false) == AutoRelease::Wait);
-    CHECK(Decide(BotActivity::PlayerMaster, true, true, false) == AutoRelease::Wait);
-    CHECK(Decide(BotActivity::PlayerMaster, true, false, true) == AutoRelease::Wait);
+    CHECK(Decide(BotActivity::PlayerMaster, true, false, false, false) == AutoRelease::Wait);
+    CHECK(Decide(BotActivity::PlayerMaster, true, true, false, false) == AutoRelease::Wait);
+    CHECK(Decide(BotActivity::PlayerMaster, true, false, true, false) == AutoRelease::Wait);
     // ... and once its run is over the stock rules decide again (the release works again).
-    CHECK(Decide(BotActivity::PlayerMaster, false, false, false) == AutoRelease::Stock);
-    CHECK(Decide(BotActivity::PlayerMaster, false, true, true) == AutoRelease::Stock);
+    CHECK(Decide(BotActivity::PlayerMaster, false, false, false, false) == AutoRelease::Stock);
+    CHECK(Decide(BotActivity::PlayerMaster, false, true, true, false) == AutoRelease::Stock);
 
-    // The Dungeon lease keeps its own gate: wait while a rezzer lives or the crew fights.
-    CHECK(Decide(BotActivity::Dungeon, false, true, false) == AutoRelease::Wait);
-    CHECK(Decide(BotActivity::Dungeon, false, false, true) == AutoRelease::Wait);
-    CHECK(Decide(BotActivity::Dungeon, false, false, false) == AutoRelease::Release);
-    CHECK(Decide(BotActivity::Dungeon, true, false, false) == AutoRelease::Release);
+    // The Dungeon lease keeps its own gate inside an instance: wait while a rezzer
+    // lives or the crew fights. Outside an instance the stock rules decide.
+    CHECK(Decide(BotActivity::Dungeon, false, true, false, true) == AutoRelease::Wait);
+    CHECK(Decide(BotActivity::Dungeon, false, false, true, true) == AutoRelease::Wait);
+    CHECK(Decide(BotActivity::Dungeon, false, false, false, true) == AutoRelease::Release);
+    CHECK(Decide(BotActivity::Dungeon, true, false, false, true) == AutoRelease::Release);
+
+    TestCrewReleaseOutsideInstances();
 
     // Random bots and every other lease are not changed, even if a query said "held".
     for (BotActivity other : {BotActivity::Idle, BotActivity::Grinding, BotActivity::Trading,
                               BotActivity::LftQueued, BotActivity::BgQueued})
     {
-        CHECK(Decide(other, true, false, false) == AutoRelease::Stock);
-        CHECK(Decide(other, false, true, true) == AutoRelease::Stock);
+        CHECK(Decide(other, true, false, false, false) == AutoRelease::Stock);
+        CHECK(Decide(other, false, true, true, false) == AutoRelease::Stock);
     }
 
     Register(nullptr);

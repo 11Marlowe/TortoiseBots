@@ -20,7 +20,7 @@ KINDS = {"move", "move_direct", "move_hop_exact", "pull", "boss", "loot", "open"
          "wait_clear", "rest", "ritual", "hold", "gossip", "use_on"}
 # The opt-in Gahz'rilla plan for test runs (never applied automatically: not under data/sql/world).
 OPT_IN = pathlib.Path(ROOT) / "tools/optional-plans/zulfarrak-gahzrilla.sql"
-TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_boss")
+TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_leg_need", "ai_dungeon_boss")
 # The plans whose bosses ai_dungeon_boss lists, and their maps.
 BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36,
               "stormwind_stockade": 34,
@@ -612,16 +612,17 @@ class DungeonPlanSql(unittest.TestCase):
 
 
     def test_deadmines_pack_fixes(self):
-        # 20261025002800 (turtle-agent 456efc5, Deadmines: the laboratory and Jared Voss added after mine_a) re-exports the whole plan of
-        # 20261022200000 (turtle-agent 16efe83, r12-19z29 / r14-19z32: the Engineers and Craftsmen in the cc lists, the Sneed patroller's group
-        # first, the Harvester room's golem split off, the Gilnid ramp pulled from the spiral and the floor ring camp by camp) with two new legs
-        # after leg 0 and the Voss boss row. The old legs 2-15 are legs 4-17 now; every pin below fails when its rows are cut.
+        # 20261025003200 (turtle-agent f2c230c, Deadmines: the hall's golem and Engineer pulls get west stands after the proof20d4
+        # wipe) re-exports 20261025002800 (turtle-agent 456efc5, the laboratory and Jared Voss added after mine_a), which re-exports
+        # 20261022200000 (turtle-agent 16efe83, r12-19z29 / r14-19z32: the Engineers and Craftsmen in the cc lists, the Sneed patroller's
+        # group first, the Harvester room's golem split off, the Gilnid ramp pulled from the spiral and the floor ring camp by camp) with
+        # two new legs after leg 0 and the Voss boss row. The old legs 2-15 are legs 4-17 now; every pin below fails when its rows are cut.
         name, text = newest_plan_text("deadmines")
-        self.assertEqual(name, "20261025002800_world.sql")
-        self.assertIn("('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 456efc5 dungeons/deadmines.json',", text)
+        self.assertEqual(name, "20261025003200_world.sql")
+        self.assertIn("('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent f4344311 dungeons/deadmines.json',", text)
         rows = [r for r in self.step_rows(text) if r["plan"] == "deadmines"]
-        self.assertEqual(len(rows), 251)
-        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (5, 8, 9, 10)}, {5: 11, 8: 11, 9: 41, 10: 8})
+        self.assertEqual(len(rows), 254)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (5, 7, 8, 9, 10)}, {5: 11, 7: 9, 8: 11, 9: 41, 10: 8})
         # The laboratory: leg 1 lab_tunnel, leg 2 laboratory. The boss row at Voss's spawn, its approach stand 21.3 yd out, and the pair
         # next to him (2583084/2583081, 15.4 yd from the boss) as one pull from -96 -501.
         lab = leg_steps(rows, 2)
@@ -670,6 +671,31 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual([(r["entry"], r["entries"], r["x"], r["y"]) for r in leg_steps(rows, 9) if r["kind"] == "boss"],
                          [("1763", "1731", "-177.362", "-574.458")])
         self.assertNotIn(("622,1731", 11, -187.1), pulls(10))
+        # The hall (proof20d4 wipe, 2026-10-26): the golem pull and the two Engineer pulls each walk to a west stand first. Row 123 of
+        # 20261025002800 (the golems) was pulled from -207.6 -548.3, south of the inner wall, 23.6 yd away with los no; the run leader
+        # walked the tank in to 7.5 yd, the fight sat 6 yd from the 622 at -170.4 -535.2 and three Engineers (the third 20 yd away in
+        # harvester group 0) plus a Craftsman joined: 5 deaths, the run's one wipe. The stands below are the plan's own approach points:
+        # line of sight to the pack at the core's sight heights on the server's map 36 vmaps, and the next pack 29 yd or more away.
+        hall = leg_steps(rows, 7)
+        self.assertEqual([(r["kind"], r["comment"]) for r in hall],
+                         [("move", "to"), ("pull", "pull group 0"), ("pull", "pull group 1"),
+                          ("move", "pull group 2 approach"), ("pull", "pull group 2"),
+                          ("move", "pull group 3 approach"), ("pull", "pull group 3"),
+                          ("move", "pull group 4 approach"), ("pull", "pull group 4")])
+        stands = {2: (-201.0, -534.0, 51.31), 3: (-186.0, -533.0, 51.31), 4: (-176.0, -544.0, 51.26)}
+        hall_pulls = {2: ("61962", -185.99, -530.84), 3: ("622", -170.37, -535.16), 4: ("622,1731", -162.19, -555.34)}
+        for group, (x, y, z) in stands.items():
+            move, pull = hall[2 * group - 1], hall[2 * group]
+            self.assertEqual((move["kind"], move["comment"]), ("move", "pull group %d approach" % group))
+            self.assertEqual((float(move["x"]), float(move["y"]), float(move["z"])), (x, y, z))
+            self.assertEqual((pull["kind"], pull["comment"]), ("pull", "pull group %d" % group))
+            self.assertEqual((pull["entries"], float(pull["x"]), float(pull["y"])), hall_pulls[group])
+        # The golem pull's stand is 30.6 yd from the Engineer row it used to drag in, and every stand is 29 yd or more from the next
+        # pack the plan pulls (2-D, as the run leader sees it); the third Engineer is harvester group 0's, 35.9 yd on.
+        self.assertGreaterEqual(dist(hall[3], float(hall[6]["x"]), float(hall[6]["y"])), 29.0)   # golem stand -> the 622 row
+        self.assertGreaterEqual(dist(hall[5], float(hall[8]["x"]), float(hall[8]["y"])), 29.0)   # 622 stand -> the next 622 row
+        harvester = leg_steps(rows, 8)
+        self.assertGreaterEqual(dist(hall[7], float(harvester[1]["x"]), float(harvester[1]["y"])), 29.0)  # -> harvester 0's 622
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["61961", "644", "642", "61963", "1763", "646", "647", "639"])
 
     def test_scholomance_is_the_plan_with_the_malicia_pack_splits(self):
@@ -680,11 +706,11 @@ class DungeonPlanSql(unittest.TestCase):
         # yd from the unpulled group-31 pack: 24 at once, 3 wipes / 19 deaths) is entered from the ramp, group 31 first and
         # the north-east cluster in two rows. Every pin fails when its rows are cut.
         name, text = newest_plan_text("scholomance")
-        self.assertEqual(name, "20261025002400_world.sql")
+        self.assertEqual(name, "20261025003000_world.sql")
         self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', "
-                      "'turtle-agent 1a544f5cb16db95c9b40c4277ff19960eb74cf36 dungeons/s',", text)
+                      "'turtle-agent 15e042b315776a19a0590d8f3ba6f49467cd7c8b dungeons/s',", text)
         rows = [r for r in self.step_rows(text) if r["plan"] == "scholomance"]
-        self.assertEqual(len(rows), 591)
+        self.assertEqual(len(rows), 589)
         leg0 = leg_steps(rows, 0)
         self.assertEqual(len(leg0), 97)
         pulls = [(r["entries"], float(r["radius"]), r["x"], r["y"]) for r in leg0 if r["kind"] == "pull"]
@@ -2875,7 +2901,22 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["black_morass"])
 
     def test_razorfen_kraul_is_the_plan_with_the_pack_fixes(self):
-        # 20261025002500 (turtle-agent 470f316, 2026-10-25, after live run r39 slotD: 'no firing stand found' at steps 10 and 25
+        # 20261025003100 (turtle-agent e8ee268, 2026-10-26, after live run proof20d4 slotD: the Ramtusk leg's six pit packs
+        # (steps 322-327) have no firing stand from the leg's z 80-83 floor: step 322 x3 "no firing stand found", step 323
+        # "pack skipped, not cleared: 2 units out of reach", steps 324-326 deferred "not reachable from this floor", 4 packs left
+        # alive; step 1's "cmd move 1951.0 1570.0 83.3 refused: unreachable" is the run's only pause). The six lower-floor packs
+        # (4511 at 2122.66 1738.86, 2138.32 1744.36, 2167.05 1701.62 and 2166 1686.35, and the [4511 4514] pair at 2149.5
+        # 1674-1686, z 52-59) moved to charlga_pit, the leg that walks that floor, in walk order from its south mouth, each with a
+        # stand on the pit floor 20.0-22.2 yd from every spawn of its pack and a clear mesh ray; each hop between stands is a
+        # complete server path (0x1: 62.0, 20.1, 11.7, 26.3, 46.6, 38.7 yd). The Ramtusk leg's pull group 4 (the 4623 pair) got a
+        # stand 19-22.6 yd away (step 319 walked in blind and body-pulled 4534/4532/4518: the first wipe; group 5 has no stand
+        # the clearance rule allows). Leg 0's opening walk is one via point 1954.5 1582.3 82.61, 39.9 yd from the entrance (the
+        # spot the live party reached), so the run leader's blind 96-yd approach no longer cuts a hop at 1951 1570 83.3.
+        # 9 legs, 836 steps, 129 pulls (31 + 20 + 8 + 8 + 12 + 10 + 6 + 23 + 4), no row hand-set. Server-exact plan-check: ok,
+        # 287 points (279), 5 warnings (6), 62 hop notices (69). Replays from the run's real lead positions refuse nothing and
+        # leave no pack without a stand: leg 3 0/0 (was 0 refusals, 6 packs without a stand), leg 7 0/0 (23 pulls), leg 8 0/0.
+        #
+        # before it: 20261025002500 (turtle-agent 470f316, 2026-10-25, after live run r39 slotD: 'no firing stand found' at steps 10 and 25
         # x5 (packs 4511/4512 of the Roogug leg: 43 min, 14 deaths) and at step 315 (rotthorn: 2 of the 3 wipes and the only
         # pause), and 'pack skipped, not cleared: 1 units out of reach after 3 pulls that killed nothing' for the pair above the
         # step-315 pack): the floors, not the ranges. The leg-0 lower pocket (z 62-65) is under the upper walkway and its only
@@ -2942,20 +2983,23 @@ class DungeonPlanSql(unittest.TestCase):
         # packs that stand with a boss are that boss row's entries, not pulls; Halmgar 4842 and the Blind Hunter 4425 are pull
         # members.
         name, text = newest_plan_text("razorfen_kraul")
-        self.assertEqual(name, "20261025002500_world.sql")
-        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent 470f316 dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261025003100_world.sql")
+        self.assertIn("('razorfen_kraul', 47, '4427,4515,4522,4440', '4427', '', 'turtle-agent e8ee268 dungeons/razorfen_kraul.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "razorfen_kraul")), 9)
         rows = [r for r in self.step_rows(text) if r["plan"] == "razorfen_kraul"]
-        self.assertEqual(len(rows), 819)
+        self.assertEqual(len(rows), 836)
         # The opening stand is the lower-floor pocket 1994 1615 (the old 1987.53 1600.03 has the upper walkway overhead); the five
         # corridor groups all have radius 10 (group 0 was 25 and owned the next group's Quilguards; group 5's default was 19.3), and
         # seq 5 is the explicit corridor regroup move before pull group 4 (r19-19z37: the two ranged bots climbed the west ramp while
         # idle).
         first = leg_steps(rows, 0)
-        self.assertEqual((first[0]["kind"], first[0]["x"], first[0]["y"], first[0]["z"]), ("move", "1994", "1615", "83.2"))
-        self.assertEqual((first[1]["kind"], first[1]["entries"], first[1]["radius"]), ("pull", "4530", "10"))
-        self.assertEqual([r["radius"] for r in first[2:5]], ["10", "10", "10"])
-        self.assertEqual((first[5]["kind"], first[5]["x"], first[5]["y"], first[5]["z"], first[5]["comment"]),
+        # pf-rfk-ramtusk: the opening walk starts on the via point the live party reached (proof20d4 step 1's refused hop)
+        self.assertEqual((first[0]["kind"], first[0]["x"], first[0]["y"], first[0]["z"], first[0]["comment"]),
+                         ("move", "1954.5", "1582.3", "82.61", "via"))
+        self.assertEqual((first[1]["kind"], first[1]["x"], first[1]["y"], first[1]["z"]), ("move", "1994", "1615", "83.2"))
+        self.assertEqual((first[2]["kind"], first[2]["entries"], first[2]["radius"]), ("pull", "4530", "10"))
+        self.assertEqual([r["radius"] for r in first[3:6]], ["10", "10", "10"])
+        self.assertEqual((first[6]["kind"], first[6]["x"], first[6]["y"], first[6]["z"], first[6]["comment"]),
                          ("move", "2000", "1635", "81", "pull group 4 approach"))
         # The two stands (r20-19z39: pulls 39 and 42 walked the long way; r22 slot5: the room's 2180 1604 was refused): 2110 1600 82.1
         # before the 4532 pull and the same 2110 1600 82.1 before the 4440 pull, whose radius is the explicit 10.
@@ -2975,15 +3019,24 @@ class DungeonPlanSql(unittest.TestCase):
                           ("2061.3333", "1623.2", "64.28699")])
         self.assertFalse([r for r in leg_steps(rows, 0) if r["comment"] == "pull group 17 approach"],
                          "pull 17's approach points are reverted")
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(9)], [31, 20, 8, 14, 12, 10, 6, 17, 4])
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(9)], [31, 20, 8, 8, 12, 10, 6, 23, 4])
         # Step 289 (r23 slot8: `cmd move 2140.0 1724.5 53.0 refused: unreachable`): the last lower-floor pull's hop to pull group 13
         # is anchored on the lead's floor, 2129.3 1716 80.9, and its cut walks the upper floor only.
         ramtusk = leg_steps(rows, 3)
-        after12 = next(i for i, r in enumerate(ramtusk) if r["comment"] == "pull group 12") + 1
-        self.assertEqual([(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in ramtusk[after12:after12 + 2]],
-                         [("move", "2129.3", "1716", "80.9", "pull group 13 approach"),
+        # pf-rfk-ramtusk: the 4623 pair (pull group 4) is shot from the upper-floor stand 2136.98 1638.69 82.2 (19-22.6 yd), and the
+        # leg keeps no pull on the pit floor: the six lower packs are charlga_pit's now.
+        g4 = next(i for i, r in enumerate(ramtusk) if r["comment"] == "pull group 4")
+        self.assertEqual((ramtusk[g4 - 1]["kind"], ramtusk[g4 - 1]["x"], ramtusk[g4 - 1]["y"], ramtusk[g4 - 1]["z"],
+                          ramtusk[g4 - 1]["comment"]),
+                         ("move", "2136.98", "1638.69", "82.2", "pull group 4 approach"))
+        self.assertFalse([r for r in ramtusk if r["kind"] == "pull" and float(r["z"]) < 70],
+                         "the Ramtusk leg pulls a pit-floor pack again")
+        after7 = next(i for i, r in enumerate(ramtusk) if r["comment"] == "pull group 7 approach")
+        self.assertEqual([(r["kind"], r["x"], r["y"], r["z"], r["comment"]) for r in ramtusk[after7 - 1:after7 + 2]],
+                         [("pull", "2128.7", "1704.86", "80.48", "pull group 6"),
+                          ("move", "2129.3", "1716", "80.9", "pull group 7 approach"),
                           ("move", "2129.5999", "1689.0667", "82.18699", "approach path")])
-        self.assertTrue(all(float(r["z"]) > 80 for r in ramtusk[after12:] if r["kind"] == "move"),
+        self.assertTrue(all(float(r["z"]) > 80 for r in ramtusk[after7:] if r["kind"] == "move"),
                         "the Ramtusk approach cut walks the lower floor again")
         # Step 331 (r24 slot8 run 5: the lead stood on the plateau's lip at 1995.7 1802.1 78.6 and every move 331-342 was refused
         # "no walkable path"): the cut into rotthorn's spiral descent starts on the ramp the party walked, four approach moves to
@@ -3044,12 +3097,20 @@ class DungeonPlanSql(unittest.TestCase):
                                    ("2053.15", "1774.91", "59.18", "pull group 13 approach"),
                                    ("2039.57", "1750.98", "60.36", "pull group 14 approach"),
                                    ("2036.24", "1732.91", "60.75", "pull group 15 approach"),
-                                   ("2050.06", "1710.43", "59.58", "pull group 16 approach")])
+                                   ("2050.06", "1710.43", "59.58", "pull group 16 approach"),
+                                   ("2106.66", "1724.86", "54.26", "pull group 17 approach"),
+                                   ("2126.32", "1728.36", "52.18", "pull group 18 approach"),
+                                   ("2136.54", "1734.03", "51.88", "pull group 19 approach"),
+                                   ("2149.73", "1711.63", "55.01", "pull group 20 approach"),
+                                   ("2133.51", "1673.73", "58.83", "pull group 21 approach"),
+                                   ("2155", "1705.35", "55.37", "pull group 22 approach")])
         # pf-rfk-stands: the six packs that used to be pulled from the spiral/walkway above now stand on the pit floor, each with
         # its stand 15-24.5 yd from the pack it pulls (the stand is the row before the pull row).
         for i, r in enumerate(pit):
             if r["comment"] in ("pull group 11 approach", "pull group 12 approach", "pull group 13 approach",
-                                "pull group 14 approach", "pull group 15 approach", "pull group 16 approach"):
+                                "pull group 14 approach", "pull group 15 approach", "pull group 16 approach",
+                                "pull group 17 approach", "pull group 18 approach", "pull group 19 approach",
+                                "pull group 20 approach", "pull group 21 approach", "pull group 22 approach"):
                 pull = pit[i + 1]
                 self.assertEqual(pull["kind"], "pull", r["comment"])
                 d = ((float(r["x"]) - float(pull["x"])) ** 2 + (float(r["y"]) - float(pull["y"])) ** 2 +
@@ -3414,25 +3475,25 @@ class DungeonPlanSql(unittest.TestCase):
 
     def test_zulfarrak_names_its_area_trigger_on_the_walk_in(self):
         # The move into at_zumrah (962) names the trigger in `entry`, so the run's bots fire it without
-        # AiPlayerbot.BotAreaTriggers (ai::IsBotAreaTriggerArmed). The UPDATE sorts after the newest whole-plan
-        # export and touches exactly that one move row.
+        # AiPlayerbot.BotAreaTriggers (ai::IsBotAreaTriggerArmed). The 20261025002900 export moved the row from
+        # leg 10 to leg 11 (the gahzrilla leg); its own UPDATE re-applies the entry and comment after the INSERT,
+        # because 20261024000000's UPDATE still names the old leg 10 (the courtyard now).
         name, text, rows = newest_zulfarrak_rows()
-        walk_in = [r for r in rows if r["leg"] == "10" and r["seq"] == "101"]
+        walk_in = [r for r in rows if r["leg"] == "11" and r["seq"] == "101"]
         self.assertEqual(len(walk_in), 1)
         self.assertEqual(walk_in[0]["kind"], "move")
         self.assertIn("area trigger 962", walk_in[0]["comment"])
-        update = dict(migrations())["20261024000000_world.sql"]
-        self.assertLess(name, "20261024000000_world.sql")
+        update = text
         statements = [s.strip() for s in re.split(r";\s*$", re.sub(r"(?m)^--.*$", "", update), flags=re.M) if s.strip()]
-        self.assertEqual(len(statements), 1)
-        self.assertTrue(statements[0].startswith("UPDATE `ai_dungeon_step` SET `entry` = 962,\n`comment` = 'area trigger 962: "))
-        self.assertTrue(statements[0].endswith("\nWHERE `plan` = 'zulfarrak' AND `leg` = 10 AND `seq` = 101 AND `kind` = 'move'"))
+        ours = [s for s in statements if s.startswith("UPDATE `ai_dungeon_step` SET `entry` = 962")]
+        self.assertEqual(len(ours), 1, name)
+        self.assertTrue(ours[0].endswith("\nWHERE `plan` = 'zulfarrak' AND `leg` = 11 AND `seq` = 101 AND `kind` = 'move'"), name)
         # The row's comment no longer claims the allowlist is needed.
-        comment = re.search(r"`comment` = '((?:[^']|'')*)'", statements[0]).group(1)
+        comment = re.search(r"`comment` = '((?:[^']|'')*)'", ours[0]).group(1)
         self.assertNotIn("needs AiPlayerbot.BotAreaTriggers", comment)
         self.assertIn("no AiPlayerbot.BotAreaTriggers needed", comment)
         # Nothing newer re-inserts the zulfarrak steps (that would drop the entry again).
-        later = [n for n, body in migrations() if n > "20261024000000_world.sql" and
+        later = [n for n, body in migrations() if n > name and
                  re.search(r"INSERT INTO `ai_dungeon_step`.*?\('zulfarrak',", body, re.S)]
         self.assertEqual(later, [])
 
@@ -3583,9 +3644,9 @@ class DungeonPlanSql(unittest.TestCase):
     def test_zulfarrak_and_uldaman_final_counts(self):
         # Each plan's newest INSERT follows the DELETE of its old steps and legs, so its rows are the plan after all migrations.
         name, text = newest_plan_text("zulfarrak")
-        self.assertEqual(name, "20261022210000_world.sql")
-        self.assertEqual(len(leg_rows(text, "zulfarrak")), 17)
-        self.assertEqual(len([r for r in self.step_rows(text) if r["plan"] == "zulfarrak"]), 232)
+        self.assertEqual(name, "20261025002900_world.sql")
+        self.assertEqual(len(leg_rows(text, "zulfarrak")), 18)
+        self.assertEqual(len([r for r in self.step_rows(text) if r["plan"] == "zulfarrak"]), 247)
         name, text = newest_plan_text("uldaman")
         self.assertEqual(name, "20261022170000_world.sql")
         self.assertEqual(len(leg_rows(text, "uldaman")), 14)
@@ -3780,7 +3841,7 @@ class DungeonPlanSql(unittest.TestCase):
         # Weegli Blastfuse (7607) blows the End Door (146084) only once the pyramid phase (instance data 1) reads 8 (PYRAMID_KILLED_ALL_TROLLS,
         # tortoise-wow zulfarrak.h:40) and his menu then offers its one line (zulfarrak.cpp:497: index 0, so `cmd gossip` option 1).
         name, _text, zf = newest_zulfarrak_rows()
-        rows = [r for r in zf if r["leg"] == "14"]
+        rows = [r for r in zf if r["leg"] == "15"]
         self.assertEqual([r["kind"] for r in rows], ["move", "hold", "gossip", "wait_object"])
         hold, gossip, door = rows[1], rows[2], rows[3]
         # flag 8 alone: the phase is a script value, not an encounter state (no 32), and param 8 is above the encounter states 0-4
@@ -3791,20 +3852,20 @@ class DungeonPlanSql(unittest.TestCase):
         # (zulfarrak.cpp:423 DoUseDoorOrButton(EndDoorGUID, 0, true)), and wait_object compares exactly: the r8 run paused twice at
         # a state-1 wait on an open door. The order of the rows is the point.
         self.assertEqual((door["entry"], door["param"]), ("146084", "2"))
-        # Sergeant Bly (leg 15): his gossip, then a hold done by its units (no done flag) with Bly first, so he counts while still
+        # Sergeant Bly (leg 16): his gossip, then a hold done by its units (no done flag) with Bly first, so he counts while still
         # friendly; a boss row would leave the friendly Bly alone at once (DungeonRunPolicy.h FightStep).
-        bly = [r for r in zf if r["leg"] == "15"]
+        bly = [r for r in zf if r["leg"] == "16"]
         self.assertEqual([r["kind"] for r in bly], ["move", "gossip", "hold"], name)
         # flags 512 = kPlanFlagDeadNpcIsDone (20261022210000): his crew dies in the pyramid event's troll waves in some runs (r12, r15-19z33)
-        # and a dead Bly then counts the gossip as done instead of pausing the run; Weegli's gossip (leg 14, above) keeps flags 0.
+        # and a dead Bly then counts the gossip as done instead of pausing the run; Weegli's gossip (leg 15, above) keeps flags 0.
         self.assertEqual((bly[1]["entry"], bly[1]["param"], bly[1]["flags"]), ("7604", "1", "512"), name)
         hold = bly[2]
         self.assertEqual((hold["entry"], hold["param"], hold["flags"], hold["radius"], hold["timeout_s"], hold["entries"]),
                          ("0", "0", "0", "25", "300", "7604,7608,7606,7605"), name)
         self.assertEqual((hold["x"], hold["y"], hold["z"]), ("1884", "1212", "9"), name)
         # the Ukorz leg follows with the plain kinds, after Bly
-        ukorz = [r for r in zf if r["leg"] == "16"]
-        self.assertEqual(max(int(r["leg"]) for r in zf), 16, name + ": Ukorz is the last leg")
+        ukorz = [r for r in zf if r["leg"] == "17"]
+        self.assertEqual(max(int(r["leg"]) for r in zf), 17, name + ": Ukorz is the last leg")
         self.assertEqual([r["kind"] for r in ukorz], ["move", "move", "pull", "pull", "pull", "pull", "pull", "boss"])
         self.assertEqual((ukorz[-1]["entry"], ukorz[-1]["entries"]), ("7267", "7797"))
 
@@ -3856,10 +3917,10 @@ class DungeonPlanSql(unittest.TestCase):
         # The newest migration that inserts the zulfarrak steps (20261021174713, the graves on 20261021115557, 20261021095914 before; turtle-agent plan-export of the plan with the stairs
         # holds, Weegli's door and Ukorz) carries Zum'rah, the Executioner's key to the cage, the three holds on the pyramid phase
         # (instance data 1: 3 = WAVE_1, 7 = WAVE_3 on the stairs top, 8 = PYRAMID_KILLED_ALL_TROLLS at the foot, script values with
-        # flag 8 alone), Nekrum before Sezz'ziz at the end of leg 13 and Ukorz as the last row; a re-export from an exporter without hold values
+        # flag 8 alone), Nekrum before Sezz'ziz at the end of leg 14 and Ukorz as the last row; a re-export from an exporter without hold values
         # would cut the plan at the stairs again (or write them as encounter states, which the loader refuses above 4).
         name, text, rows = newest_zulfarrak_rows()
-        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["8127", "7272", "7795", "7271", "7274", "7275", "7267"], name)
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["8127", "7272", "7795", "7273", "7271", "7274", "7275", "7267"], name)
         cage = [i for i, r in enumerate(rows) if r["kind"] == "open"]
         self.assertEqual(len(cage), 1, name)
         i = cage[0]
@@ -3873,12 +3934,12 @@ class DungeonPlanSql(unittest.TestCase):
         for r in holds[:2]:
             self.assertEqual((r["x"], r["y"], r["z"], r["entries"]), ("1887", "1274", "42", "7787,7788,7789,8876,8877"), name)
         self.assertEqual((holds[2]["leg"], holds[2]["x"], holds[2]["y"], holds[2]["z"], holds[2]["entries"]),
-                         ("14", "1877.5", "1199.6", "8.9", "7787,7788,7789,8876,8877"), name)
-        leg13 = [r for r in rows if r["leg"] == "13"]
-        self.assertEqual(leg13[-2]["entries"], "7796", name + ": Nekrum before Sezz'ziz")
-        self.assertEqual(leg13[-1]["kind"], "wait_clear", name)
-        self.assertEqual((rows[-1]["kind"], rows[-1]["leg"]), ("boss", "16"), name + ": Ukorz ends the plan")
-        self.assertIn("BotAreaTriggers = 962", text, name + ": the header names the trigger setting Zum'rah needs")
+                         ("15", "1877.5", "1199.6", "8.9", "7787,7788,7789,8876,8877"), name)
+        leg14 = [r for r in rows if r["leg"] == "14"]
+        self.assertEqual(leg14[-2]["entries"], "7796", name + ": Nekrum before Sezz'ziz")
+        self.assertEqual(leg14[-1]["kind"], "wait_clear", name)
+        self.assertEqual((rows[-1]["kind"], rows[-1]["leg"]), ("boss", "17"), name + ": Ukorz ends the plan")
+        self.assertIn("area trigger 962", text, name + ": the header and UPDATE name the trigger Zum'rah needs")
 
     def test_zulfarrak_antusul_pulls_the_pair_before_the_camp_from_stands(self):
         # r2-19z19 step 26: with the camp before the pair and no stand, the run leader stopped 30 yd short of the camp centre, 15.4 yd from the
@@ -3896,57 +3957,46 @@ class DungeonPlanSql(unittest.TestCase):
         # pair's stand is west of 1625 and the camp's stand west of 1635, so neither is near the Shadowcaster camp at 1660 901
         for stand, limit in ((leg[pulls[-3][0] - 1], 1625), (leg[pulls[-2][0] - 1], 1635)):
             self.assertLess(float(stand["x"]), limit, name)
-        self.assertEqual(max(int(r["leg"]) for r in rows), 16, name)
+        self.assertEqual(max(int(r["leg"]) for r in rows), 17, name)
 
-    def test_shipped_zulfarrak_has_no_gahzrilla_leg(self):
-        # The cold review of 2026-10-21: the shipped rows never carry the gong (no player or unattended run has the Mallet, so every
-        # run would pause there); the leg is the opt-in file's only.
+    def test_shipped_zulfarrak_has_the_gahzrilla_leg(self):
+        # 2026-10-26: the audit counts Gahz'rilla 7273 (EVERY-BOSS-2026-10-26) and the leg was played live in zf-r5, so the shipped
+        # plan carries the leg now. The Mallet is still the operator's (no bot can get it): the header says a GM `.additem 9240`
+        # is needed before the run, else the run leader pauses at the use_on and `.bot run skip` passes the leg.
         name, text, rows = newest_zulfarrak_rows()
-        self.assertNotIn("gahzrilla", [n for n, _c in leg_rows(text, "zulfarrak").values()], name)
-        self.assertFalse([r for r in rows if r["kind"] == "use_on" or r["entry"] == "7273"], name)
+        self.assertIn("gahzrilla", [n for n, _c in leg_rows(text, "zulfarrak").values()], name)
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "use_on"], ["141832"], name)
+        self.assertIn("7273", [r["entry"] for r in rows if r["kind"] == "boss"], name)
+        self.assertIn(".additem 9240", text, name)
 
-    def test_zulfarrak_gahzrilla_opt_in_is_the_migration_plus_the_leg(self):
-        # tools/optional-plans/zulfarrak-gahzrilla.sql (never auto-applied) is the newest zulfarrak migration with the gahzrilla leg
-        # added: the same plan row, and the same leg and step rows once the gahzrilla leg is taken out and the legs after it are
-        # numbered one lower. Nothing else may differ (a stale opt-in file would put an older plan on a test box).
+    def test_zulfarrak_gahzrilla_opt_in_matches_the_shipped_plan(self):
+        # tools/optional-plans/zulfarrak-gahzrilla.sql was the export of a93caba with --with-optional gahzrilla; 20261025002900
+        # ports its rows into the shipped plan. The file is kept as provenance, so its step and leg rows must stay identical to
+        # the shipped ones; only the plan row's `source` text names the newer revision (74bbea2), and the shipped file's own
+        # UPDATE names the area trigger on the renumbered row (an UPDATE, not a step row).
         name, text, rows = newest_zulfarrak_rows()
         opt = OPT_IN.read_text()
         opt_rows = [r for r in self.step_rows(opt) if r["plan"] == "zulfarrak"]
-        gl = [n for n, (leg, _c) in leg_rows(opt, "zulfarrak").items() if leg == "gahzrilla"]
-        self.assertEqual(len(gl), 1)
-        g = gl[0]
-        def renumber(r):
-            r = dict(r)
-            r["leg"] = str(int(r["leg"]) - 1) if int(r["leg"]) > g else r["leg"]
-            return r
-        # The one difference the export makes on its own: the long-hop cuts ('path' moves, --mmaps) at the start of the leg after
-        # gahzrilla are measured from where that leg begins, Gahz'rilla's spot instead of the leg before. Those rows, and that
-        # leg's seq numbers, are left out of the comparison; every other column of every other row must match.
-        def key(r, nxt):
-            r = dict(r)
-            if r["leg"] == str(nxt):
-                r.pop("seq")
-            return r
-        mine = [key(renumber(r), g) for r in opt_rows if int(r["leg"]) != g and not (int(r["leg"]) == g + 1 and r["comment"] == "path")]
-        theirs = [key(r, g) for r in rows if not (int(r["leg"]) == g and r["comment"] == "path")]
-        self.assertEqual(mine, theirs, name + ": the opt-in rows besides the gahzrilla leg")
-        legs = {(n - 1 if n > g else n): v for n, v in leg_rows(opt, "zulfarrak").items() if n != g}
-        self.assertEqual(legs, leg_rows(text, "zulfarrak"))
+        self.assertEqual(opt_rows, rows, name + ": the shipped steps are the opt-in export's rows")
+        self.assertEqual(leg_rows(opt, "zulfarrak"), leg_rows(text, "zulfarrak"), name + ": the same legs")
         plan_row = lambda t: re.search(r"^\('zulfarrak', 209, .*\);$", t, re.M).group(0)
-        self.assertEqual(plan_row(opt), plan_row(text))
-        update = "UPDATE `ai_dungeon_plan` SET `cc_priority` = '7246,7247,5648' WHERE `plan` = 'zulfarrak';"
-        self.assertTrue(text.rstrip().endswith(update) and opt.rstrip().endswith(update))
+        shipped = plan_row(text)
+        ported = plan_row(opt)
+        self.assertEqual(re.sub(r"'turtle-agent \w+ ", "'turtle-agent ", shipped),
+                         re.sub(r"'turtle-agent \w+ ", "'turtle-agent ", ported), name + ": only the source revision differs")
+        self.assertIn("SUPERSEDED 2026-10-26", opt.split("DELETE FROM")[0])
         self.assertIn("NOT A MIGRATION", opt.split("DELETE FROM")[0])
-        self.assertIn("re-apply data/sql/world/" + name, opt.split("DELETE FROM")[0])
+        update = "UPDATE `ai_dungeon_plan` SET `cc_priority` = '7246,7247,5648' WHERE `plan` = 'zulfarrak';"
+        self.assertIn(update, text)
+        self.assertIn(update, opt)
 
     def test_zulfarrak_gahzrilla_rings_the_gong_with_the_mallet(self):
-        # 20261021174716: the optional gahzrilla leg is in the rows (turtle-agent plan-export --with-optional gahzrilla): the pool-ring
+        # 20261025002900: the gahzrilla leg is in the shipped rows (turtle-agent plan-export --with-optional gahzrilla): the pool-ring
         # pulls, the stand 1652.84 1168.99 10.67, then ONE use_on of the gong 141832 at its point with the Mallet of Zul'Farrak 9240 (the
         # order `cmd use 9240 <carrier> entry:141832@1650.9,1171.9,10.9`; a plain open of the gong does nothing), then Gahz'rilla 7273
         # where his walk-out ends. The Mallet is GM-added to the lead bot before the run (no bot can get it); the header says so.
-        name = OPT_IN.name
-        text = OPT_IN.read_text()
-        rows = [r for r in self.step_rows(text) if r["plan"] == "zulfarrak"]
+        # The boss rows: ai_dungeon_boss (209, 7273) and the two interruptible casts from core data (spell_template interruptFlags 15).
+        name, text, rows = newest_zulfarrak_rows()
         legs = leg_rows(text, "zulfarrak")
         self.assertEqual(legs[9][0], "gahzrilla", name)
         self.assertEqual(max(int(r["leg"]) for r in rows), 17, name + ": Ukorz is leg 17 with the gahzrilla leg")
@@ -3962,6 +4012,9 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(sum(1 for r in leg if r["kind"] == "pull"), 8, name + ": the pool ring is cleared first")
         self.assertIn(".additem 9240", text, name + ": the header names the Mallet's GM setup")
         self.assertIn("7604", text.split("DELETE FROM")[0], name + ": the header names Bly's BotGossipNpcs entry")
+        self.assertIn("REPLACE INTO `ai_dungeon_boss` (`map`, `entry`, `name`) VALUES\n(209, 7273, 'Gahz''rilla');", text, name)
+        self.assertIn("(209, 7273, 'interrupt', 0, 11836,", text, name + ": Freeze Solid is interruptible")
+        self.assertIn("(209, 7273, 'interrupt', 0, 11131,", text, name + ": Icicle is interruptible")
 
     def test_zulfarrak_graves_before_the_trigger(self):
         # Zum'rah's 31 Shallow Graves (128403) are opened one at a time before the trigger 962 (turtle-agent plan-export
@@ -4139,9 +4192,7 @@ class DungeonPlanSql(unittest.TestCase):
         if compiler is None:
             self.skipTest("g++ is not installed")
         lines, counts = [], {}
-        # The opt-in Gahz'rilla file under its own plan name (the same key twice would be the loader's Duplicate).
-        opt_rows = [dict(r, plan="zulfarrak_opt") for r in self.step_rows(OPT_IN.read_text()) if r["plan"] == "zulfarrak"]
-        for plan, rows in (("zulfarrak", newest_zulfarrak_rows()[2]), ("uldaman", newest_uldaman_rows()[2]), ("zulfarrak_opt", opt_rows)):
+        for plan, rows in (("zulfarrak", newest_zulfarrak_rows()[2]), ("uldaman", newest_uldaman_rows()[2])):
             lines.append("P\t%s\t%d" % (plan, BOSS_PLANS.get(plan, 209)))
             counts[plan] = len(rows)
             for r in rows:
@@ -4149,7 +4200,7 @@ class DungeonPlanSql(unittest.TestCase):
                                         r["param"], r["flags"], r["timeout_s"], r["entries"]]))
         self.assertGreater(counts["zulfarrak"], 200)
         self.assertGreater(counts["uldaman"], 130)
-        self.assertGreaterEqual(counts["zulfarrak_opt"] - counts["zulfarrak"], 12, "the opt-in file adds the gahzrilla leg's rows")
+        self.assertEqual(counts["zulfarrak"], 247, "the gahzrilla leg is in the shipped plan")
         with tempfile.TemporaryDirectory() as tmp:
             binary = os.path.join(tmp, "rows")
             build = subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", os.path.join(ROOT, "tools/test_dungeon_plan_rows.cpp"), "-o", binary],
@@ -4321,17 +4372,17 @@ class DungeonPlanSql(unittest.TestCase):
         # members and its radius (5-13.1 yd) covers its own positions; Alexei's linked Risen Guards 10489 and Rattlegore's linked
         # Risen Construct 10488 are the boss rows' first.
         name, text = newest_plan_text("scholomance")
-        self.assertEqual(name, "20261025002400_world.sql")
-        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', 'turtle-agent 1a544f5", text)
+        self.assertEqual(name, "20261025003000_world.sql")
+        self.assertIn("('scholomance', 289, '10470,10472,10476,11257,10469,10475', '', '10471,11582,10477', 'turtle-agent 15e042b", text)
         legs = leg_rows(text, "scholomance")
         self.assertEqual([legs[i][0] for i in range(10)],
                          ["instructor_malicia", "the_ravenian", "lorekeeper_polkelt", "lady_illucia_barov",
                           "jandice_barov", "rattlegore", "vectus", "ras_frostwhisper",
                           "doctor_theolen_krastinov", "lord_alexei_barov"])
         rows = [r for r in self.step_rows(text) if r["plan"] == "scholomance"]
-        self.assertEqual(len(rows), 591)
+        self.assertEqual(len(rows), 589)
         self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(10)],
-                         [45, 7, 4, 14, 36, 25, 28, 3, 2, 3])
+                         [45, 7, 4, 14, 36, 25, 26, 3, 2, 3])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
                          ["10505", "10507", "10901", "10502", "10503", "11622", "10432", "10508", "11261", "10504"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
@@ -4339,9 +4390,9 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
         self.assertEqual(leg_steps(rows, 0)[0]["kind"], "move")
         self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"],
-                         ["", "", "", "", "", "10488", "10433", "", "", "10489"])
+                         ["", "", "", "", "", "10488", "10433,10475", "", "", "10489"])
         pulls = [r for r in rows if r["kind"] == "pull"]
-        self.assertEqual(len(pulls), 167)
+        self.assertEqual(len(pulls), 165)
         # Leg 0 is the whole route: every pull is preceded by its approach move row, and the pulls are the stair guards, the
         # 115.8 hall, the 109.7 ring, the 104.8 hall and Malicia's room, in that order.
         leg0 = leg_steps(rows, 0)
@@ -4373,20 +4424,27 @@ class DungeonPlanSql(unittest.TestCase):
         # is the single 10475; the group sizes [3,5,3,3,4,3,5,1,3,2] show in the pull radii [5.0,8.8,5.0,5.0,5.7,5.0,7.4,
         # 5.0,5.0,5.0]), then the boss approach and the boss.
         leg6 = leg_steps(rows, 6)
-        self.assertEqual(len(leg6), 41)
-        self.assertEqual([r["kind"] for r in leg6[19:39]],
-                         ["move", "pull"] * 10)
-        self.assertTrue(all(r["comment"].endswith(" approach") for r in leg6[19:39:2]))
-        self.assertTrue(all(r["entries"] == "10475" for r in leg6[20:39:2]))
-        self.assertEqual([float(r["radius"]) for r in leg6[20:39:2]],
-                         [5.0, 8.8, 5.0, 5.0, 5.7, 5.0, 7.4, 5.0, 5.0, 5.0])
-        self.assertEqual((leg6[19]["x"], leg6[19]["y"], leg6[19]["z"]), ("165", "74", "102.96"))
+        self.assertEqual(len(leg6), 39)
+        student_pulls = [i for i, r in enumerate(leg6) if r["kind"] == "pull" and r["entries"] == "10475"]
+        self.assertEqual(len(student_pulls), 8)
+        self.assertEqual([float(leg6[i]["radius"]) for i in student_pulls],
+                         [5.0, 5.0, 5.0, 5.7, 5.0, 7.4, 5.0, 5.0])
+        for i in student_pulls:
+            self.assertEqual(leg6[i - 1]["kind"], "move")
+            self.assertTrue(leg6[i - 1]["comment"].endswith(" approach"))
+        # The first and the last student pull carry a second approach row: the walk back's staging points 174 70 (42.2 yd
+        # from Vectus) and 95 88 (50.2 yd), each outside the boss row's 30 + 10 yd reach.
+        self.assertEqual((leg6[19]["x"], leg6[19]["y"], leg6[19]["z"]), ("174", "70", "104.85"))
+        self.assertEqual((leg6[20]["x"], leg6[20]["y"], leg6[20]["z"]), ("165", "74", "102.96"))
+        self.assertEqual((leg6[34]["x"], leg6[34]["y"], leg6[34]["z"]), ("95", "88", "97.686"))
+        self.assertEqual((leg6[35]["x"], leg6[35]["y"], leg6[35]["z"]), ("113", "92", "99.37"))
+        self.assertTrue(leg6[19]["comment"].endswith(" approach") and leg6[34]["comment"].endswith(" approach"))
         self.assertEqual(leg6[-2]["kind"], "move")
         self.assertEqual(leg6[-2]["comment"], "boss approach")
         self.assertEqual((leg6[-2]["x"], leg6[-2]["y"], leg6[-2]["z"]), ("128", "105", "102.4"))
         self.assertEqual(leg6[-1]["kind"], "boss")
         self.assertEqual(leg6[-1]["entry"], "10432")
-        self.assertEqual(leg6[-1]["entries"], "10433")
+        self.assertEqual(leg6[-1]["entries"], "10433,10475")
         leg7 = leg_steps(rows, 7)
         self.assertEqual(len(leg7), 15)
         self.assertEqual([(r["x"], r["y"], r["z"]) for r in leg7[:3]],
@@ -4401,6 +4459,137 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["scholomance"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (289) AND `entry` IN (10505,10507,10901,10502,10503,11622,10432,10508,11261,10504);", text)
         self.assertEqual(len(re.findall(r"(?m)^\(289, \d+, '", text)), 10)
+
+    # Spec item-leg-skip F22-24: the ai_dungeon_leg_need table and its rows.
+    EXPECTED_LEG_NEEDS = {
+        # plan: {(leg, item): (mode, pick, object)}; 1 optional, 2 door.
+        "zulfarrak": {(9, 9240): (1, 0, 0)},
+        # Review round 2 (Opus 3): one row per door, on the first leg whose route crosses it (DOOR_SPAWNS below).
+        "blackrock_depths": {(1, 11000): (2, 250, 170560), (4, 11000): (2, 250, 170559), (8, 11000): (2, 250, 170558)},
+        "scarlet_cathedral": {(0, 7146): (2, 175, 104591)},
+        "scarlet_armory": {(1, 7146): (2, 175, 101854)},
+        "stratholme_undead": {(1, 12382): (2, 300, 175357)},
+        "scholomance": {(1, 13873): (2, 0, 175167)},
+        "dire_maul_west": {(2, 18249): (2, 300, 300601)},
+        "dire_maul_north": {(2, 18266): (2, 0, 177219), (3, 18268): (2, 200, 177217)},
+        "gnomeregan": {(2, 6893): (2, 150, 90858)},
+        "stormwrought_ruins": {(4, 41913): (2, 185, 2020233)},
+        "dragonmaw_retreat": {(3, 41876): (2, 160, 2020232)},
+    }
+
+    def need_rows(self, text):
+        for block in re.findall(r"INSERT INTO `ai_dungeon_leg_need` \(([^)]*)\) VALUES(.*?);", text, re.S):
+            cols = [c.strip(" `") for c in block[0].split(",")]
+            for row in re.findall(r"(?m)^\((.*)\)[,;]?\s*$", block[1]):
+                values = [v.strip() for v in re.findall(r"\s*('(?:[^']|'')*'|[^,]+)", row)]
+                plain = [v[1:-1] if len(v) >= 2 and v[0] == "'" and v[-1] == "'" else v for v in values]
+                yield dict(zip(cols, plain))
+
+    def test_leg_need_table_is_created_idempotently(self):
+        seen = [name for name, text in migrations() if "CREATE TABLE IF NOT EXISTS `ai_dungeon_leg_need`" in text]
+        self.assertEqual(len(seen), 1, seen)
+        self.assertEqual(seen[0], "20261026130000_world.sql", seen)
+
+    def test_leg_need_rows_match_the_plans(self):
+        full = "\n".join(text for _name, text in migrations())
+        rows = {}
+        for row in self.need_rows(full):
+            rows.setdefault(row["plan"], {})[(int(row["leg"]), int(row["item"]))] = (
+                int(row["mode"]), int(row["pick"]), int(row["object"]))
+        for plan, want in self.EXPECTED_LEG_NEEDS.items():
+            self.assertEqual(rows.get(plan, {}), want, plan)
+        self.assertEqual(set(rows), set(self.EXPECTED_LEG_NEEDS))
+        # Every need leg has a step with that leg in the newest plan migration; the loader refuses the rest.
+        for plan, want in self.EXPECTED_LEG_NEEDS.items():
+            _name, text = newest_plan_text(plan)
+            have = {int(m.group(1)) for m in re.finditer(r"\('%s', (\d+)," % plan, text)}
+            for leg, _item in want:
+                self.assertIn(leg, have, "%s leg %d" % (plan, leg))
+
+    # The door objects' spawns on the plans' maps (Tortoise V2 world `gameobject`, the 2026-10-26 audit's source): the
+    # door hold looks for the door near the lead bot and stops only within kDoorNearYd (25) of it
+    # (runtime/DungeonRunPolicy.h DoorNear), so a door row sits on the first leg whose route crosses it.
+    DOOR_SPAWNS = {
+        170560: (569.589, -9.36154, -70.2566), 170559: (496.397, 16.0126, -70.2566),
+        170558: (1311.48, -343.072, -92.0093), 104591: (1069.95, 1399.14, 30.7956),
+        101854: (1933.69, -431.654, 18.671), 175357: (3727.29, -3599.08, 142.22),
+        175167: (174.378, 77.9398, 104.802), 300601: (50.5672, 501.383, -23.3041),
+        177219: (385.208, 373.802, -1.15898), 177217: (491.255, 518.678, 29.463),
+        90858: (-758.538, 260.386, -273.049), 2020233: (-6068.09, -4098.55, 218.912),
+        2020232: (-6120.35, -4402.09, 301.998),
+    }
+
+    def test_leg_need_door_rows_sit_on_the_leg_that_crosses_the_door(self):
+        # Review round 2 (Opus 3): each door row is on the first leg with a step within 6.5 yd of the door (the route
+        # crosses it there), or, where no step comes that close (Dire Maul North's courtyard, crossed between leg 1's
+        # boss and leg 2), the first leg with a step within the hold's 25 yd; and that leg has a step within 25 yd.
+        full = "\n".join(text for _name, text in migrations())
+        doors = [(n["plan"], int(n["leg"]), int(n["object"])) for n in self.need_rows(full) if n["mode"] == "2"]
+        self.assertTrue(doors)
+        for plan, leg, obj in doors:
+            _name, text = newest_plan_text(plan)
+            rows = [r for r in self.step_rows(text) if r["plan"] == plan]
+            door = self.DOOR_SPAWNS[obj]
+            near = {}
+            for r in rows:
+                d = math.dist((float(r["x"]), float(r["y"]), float(r["z"])), door)
+                near[int(r["leg"])] = min(near.get(int(r["leg"]), 1e9), d)
+            crossing = [l for l in sorted(near) if near[l] <= 6.5] or [l for l in sorted(near) if near[l] <= 25.0]
+            self.assertTrue(crossing, "%s door %d: no leg comes near it" % (plan, obj))
+            self.assertEqual(leg, crossing[0], "%s door %d" % (plan, obj))
+            self.assertLessEqual(near[leg], 25.0, "%s door %d" % (plan, obj))
+
+    def test_leg_need_zulfarrak_leg_is_gahzrilla(self):
+        full = "\n".join(text for _name, text in migrations())
+        zf = [r for r in self.need_rows(full) if r["plan"] == "zulfarrak"]
+        self.assertEqual(len(zf), 1, zf)
+        row = zf[0]
+        self.assertEqual((row["leg"], row["item"], row["mode"]), ("9", "9240", "1"))
+
+    def test_leg_need_gahz_pins_stay(self):
+        name, text, rows = newest_zulfarrak_rows()
+        self.assertIn("7273", [r["entry"] for r in rows if r["kind"] == "boss"], name)
+
+    def test_scholomance_vectus_room_is_the_boss_rows_first_adds(self):
+        # 20261025003000 (turtle-agent 7474973, proof20d4/proof20d2 scholomance, 2026-10-26): step 470 (d4; 460 in d2), the
+        # 5-student pack at 130.28 83.56, drew all 24 living students on the first attempt of both runs (d4: the rogue's
+        # pre-pull Sap reached 18.6 yd from Vectus, 7 wipes; d2: the hunter stepped to 19.1 yd) because a melee fight with
+        # students 13.9-22.9 yd from Vectus cannot stay out of his 20 yd aggro, and the pulled unit's 10 yd assistance ring
+        # makes the pack indivisible. The two packs (5 + 3) are the boss row's first adds now (10433 before 10475: Marduk's
+        # party-wide aura and volley kill the 4.3k hp priest first, E1); the other 24 stay in eight pulls, and the last pull's
+        # approach carries a staging point at 95 88 (50.2 yd from Vectus, outside the boss row's 30 + 10 yd walk-back reach)
+        # so a wipe's walk back replays the room's own rows, not the leg's 448 entry. Every pin fails when its rows are cut.
+        name, text = newest_plan_text("scholomance")
+        self.assertEqual(name, "20261025003000_world.sql")
+        rows = [r for r in self.step_rows(text) if r["plan"] == "scholomance"]
+        leg6 = leg_steps(rows, 6)
+        self.assertEqual(len(leg6), 39)
+        student_pulls = [(r["entries"], r["x"], r["y"]) for r in leg6 if r["kind"] == "pull" and r["entries"] == "10475"]
+        self.assertEqual(student_pulls, [
+            ("10475", "142.4", "67.28"), ("10475", "111.42", "67.52"), ("10475", "96.04", "75.03"),
+            ("10475", "109.77", "86.73"), ("10475", "97.97", "95.53"), ("10475", "109.13", "103.61"),
+            ("10475", "105.33", "110.35"), ("10475", "118.24", "114.61")])
+        self.assertEqual(len(student_pulls), 8)
+        # The two packs inside Vectus' aggro are gone as pulls, rows and all.
+        self.assertNotIn(("10475", "130.28", "83.56"), [(r["entries"], r["x"], r["y"]) for r in leg6])
+        self.assertNotIn(("10475", "122.68", "97.43"), [(r["entries"], r["x"], r["y"]) for r in leg6])
+        self.assertFalse([r for r in leg6 if float(r["radius"]) == 8.8])
+        # The boss row: the students before Marduk, then Vectus, from the unchanged 128 105 102.4 approach.
+        boss = leg6[-1]
+        self.assertEqual((boss["kind"], boss["entry"], boss["entries"]), ("boss", "10432", "10433,10475"))
+        self.assertEqual((leg6[-2]["kind"], leg6[-2]["comment"]), ("move", "boss approach"))
+        self.assertEqual((leg6[-2]["x"], leg6[-2]["y"], leg6[-2]["z"]), ("128", "105", "102.4"))
+        self.assertGreater(len(boss["entries"].split(",")), 1)
+        # The staging point before the last pull's stand: 95 88 (the walk back's safe point), then the 113 92 stand.
+        i = next(k for k, r in enumerate(leg6) if r["kind"] == "pull" and r["x"] == "118.24")
+        self.assertEqual((leg6[i - 1]["x"], leg6[i - 1]["y"], leg6[i - 1]["z"]), ("113", "92", "99.37"))
+        self.assertEqual((leg6[i - 2]["x"], leg6[i - 2]["y"], leg6[i - 2]["z"]), ("95", "88", "97.686"))
+        self.assertEqual(leg6[i - 2]["comment"], leg6[i - 1]["comment"])
+        # No other leg pulls a student, and leg 6 pulls exactly the eight rows above.
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"],
+                         ["10505", "10507", "10901", "10502", "10503", "11622", "10432", "10508", "11261", "10504"])
+        self.assertFalse([r for r in rows if r["kind"] == "pull" and r["leg"] != "6" and "10475" in r["entries"].split(",")])
+        self.assertEqual(sum(1 for r in leg6 if r["kind"] == "pull"), 26)
 
 if __name__ == "__main__":
     unittest.main()

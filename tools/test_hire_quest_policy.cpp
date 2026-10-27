@@ -35,12 +35,9 @@ static void TestAutonomyStrip()
 
 static void TestQuestTalk()
 {
-    // Hires never talk on their own; explicit orders still work; non-hires
-    // always pass.
-    assert(!HireMayTalkToQuestGiver(true, false));
-    assert(HireMayTalkToQuestGiver(true, true));
-    assert(HireMayTalkToQuestGiver(false, false));
-    assert(HireMayTalkToQuestGiver(false, true));
+    // Hires never do quests, not even on explicit orders; non-hires always pass.
+    assert(!HireMayDoQuests(true));
+    assert(HireMayDoQuests(false));
 }
 
 static void TestQuestTravel()

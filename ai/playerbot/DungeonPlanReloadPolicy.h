@@ -2,15 +2,16 @@
 
 // `.bot run reloadplans` (owner goal 2026-10-22: fix dungeon plan blockers by a hot reload instead of an image rebuild and
 // a server restart): the pure rules of the reload of `ai_dungeon_plan`, `ai_dungeon_leg`, `ai_dungeon_step`,
-// `ai_dungeon_boss` and `ai_boss_tactic`.
+// `ai_dungeon_leg_need`, `ai_dungeon_boss` and `ai_boss_tactic`.
 //
 // The loader (DungeonPlanMgr.cpp ReadDungeonPlanRows, BossTacticsMgr.cpp ReadBossTacticRows) reads the rows into NEW
 // sealed tables, the same code and the same row checks as at startup. CommitPlanReload then decides:
 //   - a failed query or a table that changed while it was read (JudgeTableReads: the core's Query answers null for an
 //     error and for no rows alike, so each table's row count and checksum are read before and after the load);
-//   - any refused row (a plan, leg, step or boss row skipped, a plan's unit lists that do not parse, a tactic row skipped), a
-//     plan of the old set that is gone or has no steps any more: the old tables stay, nothing changes, the reason is
-//     returned (at startup such rows are skipped with an error line; a reload is stricter, since the old set works);
+//   - any refused row (a plan, leg, step, need or boss row skipped, a plan's unit lists that do not parse, a tactic row
+//     skipped), a plan of the old set that is gone or has no steps any more: the old tables stay, nothing changes, the
+//     reason is returned (at startup such rows are skipped with an error line; a reload is stricter, since the old set
+//     works);
 //   - else both new tables replace the old ones at once.
 // A run in progress holds a raw `const DungeonPlan*` into the table it started from (DungeonRun::Run::plan). The replaced
 // plan table is therefore RETIRED, not freed: ReloadableTable keeps it alive as long as a run's plan points into it
@@ -80,11 +81,12 @@ namespace ai
         std::uint32_t skippedLegs = 0;       // unknown plan, or a second row of a leg number
         std::uint32_t skippedSteps = 0;
         std::uint32_t skippedBosses = 0;
+        std::uint32_t skippedNeeds = 0;      // refused ai_dungeon_leg_need rows
         std::uint32_t badUnits = 0;          // plans whose cc_priority / cc_always / kill_first did not parse
         std::vector<std::string> refusals;   // the first kNamedRefusals refused rows, in words
         // Rows each query handed the loader (accepted or not): a reload compares them with the table's row count
         // (TableRead), since the core's Query answers null both for an error and for no rows.
-        std::uint64_t planRows = 0, legRows = 0, stepRows = 0, bossRows = 0;
+        std::uint64_t planRows = 0, legRows = 0, stepRows = 0, bossRows = 0, needRows = 0;
 
         void Note(const std::string& what)
         {
@@ -92,7 +94,7 @@ namespace ai
                 refusals.push_back(what);
         }
 
-        std::uint32_t Refused() const { return skippedPlans + skippedLegs + skippedSteps + skippedBosses + badUnits; }
+        std::uint32_t Refused() const { return skippedPlans + skippedLegs + skippedSteps + skippedBosses + skippedNeeds + badUnits; }
     };
 
     // A cheap revision of one table: its row count and a sum of a checksum of every row's loaded columns, read by a query
@@ -143,7 +145,7 @@ namespace ai
     };
 
     // Why the reads cannot be trusted, or "" when every table was read whole and none changed meanwhile. The core's
-    // world database has a pool of connections and no read transaction, so the five queries cannot share one snapshot:
+    // world database has a pool of connections and no read transaction, so the six queries cannot share one snapshot:
     // instead each table's revision is read before and after the whole load, and any difference refuses the reload.
     inline std::string JudgeTableReads(const std::vector<TableRead>& reads)
     {
@@ -181,9 +183,16 @@ namespace ai
             a.tacticEntries == b.tacticEntries; // a boss step's joined ai_boss_tactic subjects (JoinBossTactics)
     }
 
+    inline bool SamePlanNeed(const PlanLegNeed& a, const PlanLegNeed& b)
+    {
+        return a.leg == b.leg && a.item == b.item && a.mode == b.mode && a.pick == b.pick && a.object == b.object &&
+            a.name == b.name && a.how == b.how;
+    }
+
     inline bool SamePlan(const DungeonPlan& a, const DungeonPlan& b)
     {
         if (a.map != b.map || a.legs.size() != b.legs.size() || a.steps.size() != b.steps.size() ||
+            a.needs.size() != b.needs.size() ||
             a.ccPriority != b.ccPriority || a.ccAlways != b.ccAlways || a.killFirst != b.killFirst)
             return false;
         for (std::size_t i = 0; i < a.legs.size(); ++i)
@@ -191,6 +200,9 @@ namespace ai
                 return false;
         for (std::size_t i = 0; i < a.steps.size(); ++i)
             if (!SamePlanStep(a.steps[i], b.steps[i]))
+                return false;
+        for (std::size_t i = 0; i < a.needs.size(); ++i)
+            if (!SamePlanNeed(a.needs[i], b.needs[i]))
                 return false;
         return true;
     }
@@ -252,7 +264,7 @@ namespace ai
         std::size_t keptOld = 0;            // replaced plan tables kept alive for runs in progress
     };
 
-    // Replaces both tables when JudgeTableReads and JudgePlanReload allow it, else changes nothing. `reads`: the five
+    // Replaces both tables when JudgeTableReads and JudgePlanReload allow it, else changes nothing. `reads`: the six
     // tables' revisions and rows read. `inUse`: every run's plan pointer.
     inline PlanReloadOutcome CommitPlanReload(ReloadableTable<DungeonPlanTable>& plans, std::shared_ptr<DungeonPlanTable> next,
         const PlanLoadCounts& counts, ReloadableTable<BossTacticTable>& tactics, std::shared_ptr<BossTacticTable> nextTactics,

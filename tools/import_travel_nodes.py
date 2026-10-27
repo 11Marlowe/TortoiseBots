@@ -24,17 +24,9 @@ import re
 import sys
 from typing import Dict, List, Set, Tuple
 
-DEFAULT_TRAVEL_NODES_PATHS = [
-    "playerbots-references/shyalya-tortoise-wow/modules/mod-playerbots/sql/world/classic/ai_playerbot_travel_nodes.sql",
-    "../playerbots-references/shyalya-tortoise-wow/modules/mod-playerbots/sql/world/classic/ai_playerbot_travel_nodes.sql",
-    "/mnt/pny-ssd/Tortoise WoW Projects/playerbots-references/shyalya-tortoise-wow/modules/mod-playerbots/sql/world/classic/ai_playerbot_travel_nodes.sql",
-]
+DEFAULT_TRAVEL_NODES_PATHS = []
 
-DEFAULT_NAMED_LOCATION_PATHS = [
-    "playerbots-references/shyalya-tortoise-wow/modules/mod-playerbots/sql/world/classic/ai_playerbot_named_location.sql",
-    "../playerbots-references/shyalya-tortoise-wow/modules/mod-playerbots/sql/world/classic/ai_playerbot_named_location.sql",
-    "/mnt/pny-ssd/Tortoise WoW Projects/playerbots-references/shyalya-tortoise-wow/modules/mod-playerbots/sql/world/classic/ai_playerbot_named_location.sql",
-]
+DEFAULT_NAMED_LOCATION_PATHS = []
 
 VALID_MAP_IDS = {
     0: "Eastern Kingdoms",

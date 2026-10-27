@@ -150,7 +150,13 @@ void PlayerbotAIConfig::LoadDungeonRunKeys()
     dungeonRunPlayerLed = config.GetBoolDefault("AiPlayerbot.DungeonRunPlayerLed", false);
     dungeonRunPlayerLedPullYd = std::min(100.0f, std::max(5.0f, config.GetFloatDefault("AiPlayerbot.DungeonRunPlayerLedPullYd", 40.0f)));
     dungeonRunPlayerLedAwayMinutes = static_cast<uint32>(std::min(60, std::max(1, config.GetIntDefault("AiPlayerbot.DungeonRunPlayerLedAwayMinutes", 10))));
+    dungeonRunGiveItems = config.GetBoolDefault("AiPlayerbot.DungeonRunGiveItems", true);
+    dungeonRunBotKeysForPlayers = config.GetBoolDefault("AiPlayerbot.DungeonRunBotKeysForPlayers", false);
     botLfgGroups = config.GetBoolDefault("AiPlayerbot.BotLfgGroups", false);
+    botLfgFillAfterMinutes = static_cast<uint32>(std::min(60, std::max(1, config.GetIntDefault("AiPlayerbot.BotLfgFillAfterMinutes", 10))));
+    botLfgGroupsPer100Bots = static_cast<uint32>(std::min(20, std::max(0, config.GetIntDefault("AiPlayerbot.BotLfgGroupsPer100Bots", 1))));
+    botLfgMaxGroups = static_cast<uint32>(std::min(20, std::max(0, config.GetIntDefault("AiPlayerbot.BotLfgMaxGroups", 5))));
+    botLfgOnlyWithPlayersOnline = config.GetBoolDefault("AiPlayerbot.BotLfgOnlyWithPlayersOnline", true);
     if (botLfgGroups && !dungeonSelfClear)
         sLog.outString("TortoiseBots: AiPlayerbot.BotLfgGroups = 1 needs AiPlayerbot.DungeonSelfClear = 1: bot LFG groups stay dormant.");
 }
@@ -572,6 +578,7 @@ bool PlayerbotAIConfig::Initialize()
         static_cast<int64_t>(config.GetIntDefault("AiPlayerbot.HireFreeMinSecurity", 0)));
     hireAnywhere = config.GetBoolDefault("AiPlayerbot.HireAnywhere", false);
     hireAllowPvP = config.GetBoolDefault("AiPlayerbot.HireAllowPvP", false);
+    hireLoot = config.GetBoolDefault("AiPlayerbot.HireLoot", true);
     shamanTankEnabled = config.GetBoolDefault("AiPlayerbot.ShamanTankEnabled", true);
     hireBaseCostCopper = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireBaseCostCopper", 15000));
     if (hireBaseCostCopper > 100000000)
@@ -1692,7 +1699,8 @@ void PlayerbotAIConfig::logf(std::string fileName, const char* format, ...)
     fflush(stdout);
 }
 
-void PlayerbotAIConfig::logEvent(PlayerbotAI* ai, std::string eventName, std::string info1, std::string info2)
+void PlayerbotAIConfig::logEvent(PlayerbotAI* ai, std::string eventName, std::string info1, std::string info2,
+    std::string info3, std::string info4, std::string info5)
 {
     if (hasLog("bot_events.csv"))
     {
@@ -1713,6 +1721,12 @@ void PlayerbotAIConfig::logEvent(PlayerbotAI* ai, std::string eventName, std::st
 
         out << "\"" << info1 << "\",";
         out << "\"" << info2 << "\"";
+        if (!info3.empty() || !info4.empty() || !info5.empty())
+        {
+            out << ",\"" << info3 << "\",";
+            out << "\"" << info4 << "\",";
+            out << "\"" << info5 << "\"";
+        }
 
         log("bot_events.csv", out.str().c_str());
     }

@@ -171,6 +171,9 @@ bool AcceptAllQuestsAction::ProcessQuest(Player* requester, Quest const* quest, 
 
 bool AcceptQuestAction::Execute(Event& event)
 {
+    if (!TortoiseBots::HireMayDoQuests(TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid())))
+        return false;
+
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
     if (!requester)
         return false;
@@ -243,6 +246,8 @@ bool AcceptQuestShareAction::Execute(Event& event)
 {
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
     Player* bot = ai->GetBot();
+    if (!TortoiseBots::HireMayDoQuests(TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid())))
+        return false;
 
     if (!ai->IsSafe(requester))
         requester = bot;
@@ -307,6 +312,8 @@ bool AcceptQuestShareAction::Execute(Event& event)
 bool ConfirmQuestAction::Execute(Event& event)
 {
     Player *bot = ai->GetBot();
+    if (!TortoiseBots::HireMayDoQuests(TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid())))
+        return false;
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
 
     WorldPacket& p = event.GetPacket();

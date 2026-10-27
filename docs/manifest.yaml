@@ -123,7 +123,7 @@ nodes:
   - id: play-dungeon-run-leader
     path: play/dungeon-run-leader.md
     category: play
-    summary: The opt-in run leader (.bot run, AiPlayerbot.DungeonSelfClear) that lets a bound party clear a dungeon plan by itself, its safety rules and supported steps, and the plan tables turtle-agent's exporter fills.
+    summary: The opt-in run leader (.bot run, AiPlayerbot.DungeonSelfClear) that lets a bound party clear a dungeon plan by itself, its safety rules, supported steps and the keys its doors need, and the plan tables turtle-agent's exporter fills.
   - id: play-boss-tactics
     path: play/boss-tactics.md
     category: play
@@ -241,7 +241,7 @@ nodes:
   - id: developers-donor-hierarchy
     path: developers/donor-hierarchy.md
     category: developers
-    summary: Evidence priority and architectural guidelines when referencing shyalya-tortoise-wow, mod-playerbots, and upstream core.
+    summary: Evidence priority and architectural guidelines when referencing mod-playerbots and upstream core.
   - id: developers-host-api
     path: developers/host-api.md
     category: developers

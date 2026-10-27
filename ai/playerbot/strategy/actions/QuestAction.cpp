@@ -14,12 +14,7 @@ bool QuestAction::Execute(Event& event)
 
     Player* master = GetMaster();
 
-    // A hired companion never works a quest menu on its own: the hire
-    // follows its master instead of questing. Explicit player orders
-    // (whispered commands, quest-share popups, travel-board hand-ins) carry
-    // an event owner and still run; owned alts are untouched (not hires).
-    bool const isHire = TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
-    if (!TortoiseBots::HireMayTalkToQuestGiver(isHire, event.GetOwner() != nullptr))
+    if (!TortoiseBots::HireMayDoQuests(TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid())))
         return false;
 
     if (!guid)
@@ -276,6 +271,11 @@ bool QuestAction::AcceptQuest(Player* requester, Quest const* quest, uint64 ques
         {
             Object* pObject = bot->GetObjectByTypeMask((ObjectGuid)questGiver, TYPEMASK_CREATURE_GAMEOBJECT_PLAYER_OR_ITEM);
             bot->AddQuest(quest, pObject);
+            // Objective-less quests complete on accept, as in the core handler.
+            if (bot->CanCompleteQuest(questId))
+                bot->CompleteQuest(questId);
+            if (quest->GetSrcSpell() > 0)
+                bot->CastSpell(bot, quest->GetSrcSpell(), true);
         }
         else if (bot->GetQuestStatus(questId) == QUEST_STATUS_NONE && IsNearGroupedMaster())
         {
@@ -286,7 +286,14 @@ bool QuestAction::AcceptQuest(Player* requester, Quest const* quest, uint64 ques
             // object givers only; the bot must be eligible.
             Object* pObject = bot->GetObjectByTypeMask((ObjectGuid)questGiver, TYPEMASK_CREATURE_OR_GAMEOBJECT);
             if (pObject && bot->CanTakeQuest(quest, false) && bot->CanAddQuest(quest, false))
+            {
                 bot->AddQuest(quest, pObject);
+                // Objective-less quests complete on accept, as in the core handler.
+                if (bot->CanCompleteQuest(questId))
+                    bot->CompleteQuest(questId);
+                if (quest->GetSrcSpell() > 0)
+                    bot->CastSpell(bot, quest->GetSrcSpell(), true);
+            }
         }
 
         if (bot->GetQuestStatus(questId) != QUEST_STATUS_NONE && bot->GetQuestStatus(questId) != QUEST_STATUS_AVAILABLE)

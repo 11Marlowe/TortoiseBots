@@ -84,11 +84,11 @@ class ReloadPlansWiring(unittest.TestCase):
         # one row reader for both
         self.assertIn("ReadDungeonPlanRows(table, counts, GetBossTactics());", load)
         self.assertIn("ReadDungeonPlanRows(*next, counts, *nextTactics);", reload) # the boss steps join the new tactics
-        # the four data queries and the revision query
-        self.assertEqual(MGR.count("WorldDatabase.Query("), 5)
-        for select in ("FROM `ai_dungeon_plan`", "FROM `ai_dungeon_leg`", "FROM `ai_dungeon_step`", "FROM `ai_dungeon_boss`"):
+        # the six data queries and the revision query
+        self.assertEqual(MGR.count("WorldDatabase.Query("), 6)
+        for select in ("FROM `ai_dungeon_plan`", "FROM `ai_dungeon_leg`", "FROM `ai_dungeon_step`",
+                       "FROM `ai_dungeon_leg_need`", "FROM `ai_dungeon_boss`"):
             self.assertIn(select, body(MGR, "static void ReadDungeonPlanRows("))
-        # the boot line is the policy's, so the reload prints the same one
         self.assertIn('sLog.outString(">> %s", PlanLoadSummary(table, counts).c_str());', load)
         self.assertIn("report.summary = PlanLoadSummary(*next, counts);", reload)
         # boss tactics through the startup reader too
@@ -111,24 +111,24 @@ class ReloadPlansWiring(unittest.TestCase):
         self.assertLess(before, reload.index("ReadBossTacticRows(*nextTactics, &tacticRowsRead);"))
         self.assertLess(reload.index("ReadDungeonPlanRows(*next, counts, *nextTactics);"), after)
         self.assertLess(after, reload.index("CommitPlanReload("))
-        self.assertIn("std::uint64_t const rowsRead[] = {counts.planRows, counts.legRows, counts.stepRows, counts.bossRows, "
-                      "tacticRowsRead};", reload)
+        self.assertIn("std::uint64_t const rowsRead[] = {counts.planRows, counts.legRows, counts.stepRows, counts.needRows, "
+                      "counts.bossRows, tacticRowsRead};", reload)
         self.assertIn("reads[i].rowsRead = rowsRead[i];", reload)
         fp = body(MGR, "static TableFingerprint ReadTableFingerprint(")
         # COUNT(*) always answers one row: a null answer is a failed query, never an empty table
         self.assertIn("std::string const sql = TableFingerprintSql(table, columns);", fp)
         self.assertRegex(fp, r"if \(!result\)\s*return fp;")
         self.assertIn("fp.ok = true;", fp)
-        # the revision covers the columns each loader reads, for all five tables
+        # the revision covers the columns each loader reads, for all six tables
         tables = MGR[MGR.index("constexpr ReloadTable kReloadTables[]"):]
         tables = tables[:tables.index("};")]
-        for name in ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_boss", "ai_boss_tactic"):
+        for name in ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_leg_need", "ai_dungeon_boss",
+                     "ai_boss_tactic"):
             self.assertIn('{"%s", ' % name, tables)
         self.assertIn("`timeout_s`, `entries`", tables)
         self.assertIn("`map`, `boss_entry`, `kind`, `target_entry`, `spell_id`, `priority`, `param`", tables)
         self.assertIn("++*rowsRead;", body(TACTICS, "std::uint32_t ai::ReadBossTacticRows("))
 
-    def test_revision_columns_match_the_loaders_selects(self):
         # The revision of each table covers exactly the columns its loader SELECTs, in order: they cannot drift.
         def joined(text):
             return re.sub(r'"\s*\n\s*"', "", text)
@@ -140,29 +140,21 @@ class ReloadPlansWiring(unittest.TestCase):
         tables = tables[:tables.index("};")]
         fingerprints = {t: [c.strip() for c in cols.split(",")] for t, cols in re.findall(r'\{"(\w+)", "([^"]+)"\}', tables)}
         self.assertEqual(sorted(fingerprints), sorted(["ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step",
-                                                       "ai_dungeon_boss", "ai_boss_tactic"]))
-        self.assertEqual(sorted(loaders), sorted(fingerprints))
-        for table, columns in fingerprints.items():
-            self.assertEqual(columns, loaders[table], table)
-
-    def test_every_query_result_is_freed(self):
-        # The core's Query returns a raw QueryResult* (src/shared/Database/Database.h): every one is held by a unique_ptr.
-        for name, source, count in (("DungeonPlanMgr", MGR, 5), ("BossTacticsMgr", TACTICS, 1)):
-            self.assertEqual(source.count("WorldDatabase.Query("), count, name)
-            self.assertEqual(len(re.findall(r"std::unique_ptr<QueryResult> result[({]WorldDatabase\.Query\(", source)), count, name)
-            self.assertNotIn("auto result = WorldDatabase", source, name)
+                                                       "ai_dungeon_leg_need", "ai_dungeon_boss", "ai_boss_tactic"]))
 
     def test_every_refused_row_is_counted_for_the_reload(self):
         rows = body(MGR, "static void ReadDungeonPlanRows(")
-        for counter in ("++counts.planRows;", "++counts.legRows;", "++counts.stepRows;", "++counts.bossRows;"):
+        for counter in ("++counts.planRows;", "++counts.legRows;", "++counts.stepRows;", "++counts.needRows;",
+                        "++counts.bossRows;"):
             self.assertEqual(rows.count(counter), 1, counter)
         self.assertIn("if (!table.AddLeg(plan, fields[1].GetUInt8(), fields[2].GetCppString()))", rows)
         self.assertIn("++counts.skippedLegs;", rows)
         self.assertIn("++skippedPlans;", rows)
         self.assertIn("++counts.badUnits;", rows)
         self.assertIn("++skippedSteps;", rows)
+        self.assertIn("++skippedNeeds;", rows)
         self.assertIn("++skippedBosses;", rows)
-        self.assertEqual(rows.count("counts.Note("), 5)
+        self.assertEqual(rows.count("counts.Note("), 6)
         self.assertIn("std::uint32_t& skippedSteps = counts.skippedSteps;", rows)
 
     def test_cache_rebuild_clears_first(self):

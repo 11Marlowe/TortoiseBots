@@ -179,8 +179,8 @@ static void TestBadRowKeepsTheOldSet()
 
 static void TestOtherRefusalsKeepTheOldSet()
 {
-    // A skipped boss row, bad unit lists, a refused tactic row: each keeps the old set.
-    for (int which = 0; which < 3; ++which)
+    // A skipped boss row, bad unit lists, a refused tactic row, a refused need row: each keeps the old set.
+    for (int which = 0; which < 4; ++which)
     {
         Server server;
         const DungeonPlanTable* before = &server.plans.Current();
@@ -190,6 +190,8 @@ static void TestOtherRefusalsKeepTheOldSet()
             counts.skippedBosses = 1;
         else if (which == 1)
             counts.badUnits = 1;
+        else if (which == 2)
+            counts.skippedNeeds = 1;
         else
             skippedTactics = 1;
         PlanReloadOutcome const out = CommitPlanReload(server.plans, OldSet(), counts, server.tactics, Tactics(2),
@@ -317,11 +319,11 @@ static TableFingerprint Fp(std::uint64_t rows, std::uint64_t sum)
     return fp;
 }
 
-// The five tables read whole and unchanged.
+// The six tables read whole and unchanged.
 static std::vector<TableRead> GoodReads()
 {
     std::vector<TableRead> reads;
-    const char* names[] = {"ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_boss", "ai_boss_tactic"};
+    const char* names[] = {"ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_leg_need", "ai_dungeon_boss", "ai_boss_tactic"};
     std::uint64_t rows = 2;
     for (const char* name : names)
     {
@@ -494,10 +496,50 @@ static void TestReloadSeesOpenProof()
     CHECK(SamePlanStep(a, b));
 }
 
+// Spec item-leg-skip B3/F14: SamePlan compares needs, and a refused need row refuses the reload.
+static void TestReloadSeesNeedPick()
+{
+    auto a = std::make_shared<DungeonPlanTable>();
+    auto b = std::make_shared<DungeonPlanTable>();
+    for (auto table : {a, b})
+    {
+        CHECK(table->AddPlan("bfd", 48));
+        PlanStep step = Move(1, 1, 10);
+        CHECK(table->AddStep("bfd", step) == PlanStepRefusal::None);
+        PlanLegNeed need;
+        need.leg = 1;
+        need.item = 11000;
+        need.mode = LegNeedMode::Door;
+        need.pick = 250;
+        need.object = 170560;
+        need.name = "Shadowforge Key";
+        need.how = "Dark Iron Legacy quest (Searing Gorge/BRD)";
+        CHECK(table->AddLegNeed("bfd", need) == PlanNeedRefusal::None);
+        table->Seal();
+    }
+    CHECK(SamePlan(*a->Find("bfd"), *b->Find("bfd")));
+    auto c = std::make_shared<DungeonPlanTable>();
+    CHECK(c->AddPlan("bfd", 48));
+    PlanStep step = Move(1, 1, 10);
+    CHECK(c->AddStep("bfd", step) == PlanStepRefusal::None);
+    PlanLegNeed changed;
+    changed.leg = 1;
+    changed.item = 11000;
+    changed.mode = LegNeedMode::Door;
+    changed.pick = 200; // the same row with another pick is a change
+    changed.object = 170560;
+    changed.name = "Shadowforge Key";
+    changed.how = "Dark Iron Legacy quest (Searing Gorge/BRD)";
+    CHECK(c->AddLegNeed("bfd", changed) == PlanNeedRefusal::None);
+    c->Seal();
+    CHECK(!SamePlan(*a->Find("bfd"), *c->Find("bfd")));
+}
+
 int main()
 {
     TestReloadSeesOpenProof();
     TestTacticTargetChangeMarksThePlanChanged();
+    TestReloadSeesNeedPick();
     TestGoodReloadSwaps();
     TestUnchangedReloadListsNothing();
     TestBadRowKeepsTheOldSet();

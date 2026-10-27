@@ -57,7 +57,7 @@ class PlayerLedBindWiringTest(unittest.TestCase):
 
     def test_run_start_player_word(self):
         run = strip_comments(body(COMMANDS, "bool HandleDungeonRun(", "\n}\n"))
-        self.assertIn("TortoiseBots::PlayerLed::TakeStart(rawArg)", run)
+        self.assertIn("TortoiseBots::PlayerLed::TakeStart(speedArgs.rest)", run)
         self.assertIn("BindPlayerLed(handler, commander, playerLedStart.tank, intent)", run)
         self.assertIn("arg = playerLedStart.rest;", run)
         self.assertIn("slot.playerLed.on = playerLedStart.playerLed;", run)
@@ -80,7 +80,7 @@ class PlayerLedBindWiringTest(unittest.TestCase):
         self.assertIn("ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Unbound, false);", stop)
         tick = strip_comments(body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n"))
         self.assertIn("slot.playerLed.on && (!sPlayerbotAIConfig.dungeonRunPlayerLed ||", tick)
-        self.assertGreaterEqual(tick.count("ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Unbound, false);"), 2)
+        self.assertGreaterEqual(tick.count("ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Unbound, false);") + tick.count("ReleaseBinding(eraseKey, RemoteCommander::ReleaseReason::Unbound, false);"), 2)
         update = strip_comments(body(COMMANDS, "static void UpdateDungeonRuns(uint32 diff)", "\n}\n"))
         self.assertIn("ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Disabled, true);", update)
 

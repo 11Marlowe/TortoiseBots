@@ -402,6 +402,9 @@ public:
     // entry dismisses them, and hiring is refused while queued or inside.
     // Set for today's behaviour (hires may go to battlegrounds).
     bool hireAllowPvP = false;
+    // Hired companions loot and roll by default. Unset: a hire never opens a
+    // corpse and passes on every roll (pool bots and alts are unaffected).
+    bool hireLoot = true;
     // Issue #1125: the experimental 7.3 shaman tank build. 0 withholds it from
     // the recruiter spec menu, `.bot hire`, raid hire and the random pool roll.
     bool shamanTankEnabled = true;
@@ -595,10 +598,24 @@ public:
     // the run leader pulls the plan's packs near him (within dungeonRunPlayerLedPullYd, default 40 yd).
     bool dungeonRunPlayerLed;
     float dungeonRunPlayerLedPullYd;
+    // The run leader's bot-only giving (spec item-leg-skip D1): every needed item goes to every bot at the start
+    // and is taken back at the end (default on). The warn/hold/skip check is always on.
+    bool dungeonRunGiveItems;
+    // With a real player in the party, bots also carry the needed dungeon keys/items and open the doors for them
+    // (spec item-leg-skip D1 rule 5; default off: players bring their own key, the bots stop and ask).
+    bool dungeonRunBotKeysForPlayers;
     // ... and how long the leading player may be out of the plan's dungeon before the run stops (minutes, default 10).
     uint32 dungeonRunPlayerLedAwayMinutes;
-    // Bot LFG dungeon groups (SystemRunPolicy.h; default on); dormant while dungeonSelfClear is off.
+    // Bot LFG dungeon groups (runtime/BotLfgService.cpp; default off); dormant while dungeonSelfClear is off.
     bool botLfgGroups;
+    // The wait for a player in minutes.
+    uint32 botLfgFillAfterMinutes;
+    // Groups per 100 bots online.
+    uint32 botLfgGroupsPer100Bots;
+    // The most groups at once.
+    uint32 botLfgMaxGroups;
+    // Groups form only while a real player is online.
+    bool botLfgOnlyWithPlayersOnline;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
     bool avoidCreatureAuras;
     // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).
@@ -930,7 +947,8 @@ public:
     void logf(std::string fileName, const char* format, ...);
 #endif
 
-    void logEvent(PlayerbotAI* ai, std::string eventName, std::string info1 = "", std::string info2 = "");
+    void logEvent(PlayerbotAI* ai, std::string eventName, std::string info1 = "", std::string info2 = "",
+        std::string info3 = "", std::string info4 = "", std::string info5 = "");
     void logEvent(PlayerbotAI* ai, std::string eventName, ObjectGuid guid, std::string info2);
 
     bool CanLogAction(PlayerbotAI* ai, std::string actionName, bool isExecute, std::string lastActionName);

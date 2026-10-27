@@ -105,12 +105,16 @@
 - Fixed: a stealthed rogue no longer stays held after the pull while the rest of the party fights.
 - In a run leader's pull, the held DPS open once every mob near the tank is on it (join delay at the earliest, 10 s after the tank is back at the latest), or at once when a mob hits them or the tank drops under 60 %.
 - A fight the run leader did not pull holds the damage dealers for up to 4 s the same way: they open once every mob near the tank or near them is on the tank, or at once when one hits them.
+- Fixed: the fight-start DPS hold now opens in hired dungeon runs (it was gated on the hirer).
 
 ### Commands
 - New `.autogear` command gears a real player the way a spawned bot gets geared: items picked for the level and spec from the same gear pool the bots use, upgrades only, replaced items to the bags or the mailbox. GameMasters can gear any player; `AiPlayerbot.PlayerAutogearForAll` (default `0`) lets every player gear themselves.
 
 ### Items & Loot
+- New `AiPlayerbot.HireLoot` (default `1`): set it to `0` and hired companions stop looting and pass on every roll, so the party keeps all the loot. Hired companions no longer take part in any quest, including orders from a player.
 - `AiPlayerbot.RandomGearBlacklist` is now a hard ban on every auto-gear path: the empty-slot fallback, shirts and tabards, and the level-60 hire gear sets all skip blocked items. A blocked item also wins over the whitelist, and a pool or hired bot already wearing one gets it replaced or removed on its next gear pass. Real players and owned bots never have their own gear taken off, and found loot is unaffected.
+- Loot history rows in the bot event log now carry the item quality and where the loot came from (source type and name).
+- The companion app can now page through the last day of loot picked up by your party bots, 40 rows at a time.
 
 ### Dungeons & Maps
 - Fixed: a player's ghost outside no longer pulls the run's bots in and out through the portal; the lead-off-map pause resumes by itself.
@@ -123,6 +127,7 @@
 - Fixed bots in deep water standing still on a swim the server allows: their move now goes to the server's own swim, or up and out onto a shore within 30 yd.
 - Fixed: a long winding walk refused too-far no longer pauses after six legs (up to 16; a leg back at an earlier leg's end still pauses).
 - New: the server can run a dungeon with a bot-only party of world bots by itself (behind `AiPlayerbot.BotLfgGroups`, off by default); GameMasters test it with `.bot run system`.
+- New: with `AiPlayerbot.BotLfgGroups = 1`, world bots form dungeon groups of four that wait for a player, then take a fifth bot; GameMasters watch them with `.bot run lfg list`.
 - Fixed the run leader sending the tank at a mob its own crowd control was about to take, and bots keeping that sheep as their target after it landed: the guard and the engage on arrival leave an ordered-but-unlanded CC mark to its CC bot, and every bot's order on a landed one is dropped.
 - New: bots interrupt the Wailing Caverns lords, Mutanus, Grimlok and Captain Greenskin.
 

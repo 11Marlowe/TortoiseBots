@@ -8,6 +8,7 @@
 #include "../../../runtime/policy/hire/ClaimedBotPolicy.h"
 #include "../../../../runtime/AltBotService.h"
 #include "../../../../runtime/AltBotPolicy.h"
+#include "../../../../runtime/RunGivenItemRegistry.h"
 
 using namespace ai;
 
@@ -171,6 +172,9 @@ bool SellAction::HasVendorStock(Creature* vendor)
 bool SellAction::Sell(Player* requester, Item* item)
 {
     bool didSell = false;
+    // A dungeon run's given item is never sold: the run takes it back.
+    if (item && TortoiseBots::RunGivenItems::Has(item->GetGUIDLow()))
+        return false;
 
     std::ostringstream out;
     std::list<ObjectGuid> vendors = ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid> >("nearest npcs")->Get();

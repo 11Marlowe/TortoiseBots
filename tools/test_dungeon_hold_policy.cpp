@@ -1086,6 +1086,23 @@ static void TestUnitsHoldNotesCarryNoObjectRead()
     CHECK(r.note == "event done: every unit of it is dead (1 of 1 down)");
 }
 
+// Review round 3 Opus fix 2: while the run holds at a closed door (doorPaused)
+// the per-tick hold-done rule must not end the pause: only the door read open
+// (DoorOpenWhilePaused) or the skip lets it on.
+static void TestPausedHoldDoneLeavesADoorHold()
+{
+    DungeonPlan plan;
+    plan.steps = {Move(-30), ArchaedasHold(), DoorWait()};
+    Run r = Start(&plan, 1);
+    PauseDoor(r, 0, "open it with Door Opener (item 1)", "the way is locked: the bots wait before it");
+    CHECK(r.state == State::Paused && r.doorPaused);
+    Facts f = Party();
+    f.seen = false;
+    f.eventData = 3; // the hold's own event done, but the door still shut
+    CHECK(!HoldDoneWhilePaused(r, f));
+    CHECK(r.state == State::Paused && r.doorPaused && r.step == 1);
+}
+
 int main()
 {
     TestHoldDoneSeenFromAway();
@@ -1108,6 +1125,7 @@ int main()
     TestCrystalHoldMissingObject();
     TestCrystalHoldDoneWhenActive();
     TestUnitsHoldNotesCarryNoObjectRead();
+    TestPausedHoldDoneLeavesADoorHold();
     std::cout << "test_dungeon_hold_policy: ok\n";
     return 0;
 }

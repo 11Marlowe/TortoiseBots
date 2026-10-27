@@ -118,7 +118,7 @@ policy for a feature is found by folder instead of by guessing a file name:
 `ai/playerbot/policy/<domain>/` for bot-AI rules (combat, pull, raid,
 dungeon, travel, heal, loot, quest, gear, class, rpg) and
 `runtime/policy/<domain>/` for lifecycle/service rules (pvp, hire, ah, pet,
-class, provision, infra). Includes use paths relative to the existing
+class, provision, infra, lfg). Includes use paths relative to the existing
 include roots (e.g. `playerbot/policy/travel/TravelRoutePolicy.h`), so no
 new include directory is needed. Headers still referenced by an open
 feature branch stay at their old flat path until that branch lands; the

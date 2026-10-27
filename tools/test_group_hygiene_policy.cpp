@@ -12,6 +12,34 @@
 
 using ai::FarAwayLeaveAllowed;
 using ai::GroupFarAwayLeave;
+using ai::RandomGroupInviteAllowed;
+using ai::RepopLeavesGroup;
+
+static void TestHireNeverLeaves()
+{
+    // Issue #1014: a hire or a bot in a commanded group never leaves on its own.
+    CHECK(FarAwayLeaveAllowed(false, false, false));
+    CHECK(!FarAwayLeaveAllowed(true, false, false));
+    CHECK(!FarAwayLeaveAllowed(false, true, false));
+    CHECK(!FarAwayLeaveAllowed(true, true, false));
+    std::cout << "  [PASS] hired or commanded bots never leave far away\n";
+}
+
+static void TestCrewNeverLeavesOrInvites()
+{
+    CHECK(!FarAwayLeaveAllowed(false, false, true));
+    CHECK(RandomGroupInviteAllowed(false) && !RandomGroupInviteAllowed(true));
+    std::cout << "  [PASS] a dungeon crew never leaves or invites\n";
+}
+
+static void TestCrewKeepsGroupOnRepop()
+{
+    CHECK(RepopLeavesGroup(false, false));
+    CHECK(!RepopLeavesGroup(true, false));
+    CHECK(!RepopLeavesGroup(false, true));
+    CHECK(!RepopLeavesGroup(true, true));
+    std::cout << "  [PASS] a repop never takes a dungeon crew bot out of its group\n";
+}
 
 int main()
 {
@@ -34,12 +62,9 @@ int main()
     CHECK(!GroupFarAwayLeave(true, 399.9f, 200.0f));
     std::cout << "  [PASS] nearby group stays\n";
 
-    // Issue #1014: a hire or a bot in a commanded group never leaves on its own.
-    CHECK(FarAwayLeaveAllowed(false, false));
-    CHECK(!FarAwayLeaveAllowed(true, false));
-    CHECK(!FarAwayLeaveAllowed(false, true));
-    CHECK(!FarAwayLeaveAllowed(true, true));
-    std::cout << "  [PASS] hired or commanded bots never leave far away\n";
+    TestHireNeverLeaves();
+    TestCrewNeverLeavesOrInvites();
+    TestCrewKeepsGroupOnRepop();
 
     std::cout << "All TortoiseBots group-hygiene gate tests passed.\n";
     return 0;

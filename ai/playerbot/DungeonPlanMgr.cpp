@@ -113,6 +113,37 @@ static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts,
         } while (result->NextRow());
     }
 
+    // Leg needs after the steps (AddLegNeed checks the leg against the step rows). A null result
+    // (an old database without the table) is no needs and no error: the startup must not lose every plan.
+    std::uint32_t& skippedNeeds = counts.skippedNeeds;
+    if (std::unique_ptr<QueryResult> result{WorldDatabase.Query(
+        "SELECT `plan`, `leg`, `item`, `mode`, `pick`, `object`, `name`, `how` FROM `ai_dungeon_leg_need`")})
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            ++counts.needRows;
+            std::string const plan = fields[0].GetCppString();
+            PlanLegNeed need;
+            need.leg = fields[1].GetUInt8();
+            need.item = fields[2].GetUInt32();
+            need.mode = static_cast<LegNeedMode>(fields[3].GetUInt8());
+            need.pick = fields[4].GetUInt16();
+            need.object = fields[5].GetUInt32();
+            need.name = fields[6].GetCppString();
+            need.how = fields[7].GetCppString();
+            PlanNeedRefusal refusal = table.AddLegNeed(plan, need);
+            if (refusal != PlanNeedRefusal::None)
+            {
+                ++skippedNeeds;
+                counts.Note("ai_dungeon_leg_need '" + plan + "' leg " + std::to_string(uint32(need.leg)) + " item " +
+                    std::to_string(need.item) + ": " + PlanNeedRefusalName(refusal));
+                sLog.outError("ai_dungeon_leg_need: plan '%s' leg %u item %u skipped (%s)", plan.c_str(),
+                    uint32(need.leg), need.item, PlanNeedRefusalName(refusal));
+            }
+        } while (result->NextRow());
+    }
+
     // Bosses no boss step names (the telemetry's boss rank, DungeonPlanTable::IsBossEntry).
     std::uint32_t& skippedBosses = counts.skippedBosses;
     if (std::unique_ptr<QueryResult> result{WorldDatabase.Query("SELECT `map`, `entry` FROM `ai_dungeon_boss`")})
@@ -173,13 +204,14 @@ static TableFingerprint ReadTableFingerprint(char const* table, char const* colu
 
 namespace
 {
-    // The five tables of a reload and the columns their loaders read.
+    // The six tables of a reload and the columns their loaders read.
     struct ReloadTable { char const* table; char const* columns; };
     constexpr ReloadTable kReloadTables[] = {
         {"ai_dungeon_plan", "`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`"},
         {"ai_dungeon_leg", "`plan`, `leg`, `name`"},
         {"ai_dungeon_step", "`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, `z`, `radius`, `item`, `param`, `flags`, "
             "`timeout_s`, `entries`"},
+        {"ai_dungeon_leg_need", "`plan`, `leg`, `item`, `mode`, `pick`, `object`, `name`, `how`"},
         {"ai_dungeon_boss", "`map`, `entry`"},
         {"ai_boss_tactic", "`map`, `boss_entry`, `kind`, `target_entry`, `spell_id`, `priority`, `param`"},
     };
@@ -188,7 +220,7 @@ namespace
 // `.bot run reloadplans`, world thread: both tables are read into new ones through the startup loaders, and replace the
 // old ones only when CommitPlanReload accepts them (a failed query, a table changed mid-load, any refused row, a plan
 // gone: the old set stays, nothing changes). The core's world database hands each Query to a connection of its pool and
-// has no read transaction, so the five reads cannot share one snapshot: each table's revision is read before the first
+// has no read transaction, so the six reads cannot share one snapshot: each table's revision is read before the first
 // data query and after the last one, and any difference refuses the reload (JudgeTableReads).
 PlanReloadReport ai::ReloadDungeonPlans(std::vector<DungeonPlan const*> const& inUse)
 {
@@ -213,7 +245,7 @@ PlanReloadReport ai::ReloadDungeonPlans(std::vector<DungeonPlan const*> const& i
     auto next = std::make_shared<DungeonPlanTable>();
     PlanLoadCounts counts;
     ReadDungeonPlanRows(*next, counts, *nextTactics);
-    std::uint64_t const rowsRead[] = {counts.planRows, counts.legRows, counts.stepRows, counts.bossRows, tacticRowsRead};
+    std::uint64_t const rowsRead[] = {counts.planRows, counts.legRows, counts.stepRows, counts.needRows, counts.bossRows, tacticRowsRead};
     for (std::size_t i = 0; i < reads.size(); ++i)
     {
         reads[i].after = ReadTableFingerprint(kReloadTables[i].table, kReloadTables[i].columns);

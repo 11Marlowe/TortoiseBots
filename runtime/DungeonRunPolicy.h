@@ -688,6 +688,7 @@ struct PlayerFact
     bool onMap = true;           // in the world on the plan's map (in the instance)
     bool online = true;          // ... logged in (a member who logged out stays in the group's slots: onMap false)
     bool inCombat = false;       // a living player in a fight: the party is in it too (ApplyPlayerFacts)
+    bool gm = false;             // a GameMaster account (IsBotAdministrator): the core keeps his hp at 1, he does not die
     float yd = 0.0f;             // from the lead bot (1000 off its map)
     std::uint32_t healthPct = 100;
 };
@@ -710,6 +711,31 @@ struct Facts
     // loot: a player carries the step's item (his name), and the remembered corpse is a player's round-robin turn.
     std::string itemPlayer;
     std::string lootTurnPlayer;
+    // The run's item needs (spec item-leg-skip C2/C2b): the glue reads the
+    // party's bags once a tick for the current leg's needs. legNeedRead false:
+    // the read is due (the leg gate notes it and waits a tick).
+    bool legNeedRead = false;
+    // ... item -> the first party member (bots first: lead, then the rest,
+    // then players, dead ones too) whose bags hold it; "" none. Read for the
+    // current leg's Optional needs (the skip gate) and its Door needs (the
+    // door hold: only a holder that is a real player opens the door).
+    std::vector<std::pair<std::uint32_t, std::string>> legNeedHolders;
+    // ... the current leg's first door need: its object gameobject found near
+    // the lead bot this tick (doorNeedRead; not found is NOT closed: nothing is
+    // decided and nothing held on it), its state (doorNeedState: 0 closed/other,
+    // 1 open) and its position (the hold fires only near it, DoorNear).
+    bool doorNeedRead = false;
+    std::uint32_t doorNeedState = 0;
+    float doorNeedX = 0.0f, doorNeedY = 0.0f, doorNeedZ = 0.0f;
+    // ... the first bot (the lead bot first) carrying that door's item: with
+    // DungeonRunBotKeysForPlayers = 1 it opens the door for the party (DoorKeyOpen).
+    std::string doorNeedCarrier;
+    // ... the best real-player SKILL_LOCKPICKING of the party (0 none): a
+    // rogue's Lockpicking that opens the door instead of the key.
+    std::uint32_t doorNeedLockpick = 0;
+    // AiPlayerbot.DungeonRunBotKeysForPlayers (rule 5): with a real player the
+    // run behaves as bot-only (a bot carries the keys and opens the doors).
+    bool botKeysForPlayers = false;
     // The party (the commander's bound bots, the lead bot included).
     std::uint32_t total = 0, alive = 0, dead = 0;
     bool leadAlive = true;
@@ -1107,6 +1133,25 @@ struct Run
     // Pull and boss steps left without being cleared (skipped, out of reach):
     // a direct walk back keeps clear of them too.
     std::unordered_set<std::size_t> notCleared;
+    // Legs whose item need was decided once this run (an optional leg's skip,
+    // a key door opened, carried or held): ResetStep keeps them.
+    std::set<std::uint8_t> legNeedDecided;
+    // Optional legs skipped this run, in skip order (ResetStep keeps them).
+    std::vector<std::uint8_t> skippedLegs;
+    // The door hold's pause (DoorNeedHold, DoorKeyOpen's last try): only the
+    // door read open ends it (DoorOpenWhilePaused, then the run goes on by
+    // itself); `.bot run resume` keeps it while the door reads closed
+    // (ResumeChecked); `.bot run skip` walks the party past it by hand (the leg
+    // is decided). Pause and Resume clear it.
+    bool doorPaused = false;
+    std::uint8_t doorPausedLeg = 0;
+    std::string doorPausedAsk; // the hold's ask (what opens the door), for the resume's refusal
+    std::string say;           // what the bots say on /s this tick (TakeSay); "" none
+    // DoorKeyOpen: the leg whose door a carrier bot is opening (-1 none), the
+    // open orders sent for it and the time since the last one.
+    int doorOpenLeg = -1;
+    std::uint32_t doorOpenTries = 0;
+    std::uint32_t doorOpenMs = 0;
     // Windhorn Canyon r26 slot 5b step 68: pull steps whose pack was judged not reachable
     // from the floor the party stood on (DeferUnreachablePack) were deferred, not paused:
     // each is tried once more at the end of its leg (StepAfter), from where the party is then.
@@ -1953,6 +1998,7 @@ inline void Pause(Run& r, const std::string& why)
     r.leadBackMs = 0;
     r.playerHoldPaused = false; // PausePlayerHold sets it after
     r.playerHoldBackMs = 0;
+    r.doorPaused = false; // PauseDoor sets it after
     ClearRunBack(r); // a paused run leaves every bot to its own AI
     r.hold.clear();
     r.holdDue = false;
@@ -2241,6 +2287,18 @@ inline std::string SpeedLabel(const Run& r)
         return std::string();
     return "speed " + Num(r.testSpeed) + (r.speedPlayerBlocked ? " (test; 1.0 since a real player joined)" : " (test)");
 }
+// Forward: the item-need gates (spec item-leg-skip C2/C2b, defined beside
+// PausePlayer, past NextStep) for the reports above.
+inline std::string SkippedLegsReport(const Run& r);
+
+inline bool InSkippedLeg(const Run& r, std::uint8_t leg)
+{
+    return std::find(r.skippedLegs.begin(), r.skippedLegs.end(), leg) != r.skippedLegs.end();
+}
+inline bool InSkippedLegAt(const Run& r, std::size_t i)
+{
+    return r.plan && i < r.plan->steps.size() && InSkippedLeg(r, r.plan->steps[i].leg);
+}
 
 // The boss steps the run ended without clearing: still in notCleared (their
 // pull or boss end or a `.bot run skip` put them there), never deferred (a
@@ -2258,6 +2316,8 @@ inline std::string UnclearedBosses(const Run& r)
     {
         if (!r.notCleared.count(i))
             continue;
+        if (InSkippedLegAt(r, i))
+            continue; // an optional leg's skip says so in its own note and report
         const PlanStep& s = r.plan->steps[i];
         if (s.kind != PlanStepKind::Boss)
             continue; // pulls: a deferral names them in DeferredReport, a skip says so in its own note
@@ -2272,8 +2332,10 @@ inline std::string DoneNote(const Run& r)
     std::string const lead = LeadDeathCount(r);
     if (!lead.empty())
         counts += (counts.empty() ? "" : ", ") + lead;
+    std::string const skipped = SkippedLegsReport(r);
+    std::string all = counts.empty() ? skipped : skipped.empty() ? counts : counts + "; " + skipped;
     std::string const deferred = DeferredReport(r);
-    std::string all = counts.empty() ? deferred : deferred.empty() ? counts : counts + "; " + deferred;
+    all = all.empty() ? deferred : deferred.empty() ? all : all + "; " + deferred;
     std::string const speed = SpeedLabel(r);
     if (!speed.empty())
         all = all.empty() ? speed : speed + "; " + all;
@@ -2373,6 +2435,16 @@ inline bool IsMovePoint(const PlanStep& s)
     return s.kind == PlanStepKind::Move || s.kind == PlanStepKind::MoveDirect;
 }
 
+// Whether a plan step of leg `leg` is in a skipped leg (spec item-leg-skip C2:
+// never walked by a walk back or replayed).
+// A move point a walk back replays: a walk point that is not in a skipped leg.
+inline bool IsRunMovePoint(const Run& r, std::size_t i)
+{
+    return r.plan && i < r.plan->steps.size() && IsMovePoint(r.plan->steps[i]) && !InSkippedLegAt(r, i);
+}
+
+inline bool InSkippedLegAt(const Run& r, std::size_t i);
+
 // The walk back's next point as WalkBack reaches it on its next tick: it passes the steps that are not walk
 // points (a pull, a rest) in the same tick, so the facts must be read for the point after them. -1: none
 // (the walk back is over, or none is on).
@@ -2381,7 +2453,7 @@ inline std::size_t NextWalkBackIdx(const Run& r)
     if (!r.walkBack || !r.plan)
         return static_cast<std::size_t>(-1);
     std::size_t i = r.walkBackIdx;
-    while (i < r.step && i < r.plan->steps.size() && !IsMovePoint(r.plan->steps[i]))
+    while (i < r.step && i < r.plan->steps.size() && !IsRunMovePoint(r, i))
         ++i;
     return i < r.step && i < r.plan->steps.size() ? i : static_cast<std::size_t>(-1);
 }
@@ -3384,7 +3456,9 @@ inline void EndRunEarly(Run& r, const std::string& note)
     r.deferredPulls.clear();
     r.state = State::Done;
     std::string const left = DeferredReport(r);
-    r.note = left.empty() ? note : note + " (" + left + ")";
+    std::string const skipped = SkippedLegsReport(r);
+    std::string with = left.empty() ? skipped : skipped.empty() ? left : left + "; " + skipped;
+    r.note = with.empty() ? note : note + " (" + with + ")";
 }
 
 inline void NextStep(Run& r, const std::string& note)
@@ -3563,6 +3637,8 @@ inline void ArmReachedTriggers(Run& r)
     for (; r.triggerScan <= r.step && r.triggerScan < r.plan->steps.size(); ++r.triggerScan)
     {
         const PlanStep& s = r.plan->steps[r.triggerScan];
+        if (InSkippedLeg(r, s.leg))
+            continue;
         if ((s.kind != PlanStepKind::Move && s.kind != PlanStepKind::MoveDirect) || s.entry == 0)
             continue;
         if (std::find(r.firedTriggers.begin(), r.firedTriggers.end(), s.entry) != r.firedTriggers.end() ||
@@ -3739,6 +3815,31 @@ inline SpeedArgs TakeSpeed(const std::string& arg)
         out.rate = static_cast<float>(tenths) / 10.0f;
     }
     return out;
+}
+
+// Who may walk a run at test speed (`speed=` above 1.0): a player-led run never, a party with a real player never,
+// then a GameMaster only, in that order, so the refusal names the reason that holds for anyone first (pip S3
+// 2026-10-26: a rank-0 player's player-led start heard `forbidden`). realPlayer: the first real player of the lead
+// bot's group by name ("" for none). Empty code: allowed.
+struct SpeedRefusal
+{
+    std::string code;
+    std::string text;
+};
+
+inline SpeedRefusal CheckTestSpeed(float rate, bool playerLed, const std::string& realPlayer, bool gameMaster)
+{
+    if (rate <= 1.0f)
+        return {};
+    if (playerLed)
+        return {"real-player", "speed= is for bot-only test runs: a player-led run walks at normal speed."};
+    if (!realPlayer.empty())
+        return {"real-player", "speed= is for bot-only test runs: " + realPlayer +
+            " is a real player in the party; a run with a player in it walks at normal speed."};
+    if (!gameMaster)
+        return {"forbidden", "Only a GameMaster may start a test-speed run (speed=); without speed= the run walks at "
+            "normal speed."};
+    return {};
 }
 
 enum class FromResult : std::uint8_t
@@ -3949,6 +4050,7 @@ inline bool Resume(Run& r)
     r.leadOffMapPaused = false;
     r.playerHoldPaused = false;
     r.otherPartPaused = false;
+    r.doorPaused = false;
     r.fighting = false;
     r.autoRegroups = 0;
     r.otherPartRescues = 0; // a resume gives the lead bot in another part fresh rescue teleports
@@ -3985,6 +4087,17 @@ struct LeadSpot
     float x = 0.0f, y = 0.0f, z = 0.0f;
 };
 
+// The door as `.bot run resume` read it near the lead bot (unread when the
+// lead bot is not in the world or the door is out of its sight).
+enum class DoorRead
+{
+    Unread,
+    Closed,
+    Open,
+};
+
+inline bool DoorOpenWhilePaused(Run& r, const Facts& f);
+
 inline void RearmRescueAfterDeath(Run& r);
 
 // `.bot run resume` from the glue (SM-REVIVE-PATH-2026-10-23 fix 5): a pause for
@@ -3998,9 +4111,32 @@ inline void RearmRescueAfterDeath(Run& r);
 // rescue's latch armed again (the pause came after a death) and its rescues fresh (Resume), and the regroup's next
 // tick runs the rescue (OtherPartRescue) with the facts it reads then (a joined player still pauses). Every other case
 // resumes as Resume does. True when the run resumed; refusal is set only when it was refused for this reason.
-inline bool ResumeChecked(Run& r, const LeadSpot& lead, std::string& refusal)
+inline bool ResumeChecked(Run& r, const LeadSpot& lead, std::string& refusal, DoorRead door = DoorRead::Closed)
 {
     refusal.clear();
+    // The door hold: only the door read open ends it, through the same read
+    // the tick runs (DoorOpenWhilePaused, with its note), so a resume after
+    // the player opened the door goes on instead of being refused; closed
+    // keeps the hold, unread names the true cause instead of 'closed'.
+    if (r.state == State::Paused && r.doorPaused)
+    {
+        if (door == DoorRead::Open)
+        {
+            Facts open;
+            open.doorNeedRead = true;
+            open.doorNeedState = 1;
+            return DoorOpenWhilePaused(r, open);
+        }
+        if (door == DoorRead::Unread)
+        {
+            refusal = "the door is out of sight of the lead bot: .bot run skip to go on, or bring the party to the door";
+            return false;
+        }
+        refusal = "the bots still hold at the closed door: " + r.doorPausedAsk +
+            ". The run goes on by itself once the door reads open; .bot run resume does not pass a closed door"
+            " (.bot run skip walks the party past it by hand)";
+        return false;
+    }
     if (r.state == State::Paused && r.otherPartPaused && lead.read && lead.alive && lead.onPlanMap)
     {
         float const planYd = PlanNearestYd(r, lead.x, lead.y, lead.z);
@@ -4034,6 +4170,11 @@ inline bool Skip(Run& r)
     if (r.state == State::Done || !s)
         return false;
     bool const wasPaused = r.state == State::Paused;
+    // A skip from the door hold walks the party past the still-closed door by
+    // hand: the leg's door is decided (no hold on it again this run).
+    if (wasPaused && r.doorPaused)
+        r.legNeedDecided.insert(r.doorPausedLeg);
+    r.doorPaused = false;
     if (r.pendingMissing)
         r.missing.insert(r.pendingMissing);
     if (s->kind == PlanStepKind::Open)
@@ -4169,10 +4310,323 @@ inline void PausePlayer(Run& r, const std::string& why)
 // A player's order the run goes on through (turtle-agent #270): `cmd summon <bot>` brings that bot to the lead bot, the
 // run's own straggler summon (the summon point is the lead bot: CommanderSummon; a bot in combat is refused), so the run
 // is not paused for it (RFC 2026-10-20 run 2b: the observer's regroup summons were the run's only manual resume). Every
-// other order still pauses.
+// other order still pauses. `cmd revive <bot>` and `cmd revive party` (pip S5 2026-10-26: the run's own pause notes ask
+// the commander for them, and all three pauses of the run were his revive) are the run's own regroup revive too.
 inline bool PlayerOrderKeepsRun(const std::string& order)
 {
-    return order == "cmd summon";
+    return order == "cmd summon" || order == "cmd revive";
+}
+
+
+inline std::string NeedLegLabel(const DungeonPlan& plan, std::uint8_t leg)
+{
+    const std::string& name = plan.LegName(leg);
+    return name.empty() ? std::to_string(leg) : name;
+}
+
+// Spec item-leg-skip C2: an optional leg's item: decided once a run, on the
+// first tick out of combat at one of its steps. Every optional item of the leg
+// carried by someone -> it runs; else the whole leg is skipped (its Pull/Boss
+// steps at index >= r.step go into notCleared, so the walk-back path check
+// treats the skipped packs as alive; r.step jumps to the leg's LAST step and
+// NextStep carries on with the next leg's note). True: the run left the leg
+// this tick. The facts of this tick were read for the left step.
+inline bool LegNeedGate(Run& r, const Facts& f)
+{
+    const PlanStep* s = Current(r);
+    if (!s || !r.plan || f.anyInCombat)
+        return false;
+    if (r.legNeedDecided.count(s->leg))
+        return false;
+    bool optional = false;
+    for (const ai::PlanLegNeed& need : r.plan->needs)
+        if (need.leg == s->leg && need.mode == ai::LegNeedMode::Optional)
+        {
+            optional = true;
+            break;
+        }
+    if (!optional)
+        return false;
+    if (!f.legNeedRead)
+    {
+        r.note = "leg " + NeedLegLabel(*r.plan, s->leg) + ": reading the party's bags";
+        return false;
+    }
+    r.legNeedDecided.insert(s->leg);
+    bool carried = true;
+    for (const ai::PlanLegNeed& need : r.plan->needs)
+    {
+        if (need.leg != s->leg || need.mode != ai::LegNeedMode::Optional)
+            continue;
+        bool held = false;
+        for (const auto& have : f.legNeedHolders)
+            if (have.first == need.item && !have.second.empty())
+            {
+                held = true;
+                break;
+            }
+        if (!held)
+        {
+            carried = false;
+            break;
+        }
+    }
+    if (carried)
+        return false;
+    // Skip: every Pull/Boss step of the leg at index >= r.step is not cleared.
+    std::uint32_t skipItem = 0;
+    std::string skipName;
+    for (const ai::PlanLegNeed& need : r.plan->needs)
+        if (need.leg == s->leg && need.mode == ai::LegNeedMode::Optional)
+        {
+            skipItem = need.item;
+            skipName = need.name;
+            break;
+        }
+    for (std::size_t i = r.step; i < r.plan->steps.size(); ++i)
+    {
+        const PlanStep& p = r.plan->steps[i];
+        if (p.leg != s->leg)
+            continue;
+        if (p.kind == PlanStepKind::Pull || p.kind == PlanStepKind::Boss)
+            r.notCleared.insert(i);
+    }
+    r.skippedLegs.push_back(s->leg);
+    std::string const legText = NeedLegLabel(*r.plan, s->leg);
+    std::size_t last = r.step;
+    for (std::size_t i = r.step; i < r.plan->steps.size(); ++i)
+        if (r.plan->steps[i].leg == s->leg)
+            last = i;
+    r.step = last;
+    r.say = "Does anyone have " + (skipName.empty() ? "item " + std::to_string(skipItem) : skipName) +
+        "? Without it we skip " + legText + ".";
+    NextStep(r, "leg " + legText + " skipped: it needs item " + std::to_string(skipItem) +
+        (skipName.empty() ? std::string() : " (" + skipName + ")") +
+        " and nobody in the party carries it (an optional leg; the run goes on with the next leg)");
+    return true;
+}
+
+// The run's skipped optional legs for the report: "" none, else "optional leg
+// skipped: gahzrilla (item 9240)" (plural "optional legs skipped: a (item x), b (item y)").
+inline std::string SkippedLegsReport(const Run& r)
+{
+    if (r.skippedLegs.empty() || !r.plan)
+        return std::string();
+    std::string out;
+    for (std::size_t k = 0; k < r.skippedLegs.size(); ++k)
+    {
+        std::uint8_t const leg = r.skippedLegs[k];
+        std::string items;
+        for (const ai::PlanLegNeed& need : r.plan->needs)
+            if (need.leg == leg && need.mode == ai::LegNeedMode::Optional)
+                items += std::string(items.empty() ? "" : ", ") + "item " + std::to_string(need.item);
+        out += (k ? ", " : "") + NeedLegLabel(*r.plan, leg) +
+            (items.empty() ? std::string() : " (" + items + ")");
+    }
+    return std::string("optional leg") + (r.skippedLegs.size() == 1 ? " skipped: " : "s skipped: ") + out;
+}
+
+// Spec item-leg-skip C2b/C2c (review round 2: Codex 2, Opus 3/6): the key doors of a leg with a real player in the
+// party. The leg's first Door need row names the door object; the glue looks for it near the lead bot each tick
+// (Facts::doorNeedRead/State/X/Y/Z): a door not found is not known closed (nothing held, nothing decided); a door
+// found open decides the leg. The bots stop only NEAR the door (DoorNear: the current step's point or the lead bot
+// within kDoorNearYd of it), so a long leg walks up to its door first.
+
+// The hold stops the party this near the door (yd): the step about to cross it, or the lead bot beside it.
+constexpr float kDoorNearYd = 25.0f;
+// DoorKeyOpen: the wait for the door to read open after an open order, and the orders before the hold takes over.
+constexpr std::uint32_t kDoorOpenWaitMs = 20000;
+constexpr std::uint32_t kDoorOpenTries = 3;
+
+// The current leg's first Door need row (nullptr none).
+inline const ai::PlanLegNeed* LegDoorNeed(const Run& r)
+{
+    const PlanStep* s = Current(r);
+    if (!s || !r.plan)
+        return nullptr;
+    for (const ai::PlanLegNeed& need : r.plan->needs)
+        if (need.leg == s->leg && need.mode == ai::LegNeedMode::Door)
+            return &need;
+    return nullptr;
+}
+
+inline bool DoorNear(const Run& r, const Facts& f)
+{
+    const PlanStep* s = Current(r);
+    if (!s || !f.doorNeedRead)
+        return false;
+    return ai::PlanDistance(s->x, s->y, s->z, f.doorNeedX, f.doorNeedY, f.doorNeedZ) <= kDoorNearYd ||
+        ai::PlanDistance(f.leadX, f.leadY, f.leadZ, f.doorNeedX, f.doorNeedY, f.doorNeedZ) <= kDoorNearYd;
+}
+
+// A qualified opener in the party: a real player carries the key (FillLegNeedFacts names a player holder first), a
+// real player's Lockpicking reaches the lock's pick, or the run makes the key itself before the leg.
+inline bool DoorQualified(const Run& r, const Facts& f, const ai::PlanLegNeed& door)
+{
+    for (const auto& have : f.legNeedHolders)
+        if (have.first == door.item && !have.second.empty())
+        {
+            for (const PlayerFact& p : f.players)
+                if (p.name == have.second)
+                    return true;
+            break;
+        }
+    if (door.pick > 0 && f.doorNeedLockpick >= door.pick)
+        return true;
+    std::size_t first = r.plan->steps.size();
+    for (std::size_t i = 0; i < r.plan->steps.size(); ++i)
+        if (r.plan->steps[i].leg == door.leg)
+        {
+            first = i;
+            break;
+        }
+    for (std::size_t j = 0; j < first; ++j)
+    {
+        const PlanStep& m = r.plan->steps[j];
+        if ((m.kind == PlanStepKind::Loot || m.kind == PlanStepKind::UseItem) && m.item == door.item)
+            return true;
+    }
+    return false;
+}
+
+// What opens the door, for the notes: "Shadowforge Key (item 11000) or Lockpicking 250".
+inline std::string DoorOpener(const ai::PlanLegNeed& door)
+{
+    std::string const item = door.name.empty() ? "item " + std::to_string(door.item)
+                                               : door.name + " (item " + std::to_string(door.item) + ")";
+    return item + (door.pick > 0 ? " or Lockpicking " + std::to_string(door.pick) : std::string());
+}
+
+// The hold's pause: only the door read open ends it (DoorOpenWhilePaused).
+inline void PauseDoor(Run& r, std::uint8_t leg, const std::string& ask, const std::string& note)
+{
+    Pause(r, note);
+    r.doorPaused = true;
+    r.doorPausedLeg = leg;
+    r.doorPausedAsk = ask;
+}
+
+// The line the bots say on /s this tick, taken once: the glue sends it.
+inline std::string TakeSay(Run& r)
+{
+    std::string say;
+    say.swap(r.say);
+    return say;
+}
+
+// The hold (DungeonRunBotKeysForPlayers = 0, or no bot carries the key): a real player in the party, the leg's door
+// found closed and near, nobody qualified: the run pauses with the ask note; the bots stand before the door. True:
+// the run held at the door this tick.
+inline bool DoorNeedHold(Run& r, const Facts& f)
+{
+    const PlanStep* s = Current(r);
+    if (!s || !r.plan || f.anyInCombat || f.players.empty() || !f.legNeedRead)
+        return false;
+    if (r.legNeedDecided.count(s->leg))
+        return false;
+    const ai::PlanLegNeed* door = LegDoorNeed(r);
+    if (!door)
+        return false;
+    if (DoorQualified(r, f, *door))
+    {
+        r.legNeedDecided.insert(s->leg); // the player opens it himself
+        return false;
+    }
+    if (f.botKeysForPlayers && !f.doorNeedCarrier.empty())
+        return false; // a bot opens it (DoorKeyOpen)
+    if (!f.doorNeedRead)
+        return false; // not found near the lead bot: not known closed
+    if (f.doorNeedState == 1)
+    {
+        r.legNeedDecided.insert(s->leg);
+        return false;
+    }
+    if (!DoorNear(r, f))
+        return false;
+    bool anyoneCarries = false;
+    for (const auto& have : f.legNeedHolders)
+        if (have.first == door->item && !have.second.empty())
+            anyoneCarries = true;
+    std::string const ask = "open it with " + DoorOpener(*door);
+    std::string const howText = !door->how.empty() && !anyoneCarries ? " Get it: " + door->how + "." : "";
+    if (!(r.doorPaused && r.doorPausedAsk == ask)) // once per pause, not every tick of the hold
+        r.say = "Does anyone have " + (door->name.empty() ? "the key" : door->name) + " to open the door?" +
+            (door->pick > 0 ? " Or Lockpicking " + std::to_string(door->pick) + "?" : "");
+    PauseDoor(r, s->leg, ask,
+        "door to leg " + NeedLegLabel(*r.plan, s->leg) + ": the way is locked (object " + std::to_string(door->object) +
+            "): " + ask + "; the bots wait before it and go on by themselves once it reads open (.bot run resume does "
+            "not pass a closed door)." + howText);
+    return true;
+}
+
+// DungeonRunBotKeysForPlayers = 1 with a real player (rule 5): the bot carrying the key opens the leg's door near it
+// with the `open` order (the lock's key in its bags), up to kDoorOpenTries orders kDoorOpenWaitMs apart; the door read
+// open decides the leg; the last try failing pauses as the hold does. The party stands meanwhile. True: this tick is
+// the door's (order holds the open order, or nothing while it waits).
+inline bool DoorKeyOpen(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
+{
+    const PlanStep* s = Current(r);
+    if (!s || !r.plan || f.anyInCombat || f.players.empty() || !f.botKeysForPlayers || f.doorNeedCarrier.empty())
+        return false;
+    if (r.legNeedDecided.count(s->leg))
+        return false;
+    const ai::PlanLegNeed* door = LegDoorNeed(r);
+    if (!door || !f.doorNeedRead)
+        return false;
+    if (f.doorNeedState == 1)
+    {
+        r.legNeedDecided.insert(s->leg);
+        r.doorOpenLeg = -1;
+        return false;
+    }
+    if (!DoorNear(r, f))
+        return false;
+    std::string const legText = NeedLegLabel(*r.plan, s->leg);
+    if (r.doorOpenLeg != static_cast<int>(s->leg))
+    {
+        r.doorOpenLeg = s->leg;
+        r.doorOpenTries = 0;
+        r.doorOpenMs = 0;
+    }
+    else
+        r.doorOpenMs += dt;
+    if (r.doorOpenTries > 0 && r.doorOpenMs < kDoorOpenWaitMs)
+    {
+        r.note = "door to leg " + legText + ": waiting for " + f.doorNeedCarrier + " to open it";
+        return true;
+    }
+    if (r.doorOpenTries >= kDoorOpenTries)
+    {
+        std::string const ask = "open it with " + DoorOpener(*door);
+        PauseDoor(r, s->leg, ask,
+            "door to leg " + legText + ": " + f.doorNeedCarrier + " could not open it (object " +
+                std::to_string(door->object) + ") in " + std::to_string(kDoorOpenTries) + " tries: " + ask +
+                "; the bots wait before it and go on by themselves once it reads open (.bot run resume does not "
+                "pass a closed door).");
+        return true;
+    }
+    ++r.doorOpenTries;
+    r.doorOpenMs = 0;
+    order = "open " + EntryArg(door->object, f.doorNeedX, f.doorNeedY, f.doorNeedZ) + " " + f.doorNeedCarrier;
+    r.note = "door to leg " + legText + ": " + f.doorNeedCarrier + " opens it with " +
+        (door->name.empty() ? "item " + std::to_string(door->item) : door->name) + " for the party (" +
+        std::to_string(r.doorOpenTries) + " of " + std::to_string(kDoorOpenTries) + ")";
+    return true;
+}
+
+// The door hold's pause ends by itself the tick the glue reads the door open (it reads the door while paused too);
+// the run resumes with a resume's regroup. True when it resumed.
+inline bool DoorOpenWhilePaused(Run& r, const Facts& f)
+{
+    if (r.state != State::Paused || !r.doorPaused || !f.doorNeedRead || f.doorNeedState != 1)
+        return false;
+    std::uint8_t const leg = r.doorPausedLeg;
+    r.legNeedDecided.insert(leg);
+    if (!Resume(r))
+        return false;
+    r.note = "door to leg " + (r.plan ? NeedLegLabel(*r.plan, leg) : std::to_string(leg)) +
+        " reads open: going on by itself (regrouping)";
+    return true;
 }
 
 // Any order from a player to the party.
@@ -7733,7 +8187,7 @@ inline std::size_t LastPointBeforeDirect(const Run& r, std::size_t hole)
 {
     std::size_t start = hole;
     for (std::size_t i = ReplayFloor(r); i < hole; ++i)
-        if (IsMovePoint(r.plan->steps[i]))
+        if (IsRunMovePoint(r, i))
             start = i;
     return start;
 }
@@ -7743,7 +8197,7 @@ inline std::size_t LastPointBeforeDirect(const Run& r, std::size_t hole)
 inline std::size_t FirstReplayPoint(const Run& r)
 {
     for (std::size_t i = ReplayFloor(r); i < r.step && i < r.plan->steps.size(); ++i)
-        if (IsMovePoint(r.plan->steps[i]))
+        if (IsRunMovePoint(r, i))
             return i;
     return static_cast<std::size_t>(-1);
 }
@@ -7772,7 +8226,7 @@ inline std::size_t ReplayStartPoint(const Run& r, const Facts& f)
     for (std::size_t i = ReplayFloor(r); i < ceiling; ++i)
     {
         const PlanStep& p = r.plan->steps[i];
-        if (!IsMovePoint(p))
+        if (!IsRunMovePoint(r, i))
             continue;
         float const d = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
         if (best < 0.0f || d < best)
@@ -7825,7 +8279,7 @@ inline std::size_t NearestMovePoint(const Run& r, const Facts& f)
     for (std::size_t i = 0; i < r.step; ++i)
     {
         const PlanStep& p = r.plan->steps[i];
-        if (!IsMovePoint(p))
+        if (!IsRunMovePoint(r, i))
             continue;
         float const d = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
         if (idx == static_cast<std::size_t>(-1) || d < best)
@@ -7846,7 +8300,7 @@ inline std::size_t LastReachedBefore(const Run& r, std::size_t idx)
         return r.checkpoint;
     std::size_t last = static_cast<std::size_t>(-1);
     for (std::size_t i = r.startStep; i < idx && i < r.plan->steps.size(); ++i)
-        if (IsMovePoint(r.plan->steps[i]))
+        if (IsRunMovePoint(r, i))
             last = i;
     return last;
 }
@@ -8057,7 +8511,7 @@ inline bool PlacedRunRescue(Run& r, const Facts& f)
     for (std::size_t i = 0; i < r.step && i < r.plan->steps.size(); ++i)
     {
         const PlanStep& p = r.plan->steps[i];
-        if (!IsMovePoint(p))
+        if (!IsRunMovePoint(r, i))
             continue;
         float const d = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
         if (nearest == static_cast<std::size_t>(-1) || d < best)
@@ -8114,7 +8568,7 @@ inline float ReplayYardsTo(const Run& r, const Facts& f, std::size_t target)
     for (std::size_t i = from + 1; i <= target; ++i)
     {
         const PlanStep& p = r.plan->steps[i];
-        if (!IsMovePoint(p))
+        if (!IsRunMovePoint(r, i))
             continue;
         yd += ai::PlanDistance(x, y, z, p.x, p.y, p.z);
         x = p.x;
@@ -8169,7 +8623,7 @@ inline float PointsYards(const Run& r, std::size_t from, std::size_t target)
     for (std::size_t i = from + 1; i <= target; ++i)
     {
         const PlanStep& p = r.plan->steps[i];
-        if (!IsMovePoint(p))
+        if (!IsRunMovePoint(r, i))
             continue;
         yd += ai::PlanDistance(x, y, z, p.x, p.y, p.z);
         x = p.x;
@@ -8307,7 +8761,7 @@ inline void StartWalkBack(Run& r, const Facts& f)
         return;
     std::size_t last = r.step;
     for (std::size_t i = r.startStep; i < r.step; ++i) // never a point before the run's start step
-        if (IsMovePoint(r.plan->steps[i]))
+        if (IsRunMovePoint(r, i))
             last = i;
     // A placed run's lead bot up behind its start step: teleported to the run's first safe point (PlacedRunRescue).
     if (PlacedRunRescue(r, f))
@@ -8651,7 +9105,7 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
                 std::to_string(to + 1) + ": the plan's points";
         return true;
     }
-    while (r.walkBackIdx < r.step && !IsMovePoint(r.plan->steps[r.walkBackIdx]))
+    while (r.walkBackIdx < r.step && !IsRunMovePoint(r, r.walkBackIdx))
         ++r.walkBackIdx;
     if (r.walkBackIdx >= r.step)
     {
@@ -10232,7 +10686,12 @@ inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& ord
                 r.skippedOpenStep = here;
                 return;
             }
-            Pause(r, "open: " + f.carrier + " does not carry item " + std::to_string(s.item) + " (the lock needs it)");
+            std::string openAsk = "open: " + f.carrier + " does not carry item " + std::to_string(s.item) + " (the lock needs it)";
+            openAsk += " Get it (or a GM: .additem " + std::to_string(s.item) + "), then .bot run resume";
+            if (!f.itemPlayer.empty())
+                openAsk += "; " + f.itemPlayer + " carries it: trade it to " +
+                    (f.carrier.empty() ? std::string("the lead bot") : f.carrier) + ", then .bot run resume";
+            Pause(r, openAsk);
             return;
         }
         if (s.kind == PlanStepKind::UseItem && !f.carrierHasEntryItem)
@@ -10245,7 +10704,13 @@ inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& ord
                 return;
             }
             r.pendingMissing = s.item;
-            Pause(r, "use_item: " + f.carrier + " does not carry item " + std::to_string(s.entry));
+            std::string useAsk =
+                "use_item: " + f.carrier + " does not carry item " + std::to_string(s.entry);
+            useAsk += " Get it (or a GM: .additem " + std::to_string(s.entry) + "), then .bot run resume";
+            if (!f.itemPlayer.empty())
+                useAsk += "; " + f.itemPlayer + " carries it: trade it to " +
+                    (f.carrier.empty() ? std::string("the lead bot") : f.carrier) + ", then .bot run resume";
+            Pause(r, useAsk);
             return;
         }
         if (f.carrierBusy)
@@ -10545,9 +11010,13 @@ inline void UseOnStep(Run& r, const Facts& f, const PlanStep& s, std::string& or
         }
         if (!f.carrierHasItem)
         {
-            Pause(r, what + ": no bot of the party carries item " + std::to_string(s.item) + " (" + f.carrier +
-                " was checked first): give it to the lead bot (GM .additem " + std::to_string(s.item) +
-                " with the bot selected), then .bot run resume");
+            std::string useOnAsk = what + ": no bot of the party carries item " + std::to_string(s.item) + " (" +
+                f.carrier + " was checked first): give it to the lead bot (GM .additem " + std::to_string(s.item) +
+                " with the bot selected), then .bot run resume";
+            if (!f.itemPlayer.empty())
+                useOnAsk += "; " + f.itemPlayer + " carries it: trade it to " +
+                    (f.carrier.empty() ? std::string("the lead bot") : f.carrier) + ", then .bot run resume";
+            Pause(r, useOnAsk);
             return;
         }
         if (f.carrierBusy)
@@ -10788,6 +11257,8 @@ inline bool HoldDoneWhilePaused(Run& r, const Facts& f)
     const PlanStep* s = Current(r);
     if (r.state != State::Paused || !s)
         return false;
+    if (r.doorPaused)
+        return false; // the door hold ends only on the door read open (DoorOpenWhilePaused) or the skip
     std::string const done = HoldDoneNote(*s, f);
     if (done.empty())
         return false;
@@ -12503,9 +12974,30 @@ inline bool PartyAllDead(const Facts& f)
     return true;
 }
 
+// pip S5 (2026-10-26): every bot dead and a GameMaster commander still fighting at the hp clamp (his hp stays at 1,
+// mobs pinned on him): his fight never ended, the wipe's regroup never revived the bots and the run noted
+// "3 dead: fighting on, a regroup follows" until its regroups ran out. With every bot dead and only GameMasters
+// fighting, their fight is not the party's: the regroup revives the bots (`revive party`). A real player (not a
+// GameMaster) in a fight still holds it, as does any bot alive.
+inline bool OnlyGmFightOverDeadBots(const Facts& f)
+{
+    if (f.total == 0 || f.alive > 0)
+        return false;
+    bool gmFight = false;
+    for (const PlayerFact& p : f.players)
+        if (p.alive && p.inCombat)
+        {
+            if (!p.gm)
+                return false;
+            gmFight = true;
+        }
+    return gmFight;
+}
+
 // The players as party members in the facts the run judges (the glue calls it after reading them): a living player's
 // health counts for the rest gate (his mana does not: a player drinks on his own), and a living player in a fight
-// puts the party in it (no walk, gather, regroup or revive while he fights; review round 1).
+// puts the party in it (no walk, gather, regroup or revive while he fights; review round 1), except a GameMaster's
+// fight once every bot is dead (OnlyGmFightOverDeadBots).
 inline void ApplyPlayerFacts(Facts& f)
 {
     for (const PlayerFact& p : f.players)
@@ -12515,8 +13007,12 @@ inline void ApplyPlayerFacts(Facts& f)
             if (p.inCombat)
                 f.anyInCombat = true;
         }
+    if (OnlyGmFightOverDeadBots(f))
+    {
+        f.anyInCombat = false; // the glue set it from the players' fight too (ReadRunPlayers)
+        f.staleCombat = false;
+    }
 }
-
 
 // Why the run holds the step for a real player, or "" (2026-10-23). Out of combat, outside an event, before an order
 // of the step goes out (Begin, Gather, Walk; never mid-pull, mid-task, in a rest or a wait):
@@ -13029,6 +13525,15 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         }
     }
 
+    // Spec item-leg-skip C2/C2b: the leg's item needs (an optional leg's
+    // skip, a key door's hold) before the step runs its rules. The hold fires
+    // on the leg's FIRST step, before any move of that leg is ordered.
+    if (LegNeedGate(r, f))
+        return order;
+    if (DoorKeyOpen(r, f, dt, order))
+        return order;
+    if (DoorNeedHold(r, f))
+        return order;
     NoteWipes(r, f);
     // A wipe also ends the run's own fight below (the bots' all-dead: a dead player cannot be revived by the run).
     bool const allDead = f.total > 0 && f.alive == 0;
