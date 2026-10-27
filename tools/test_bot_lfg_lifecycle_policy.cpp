@@ -45,8 +45,14 @@ static void TestFormingAndWaiting()
     Facts late = At(State::Waiting, 600000 + kFillRetryMs);
     d = DecideStep(late);
     CHECK(d.step == Step::End && d.reason == EndReason::NoFill && !d.release);
+    Facts forceLate = At(State::Waiting, 600000 + kFillRetryMs);
+    forceLate.forceFill = true;
+    CHECK(DecideStep(forceLate).step == Step::End && DecideStep(forceLate).reason == EndReason::NoFill);
     CHECK(DecideStep(At(State::Waiting, 600000 + kFillRetryMs - 1)).step == Step::None);
     CHECK(FillDue(State::Waiting, 600000, 600000, false) && !FillDue(State::Ready, 600000, 600000, true));
+    // a missing slot ends or replaces only after the grace, never on one tick
+    CHECK(!MissingGraceExpired(20000, 20000 + kMissingGraceMs - 1));
+    CHECK(MissingGraceExpired(20000, 20000 + kMissingGraceMs));
 }
 
 static void TestReady()

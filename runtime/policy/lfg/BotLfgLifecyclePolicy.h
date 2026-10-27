@@ -74,6 +74,14 @@ constexpr uint32_t kTickMs = 5000;
 constexpr uint32_t kFillRetryMs = 300000;
 constexpr uint32_t kReadyHoldMs = 120000;
 
+// A member out of the world keeps its slot while it may be travelling
+// between maps: lost only after missing continuously for this long.
+constexpr uint32_t kMissingGraceMs = 30000;
+inline bool MissingGraceExpired(uint32_t missingSinceMs, uint32_t nowMs)
+{
+    return nowMs - missingSinceMs >= kMissingGraceMs;
+}
+
 struct Facts
 {
     State state = State::Forming;
@@ -164,7 +172,7 @@ inline Decision DecideStep(Facts const& f)
                     d.fill = FillKind::Bot;
                     return d;
                 }
-                if (!f.forceFill && f.elapsedMs >= f.fillAfterMs + kFillRetryMs)
+                if (f.elapsedMs >= f.fillAfterMs + kFillRetryMs)
                     return End(EndReason::NoFill, f);
             }
             Decision d;
