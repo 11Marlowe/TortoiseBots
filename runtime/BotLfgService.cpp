@@ -5,6 +5,8 @@
 #include "runtime/policy/lfg/BotLfgLifecyclePolicy.h"
 #include "runtime/policy/lfg/LftDungeonRangePolicy.h"
 #include "runtime/policy/hire/LftRoleKitPolicy.h"
+#include "runtime/policy/lfg/BotLfgAdvertPolicy.h"
+#include "BotLfgWhisperInbox.h"
 
 #include "BotManager.h"
 #include "PlayerbotAIStorage.h"
@@ -33,6 +35,9 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "Database/DatabaseEnv.h"
 // pi-lens-ignore: clang:pp_file_not_found
+#include "Chat/ChannelMgr.h"
+// pi-lens-ignore: clang:pp_file_not_found
+#include "Chat/Chat.h"
 #include "Database/DBCStores.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "Maps/Map.h"
@@ -284,6 +289,7 @@ bool BotLfgService::ReadyForRole(Player* bot, BotLfg::Role role) const
 
 void BotLfgService::End(BotLfgGroup& group, BotLfgLifecycle::EndReason reason, bool release)
 {
+    StopAdvertising(group);
     release = release || RealPlayerInGroup(group);
     group.missingSinceMs.clear();
     for (BotLfgMember const& member : group.members)
@@ -655,9 +661,12 @@ bool BotLfgService::EndNow(uint32 id, std::string& code, std::string& message)
 }
 void BotLfgService::Transition(BotLfgGroup& group, BotLfgLifecycle::State to)
 {
+    StopAdvertising(group);
     group.state = to;
     group.stateSinceMs = m_nowMs;
     Log(group, std::string("now ") + BotLfgLifecycle::StateName(to));
+    if (to == BotLfgLifecycle::State::Waiting)
+        PublishLeaders();
 }
 
 bool BotLfgService::TrackOutOfWorld(BotLfgGroup& group, ObjectGuid guid, Player* bot)
@@ -865,6 +874,82 @@ bool BotLfgService::RealPlayerInGroup(BotLfgGroup const& group) const
     return false;
 }
 
+bool BotLfgService::Advertising(BotLfgGroup const& group) const
+{
+    return group.state == BotLfgLifecycle::State::Waiting && sPlayerbotAIConfig.botLfgChat;
+}
+
+bool BotLfgService::RealPlayerOfTeamOnline(uint8 team) const
+{
+    for (RealPlayer const& player : RealPlayersOnline())
+        if (player.team == team)
+            return true;
+    return false;
+}
+
+void BotLfgService::AdvertiseGroups()
+{
+    if (!sPlayerbotAIConfig.botLfgChat)
+    {
+        PublishLeaders();
+        return;
+    }
+    for (BotLfgGroup& group : m_groups)
+    {
+        if (group.state != BotLfgLifecycle::State::Waiting)
+            continue;
+        Player* leader = ObjectAccessor::FindPlayer(group.leader);
+        if (!leader)
+            continue;
+        if (!RealPlayerOfTeamOnline(group.team))
+            continue;
+        if (!BotLfgAdvert::PostDue(m_nowMs, group.posts > 0, group.lastPostMs, m_channelPosted[group.team],
+            m_channelPostMs[group.team]))
+            continue;
+        PostInChannel(group, leader);
+    }
+    PublishLeaders();
+}
+
+void BotLfgService::PostInChannel(BotLfgGroup& group, Player* leader)
+{
+    std::string const text = BotLfgAdvert::PostText(group.posts, BotLfgAdvert::DungeonName(group.plan),
+        group.openRole, group.minLevel, group.maxLevel);
+    ChannelMgr* mgr = channelMgr(leader->GetTeam());
+    Channel* channel = mgr ? mgr->GetOrCreateChannel(BotLfgAdvert::kChannel) : nullptr;
+    if (!channel)
+        return;
+    channel->Join(leader->GetObjectGuid(), "", false);
+    channel->AsyncSay(leader->GetObjectGuid(), text.c_str(), LANG_UNIVERSAL);
+    ++group.posts;
+    group.lastPostMs = m_nowMs;
+    m_channelPostMs[group.team] = m_nowMs;
+    m_channelPosted[group.team] = true;
+    Log(group, "posted in LookingForGroup: " + text);
+}
+
+void BotLfgService::StopAdvertising(BotLfgGroup& group)
+{
+    Player* invitee = group.invitee.IsEmpty() ? nullptr : ObjectAccessor::FindPlayer(group.invitee);
+    Group* invited = invitee ? invitee->GetGroupInvite() : nullptr;
+    if (invited && invited->GetId() == group.groupId)
+        invited->RemoveInvite(invitee);
+    group.invitee = ObjectGuid();
+    group.inviteAtMs = 0;
+    group.repliedAtMs.clear();
+    group.hintedAtMs.clear();
+    PublishLeaders();
+}
+
+void BotLfgService::PublishLeaders() const
+{
+    std::vector<uint64> leaders;
+    for (BotLfgGroup const& group : m_groups)
+        if (Advertising(group))
+            leaders.push_back(group.leader.GetRawValue());
+    BotLfgWhisperInbox::Instance().PublishLeaders(leaders);
+}
+
 void BotLfgService::Log(BotLfgGroup const& group, std::string const& text) const
 {
     TB_LOG_BASIC("%s", BotLfgLifecycle::LogLine(group.id, group.plan, BotLfg::TeamName(group.team), text).c_str());
@@ -887,6 +972,10 @@ void BotLfgService::Update(uint32 diff)
     TickGroups(enabled);
     m_groups.erase(std::remove_if(m_groups.begin(), m_groups.end(),
         [](BotLfgGroup const& g) { return g.state == BotLfgLifecycle::State::Ended; }), m_groups.end());
+    if (enabled)
+        AdvertiseGroups();
+    else
+        PublishLeaders();
     if (!enabled)
         return;
     uint32 players = uint32(RealPlayersOnline().size());
@@ -913,6 +1002,7 @@ void BotLfgService::Shutdown()
         End(g, BotLfgLifecycle::EndReason::Shutdown, RealPlayerInGroup(g));
     }
     m_groups.clear();
+    BotLfgWhisperInbox::Instance().PublishLeaders({});
     m_initialized = false;
 }
 
