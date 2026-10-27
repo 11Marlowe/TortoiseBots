@@ -14,6 +14,7 @@
 #include "ReviveFromCorpseAction.h"
 #include "playerbot/TravelMgr.h"
 #include "playerbot/policy/travel/GraveyardTeleportPolicy.h"
+#include "playerbot/policy/rpg/GroupHygienePolicy.h"
 
 namespace ai
 {
@@ -227,7 +228,9 @@ namespace ai
             }
 
 
-            if (!ai->HasRealPlayerMaster())
+            if (ai::RepopLeavesGroup(ai->HasRealPlayerMaster(),
+                    TortoiseBots::BotActivityLeaseManager::Instance().GetActivity(bot->GetGUIDLow()) ==
+                        TortoiseBots::BotActivity::Dungeon))
             {
                 if (Group* group = bot->GetGroup())
                 {

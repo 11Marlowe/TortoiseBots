@@ -41,4 +41,14 @@ namespace ai
     {
         return !dungeonCrew;
     }
+
+    // A repop (the graveyard teleport after a long stuck, a fall or too many
+    // deaths) takes a bot without a real player master out of its group. A bot
+    // of a dungeon crew (the Dungeon activity lease) keeps its group: the crew
+    // ends through its owner (bot LFG live 2026-10-27: two crew bots were
+    // repopped out of their groups and replaced).
+    inline bool RepopLeavesGroup(bool realPlayerMaster, bool dungeonCrew)
+    {
+        return !realPlayerMaster && !dungeonCrew;
+    }
 }

@@ -13,6 +13,7 @@ this checks the call sites use them, since those files only build against the co
   randomBotGuildNearby gate;
 - AutoReleaseSpiritAction passes the bot's instanceable map into
   RunReleaseHold::Decide, and the verdict gate still sits before the stock rules.
+- RepopAction keeps a dungeon crew bot in its group via ai::RepopLeavesGroup.
 """
 import pathlib
 import unittest
@@ -53,6 +54,14 @@ class DungeonCrewWiringTest(unittest.TestCase):
         gate = useful.index("RunReleaseHold::Decide(")
         self.assertLess(gate, useful.index("bot->GetMap()->Instanceable()"))
         self.assertLess(useful.index("bot->GetMap()->Instanceable()"), useful.index("if (verdict =="))
+
+    def test_repop_keeps_dungeon_crew_group(self):
+        rep = body(ACTION, "class RepopAction", "class SelfResurrectAction")
+        ex = body(rep, "virtual bool Execute(Event& event) override", "virtual bool isUseful() override")
+        guard = ex.index("ai::RepopLeavesGroup(")
+        self.assertIn("TortoiseBots::BotActivity::Dungeon", ex[guard:ex.index("RemoveMember(", guard)])
+        self.assertLess(guard, ex.index("group->RemoveMember("))
+        self.assertIn('#include "playerbot/policy/rpg/GroupHygienePolicy.h"', ACTION)
 
 
 if __name__ == "__main__":
