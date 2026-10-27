@@ -128,7 +128,7 @@ On 2026-10-21 the commander telemetry got a boss list: the `boss` steps' `entry`
 
 While a bot LFG group waits for its fifth member, its leader posts one line in your faction's LookingForGroup channel, again every few minutes: `LF1M tank Deadmines 17-24, w me inv`, `Deadmines need tank (17-24), /w inv`, or `LF tank for Deadmines, lvl 17-24, whisper inv`. Whisper the leader `inv` to join.
 
-You get the invite when you are the group's faction, inside its level band, and your class and talents fit the open role (only damage fits everything; a tank or healer needs a class that can play it and talents leaning that way, unless you spent fewer than 10 talent points). Otherwise the leader answers once: the group is full, someone else is joining, leave your group first, the wrong level band, or the wrong role. Only one player is invited at a time, and the invite waits 60 seconds for you to accept; once the slot is taken the posts stop.
+You get the invite when you are the group's faction, inside its level band, and your class and talents fit the open role (only damage fits everything; a tank or healer needs a class that can play it and talents leaning that way, unless you spent fewer than 10 talent points). Otherwise the leader answers once: the group is full, someone else is joining, leave your group first, the wrong level band, the wrong role, hardcore characters are refused, or your earlier invite fell through and the slot is already taken. Only one player is invited at a time, and the invite waits 60 seconds for you to accept; once the slot is taken the posts stop.
 
 ## Run leader
 

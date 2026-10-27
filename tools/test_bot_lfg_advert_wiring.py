@@ -51,22 +51,16 @@ class BotLfgChatWiringTest(unittest.TestCase):
         transition = body(SVC, "void BotLfgService::Transition(", "\n}\n")
         self.assertIn("StopAdvertising(group)", transition)
         self.assertLess(transition.index("StopAdvertising(group)"), transition.index("group.state = to"))
+        self.assertLess(transition.index("group.state = to"), transition.index("PublishLeaders()"))
         end = body(SVC, "void BotLfgService::End(", "\n}\n")
         self.assertIn("StopAdvertising(group)", end)
         self.assertLess(end.index("StopAdvertising(group)"), end.index("RemoveMember("))
-
-    def test_stop_advertising_and_publish_leaders_pins(self):
-        stop = body(SVC, "void BotLfgService::StopAdvertising(", "\n}\n")
-        self.assertIn("group.invitee = ObjectGuid()", stop)
-        self.assertIn("PublishLeaders()", stop)
-        publish = body(SVC, "void BotLfgService::PublishLeaders() const", "\n}\n")
-        self.assertIn("BotLfgWhisperInbox::Instance().PublishLeaders(", publish)
-        self.assertIn("Advertising(", publish)
+        self.assertLess(end.index("State::Ended"), end.index("PublishLeaders()"))
 
     def test_update_advertises_after_tick_groups(self):
         fn = body(SVC, "void BotLfgService::Update(uint32 diff)", "\n}\n")
-        self.assertLess(fn.index("TickGroups("), fn.index("AdvertiseGroups()"))
-        self.assertLess(fn.index("m_groups.erase(", fn.index("AdvertiseGroups()")), fn.index("AdvertiseGroups()"))
+        self.assertLess(fn.index("TickGroups("), fn.index("m_groups.erase("))
+        self.assertLess(fn.index("m_groups.erase("), fn.index("AdvertiseGroups()"))
         self.assertLess(fn.index("AdvertiseGroups()"), fn.index("if (!enabled)"))
         self.assertIn("PublishLeaders()", fn)
 
@@ -76,12 +70,6 @@ class BotLfgChatWiringTest(unittest.TestCase):
 
     def test_commander_list_shows_posts_and_invite(self):
         self.assertIn("posts:%u invite:%s", CMD)
-    def test_update_advertises_after_tick_groups(self):
-        fn = body(SVC, "void BotLfgService::Update(uint32 diff)", "\n}\n")
-        self.assertLess(fn.index("TickGroups("), fn.index("AdvertiseGroups()"))
-        self.assertLess(fn.index("m_groups.erase("), fn.index("AdvertiseGroups()"))
-        self.assertLess(fn.index("AdvertiseGroups()"), fn.index("if (!enabled)"))
-        self.assertIn("PublishLeaders()", fn)
 
 
 class BotLfgWhisperWiringTest(unittest.TestCase):
@@ -106,7 +94,8 @@ class BotLfgWhisperWiringTest(unittest.TestCase):
         for first, second in zip(ordered, ordered[1:]):
             self.assertLess(fn.index(first), fn.index(second))
         for snippet in ("GetPlayerSpecTabs(", "GetBotRoleMask(", "IsHardcore()", "BotLfgAdvert::kReplyGapMs",
-                        "BotLfgAdvert::kHintGapMs", "group->repliedAtMs[", "Answer::InviteFailed"):
+                        "BotLfgAdvert::kHintGapMs", "group->repliedAtMs[", "Answer::InviteFailed",
+                        "BotLfgAdvert::kMaxInvitesPerGroup", "group->invitesSent[", "senderRefusedResend"):
             self.assertIn(snippet, fn)
 
     def test_reply_pins(self):

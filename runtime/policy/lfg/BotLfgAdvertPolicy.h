@@ -28,6 +28,7 @@ constexpr uint32_t kReplyGapMs = 10000;
 constexpr uint32_t kHintGapMs = 300000;
 constexpr uint32_t kTalentLeanMinPoints = 10;
 constexpr size_t kMaxInviteWords = 6;
+constexpr uint32_t kMaxInvitesPerGroup = 2;
 
 inline std::map<std::string, std::string> const& DungeonNameTable()
 {
@@ -270,6 +271,7 @@ struct WhisperFacts
     bool waiting = false;
     bool senderInvited = false;
     bool invitePending = false;
+    bool senderRefusedResend = false;
     bool hardcore = false;
     bool grouped = false;
     uint8_t level = 0;
@@ -294,6 +296,8 @@ inline Answer DecideWhisper(WhisperFacts const& f)
         return Answer::Full;
     if (f.senderInvited && f.invitePending)
         return Answer::AlreadyInvited;
+    if (f.senderRefusedResend)
+        return Answer::Busy;
     if (f.invitePending)
         return Answer::Busy;
     if (f.hardcore)

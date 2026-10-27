@@ -305,6 +305,7 @@ void BotLfgService::End(BotLfgGroup& group, BotLfgLifecycle::EndReason reason, b
             LftBotFillService::Instance().ClearForcedRole(member.guid.GetCounter());
     }
     group.state = BotLfgLifecycle::State::Ended;
+    PublishLeaders();
     Log(group, std::string(release ? "released: " : "ended: ") + BotLfgLifecycle::EndText(reason) +
         " (" + BotLfgLifecycle::EndCode(reason) + ")");
 }
@@ -667,8 +668,7 @@ void BotLfgService::Transition(BotLfgGroup& group, BotLfgLifecycle::State to)
     group.state = to;
     group.stateSinceMs = m_nowMs;
     Log(group, std::string("now ") + BotLfgLifecycle::StateName(to));
-    if (to == BotLfgLifecycle::State::Waiting)
-        PublishLeaders();
+    PublishLeaders();
 }
 
 bool BotLfgService::TrackOutOfWorld(BotLfgGroup& group, ObjectGuid guid, Player* bot)
@@ -959,7 +959,7 @@ void BotLfgService::StopAdvertising(BotLfgGroup& group)
 
 void BotLfgService::PublishLeaders() const
 {
-    std::vector<uint64> leaders;
+    std::vector<uint64_t> leaders;
     for (BotLfgGroup const& group : m_groups)
         if (Advertising(group))
             leaders.push_back(group.leader.GetRawValue());
@@ -1029,6 +1029,9 @@ void BotLfgService::HandleWhisper(LfgWhisper const& whisper)
     facts.waiting = Advertising(*group);
     facts.invitePending = InviteHeld(*group);
     facts.senderInvited = group->invitee == sender->GetObjectGuid() && facts.invitePending;
+    auto sent = group->invitesSent.find(key);
+    facts.senderRefusedResend = sent != group->invitesSent.end() &&
+        sent->second >= BotLfgAdvert::kMaxInvitesPerGroup && !facts.senderInvited;
     facts.hardcore = sender->IsHardcore();
     facts.grouped = sender->GetGroup() != nullptr;
     facts.level = sender->GetLevel();
@@ -1052,6 +1055,9 @@ void BotLfgService::HandleWhisper(LfgWhisper const& whisper)
         {
             group->invitee = sender->GetObjectGuid();
             group->inviteAtMs = m_nowMs;
+            auto counted = group->invitesSent.find(key);
+            if (counted == group->invitesSent.end() || counted->second < BotLfgAdvert::kMaxInvitesPerGroup)
+                ++group->invitesSent[key];
             Log(*group, std::string("invited ") + sender->GetName() + " (whisper)");
         }
         else

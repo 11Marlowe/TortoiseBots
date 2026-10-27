@@ -117,6 +117,7 @@ static void TestDecideWhisperOrder()
     CHECK(with([](WhisperFacts& f) { f.inviteRequest = false; f.waiting = false; }) == Answer::Ignore);
     CHECK(with([](WhisperFacts& f) { f.waiting = false; }) == Answer::Full);
     CHECK(with([](WhisperFacts& f) { f.senderInvited = true; f.invitePending = true; }) == Answer::AlreadyInvited);
+    CHECK(with([](WhisperFacts& f) { f.senderRefusedResend = true; }) == Answer::Busy);
     CHECK(with([](WhisperFacts& f) { f.invitePending = true; }) == Answer::Busy);
     CHECK(with([](WhisperFacts& f) { f.hardcore = true; }) == Answer::Hardcore);
     CHECK(with([](WhisperFacts& f) { f.grouped = true; }) == Answer::InGroup);

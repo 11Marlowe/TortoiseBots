@@ -53,6 +53,7 @@ struct BotLfgGroup
     uint32 lastPostMs = 0;
     ObjectGuid invitee;
     uint32 inviteAtMs = 0;
+    std::unordered_map<uint64, uint32> invitesSent;
     std::unordered_map<uint64, uint32> repliedAtMs;
     std::unordered_map<uint64, uint32> hintedAtMs;
 };
