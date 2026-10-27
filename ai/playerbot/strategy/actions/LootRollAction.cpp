@@ -12,6 +12,35 @@
 #include "Maps/Map.h"
 using namespace ai;
 
+namespace
+{
+    std::string RollVoteName(RollVote vote)
+    {
+        switch (vote)
+        {
+        case ROLL_NEED:
+            return "need";
+        case ROLL_GREED:
+            return "greed";
+        case ROLL_DISENCHANT:
+            return "disenchant";
+        default:
+            return "pass";
+        }
+    }
+
+    void LogLootRoll(PlayerbotAI* ai, ItemQualifier& itemQualifier, RollVote vote, std::string const& reason)
+    {
+        if (!sPlayerbotAIConfig.hasLog("bot_events.csv"))
+            return;
+
+        ItemPrototype const* proto = itemQualifier.GetProto();
+        std::string itemName = proto ? proto->Name1 : "unknown item";
+        sPlayerbotAIConfig.logEvent(ai, "LootRoll", itemName,
+            RollVoteName(vote) + ":" + std::to_string(itemQualifier.GetId()) + ":" + reason);
+    }
+}
+
 bool LootStartRollAction::Execute(Event& event)
 {
     WorldPacket p(event.GetPacket()); //WorldPacket packet for CMSG_LOOT_ROLL, (8+4+1)
@@ -242,7 +271,14 @@ bool RollAction::Execute(Event& event)
 
         RollVote doVote = vote;
         if (doVote == ROLL_NOT_VALID) //Auto
-            doVote = CalculateRollVote(itemQualifier);
+            doVote = CalculateRollVote(itemQualifier, nullptr, nullptr, true);
+        else
+        {
+            std::string orderReason = "ordered by " + (requester ? requester->GetName() : "?");
+            if (!StoreLootAction::IsLootAllowed(itemQualifier, PlayerbotAIStorage::Instance().GetAI(bot)))
+                orderReason += " (can not be looted)";
+            LogLootRoll(ai, itemQualifier, doVote, orderReason);
+        }
 
         rolledItems += RollOnItemInSlot(doVote, roll.first, roll.second);
     }
@@ -260,7 +296,7 @@ ItemQualifier RollAction::GetRollItem(ObjectGuid lootGuid, uint32 slot)
     return ItemQualifier();
 }
 
-RollVote RollAction::CalculateRollVote(ItemQualifier& itemQualifier)
+RollVote RollAction::CalculateRollVote(ItemQualifier& itemQualifier, RollVote* finalVote, std::string* reasonOut, bool log)
 {
     ItemUsage usage = AI_VALUE2(ItemUsage, "item usage", itemQualifier.GetQualifier());
 
@@ -384,21 +420,21 @@ RollVote RollAction::CalculateRollVote(ItemQualifier& itemQualifier)
 
     bool canLoot = StoreLootAction::IsLootAllowed(itemQualifier, PlayerbotAIStorage::Instance().GetAI(bot));
 
+    std::string reason = "because it can not be looted.";
+    if (canLoot)
+        reason = ItemUsageValue::ReasonForNeed(usage, itemQualifier, 1, bot);
+
     if (AI_VALUE2(bool, "manual bool", "roll feedback"))
     {
-        std::string reason = "because it can not be looted.";
-        std::string vote = "Passing";
-        if(canLoot)
-            reason = ItemUsageValue::ReasonForNeed(usage, itemQualifier, 1, bot);
-
+        std::string voteName = "Passing";
         if (needVote == ROLL_GREED)
-            vote = "Rolling greed";
+            voteName = "Rolling greed";
         else if (needVote == ROLL_NEED)
-            vote = "Rolling need";
+            voteName = "Rolling need";
         else if (needVote == ROLL_DISENCHANT)
-            vote = "Rolling disenchant";
+            voteName = "Rolling disenchant";
 
-         ai->TellPlayerNoFacing(ai->GetMaster(), vote + " on " + ChatHelper::formatItem(itemQualifier) + " " + reason);
+        ai->TellPlayerNoFacing(ai->GetMaster(), voteName + " on " + ChatHelper::formatItem(itemQualifier) + " " + reason);
     }
 
     // Issue #872: an autonomous alt rolls Greed or Pass, never Need (C).
@@ -406,7 +442,15 @@ RollVote RollAction::CalculateRollVote(ItemQualifier& itemQualifier)
         TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
         needVote = ROLL_GREED;
 
-    return canLoot ? needVote : ROLL_PASS;
+    RollVote decision = canLoot ? needVote : ROLL_PASS;
+    if (finalVote)
+        *finalVote = decision;
+    if (reasonOut)
+        *reasonOut = reason;
+    if (log)
+        LogLootRoll(ai, itemQualifier, decision, reason);
+
+    return decision;
 }
 
 bool RollAction::RollOnItemInSlot(RollVote vote, ObjectGuid lootGuid, uint32 slot)
@@ -582,7 +626,9 @@ bool RollAction::RollWithEtiquette(ObjectGuid lootGuid, uint32 slot, ObjectGuid 
     if (!itemQualifier.GetId())
         return false;
 
-    RollVote vote = CalculateRollVote(itemQualifier);
+    RollVote vote;
+    std::string reason;
+    CalculateRollVote(itemQualifier, &vote, &reason, false);
 
     if (vote == ROLL_NEED)
     {
@@ -606,8 +652,13 @@ bool RollAction::RollWithEtiquette(ObjectGuid lootGuid, uint32 slot, ObjectGuid 
 
             if (AI_VALUE2(bool, "manual bool", "roll feedback"))
                 ai->TellPlayerNoFacing(ai->GetMaster(), "Rolling greed on " + ChatHelper::formatItem(itemQualifier) + " instead: a player in the group may need it.");
+
+            LogLootRoll(ai, itemQualifier, vote, "a player in the group may need it.");
+            return RollOnItemInSlot(vote, lootGuid, slot);
         }
     }
+
+    LogLootRoll(ai, itemQualifier, vote, reason);
 
     return RollOnItemInSlot(vote, lootGuid, slot);
 }
