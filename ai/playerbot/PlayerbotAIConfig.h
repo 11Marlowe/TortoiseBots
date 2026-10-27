@@ -613,6 +613,8 @@ public:
     uint32 botLfgMaxGroups;
     // Groups form only while a real player is online.
     bool botLfgOnlyWithPlayersOnline;
+    // A waiting bot LFG group posts in LookingForGroup and answers "inv" whispers.
+    bool botLfgChat;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
     bool avoidCreatureAuras;
     // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).

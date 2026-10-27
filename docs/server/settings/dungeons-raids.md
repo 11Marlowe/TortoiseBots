@@ -22,6 +22,7 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.AvoidCreatureAuras`](#aiplayerbotavoidcreatureauras) | `1` | Steers bots away from permanent damaging creature auras and hazardous monsters. |
 | [`AiPlayerbot.BombRunoutDistance`](#aiplayerbotbombrunoutdistance) | `30.0` | Distance in yards bomb debuff carriers run clear of the living group. |
 | [`AiPlayerbot.BotAreaTriggers`](#aiplayerbotbotareatriggers) | *(empty)* | Audited allowlist of scripted area triggers a bot party may fire (off when empty; opt in with `962`). |
+| [`AiPlayerbot.BotLfgChat`](#aiplayerbotbotlfgchat) | `1` | A waiting group posts in LookingForGroup and invites a player who whispers "inv". |
 | [`AiPlayerbot.BotLfgFillAfterMinutes`](#aiplayerbotbotlfgfillafterminutes) | `10` | How long a group of four waits for a player before a bot takes the open slot. |
 | [`AiPlayerbot.BotLfgGroups`](#aiplayerbotbotlfggroups) | `0` | World bots form groups of four that wait for a player, then take a fifth bot (needs `AiPlayerbot.DungeonSelfClear`). |
 | [`AiPlayerbot.BotLfgGroupsPer100Bots`](#aiplayerbotbotlfggroupsper100bots) | `1` | How many groups exist at once per 100 bots online. |
@@ -138,6 +139,19 @@ Whether groups form only while at least one real player is online.
 **Default:** `1` · **Values:** `0` also on an empty server, `1` only with a player online · **Restart:** not needed (`.reload config` applies it on the next world tick)
 
 Only read while `AiPlayerbot.BotLfgGroups = 1`.
+
+### `AiPlayerbot.BotLfgChat`
+A waiting group posts in LookingForGroup and invites a player who whispers "inv".
+**Default:** `1` · **Values:** `0` off, `1` on · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+Only read while `AiPlayerbot.BotLfgGroups = 1`.
+
+<details>
+<summary>How it works in detail</summary>
+
+The leader of a group that waits for a player posts one line in its faction's LookingForGroup channel (the dungeon, the open role, the level band, "w me inv"), again every 3 minutes, never more than one post per 30 s per faction across all groups, and only while a real player of that faction is online. A real player who whispers the leader "inv" gets a party invite when his faction, level and class fit the open role; other whispers get one short answer. Not limited by `AiPlayerbot.EnableBroadcasts`. Answers: "inv sent" when the invite goes out; "already sent you an inv" when he still holds the invite; "someone's joining atm, w me again in a min" while another invite is open; "sorry, we're full now" when the group stopped waiting; "sorry, can't group with hardcore chars" for a hardcore character; "leave your group and w me inv again" while he is grouped; "sorry, looking for 17-24" outside the band; "sorry, need a tank" when his class or talents do not fit the open role; "need tank for Deadmines (17-24), w me inv to join" as the hint for a whisper that is no invite; "couldn't inv you, got another invite open?" when the invite fails.
+
+</details>
 
 ### `AiPlayerbot.DungeonRunAggroCeiling`
 The number of joiners (creatures besides the one pulled) above which the run leader rests the party before a pull.

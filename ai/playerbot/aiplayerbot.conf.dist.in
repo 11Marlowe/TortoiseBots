@@ -908,6 +908,18 @@ AiPlayerbot.BotLfgMaxGroups = 5
 # 1 - only with a player online (Default)
 AiPlayerbot.BotLfgOnlyWithPlayersOnline = 1
 
+# Bot LFG groups: the leader of a group that waits for a player posts one line in
+# its faction's LookingForGroup channel (the dungeon, the open role, the level
+# band, "w me inv"), again every 3 minutes, never more than one post per 30 s per
+# faction across all groups, and only while a real player of that faction is
+# online. A real player who whispers the leader "inv" gets a party invite when his
+# faction, level and class fit the open role; other whispers get one short answer.
+# Not limited by AiPlayerbot.EnableBroadcasts. Only read while
+# AiPlayerbot.BotLfgGroups = 1. `.reload config` reads it again.
+# 0 - off
+# 1 - on (Default)
+AiPlayerbot.BotLfgChat = 1
+
 # The run leader's walk back after a guarded fight. When the tank left its stand
 # to take mobs off the party, the run used to walk the tank and the party back to
 # that stand after every fight, then forward again to the next pack or boss.
