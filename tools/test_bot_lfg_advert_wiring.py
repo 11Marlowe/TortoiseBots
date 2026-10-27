@@ -79,3 +79,45 @@ class BotLfgChatWiringTest(unittest.TestCase):
         self.assertLess(fn.index("m_groups.erase("), fn.index("AdvertiseGroups()"))
         self.assertLess(fn.index("AdvertiseGroups()"), fn.index("if (!enabled)"))
         self.assertIn("PublishLeaders()", fn)
+
+
+class BotLfgWhisperWiringTest(unittest.TestCase):
+    def test_update_drains_whispers_first(self):
+        fn = body(SVC, "void BotLfgService::Update(uint32 diff)", "\n}\n")
+        self.assertIn("HandleWhispers();", fn)
+        self.assertLess(fn.index("HandleWhispers();"), fn.index("if (m_elapsedMs < BotLfgLifecycle::kTickMs)"))
+        self.assertLess(fn.index("if (!m_initialized)"), fn.index("HandleWhispers();"))
+
+    def test_handle_whispers_pins(self):
+        fn = body(SVC, "void BotLfgService::HandleWhispers()", "\n}\n")
+        self.assertIn("BotLfgWhisperInbox::Instance().Drain()", fn)
+        self.assertIn("HandleWhisper(", fn)
+
+    def test_handle_whisper_pins(self):
+        fn = body(SVC, "void BotLfgService::HandleWhisper(", "\n}\n")
+        ordered = ("HasNetworkTransport()", "BotManager::Instance().IsBot(", "BotLfgAdvert::IsInviteRequest(",
+                   "BotLfgAdvert::PlayerFitsRole(", "BotLfgAdvert::DecideWhisper(", "HandleGroupInviteOpcode(",
+                   "GetGroupInvite()")
+        for snippet in ordered:
+            self.assertIn(snippet, fn)
+        for first, second in zip(ordered, ordered[1:]):
+            self.assertLess(fn.index(first), fn.index(second))
+        for snippet in ("GetPlayerSpecTabs(", "GetBotRoleMask(", "IsHardcore()", "BotLfgAdvert::kReplyGapMs",
+                        "BotLfgAdvert::kHintGapMs", "group->repliedAtMs[", "Answer::InviteFailed"):
+            self.assertIn(snippet, fn)
+
+    def test_reply_pins(self):
+        fn = body(SVC, "void BotLfgService::Reply(", "\n}\n")
+        self.assertIn("ChatHandler::BuildChatPacket(", fn)
+        self.assertIn("CHAT_MSG_WHISPER", fn)
+
+    def test_tick_group_holds_invite(self):
+        fn = body(SVC, "void BotLfgService::TickGroup(", "\n}\n")
+        self.assertIn("facts.invitePending = InviteHeld(group);", fn)
+        self.assertLess(fn.index("facts.invitePending = InviteHeld(group);"),
+                        fn.index("BotLfgLifecycle::DecideStep(facts)"))
+        self.assertIn("RemoveInvite(", fn)
+
+    def test_invite_held_pins(self):
+        fn = body(SVC, "bool BotLfgService::InviteHeld(", "\n}\n")
+        self.assertIn("BotLfgAdvert::InvitePending(", fn)

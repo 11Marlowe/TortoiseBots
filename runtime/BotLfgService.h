@@ -5,6 +5,7 @@
 
 #include "policy/lfg/BotLfgSelectionPolicy.h"
 #include "policy/lfg/BotLfgLifecyclePolicy.h"
+#include "BotLfgWhisperInbox.h"
 
 #include <cstdint>
 #include <string>
@@ -116,6 +117,11 @@ private:
     void PostInChannel(BotLfgGroup& group, Player* leader);
     void StopAdvertising(BotLfgGroup& group);
     void PublishLeaders() const;
+    void HandleWhispers();
+    void HandleWhisper(LfgWhisper const& whisper);
+    void Reply(Player* leader, Player* to, std::string const& text) const;
+    bool InviteHeld(BotLfgGroup const& group) const;
+    BotLfgGroup* FindByLeader(ObjectGuid leader);
     bool RealPlayerOfTeamOnline(uint8 team) const;
     void Log(BotLfgGroup const& group, std::string const& text) const;
     bool m_initialized = false;
