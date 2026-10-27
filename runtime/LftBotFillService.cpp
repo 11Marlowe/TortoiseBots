@@ -43,19 +43,32 @@ bool HasInstance(std::vector<std::string> const& v, std::string const& s)
     return std::find(v.begin(), v.end(), s) != v.end();
 }
 
+constexpr std::size_t kMaxLoggedUnknownLftCodes = 64;
+
 LftLevelRange const* FindDungeonLevelRange(std::string const& raw)
 {
     LftLevelRange const* range = LftDungeonRange(raw);
     if (!range)
     {
         static std::set<std::string> loggedUnknown;
-        if (loggedUnknown.insert(raw).second)
-            sLog.outError("TortoiseBots: LFT fill has no valid authoritative level range for instance '%s'; skipping", raw.c_str());
+        static bool loggedOverflow = false;
+        if (loggedUnknown.find(raw) == loggedUnknown.end())
+        {
+            if (loggedUnknown.size() < kMaxLoggedUnknownLftCodes)
+            {
+                loggedUnknown.insert(raw);
+                TB_LOG_BASIC("TortoiseBots: LFT fill: no level range for instance '%s'; bots do not fill it (add it to LftDungeonRangePolicy.h)", raw.substr(0, 32).c_str());
+            }
+            else if (!loggedOverflow)
+            {
+                loggedOverflow = true;
+                TB_LOG_BASIC("TortoiseBots: LFT fill: more unknown instance codes; not logged further");
+            }
+        }
         return nullptr;
     }
 
     return range;
-}
 }
 
 

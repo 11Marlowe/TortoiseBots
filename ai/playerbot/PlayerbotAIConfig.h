@@ -367,7 +367,7 @@ public:
     float botLootRateRare = 1.0f;
     // Default-on bounded LFT fill: observe native queue (GetQueuedPlayers),
     // identify human groups/instances and missing 1/1/3 roles, filter in-memory
-    // Headless random candidates by authoritative Soromeister/LFT ranges,
+    // Headless random candidates by authoritative Turtle client LFT ranges,
     // team/hardcore/state/role (AiFactory), and call core QueuePlayer through
     // native offers. Unknown ranges fail closed; no role hook or DB tick scan.
     bool randomBotLftEnabled = true;

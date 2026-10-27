@@ -655,12 +655,11 @@ leader is a real player in the same offer); humans still accept
 through the native addon path.
 
 Candidates are filtered in memory by team, hardcore state, group/live state,
-role, and the authoritative `Soromeister/LFT` v0.0.3.3 `LFT.allDungeons`
+role, and the authoritative Turtle client `LFT_Data.lua` `LFT_Instances`
 dungeon `code`/`minLevel`/`maxLevel` range (exact code and normalized display-name
 aliases; see `runtime/policy/lfg/LftDungeonRangePolicy.h:LftDungeonRangeTable`).
 Instance names are normalized through the small module alias table; unknown,
 corrupt, and absent (Tortoise-only/custom) ranges fail closed and are logged once. There is no average-human +/-5 approximation,
-role hook, private-map access, addon-string injection, or DB query per tick.
 When the picked bot's installed kit would not play its slot (feral druid
 queued tank with the default cat kit), the fill hands the queued role over
 (`SetForcedRole`, cleared on every pending exit path), so the strategy
