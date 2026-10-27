@@ -17,11 +17,8 @@ namespace
 {
 // Every recruiter runs this AI. Startup creatures are added before the bot
 // config is read, so GetAI cannot trust the hire flag. The first update, which
-// runs after startup, checks it once: with hiring off the recruiter is hidden
-// and removed. The respawn delay is saved to the character database, so it
-// must stay short: a long one would keep the recruiter gone after hiring is
-// turned back on.
-constexpr uint32 kHiddenRecruiterRespawnSecs = 60;
+// runs after startup, checks it once: with hiring off the recruiter is removed
+// from the map for this session. A restart with hiring on brings them back.
 
 class RecruiterAI : public CreatureAI
 {
@@ -34,9 +31,9 @@ public:
         m_checked = true;
         if (sPlayerbotAIConfig.hireEnabled)
             return;
-        m_creature->SetVisibility(VISIBILITY_OFF);
-        m_creature->SetRespawnDelay(kHiddenRecruiterRespawnSecs);
-        m_creature->ForcedDespawn();
+        // Removed from the map, not killed: a game master would still see a
+        // respawned invisible creature, and a death would save a respawn time.
+        m_creature->AddObjectToRemoveList();
     }
 
 private:
