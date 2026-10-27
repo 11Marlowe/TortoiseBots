@@ -18,8 +18,10 @@ namespace
 // Every recruiter runs this AI. Startup creatures are added before the bot
 // config is read, so GetAI cannot trust the hire flag. The first update, which
 // runs after startup, checks it once: with hiring off the recruiter is hidden
-// and removed without a corpse. A restart with hiring on brings them back.
-constexpr uint32 kHiddenRecruiterRespawnSecs = 31536000;
+// and removed. The respawn delay is saved to the character database, so it
+// must stay short: a long one would keep the recruiter gone after hiring is
+// turned back on.
+constexpr uint32 kHiddenRecruiterRespawnSecs = 60;
 
 class RecruiterAI : public CreatureAI
 {
