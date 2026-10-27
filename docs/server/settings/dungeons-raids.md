@@ -22,7 +22,11 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.AvoidCreatureAuras`](#aiplayerbotavoidcreatureauras) | `1` | Steers bots away from permanent damaging creature auras and hazardous monsters. |
 | [`AiPlayerbot.BombRunoutDistance`](#aiplayerbotbombrunoutdistance) | `30.0` | Distance in yards bomb debuff carriers run clear of the living group. |
 | [`AiPlayerbot.BotAreaTriggers`](#aiplayerbotbotareatriggers) | *(empty)* | Audited allowlist of scripted area triggers a bot party may fire (off when empty; opt in with `962`). |
+| [`AiPlayerbot.BotLfgFillAfterMinutes`](#aiplayerbotbotlfgfillafterminutes) | `10` | How long a group of four waits for a player before a bot takes the open slot. |
 | [`AiPlayerbot.BotLfgGroups`](#aiplayerbotbotlfggroups) | `0` | The server's own bot LFG dungeon groups clear a dungeon with the run leader (needs `AiPlayerbot.DungeonSelfClear`). |
+| [`AiPlayerbot.BotLfgGroupsPer100Bots`](#aiplayerbotbotlfggroupsper100bots) | `1` | How many groups exist at once per 100 bots online. |
+| [`AiPlayerbot.BotLfgMaxGroups`](#aiplayerbotbotlfgmaxgroups) | `5` | The most groups at once. |
+| [`AiPlayerbot.BotLfgOnlyWithPlayersOnline`](#aiplayerbotbotlfgonlywithplayersonline) | `1` | Groups form only while at least one real player is online. |
 | [`AiPlayerbot.DungeonRunAggroCeiling`](#aiplayerbotdungeonrunaggroceiling) | `6` | Joiners above which the run leader rests the party before a pull (needs the estimate on). |
 | [`AiPlayerbot.DungeonRunAggroEstimate`](#aiplayerbotdungeonrunaggroestimate) | `0` | The run leader estimates how many creatures a pull brings and rests first when it is many. |
 | [`AiPlayerbot.DungeonRunBotKeysForPlayers`](#aiplayerbotdungeonrunbotkeysforplayers) | `0` | `1`: the bots carry the dungeon keys and open the doors for a party with real players too; `0`: players bring their own key, and the bots stop at the door and ask. |
@@ -110,6 +114,30 @@ The server's own bot LFG dungeon groups clear a dungeon with the run leader.
 **Bot LFG groups:** world bots of a dungeon's level band form a group and clear the dungeon with the run leader. So far only the server's own run of a bot-only party exists (a GameMaster starts one with `.bot run system start <plan>`, the lead bot targeted). Needs [`AiPlayerbot.DungeonSelfClear`](#aiplayerbotdungeonselfclear) (`0` there keeps the groups dormant); the remote commander is not needed. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
 
 </details>
+
+### `AiPlayerbot.BotLfgFillAfterMinutes`
+How long a group of four waits for a player before a bot takes the open slot.
+**Default:** `10` · **Values:** `1` to `60` minutes · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+Only read while `AiPlayerbot.BotLfgGroups = 1`.
+
+### `AiPlayerbot.BotLfgGroupsPer100Bots`
+How many groups exist at once per 100 bots online.
+**Default:** `1` · **Values:** `0` forms none by itself, up to `20` · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+Only read while `AiPlayerbot.BotLfgGroups = 1`.
+
+### `AiPlayerbot.BotLfgMaxGroups`
+The most groups at once.
+**Default:** `5` · **Values:** `0` to `20` · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+Only read while `AiPlayerbot.BotLfgGroups = 1`.
+
+### `AiPlayerbot.BotLfgOnlyWithPlayersOnline`
+Whether groups form only while at least one real player is online.
+**Default:** `1` · **Values:** `0` also on an empty server, `1` only with a player online · **Restart:** not needed (`.reload config` applies it on the next world tick)
+
+Only read while `AiPlayerbot.BotLfgGroups = 1`.
 
 ### `AiPlayerbot.DungeonRunAggroCeiling`
 The number of joiners (creatures besides the one pulled) above which the run leader rests the party before a pull.

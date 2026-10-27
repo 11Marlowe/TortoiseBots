@@ -882,6 +882,28 @@ AiPlayerbot.DungeonSelfClear = 1
 # 1 - on
 AiPlayerbot.BotLfgGroups = 0
 
+# Bot LFG groups: how long a group of four waits for a player before a bot takes
+# the open slot (minutes, 1-60). Only read while AiPlayerbot.BotLfgGroups = 1.
+# `.reload config` reads it again.
+# Default: 10
+AiPlayerbot.BotLfgFillAfterMinutes = 10
+
+# Bot LFG groups: how many groups exist at once per 100 bots online (0-20; 0 forms none by itself, a GameMaster still can). Only read while AiPlayerbot.BotLfgGroups = 1.
+# `.reload config` reads it again.
+# Default: 1
+AiPlayerbot.BotLfgGroupsPer100Bots = 1
+
+# Bot LFG groups: the most groups at once (0-20). Only read while AiPlayerbot.BotLfgGroups = 1.
+# `.reload config` reads it again.
+# Default: 5
+AiPlayerbot.BotLfgMaxGroups = 5
+
+# Bot LFG groups: groups form only while at least one real player is online. Only read while AiPlayerbot.BotLfgGroups = 1.
+# `.reload config` reads it again.
+# 0 - also on an empty server
+# 1 - only with a player online (Default)
+AiPlayerbot.BotLfgOnlyWithPlayersOnline = 1
+
 # The run leader's walk back after a guarded fight. When the tank left its stand
 # to take mobs off the party, the run used to walk the tank and the party back to
 # that stand after every fight, then forward again to the next pack or boss.
