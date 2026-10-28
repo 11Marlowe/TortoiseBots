@@ -131,6 +131,34 @@ static void TestDecideWhisperOrder()
     CHECK(std::string(AnswerCode(Answer::WrongRole)) == "wrong-role" && std::string(AnswerCode(Answer::Ignore)) == "ignore");
 }
 
+// lfg3 live: "inv", "inv me" and "invite" from a fitting player, a wrong-level
+// player and a wrong-role player all got the hint; the decision on the text.
+static void TestWhisperTextDecides()
+{
+    for (char const* text : {"inv", "inv me", "invite", "INV", "Inv Me", "InViTe", "inv   ", "inv me!", "invite.",
+                             " inv me pls ", "inv?"})
+    {
+        CHECK(IsInviteRequest(text));
+        auto decide = [&](void (*edit)(WhisperFacts&)) {
+            WhisperFacts f = Fit();
+            f.inviteRequest = IsInviteRequest(text);
+            edit(f);
+            return DecideWhisper(f);
+        };
+        CHECK(decide([](WhisperFacts&) {}) == Answer::Invite);
+        CHECK(decide([](WhisperFacts& f) { f.level = 30; }) == Answer::WrongLevel);
+        CHECK(decide([](WhisperFacts& f) { f.level = 16; }) == Answer::WrongLevel);
+        CHECK(decide([](WhisperFacts& f) { f.fitsRole = false; }) == Answer::WrongRole);
+        CHECK(decide([](WhisperFacts& f) { f.hintedRecently = true; }) == Answer::Invite); // a hint never blocks an inv
+    }
+    WhisperFacts hello = Fit();
+    hello.inviteRequest = IsInviteRequest("hello");
+    CHECK(DecideWhisper(hello) == Answer::Hint);
+    CHECK(ReplyText(Answer::WrongLevel, "Maraudon Purple", Role::Damage, 45, 55) == "sorry, looking for 45-55");
+    CHECK(ReplyText(Answer::WrongRole, "Maraudon Purple", Role::Tank, 45, 55) == "sorry, need a tank");
+    CHECK(ReplyText(Answer::Invite, "Maraudon Purple", Role::Damage, 45, 55) == "inv sent");
+}
+
 static void TestReplies()
 {
     CHECK(ReplyText(Answer::Invite, "Deadmines", Role::Tank, 17, 24) == "inv sent");
@@ -162,6 +190,7 @@ int main()
     TestInviteGrammar();
     TestRoleFit();
     TestDecideWhisperOrder();
+    TestWhisperTextDecides();
     TestReplies();
     TestInvitePending();
     std::printf("bot lfg advert policy: %d checks passed\n", checks);

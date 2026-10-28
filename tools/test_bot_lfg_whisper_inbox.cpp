@@ -9,6 +9,7 @@
 
 #include "../runtime/BotChatGate.h"
 #include "../runtime/BotLfgWhisperInbox.h"
+#include "../runtime/policy/lfg/BotLfgAdvertPolicy.h"
 
 #include <atomic>
 #include <cstdint>
@@ -44,6 +45,59 @@ static std::vector<uint8_t> Packet(uint8_t type, uint32_t lang, uint64_t sender,
     p.push_back(0);
     p.push_back(0); // chat tag
     return p;
+}
+
+// SMSG_MESSAGECHAT for a whisper byte for byte as ChatHandler::BuildChatPacket
+// (~/tortoise-wow src/game/Chat/Chat.cpp) writes it from MasterPlayer::Whisper:
+// a sender whose chat tag is CHAT_TAG_GM (3; a GM account with GM.Chat on at
+// login keeps it in MasterPlayer::m_chatTag for the whole session) has the
+// text wrapped in "|c1049e6ff" ... "|r" unless the language is LANG_ADDON.
+static std::vector<uint8_t> CorePacket(uint8_t type, uint32_t lang, uint64_t sender, std::string const& message,
+    uint8_t chatTag)
+{
+    std::string text = chatTag == 3 && lang != kAddon ? "|c1049e6ff" + message + "|r" : message;
+    std::vector<uint8_t> p;
+    p.push_back(type);
+    for (int i = 0; i < 4; ++i) p.push_back(uint8_t(lang >> (8 * i)));
+    for (int i = 0; i < 8; ++i) p.push_back(uint8_t(sender >> (8 * i)));
+    uint32_t len = uint32_t(text.size() + 1);
+    for (int i = 0; i < 4; ++i) p.push_back(uint8_t(len >> (8 * i)));
+    p.insert(p.end(), text.begin(), text.end());
+    p.push_back(0);
+    p.push_back(chatTag);
+    return p;
+}
+
+static std::string Received(uint8_t chatTag, std::string const& message)
+{
+    BotLfgWhisperInbox inbox;
+    inbox.PublishLeaders({42});
+    std::vector<uint8_t> p = CorePacket(kWhisper, kUniversal, 77, message, chatTag);
+    CHECK(inbox.Offer(42, p.data(), p.size(), kWhisper, kAddon));
+    std::vector<LfgWhisper> got = inbox.Drain();
+    CHECK(got.size() == 1 && got[0].leader == 42 && got[0].sender == 77);
+    return got[0].text;
+}
+
+// lfg3 live: every "inv" from the test players (GM accounts) got the hint.
+static void TestCoreWhisperIsInviteRequest()
+{
+    for (uint8_t tag : {uint8_t(0), uint8_t(1), uint8_t(2), uint8_t(3)}) // none, AFK, DND, GM
+    {
+        for (char const* yes : {"inv", "inv me", "invite", "INV", "Inv Me", "InViTe", "inv  ", "inv me!", "invite.",
+                                " inv ", "inv?", "invite me pls..."})
+        {
+            std::string text = Received(tag, yes);
+            CHECK(text == yes);
+            CHECK(BotLfgAdvert::IsInviteRequest(text));
+        }
+        for (char const* no : {"hello", "hi", "inventory full"})
+            CHECK(!BotLfgAdvert::IsInviteRequest(Received(tag, no)));
+    }
+    // Only the core's own GM wrap is taken off: the same bytes under another tag are the player's text.
+    CHECK(Received(0, "|c1049e6ffinv|r") == "|c1049e6ffinv|r");
+    CHECK(Received(3, "|c1049e6ffinv|r") == "|c1049e6ffinv|r");
+    CHECK(Received(3, "") == "");
 }
 
 static void TestParse()
@@ -180,6 +234,7 @@ int main()
 {
     TestParse();
     TestOffer();
+    TestCoreWhisperIsInviteRequest();
     TestCoalesce();
     TestSenderCap();
     TestCap();
