@@ -83,6 +83,7 @@ int main()
     CHECK(WARRIOR_TACTICAL_MASTERY_RANK_2 == 12676);
     CHECK(WARRIOR_TACTICAL_MASTERY_RANK_3 == 12677);
     CHECK(WARRIOR_TACTICAL_MASTERY_KEPT_PER_RANK == 5);
+    std::cout << "  [PASS] cost constants pinned\n";
 
     std::cout << "All TortoiseBots warrior rage gate policy tests passed.\n";
     return 0;
