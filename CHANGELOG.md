@@ -22,6 +22,8 @@
 - Fixed: priests no longer cast Power Word: Shield on a warrior or bear tank fighting above 20 % health, since absorbed hits give no rage and starve the tank's threat; the shield still lands as the save at or below 20 %.
 - Prayer of Healing now fires when 3 or more members of the priest's own party within 30 yards are hurt, instead of counting the whole raid for a spell that only heals the priest's party.
 - Ascendance now fires only when someone actually needs healing (a party member low or the group hurt), instead of on the first quiet combat tick of its 5-minute cooldown.
+- Fixed: restoration druids no longer channel Tranquility for two scratches — it waits for group damage, so the 30-minute channel is there when the group needs it.
+- Fixed: restoration druids hold Nature's Swiftness for critical health instead of popping it on the first quiet tick, so the instant Healing Touch lands when a life is on the line.
 
 ### Commands
 - New `.autogear` command gears a real player the way a spawned bot gets geared: items picked for the level and spec from the same gear pool the bots use, upgrades only, replaced items to the bags or the mailbox. GameMasters can gear any player; `AiPlayerbot.PlayerAutogearForAll` (default `0`) lets every player gear themselves.

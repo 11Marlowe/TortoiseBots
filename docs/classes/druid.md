@@ -44,8 +44,8 @@ Druids fulfill Tank, Healer, Melee DPS, or Ranged Caster roles using flexible sh
 ### Restoration (Healer)
 - Maintains *Rejuvenation* and *Regrowth* HoTs (Heal-over-Time spells) on injured allies.
 - Casts direct heals (*Healing Touch*) downranked to match target wounds per [shared downranking rules](overview.md#spell-downranking).
-- Chains *Nature's Swiftness* into an instant *Healing Touch* when allies suffer critical damage.
-- Channels *Tranquility* when 2 or more members in 30 yards are medium-hurt.
+- Chains *Nature's Swiftness* into an instant *Healing Touch* when allies suffer critical damage (held for that emergency, never popped on a quiet tick). Rotation reference: stevemcqueenz/turtle-knowledge-base- (Turtle WoW class guides).
+- Channels *Tranquility* only when the group is hurt together (never on two scratches). Rotation reference: stevemcqueenz/turtle-knowledge-base- (Turtle WoW class guides).
 - Spends *Omen of Clarity* procs on free *Rejuvenation* casts.
 - Supports party damage via the `+offdps` strategy per [healer off-DPS rules](overview.md#healer-off-dps-offdps), shifting out of Tree of Life Form to cast *Moonfire* and *Wrath*.
 
