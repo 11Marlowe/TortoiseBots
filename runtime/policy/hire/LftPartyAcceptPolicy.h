@@ -38,12 +38,15 @@ inline bool LftPartyOfferMayAccept(bool randomPool, bool hired, bool anchorIsHir
 // in the same block are in the same offer. The block id is not exposed either;
 // these are its visible traces: both in one group now, both still listed in
 // GetQueuedPlayers (players in an offer stay queued until it completes), with
-// the same joinTime and instance list (EnqueueRolecheck queues the whole block
-// in one call, so its members share both).
+// the same instance list and join times at most one second apart
+// (EnqueueRolecheck queues the whole block in one call, but EnqueuePlayer reads
+// the game time per member, so a block can straddle a second boundary).
+constexpr std::time_t kLftQueueBlockJoinSlackS = 1;
 inline bool LftQueuedTogether(bool sameGroup, bool bothListed,
     std::time_t joinA, std::time_t joinB,
     std::vector<std::string> const& instancesA, std::vector<std::string> const& instancesB)
 {
-    return sameGroup && bothListed && joinA == joinB && instancesA == instancesB;
+    std::time_t const gap = joinA > joinB ? joinA - joinB : joinB - joinA;
+    return sameGroup && bothListed && gap <= kLftQueueBlockJoinSlackS && instancesA == instancesB;
 }
 } // namespace TortoiseBots

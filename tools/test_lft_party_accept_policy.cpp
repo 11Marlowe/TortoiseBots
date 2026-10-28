@@ -50,7 +50,11 @@ int main()
     std::cout << "  [PASS] different groups are not the same offer\n";
     CHECK(!LftQueuedTogether(true, false, 100, 100, rfc, rfc));
     std::cout << "  [PASS] a player missing from the queue is not the same offer\n";
-    CHECK(!LftQueuedTogether(true, true, 100, 101, rfc, rfc));
+    // One rolecheck can straddle a second boundary (EnqueuePlayer reads the game time per member): 1 s apart is one block.
+    CHECK(LftQueuedTogether(true, true, 100, 101, rfc, rfc));
+    CHECK(LftQueuedTogether(true, true, 101, 100, rfc, rfc));
+    // More than the slack apart is two queue blocks.
+    CHECK(!LftQueuedTogether(true, true, 100, 102, rfc, rfc));
     std::cout << "  [PASS] different join times are not the same offer\n";
     CHECK(!LftQueuedTogether(true, true, 100, 100, rfc, dm));
     std::cout << "  [PASS] different instance lists are not the same offer\n";
