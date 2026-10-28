@@ -954,7 +954,6 @@ void BotLfgService::StopAdvertising(BotLfgGroup& group)
     group.inviteAtMs = 0;
     group.repliedAtMs.clear();
     group.hintedAtMs.clear();
-    PublishLeaders();
 }
 
 void BotLfgService::PublishLeaders() const

@@ -230,6 +230,21 @@ static void TestThreads()
     CHECK(drained + inbox.TakeDropped() == 2000);
 }
 
+static void TestWithdrawPurges()
+{
+    BotLfgWhisperInbox inbox;
+    inbox.PublishLeaders({42, 43});
+    std::vector<uint8_t> p = Packet(kWhisper, kUniversal, 77, "inv");
+    CHECK(inbox.Offer(42, p.data(), p.size(), kWhisper, kAddon));
+    CHECK(inbox.Offer(43, p.data(), p.size(), kWhisper, kAddon));
+    inbox.PublishLeaders({43});
+    std::vector<LfgWhisper> got = inbox.Drain();
+    CHECK(got.size() == 1 && got[0].leader == 43 && got[0].text == "inv");
+    CHECK(!inbox.Offer(42, p.data(), p.size(), kWhisper, kAddon));
+    CHECK(inbox.Offer(43, p.data(), p.size(), kWhisper, kAddon));
+    CHECK(inbox.Drain().size() == 1);
+}
+
 int main()
 {
     TestParse();
@@ -240,6 +255,7 @@ int main()
     TestCap();
     TestFloodLeavesRoom();
     TestThreads();
+    TestWithdrawPurges();
     std::printf("bot lfg whisper inbox: %d checks passed\n", checks);
     return 0;
 }

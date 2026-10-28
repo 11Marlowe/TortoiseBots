@@ -9,6 +9,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CPP = (ROOT / "runtime/BotLfgService.cpp").read_text()
+INBOX = (ROOT / "runtime/BotLfgWhisperInbox.h").read_text()
 CMD = (ROOT / "commands/Commander.cpp").read_text()
 TEMPLATE = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
 GUIDE = (ROOT / "docs/play/dungeon-run-leader.md").read_text()
@@ -25,6 +26,7 @@ def body(text, start, end):
 
 
 SVC = strip_comments(CPP)
+INBOX_BODY = strip_comments(INBOX)
 
 
 class BotLfgChatWiringTest(unittest.TestCase):
@@ -56,6 +58,16 @@ class BotLfgChatWiringTest(unittest.TestCase):
         self.assertIn("StopAdvertising(group)", end)
         self.assertLess(end.index("StopAdvertising(group)"), end.index("RemoveMember("))
         self.assertLess(end.index("State::Ended"), end.index("PublishLeaders()"))
+
+    def test_stop_advertising_publishes_nothing(self):
+        fn = body(SVC, "void BotLfgService::StopAdvertising(", "\n}\n")
+        self.assertNotIn("PublishLeaders()", fn)
+
+    def test_publish_leaders_purges_withdrawn_queue(self):
+        self.assertIn("m_queue.erase(std::remove_if(m_queue.begin(), m_queue.end(),", INBOX)
+        fn = body(INBOX_BODY, "void PublishLeaders(", "\n    }")
+        self.assertLess(fn.index("m_queue.erase("), fn.index("m_any.store("))
+        self.assertIn("m_leaders.find(queued.leader)", fn)
 
     def test_update_advertises_after_tick_groups(self):
         fn = body(SVC, "void BotLfgService::Update(uint32 diff)", "\n}\n")

@@ -7,6 +7,7 @@
 
 #include "BotChatGate.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -43,6 +44,9 @@ public:
         std::lock_guard<std::mutex> lock(m_mutex);
         m_leaders.clear();
         m_leaders.insert(leaders.begin(), leaders.end());
+        m_queue.erase(std::remove_if(m_queue.begin(), m_queue.end(),
+            [&](LfgWhisper const& queued) { return m_leaders.find(queued.leader) == m_leaders.end(); }),
+            m_queue.end());
         m_any.store(!m_leaders.empty(), std::memory_order_release);
     }
 
