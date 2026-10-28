@@ -345,7 +345,7 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # Default-on bounded fill of human-waiting LFT queues with live random Headless bots.
 # Uses core #416 QueuePlayer/LeaveQueue/IsQueued/IsInOffer/AcceptOffer/
 # GetQueuedPlayers; core owns private queues, offers, cancellation and groups.
-# Candidates use AiFactory roles and the hardcoded Soromeister LFT.allDungeons
+# Candidates use AiFactory roles and the hardcoded Turtle client LFT LFT_Data.lua
 # minLevel/maxLevel range table (see LftBotFillService.cpp; no DBC fallback),
 # not an average-human +/-5 approximation. Unknown/corrupt/custom ranges fail
 # closed and log once.
