@@ -62,6 +62,9 @@ class BotLfgChatWiringTest(unittest.TestCase):
     def test_stop_advertising_publishes_nothing(self):
         fn = body(SVC, "void BotLfgService::StopAdvertising(", "\n}\n")
         self.assertNotIn("PublishLeaders()", fn)
+        # Codex r3: the leader leaves the inbox before anything else of the withdrawal runs.
+        first = fn.split("{", 1)[1].strip().splitlines()[0].strip()
+        self.assertEqual(first, "BotLfgWhisperInbox::Instance().WithdrawLeader(group.leader.GetRawValue());")
 
     def test_publish_leaders_purges_withdrawn_queue(self):
         self.assertIn("m_queue.erase(std::remove_if(m_queue.begin(), m_queue.end(),", INBOX)

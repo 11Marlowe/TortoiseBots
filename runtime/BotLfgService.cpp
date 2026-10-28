@@ -946,6 +946,7 @@ void BotLfgService::PostInChannel(BotLfgGroup& group, Player* leader)
 
 void BotLfgService::StopAdvertising(BotLfgGroup& group)
 {
+    BotLfgWhisperInbox::Instance().WithdrawLeader(group.leader.GetRawValue());
     Player* invitee = group.invitee.IsEmpty() ? nullptr : ObjectAccessor::FindPlayer(group.invitee);
     Group* invited = invitee ? invitee->GetGroupInvite() : nullptr;
     if (invited && invited->GetId() == group.groupId)

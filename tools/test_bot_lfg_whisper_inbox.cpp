@@ -245,6 +245,51 @@ static void TestWithdrawPurges()
     CHECK(inbox.Drain().size() == 1);
 }
 
+// Codex r3: the withdrawal is atomic. Once WithdrawLeader returns, no whisper for that leader is accepted
+// (it goes to the bot's AI), and nothing queued for him before is left; other leaders are untouched.
+static void TestWithdrawLeader()
+{
+    BotLfgWhisperInbox inbox;
+    inbox.PublishLeaders({42, 43});
+    std::vector<uint8_t> p = Packet(kWhisper, kUniversal, 77, "inv");
+    CHECK(inbox.Offer(42, p.data(), p.size(), kWhisper, kAddon));
+    CHECK(inbox.Offer(43, p.data(), p.size(), kWhisper, kAddon));
+    inbox.WithdrawLeader(42);
+    CHECK(!inbox.IsLeader(42) && inbox.IsLeader(43));
+    CHECK(!inbox.Offer(42, p.data(), p.size(), kWhisper, kAddon));
+    std::vector<LfgWhisper> got = inbox.Drain();
+    CHECK(got.size() == 1 && got[0].leader == 43);
+    inbox.WithdrawLeader(43);
+    CHECK(!inbox.Offer(43, p.data(), p.size(), kWhisper, kAddon));
+}
+
+static void TestWithdrawLeaderUnderLoad()
+{
+    BotLfgWhisperInbox inbox;
+    inbox.PublishLeaders({42});
+    std::atomic<bool> go{false}, withdrawn{false};
+    std::atomic<int> acceptedAfter{0};
+    auto produce = [&](uint64_t base) {
+        while (!go) {}
+        for (int i = 0; i < 20000; ++i)
+        {
+            bool after = withdrawn.load();
+            std::vector<uint8_t> p = Packet(kWhisper, kUniversal, base + uint64_t(i % 3), "inv");
+            if (inbox.Offer(42, p.data(), p.size(), kWhisper, kAddon) && after)
+                ++acceptedAfter;
+        }
+    };
+    std::thread a(produce, 1000), b(produce, 2000);
+    go = true;
+    for (volatile int spin = 0; spin < 200000; ++spin) {}
+    inbox.WithdrawLeader(42);
+    withdrawn = true;
+    a.join(); b.join();
+    CHECK(acceptedAfter == 0);
+    for (LfgWhisper const& w : inbox.Drain())
+        CHECK(w.leader != 42);
+}
+
 int main()
 {
     TestParse();
@@ -256,6 +301,8 @@ int main()
     TestFloodLeavesRoom();
     TestThreads();
     TestWithdrawPurges();
+    TestWithdrawLeader();
+    TestWithdrawLeaderUnderLoad();
     std::printf("bot lfg whisper inbox: %d checks passed\n", checks);
     return 0;
 }

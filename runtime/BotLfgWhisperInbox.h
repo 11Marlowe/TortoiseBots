@@ -50,6 +50,18 @@ public:
         m_any.store(!m_leaders.empty(), std::memory_order_release);
     }
 
+    // World thread, first step of a withdrawal: from here on no whisper for this leader is accepted (Offer
+    // returns false, so it reaches the bot's AI), and whatever is still queued for him is dropped.
+    void WithdrawLeader(uint64_t leader)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_leaders.erase(leader);
+        m_queue.erase(std::remove_if(m_queue.begin(), m_queue.end(),
+            [&](LfgWhisper const& queued) { return queued.leader == leader; }),
+            m_queue.end());
+        m_any.store(!m_leaders.empty(), std::memory_order_release);
+    }
+
     bool IsLeader(uint64_t guid) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
