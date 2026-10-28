@@ -52,13 +52,37 @@ int main()
     CHECK(!ShouldMockingBlow(true, true, false, true, true, 0));
     std::cout << "  [PASS] mocking blow gates on taunt cooldown, aggro, melee and rage\n";
 
+    // The rage paid in Battle Stance is the rage AFTER the swap: only what
+    // Tactical Mastery keeps (5 per rank) survives the dance.
+    CHECK(RageAfterStanceSwap(true, 30, 0) == 30);
+    CHECK(RageAfterStanceSwap(false, 30, 0) == 0);   // no TM: nothing survives
+    CHECK(RageAfterStanceSwap(false, 30, 1) == 5);
+    CHECK(RageAfterStanceSwap(false, 30, 2) == 10);
+    CHECK(RageAfterStanceSwap(false, 30, 3) == 15);
+    CHECK(RageAfterStanceSwap(false, 4, 3) == 4);    // less than the cap: all kept
+    CHECK(TacticalMasteryRank(false, false, false) == 0);
+    CHECK(TacticalMasteryRank(true, false, false) == 1);
+    CHECK(TacticalMasteryRank(false, true, false) == 2);
+    CHECK(TacticalMasteryRank(false, false, true) == 3);
+    CHECK(TacticalMasteryRank(true, true, true) == 3); // idempotent on train
+    // End to end: rage 30 with no TM is 0 after the swap -> no Mocking Blow;
+    // with TM 2 the 10 kept pay for it.
+    CHECK(!ShouldMockingBlow(true, true, false, true, true, RageAfterStanceSwap(false, 30, 0)));
+    CHECK(ShouldMockingBlow(true, true, false, true, true, RageAfterStanceSwap(false, 30, 2)));
+    std::cout << "  [PASS] mocking blow gates on post-swap rage (Tactical Mastery)\n";
+
     // Vanilla cost constants are pinned so a tuning change cannot silently
     // desync the trigger gates from the spell data.
     CHECK(WARRIOR_DISARM_RAGE_COST == 20);
     CHECK(WARRIOR_BATTLE_SHOUT_RAGE_COST == 10);
     CHECK(WARRIOR_BLOODRAGE_RAGE_FLOOR == 20);
     CHECK(WARRIOR_MOCKING_BLOW_RAGE_COST == 10);
-    std::cout << "  [PASS] cost constants pinned\n";
+    // Talent.dbc talent 128, 3 ranks (Stance Mastery 12678 is a different
+    // talent; 12679 does not exist).
+    CHECK(WARRIOR_TACTICAL_MASTERY_RANK_1 == 12295);
+    CHECK(WARRIOR_TACTICAL_MASTERY_RANK_2 == 12676);
+    CHECK(WARRIOR_TACTICAL_MASTERY_RANK_3 == 12677);
+    CHECK(WARRIOR_TACTICAL_MASTERY_KEPT_PER_RANK == 5);
 
     std::cout << "All TortoiseBots warrior rage gate policy tests passed.\n";
     return 0;

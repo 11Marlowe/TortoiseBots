@@ -80,7 +80,10 @@ class AscendanceWiringTest(unittest.TestCase):
         fn = trig[trig.index("bool AscendanceTrigger::IsActive()"):]
         fn = fn[:fn.index("\n}\n")]
         self.assertIn("HealBoostReady", fn)
+        self.assertIn('"party member critical health"', fn)
         self.assertIn('"party member low health"', fn)
+        self.assertIn('"critical health"', fn)
+        self.assertIn('"low health"', fn)
         self.assertIn('"medium group heal setting"', fn)
 
 

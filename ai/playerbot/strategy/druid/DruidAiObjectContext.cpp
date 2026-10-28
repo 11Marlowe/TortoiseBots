@@ -1,5 +1,6 @@
 
 #include "playerbot/playerbot.h"
+#include "playerbot/policy/class/BearRagePolicy.h"
 #include "DruidActions.h"
 #include "DruidAiObjectContext.h"
 #include "TankFeralDruidStrategy.h"
@@ -271,6 +272,7 @@ namespace ai
                 creators["berserk"] = [](PlayerbotAI* ai) { return new BerserkTrigger(ai); };
                 creators["clearcasting"] = [](PlayerbotAI* ai) { return new ClearcastingTrigger(ai); };
                 creators["savage bite"] = [](PlayerbotAI* ai) { return new SavageBiteTrigger(ai); };
+                creators["maul rage available"] = [](PlayerbotAI* ai) { return new RageAvailable(ai, kBearMaulMinRage); };
             }
         };
 

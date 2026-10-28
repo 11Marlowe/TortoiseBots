@@ -20,7 +20,7 @@ def rows(path):
 class BearTankWiringTest(unittest.TestCase):
     def test_maul_row_replaces_dead_mangle_row(self):
         combat_rows = rows("TankFeralDruidStrategy.cpp")
-        self.assertIn(("light rage available", "maul", "ACTION_NORMAL + 1"),
+        self.assertIn(("maul rage available", "maul", "ACTION_NORMAL + 1"),
                       [(t, a, r) for (t, a, r) in combat_rows if a == "maul"])
         self.assertNotIn(("medium rage available", "mangle (bear)", "ACTION_NORMAL + 1"),
                          [(t, a, r) for (t, a, r) in combat_rows])
@@ -34,6 +34,10 @@ class BearTankWiringTest(unittest.TestCase):
         self.assertIn("ShouldQueueMaul", maul_body)
         self.assertNotIn(">= 45", maul_body)
 
+    def test_maul_rage_trigger_registered(self):
+        ctx = (DRUID / "DruidAiObjectContext.cpp").read_text()
+        self.assertIn('creators["maul rage available"]', ctx)
+
     def test_savage_bite_row_and_creators(self):
         combat_rows = rows("TankFeralDruidStrategy.cpp")
         self.assertIn(("savage bite", "savage bite", "ACTION_HIGH + 1"),
@@ -43,8 +47,11 @@ class BearTankWiringTest(unittest.TestCase):
         self.assertEqual(ctx.count('creators["savage bite"]'), 2)
 
     def test_loose_adds_row_replaces_pack_roar(self):
-        aoe_rows = rows("TankFeralDruidStrategy.cpp")
-        roar_rows = [(t, a, r) for (t, a, r) in aoe_rows if a == "challenging roar"]
+        text = (DRUID / "TankFeralDruidStrategy.cpp").read_text()
+        aoe = text[text.index("TankFeralDruidAoeStrategy::InitCombatTriggers"):]
+        aoe = aoe[:aoe.index("InitNonCombatTriggers")]
+        pat = re.compile(r'TriggerNode\(\s*"([^"]+)",\s*NextAction::array\(0, new NextAction\("([^"]+)", ([^)]+)\), NULL\)\)')
+        roar_rows = [(m.group(1), m.group(2), m.group(3).strip()) for m in pat.finditer(aoe) if m.group(2) == "challenging roar"]
         self.assertIn(("loose adds near", "challenging roar", "ACTION_INTERRUPT + 2"), roar_rows)
         self.assertNotIn(("melee medium aoe", "challenging roar", "ACTION_HIGH + 3"), roar_rows)
 

@@ -17,7 +17,10 @@ bool AscendanceTrigger::IsActive()
 
     uint32 spellId = AI_VALUE2(uint32, "spell id", spell);
     return ai::HealBoostReady(spellId != 0, spellId && sServerFacade.IsSpellReady(bot, spellId),
-        AI_VALUE2(bool, "trigger active", "party member low health"),
+        AI_VALUE2(bool, "trigger active", "party member critical health") ||
+        AI_VALUE2(bool, "trigger active", "party member low health") ||
+        AI_VALUE2(bool, "trigger active", "critical health") ||
+        AI_VALUE2(bool, "trigger active", "low health"),
         AI_VALUE2(bool, "trigger active", "medium group heal setting"));
 }
 

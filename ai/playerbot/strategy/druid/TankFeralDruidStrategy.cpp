@@ -71,7 +71,7 @@ void TankFeralDruidStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigger
         NextAction::array(0, new NextAction("savage bite", ACTION_HIGH + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "light rage available",
+        "maul rage available",
         NextAction::array(0, new NextAction("maul", ACTION_NORMAL + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
