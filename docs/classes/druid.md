@@ -28,7 +28,9 @@ Druids fulfill Tank, Healer, Melee DPS, or Ranged Caster roles using flexible sh
 ### Feral (Bear Tank)
 - Fights in Dire Bear Form throughout combat, generating threat using *Swipe* and *Demoralizing Roar*.
 - Taunts loose mobs using *Growl* and *Challenging Roar*.
-- Uses *Mangle (Bear)*, *Faerie Fire (Feral)*, and *Enrage* on cooldown.
+- Keeps *Maul* queued every swing from 15 rage instead of waiting for 40, and spends excess rage (or a free *Clearcasting* proc) on *Savage Bite* from level 58 (rotation reference: stevemcqueenz/turtle-knowledge-base-, Turtle WoW class guides).
+- Uses *Faerie Fire (Feral)* and *Enrage* on cooldown.
+- Saves *Challenging Roar* (10-min cooldown) for real emergencies: 3 or more loose mobs on non-tanks, not for a pack it already holds (rotation reference: stevemcqueenz/turtle-knowledge-base-, Turtle WoW class guides).
 - Activates *Frenzied Regeneration* when health drops low.
 
 ### Feral (Cat Melee DPS)

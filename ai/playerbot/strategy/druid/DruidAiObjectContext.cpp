@@ -270,6 +270,7 @@ namespace ai
                 creators["innervate"] = [](PlayerbotAI* ai) { return new InnervateTrigger(ai); };
                 creators["berserk"] = [](PlayerbotAI* ai) { return new BerserkTrigger(ai); };
                 creators["clearcasting"] = [](PlayerbotAI* ai) { return new ClearcastingTrigger(ai); };
+                creators["savage bite"] = [](PlayerbotAI* ai) { return new SavageBiteTrigger(ai); };
             }
         };
 
@@ -352,6 +353,7 @@ namespace ai
                 creators["frenzied regeneration"] = [](PlayerbotAI* ai) { return new CastFrenziedRegenerationAction(ai); };
                 creators["challenging roar"] = [](PlayerbotAI* ai) { return new CastChallengingRoarAction(ai); };
                 creators["enrage"] = [](PlayerbotAI* ai) { return new CastEnrageAction(ai); };
+                creators["savage bite"] = [](PlayerbotAI* ai) { return new CastSavageBiteAction(ai); };
                 creators["stealth"] = [](PlayerbotAI* ai) { return new CastProwlAction(ai); };
                 creators["unstealth"] = [](PlayerbotAI* ai) { return new DruidUnstealthAction(ai); };
                 creators["check stealth"] = [](PlayerbotAI* ai) { return new CheckStealthAction(ai); };

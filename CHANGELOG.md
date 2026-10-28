@@ -16,6 +16,9 @@
  - Protection warriors open with Shield Slam when it is ready and treat Sunder Armor as the filler while the stack builds, so snap threat lands on every pull.
  - Protection warriors fall back to Mocking Blow (ducking into Battle Stance and back) when Taunt is on cooldown and the mob left the tank, recovering taunt-resist wipes on bosses.
  - Protection warriors save Challenging Shout for real emergencies (3 or more loose mobs on non-tanks) instead of firing it on every pack they already hold.
+ - Feral bears keep Maul queued every swing from 15 rage instead of waiting for 40 (the dead Mangle row is gone), so threat no longer stalls on auto-attacks.
+ - Feral bears spend excess rage (or a free Clearcasting proc) on Savage Bite from level 58, so high-level threat keeps scaling.
+ - Feral bears save Challenging Roar for real emergencies (3 or more loose mobs on non-tanks) instead of firing it on every pack they already hold.
 
 ### Commands
 - New `.autogear` command gears a real player the way a spawned bot gets geared: items picked for the level and spec from the same gear pool the bots use, upgrades only, replaced items to the bags or the mailbox. GameMasters can gear any player; `AiPlayerbot.PlayerAutogearForAll` (default `0`) lets every player gear themselves.
