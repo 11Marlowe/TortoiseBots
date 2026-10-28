@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.14.0 (2026-10-28)
+
+### Classes & Combat
+- Protection warriors now open with Shield Slam and use Sunder Armor as their filler. [#1296](https://github.com/Sagiroth/TortoiseBots/pull/1296)
+- Protection warriors now have Mocking Blow as a second taunt, used only when enough rage remains after swapping stances. [#1296](https://github.com/Sagiroth/TortoiseBots/pull/1296)
+- Protection warriors now save Challenging Shout for three or more loose enemies instead of wasting it early. [#1296](https://github.com/Sagiroth/TortoiseBots/pull/1296)
+- Bear tanks, priests, restoration druids and restoration shamans had their tanking and healing choices corrected to match the Turtle class guides. [#1296](https://github.com/Sagiroth/TortoiseBots/pull/1296)
+
+### Dungeon Finder
+- Bot groups now use the same dungeon level ranges as the game client, so queues stop breaking on the wrong levels. [#1287](https://github.com/Sagiroth/TortoiseBots/pull/1287)
+- Five Turtle dungeons that had no level range, including Frostmane Hollow and Stormwrought Castle, can now be filled with bots. [#1287](https://github.com/Sagiroth/TortoiseBots/pull/1287)
+- Hired companions now accept your dungeon finder invite instead of ignoring the popup. [#1287](https://github.com/Sagiroth/TortoiseBots/pull/1287)
+
+### Bot Groups
+- With bot dungeon groups switched on, a waiting bot group now advertises itself in the LookingForGroup channel and stops once it is full. [#1288](https://github.com/Sagiroth/TortoiseBots/pull/1288)
+- Whispering a group leader "inv" now gets you an invite. [#1288](https://github.com/Sagiroth/TortoiseBots/pull/1288)
+- This is off by default; server owners enable it with the bot group setting (AiPlayerbot.BotLfgGroups = 1). [#1288](https://github.com/Sagiroth/TortoiseBots/pull/1288)
+
+### Behind the scenes
+- Builds now run one optional-server-module job instead of two, saving about 50 minutes per pull request. [#1290](https://github.com/Sagiroth/TortoiseBots/pull/1290)
+
+---
+
 ## v1.13.0 (2026-10-27)
 
 ### Classes & Combat
