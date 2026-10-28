@@ -10,6 +10,7 @@ namespace ai
     // Vanilla 1.12 rage costs / thresholds.
     constexpr uint32_t WARRIOR_DISARM_RAGE_COST = 20;
     constexpr uint32_t WARRIOR_BATTLE_SHOUT_RAGE_COST = 10;
+    constexpr uint32_t WARRIOR_MOCKING_BLOW_RAGE_COST = 10;
     // Bloodrage only tops up below this rage.
     constexpr uint32_t WARRIOR_BLOODRAGE_RAGE_FLOOR = 20;
 
@@ -31,5 +32,13 @@ namespace ai
     inline bool ShouldBattleShout(uint32_t rage)
     {
         return rage >= WARRIOR_BATTLE_SHOUT_RAGE_COST;
+    }
+    // Taunt is on cooldown (or resisted) and the current target left the tank:
+    // Mocking Blow (Battle Stance, 2 min) is the second taunt.
+    inline bool ShouldMockingBlow(bool known, bool lostAggro, bool tauntReady, bool mockingReady,
+                                  bool inMelee, uint32_t rage)
+    {
+        return known && lostAggro && !tauntReady && mockingReady && inMelee &&
+            rage >= WARRIOR_MOCKING_BLOW_RAGE_COST;
     }
 } // namespace ai

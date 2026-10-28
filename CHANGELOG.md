@@ -13,6 +13,9 @@
 - In a run leader's pull, the held DPS open once every mob near the tank is on it (join delay at the earliest, 10 s after the tank is back at the latest), or at once when a mob hits them or the tank drops under 60 %.
 - A fight the run leader did not pull holds the damage dealers for up to 4 s the same way: they open once every mob near the tank or near them is on the tank, or at once when one hits them.
 - Fixed: the fight-start DPS hold now opens in hired dungeon runs (it was gated on the hirer).
+ - Protection warriors open with Shield Slam when it is ready and treat Sunder Armor as the filler while the stack builds, so snap threat lands on every pull.
+ - Protection warriors fall back to Mocking Blow (ducking into Battle Stance and back) when Taunt is on cooldown and the mob left the tank, recovering taunt-resist wipes on bosses.
+ - Protection warriors save Challenging Shout for real emergencies (3 or more loose mobs on non-tanks) instead of firing it on every pack they already hold.
 
 ### Commands
 - New `.autogear` command gears a real player the way a spawned bot gets geared: items picked for the level and spec from the same gear pool the bots use, upgrades only, replaced items to the bags or the mailbox. GameMasters can gear any player; `AiPlayerbot.PlayerAutogearForAll` (default `0`) lets every player gear themselves.

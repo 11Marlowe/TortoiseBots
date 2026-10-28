@@ -63,6 +63,21 @@ namespace ai
     SNARE_TRIGGER(ConcussionBlowTrigger, "concussion blow");
     SNARE_TRIGGER(HamstringTrigger, "hamstring");
     SNARE_TRIGGER(MockingBlowTrigger, "mocking blow");
+    class MockingBlowTauntTrigger : public LoseAggroTrigger
+    {
+    public:
+        MockingBlowTauntTrigger(PlayerbotAI* ai) : LoseAggroTrigger(ai, "mocking blow taunt") {}
+
+        bool IsActive() override
+        {
+            Unit* target = AI_VALUE(Unit*, "current target");
+            uint32 taunt = AI_VALUE2(uint32, "spell id", "taunt");
+            uint32 mocking = AI_VALUE2(uint32, "spell id", "mocking blow");
+            return ShouldMockingBlow(ai->HasSpell("mocking blow"), LoseAggroTrigger::IsActive(),
+                taunt && sServerFacade.IsSpellReady(bot, taunt), mocking && sServerFacade.IsSpellReady(bot, mocking),
+                target && bot->CanReachWithMeleeAutoAttack(target), AI_VALUE2(uint8, "rage", "self target"));
+        }
+    };
     SNARE_TRIGGER(ThunderClapSnareTrigger, "thunder clap");
     DEBUFF_TRIGGER(ThunderClapTrigger, "thunder clap");
     SNARE_TRIGGER(TauntSnareTrigger, "taunt");

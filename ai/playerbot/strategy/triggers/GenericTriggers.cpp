@@ -5,6 +5,7 @@
 #include "playerbot/HealerManaPolicy.h"
 #include "playerbot/MainTankPolicy.h"
 #include "playerbot/TankAddPickupPolicy.h"
+#include "playerbot/policy/combat/AoeTauntPolicy.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/ReadyRebuffPolicy.h"
 #include "playerbot/SurvivePolicy.h"
@@ -326,6 +327,35 @@ bool LoseAggroTrigger::IsActive()
     }
 
     return false;
+}
+
+bool LooseAddsNearTrigger::IsActive()
+{
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
+
+    std::vector<LooseAddCandidate> candidates;
+    const std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
+    for (const ObjectGuid& attackerGuid : attackers)
+    {
+        Unit* attacker = ai->GetUnit(attackerGuid);
+        if (!attacker || !attacker->IsAlive())
+            continue;
+
+        Unit* victim = attacker->GetVictim();
+        Player* victimPlayer = victim ? victim->ToPlayer() : nullptr;
+        if (!victimPlayer || !group->IsMember(victimPlayer->GetObjectGuid()))
+            continue;
+
+        LooseAddCandidate candidate;
+        candidate.victimIsGroupPlayer = true;
+        candidate.victimIsTank = ai->IsTank(victimPlayer);
+        candidate.distanceToBot = bot->GetDistance(attacker);
+        candidates.push_back(candidate);
+    }
+
+    return ShouldAoeTaunt(CountLooseAddsInReach(candidates));
 }
 
 bool HasAggroTrigger::IsActive()
